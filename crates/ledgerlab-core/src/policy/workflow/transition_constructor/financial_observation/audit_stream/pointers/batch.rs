@@ -366,8 +366,10 @@ impl PreparedOriginBatch<'_, '_, '_> {
                 .zip(selected)
                 .zip(
                     self.actual_hashes
-                        .chunks_exact_mut(32)
-                        .zip(self.expected_hashes.chunks_exact_mut(32)),
+                        .as_chunks_mut::<32>()
+                        .0
+                        .iter_mut()
+                        .zip(self.expected_hashes.as_chunks_mut::<32>().0.iter_mut()),
                 )
                 .enumerate()
             {

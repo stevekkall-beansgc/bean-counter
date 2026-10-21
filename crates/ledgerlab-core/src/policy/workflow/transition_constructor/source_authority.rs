@@ -4,14 +4,8 @@
 //! current snapshot custody remain the held host's independent obligations.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    authority::{self, EconomicMode},
-    body,
-    data::*,
-    inventory, meter,
-    record_body::RecordBody,
-    records::Records,
-    representation::InvocationToken,
-    shape, CoreMeter,
+    authority::EconomicMode, body, data::*, inventory, meter, record_body::RecordBody,
+    records::Records, representation::InvocationToken, shape, CoreMeter,
 };
 use crate::{canonical::audit_arena::ExternalBufferLease, validation_work as w, Error, Result};
 use serde_json::{json, Value};
@@ -22,15 +16,15 @@ pub(super) struct OriginalSourceSubject<'a> {
     pub payload: &'a Value,
 }
 pub(super) struct SourceSelection {
-    pub enrollment: RecordBody,
+    pub _enrollment: RecordBody,
     pub registered: RecordBody,
     pub source_slot: String,
     pub original_grant_refs: Vec<ExactRef>,
     pub current: RecordBody,
-    pub state: RecordBody,
+    pub _state: RecordBody,
     pub observation: Option<RecordBody>,
     pub verifier_ref: Option<ExactRef>,
-    pub root: Option<RecordBody>,
+    pub _root: Option<RecordBody>,
     _ownership: ExternalBufferLease,
 }
 impl SourceSelection {
@@ -79,21 +73,10 @@ pub(super) fn source(
         program,
         selected,
         source_slot,
-        mode,
-        !program.uses_local_execution_recipe(),
+        (mode, !program.uses_local_execution_recipe()),
     )
 }
-pub(super) fn source_local(
-    m: &mut CoreMeter,
-    r: &mut Records,
-    c: &DraftContextData,
-    program: &SelectedProgram,
-    selected: OriginalSourceSubject<'_>,
-    source_slot: &str,
-    mode: EconomicMode,
-) -> Result<SourceSelection> {
-    source_data(m, r, c, program, selected, source_slot, mode, false)
-}
+
 pub(super) fn source_data(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -101,9 +84,9 @@ pub(super) fn source_data(
     program: &SelectedProgram,
     selected: OriginalSourceSubject<'_>,
     source_slot: &str,
-    mode: EconomicMode,
-    audit_observation: bool,
+    selected_operands: (EconomicMode, bool),
 ) -> Result<SourceSelection> {
+    let (mode, audit_observation) = selected_operands;
     if audit_observation {
         inventory::entry::context(m, c)?;
     } else {
@@ -204,11 +187,13 @@ pub(super) fn source_data(
         &token,
         &enrollment,
         &birth,
-        &birth_grant,
-        &selected.binding["customer"],
-        &a.enrollment_ref,
-        &birth_ref,
-        &birth_grant_ref,
+        (
+            &birth_grant,
+            &selected.binding["customer"],
+            &a.enrollment_ref,
+            &birth_ref,
+            &birth_grant_ref,
+        ),
     )?;
     if w::compare(m, revision_value, 1u64)?.is_eq() {
         if state.get("prior_state_ref").is_some() {
@@ -272,30 +257,32 @@ pub(super) fn source_data(
     }
     let product = product.ok_or_else(|| shape::fail("supplier original product"))?;
     let product_id = shape::text(m, product, "product_id")?;
-    let activity = shape::text(m, &selected.payload, "activity")?;
+    let activity = shape::text(m, selected.payload, "activity")?;
     r.source_grant(
         m,
         &token,
         &a.current_grant_ref,
         &current,
-        &a.enrollment_ref,
-        &enrollment,
-        c,
-        &selected.binding["customer"],
-        activity,
-        product_id,
-        source_slot,
-        &at.into(),
+        (
+            &a.enrollment_ref,
+            &enrollment,
+            c,
+            &selected.binding["customer"],
+            activity,
+            product_id,
+            source_slot,
+            &at.into(),
+        ),
         mode,
     )?;
-    let nominations = shape::array(m, &selected.binding, "source_slots")?;
+    let nominations = shape::array(m, selected.binding, "source_slots")?;
     let nomination = shape::named(m, nominations, "name", source_slot)?;
     let sources = shape::array(m, nomination, "sources")?;
     if !shape::member(m, sources, &json!(c.key.source))? {
         return Err(shape::fail("supplier source absent original nomination"));
     }
-    let terms_grants = shape::array(m, &selected.terms, "source_grant_refs")?;
-    let binding_grants = shape::array(m, &selected.binding, "authority_refs")?;
+    let terms_grants = shape::array(m, selected.terms, "source_grant_refs")?;
+    let binding_grants = shape::array(m, selected.binding, "authority_refs")?;
     let mut original_refs = Vec::new();
     original_refs
         .try_reserve_exact(terms_grants.len())
@@ -335,14 +322,16 @@ pub(super) fn source_data(
             &token,
             &reference,
             &grant,
-            &a.enrollment_ref,
-            &enrollment,
-            c,
-            &selected.binding["customer"],
-            activity,
-            product_id,
-            source_slot,
-            &at.into(),
+            (
+                &a.enrollment_ref,
+                &enrollment,
+                c,
+                &selected.binding["customer"],
+                activity,
+                product_id,
+                source_slot,
+                &at.into(),
+            ),
             mode,
         )?;
         original_refs.push(reference);
@@ -359,15 +348,15 @@ pub(super) fn source_data(
         m.scan_bytes(source_slot.len())?;
         m.write_bytes(source_slot.len())?;
         return Ok(SourceSelection {
-            enrollment,
+            _enrollment: enrollment,
             registered,
             source_slot: source_slot.to_owned(),
             original_grant_refs: originals,
             current,
-            state,
+            _state: state,
             observation: None,
             verifier_ref: None,
-            root: None,
+            _root: None,
             _ownership: ownership,
         });
     }
@@ -405,9 +394,7 @@ pub(super) fn source_data(
         &token,
         &observation["root_ref"],
         &json!({"at":c.accepted_at}),
-        "at",
-        &json!(c.actor),
-        Some(&json!(c.key.source)),
+        ("at", &json!(c.actor), Some(&json!(c.key.source))),
     )?;
     for (key, want) in [
         ("logical_store_id", json!(c.key.logical_store_id)),
@@ -428,23 +415,21 @@ pub(super) fn source_data(
         a.required_observation_ref()?,
         &state,
         &observation,
-        &verifier,
-        &root,
-        app_catalog,
+        (&verifier, &root, app_catalog),
     )?;
     m.scan_bytes(source_slot.len())?;
     m.write_bytes(source_slot.len())?;
     let source_slot = source_slot.to_owned();
     Ok(SourceSelection {
-        enrollment,
+        _enrollment: enrollment,
         registered,
         source_slot,
         original_grant_refs: originals,
         current,
-        state,
+        _state: state,
         observation: Some(observation),
         verifier_ref: Some(verifier_ref),
-        root: Some(root),
+        _root: Some(root),
         _ownership: ownership,
     })
 }

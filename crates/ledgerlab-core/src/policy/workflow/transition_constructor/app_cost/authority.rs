@@ -42,10 +42,9 @@ pub(super) fn value(
     original: &OriginalApp,
     source_selection: &SourceSelection,
     mode: EconomicMode,
-    observed: Option<&ExactRef>,
-    final_refs: &[&ExactRef],
-    revision: Option<&ExactRef>,
+    selected_operands: (Option<&ExactRef>, &[&ExactRef], Option<&ExactRef>),
 ) -> Result<AuditedValue> {
+    let (observed, final_refs, revision) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app authority"))?;
@@ -139,10 +138,9 @@ pub(super) fn document(
     original: &OriginalApp,
     source_selection: &SourceSelection,
     mode: EconomicMode,
-    observed: &ExactRef,
-    final_refs: &[&ExactRef],
-    revision: Option<&ExactRef>,
+    selected_operands: (&ExactRef, &[&ExactRef], Option<&ExactRef>),
 ) -> Result<ConstructedEnvelope> {
+    let (observed, final_refs, revision) = selected_operands;
     let value = value(
         m,
         c,
@@ -150,9 +148,7 @@ pub(super) fn document(
         original,
         source_selection,
         mode,
-        Some(observed),
-        final_refs,
-        revision,
+        (Some(observed), final_refs, revision),
     )?;
     body::document_borrowed(m, "workflow-economic-authority", value.value())
 }
@@ -195,12 +191,14 @@ pub(super) fn for_plan(
             &plan.original,
             &source,
             mode,
-            &plan.observation.pair.attestation_ref,
-            &[
-                &old.pair.attestation_ref,
-                &plan.final_cost.pair.attestation_ref,
-            ],
-            revision,
+            (
+                &plan.observation.pair.attestation_ref,
+                &[
+                    &old.pair.attestation_ref,
+                    &plan.final_cost.pair.attestation_ref,
+                ],
+                revision,
+            ),
         )?
     } else {
         document(
@@ -210,9 +208,11 @@ pub(super) fn for_plan(
             &plan.original,
             &source,
             mode,
-            &plan.observation.pair.attestation_ref,
-            &[&plan.final_cost.pair.attestation_ref],
-            revision,
+            (
+                &plan.observation.pair.attestation_ref,
+                &[&plan.final_cost.pair.attestation_ref],
+                revision,
+            ),
         )?
     };
     Ok((authority, source))

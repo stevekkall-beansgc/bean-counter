@@ -401,141 +401,6 @@ pub(super) fn source_grant_matches(
     Ok(true)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::super::selected_program::{
-        compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
-    };
-    use super::*;
-    use crate::canonical::{self, audit_arena::AuditArena};
-    #[test]
-    fn parent_work_locator_uses_same_compiled_activity_without_observation_refs() {
-        let (_, c, raw, inputs) = super::super::first_work_tests::test_inputs();
-        let source:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
-        let arena = AuditArena::new().unwrap();
-        let before = arena.usage().unwrap().live_bytes;
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let support = SelectedCompilerSupport::builtin().unwrap();
-        let program = compile_selected_publication(
-            SelectedSourceInput {
-                documents: source["documents"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
-                    .collect(),
-                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
-            },
-            &support,
-            &mut session,
-        )
-        .unwrap();
-        // A publication compiler and its consuming work origin have separate
-        // existing original ledgers in the SAME attempt. No work child/reset
-        // is used to acquire the source or head locator DATA.
-        drop(session);
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let a = &c.authorities[0];
-        let frame = || SourceAuthorityCapture {
-            source_slot: &a.source_slot,
-            source: &c.key.source,
-            principal: &c.actor,
-            canonical_economic_namespace: &c.canonical_economic_namespace,
-            enrollment_ref: &a.enrollment_ref,
-            current_state_ref: &a.current_state_ref,
-            current_grant_ref: &a.current_grant_ref,
-            original_grant_refs: &a.original_grant_refs,
-            binding_ref: &a.binding_ref,
-            accepted_agreement_ref: &a.accepted_agreement_ref,
-            activation_ref: &a.activation_ref,
-        };
-        let mut unrelated = frame();
-        unrelated.principal = "another captured principal";
-        let sources = [unrelated, frame()];
-        let capture = EconomicCapture {
-            key: &c.key,
-            actor: &c.actor,
-            canonical_economic_namespace: &c.canonical_economic_namespace,
-            installation_mode: &c.installation_mode,
-            received_at: &c.received_at,
-            accepted_at: &c.accepted_at,
-            sources: &sources,
-        };
-        let locator = select_work_source_frame(&program, &capture, &raw, &mut session).unwrap();
-        assert_eq!(locator.source_slot(), a.source_slot);
-        assert!(std::ptr::eq(locator.captured_source(), &sources[1]));
-        let payload: Value = serde_json::from_slice(&raw).unwrap();
-        let (_, activity) = work_activity(&program, &payload, session.meter_mut()).unwrap();
-        assert_eq!(
-            locator.source_slot(),
-            activity["source_slot"].as_str().unwrap()
-        );
-        // Neither capture nor returned locator has an observation Ref, I set,
-        // digest, or origin/admission bit. The draft support stays nonadmitting.
-        assert_eq!(program.execution_registry(), None);
-        drop(locator);
-        let views: Vec<_> = inputs
-            .iter()
-            .map(|r| EconomicRecordView {
-                reference: &r.reference,
-                canonical_body: &r.canonical_body,
-            })
-            .collect();
-        let heads =
-            select_work_head_locators(&program, &capture, &raw, &views, &mut session).unwrap();
-        // Comparison-only frozen independent oracle, never selector input.
-        let oracle: Value =
-            serde_json::from_slice(include_bytes!("fixtures/first-work-expected.json")).unwrap();
-        let rows = oracle["expected"]["new_records"].as_array().unwrap();
-        for row in rows {
-            let reference = &row["ref"];
-            let kind = reference["kind"].as_str().unwrap();
-            let value = &row["body"];
-            match kind {
-                "workflow-work-claim" => {
-                    assert_eq!(heads.work_claim_id(), reference["id"].as_str().unwrap())
-                }
-                "workflow-work" => {
-                    assert_eq!(heads.work_event_id(), reference["id"].as_str().unwrap())
-                }
-                "workflow-decision" => assert_eq!(
-                    heads.root_decision_id(),
-                    value["decision_id"].as_str().unwrap()
-                ),
-                "workflow-family-state" => assert!(heads.family_keys().iter().any(|h| h
-                    .target_id()
-                    == value["target_ref"]["id"].as_str().unwrap()
-                    && h.family_slot() == value["family_slot"].as_str().unwrap())),
-                _ => {}
-            }
-        }
-        match heads.chain_key() {
-            super::super::candidate::FinancialHeadKey::Chain {
-                customer, chain, ..
-            } => {
-                assert_eq!(customer, payload["customer"].as_str().unwrap());
-                assert_eq!(chain, payload["chain"].as_str().unwrap());
-            }
-            _ => panic!("wrong work chain locator"),
-        }
-        drop(heads);
-        let mut other =
-            OriginalAuditSession::for_resource_profile_v2(&AuditArena::new().unwrap()).unwrap();
-        assert!(select_work_source_frame(&program, &capture, &raw, &mut other).is_err());
-        let duplicate = [frame(), frame()];
-        let duplicate_capture = EconomicCapture {
-            sources: &duplicate,
-            ..capture
-        };
-        assert!(
-            select_work_source_frame(&program, &duplicate_capture, &raw, &mut session).is_err()
-        );
-        drop(program);
-        drop(session);
-        assert_eq!(arena.usage().unwrap().live_bytes, before);
-    }
-}
-
 /// Lookup DATA only. Target IDs deliberately do not pretend to be full Refs:
 /// their bodies include pricing results produced only inside the economic child.
 pub struct WorkFamilyHeadLocator {
@@ -587,12 +452,13 @@ impl WorkHeadLocators {
         &self.app_decisions
     }
 }
+type HeadRowVisitor<'a> = dyn FnMut(&str, Option<&str>, &mut CoreMeter) -> Result<()> + 'a;
 pub(super) fn head_rows(
     program: &SelectedProgram,
     p: &Value,
     inst: &Value,
     m: &mut CoreMeter,
-    f: &mut dyn FnMut(&str, Option<&str>, &mut CoreMeter) -> Result<()>,
+    f: &mut HeadRowVisitor<'_>,
 ) -> Result<()> {
     let activity = shape::field(m, p, "activity")?;
     for instruction in shape::array(
@@ -800,4 +666,139 @@ pub(super) fn derive_work_head_locators(
         app_decisions,
         _ownership: ownership,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::selected_program::{
+        compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+    };
+    use super::*;
+    use crate::canonical::{self, audit_arena::AuditArena};
+    #[test]
+    fn parent_work_locator_uses_same_compiled_activity_without_observation_refs() {
+        let (_, c, raw, inputs) = super::super::first_work_tests::test_inputs();
+        let source:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
+        let arena = AuditArena::new().unwrap();
+        let before = arena.usage().unwrap().live_bytes;
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::builtin().unwrap();
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents: source["documents"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut session,
+        )
+        .unwrap();
+        // A publication compiler and its consuming work origin have separate
+        // existing original ledgers in the SAME attempt. No work child/reset
+        // is used to acquire the source or head locator DATA.
+        drop(session);
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let a = &c.authorities[0];
+        let frame = || SourceAuthorityCapture {
+            source_slot: &a.source_slot,
+            source: &c.key.source,
+            principal: &c.actor,
+            canonical_economic_namespace: &c.canonical_economic_namespace,
+            enrollment_ref: &a.enrollment_ref,
+            current_state_ref: &a.current_state_ref,
+            current_grant_ref: &a.current_grant_ref,
+            original_grant_refs: &a.original_grant_refs,
+            binding_ref: &a.binding_ref,
+            accepted_agreement_ref: &a.accepted_agreement_ref,
+            activation_ref: &a.activation_ref,
+        };
+        let mut unrelated = frame();
+        unrelated.principal = "another captured principal";
+        let sources = [unrelated, frame()];
+        let capture = EconomicCapture {
+            key: &c.key,
+            actor: &c.actor,
+            canonical_economic_namespace: &c.canonical_economic_namespace,
+            installation_mode: &c.installation_mode,
+            received_at: &c.received_at,
+            accepted_at: &c.accepted_at,
+            sources: &sources,
+        };
+        let locator = select_work_source_frame(&program, &capture, &raw, &mut session).unwrap();
+        assert_eq!(locator.source_slot(), a.source_slot);
+        assert!(std::ptr::eq(locator.captured_source(), &sources[1]));
+        let payload: Value = serde_json::from_slice(&raw).unwrap();
+        let (_, activity) = work_activity(&program, &payload, session.meter_mut()).unwrap();
+        assert_eq!(
+            locator.source_slot(),
+            activity["source_slot"].as_str().unwrap()
+        );
+        // Neither capture nor returned locator has an observation Ref, I set,
+        // digest, or origin/admission bit. The draft support stays nonadmitting.
+        assert_eq!(program.execution_registry(), None);
+        drop(locator);
+        let views: Vec<_> = inputs
+            .iter()
+            .map(|r| EconomicRecordView {
+                reference: &r.reference,
+                canonical_body: &r.canonical_body,
+            })
+            .collect();
+        let heads =
+            select_work_head_locators(&program, &capture, &raw, &views, &mut session).unwrap();
+        // Comparison-only frozen independent oracle, never selector input.
+        let oracle: Value =
+            serde_json::from_slice(include_bytes!("fixtures/first-work-expected.json")).unwrap();
+        let rows = oracle["expected"]["new_records"].as_array().unwrap();
+        for row in rows {
+            let reference = &row["ref"];
+            let kind = reference["kind"].as_str().unwrap();
+            let value = &row["body"];
+            match kind {
+                "workflow-work-claim" => {
+                    assert_eq!(heads.work_claim_id(), reference["id"].as_str().unwrap())
+                }
+                "workflow-work" => {
+                    assert_eq!(heads.work_event_id(), reference["id"].as_str().unwrap())
+                }
+                "workflow-decision" => assert_eq!(
+                    heads.root_decision_id(),
+                    value["decision_id"].as_str().unwrap()
+                ),
+                "workflow-family-state" => assert!(heads.family_keys().iter().any(|h| h
+                    .target_id()
+                    == value["target_ref"]["id"].as_str().unwrap()
+                    && h.family_slot() == value["family_slot"].as_str().unwrap())),
+                _ => {}
+            }
+        }
+        match heads.chain_key() {
+            super::super::candidate::FinancialHeadKey::Chain {
+                customer, chain, ..
+            } => {
+                assert_eq!(customer, payload["customer"].as_str().unwrap());
+                assert_eq!(chain, payload["chain"].as_str().unwrap());
+            }
+            _ => panic!("wrong work chain locator"),
+        }
+        drop(heads);
+        let mut other =
+            OriginalAuditSession::for_resource_profile_v2(&AuditArena::new().unwrap()).unwrap();
+        assert!(select_work_source_frame(&program, &capture, &raw, &mut other).is_err());
+        let duplicate = [frame(), frame()];
+        let duplicate_capture = EconomicCapture {
+            sources: &duplicate,
+            ..capture
+        };
+        assert!(
+            select_work_source_frame(&program, &duplicate_capture, &raw, &mut session).is_err()
+        );
+        drop(program);
+        drop(session);
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
+    }
 }

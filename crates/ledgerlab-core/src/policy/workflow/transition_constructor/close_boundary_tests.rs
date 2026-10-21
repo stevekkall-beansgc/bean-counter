@@ -23,7 +23,7 @@ fn boundary_deadline_close_requires_strictly_after_original_inclusive_endpoint()
         work_ref: work_ref.clone(),
         work: RecordBody::Legacy(json!({"accepted_at":work_at})),
         claim_ref: work_ref.clone(),
-        claim: empty.clone(),
+        _claim: empty.clone(),
         decision_ref: work_ref.clone(),
         decision: empty.clone(),
         family_head_ref: work_ref.clone(),

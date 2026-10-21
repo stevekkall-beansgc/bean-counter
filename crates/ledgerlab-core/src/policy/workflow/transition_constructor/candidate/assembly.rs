@@ -15,7 +15,7 @@ pub(in crate::policy::workflow::transition_constructor) struct Assembly<'inv, 'r
     pub result_refs: Vec<ExactRef>,
     pub authority_position: usize,
     pub source_observations: Vec<super::ObservationAssociation>,
-    pub actual_members: capacity::ActualMembers,
+    pub _actual_members: capacity::ActualMembers,
     reservations: super::reservations::OwnedReservations,
     _metadata: ExternalBufferLease,
 }
@@ -479,7 +479,7 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
             result_refs,
             authority_position,
             source_observations,
-            actual_members,
+            _actual_members: actual_members,
             reservations,
             _metadata: metadata,
         })
@@ -522,14 +522,14 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
 // Existing component leases move with their actual payloads. None can be
 // detached by a public setter, serialization or a DraftTransition conversion.
 pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnership {
-    heads: super::heads::OwnedHeads,
-    introductions: super::introductions::OwnedIntroductions,
-    funding: Option<super::super::funding::OwnedFundingEffects>,
-    consumed: super::super::records::OwnedConsumed,
-    controls: [Option<ExternalBufferLease>; 5],
-    metadata: ExternalBufferLease,
-    reservations: super::reservations::OwnedReservations,
-    head_transfer: ExternalBufferLease,
+    _heads: super::heads::OwnedHeads,
+    _introductions: super::introductions::OwnedIntroductions,
+    _funding: Option<super::super::funding::OwnedFundingEffects>,
+    _consumed: super::super::records::OwnedConsumed,
+    _controls: [Option<ExternalBufferLease>; 5],
+    _metadata: ExternalBufferLease,
+    _reservations: super::reservations::OwnedReservations,
+    _head_transfer: ExternalBufferLease,
     _financial_reservations: Option<capacity::original::FinancialReservations>,
 }
 impl Assembly<'_, '_> {
@@ -592,7 +592,7 @@ impl Assembly<'_, '_> {
             result_refs,
             authority_position,
             source_observations: _,
-            actual_members: _,
+            _actual_members: _,
             mut reservations,
             _metadata,
         } = self;
@@ -677,14 +677,14 @@ impl Assembly<'_, '_> {
             account_enrollments: Vec::new(),
             result,
             _ownership: CandidateOwnership {
-                heads,
-                introductions,
-                funding,
-                consumed,
-                controls: construction.control_owners,
-                metadata: _metadata,
-                reservations,
-                head_transfer,
+                _heads: heads,
+                _introductions: introductions,
+                _funding: funding,
+                _consumed: consumed,
+                _controls: construction.control_owners,
+                _metadata,
+                _reservations: reservations,
+                _head_transfer: head_transfer,
                 _financial_reservations: construction.financial_reservations.take(),
             },
         })

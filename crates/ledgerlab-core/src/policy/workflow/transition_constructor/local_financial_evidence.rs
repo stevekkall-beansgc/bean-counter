@@ -13,7 +13,7 @@ use crate::{
         self,
         audit_arena::{AuditArena, AuditedBytes, AuditedValue, ExternalBufferLease},
     },
-    validation_work::{OriginalAuditSession, RepresentationKind as Kind, ValidationWork},
+    validation_work::{OriginalAuditSession, RepresentationKind as Kind},
     Result,
 };
 use serde_json::Value;
@@ -487,10 +487,9 @@ fn add_direct(
     value: &Value,
     key: &str,
     subject: &Value,
-    compiler: &Value,
-    empty: &Value,
-    observation: bool,
+    selected_operands: (&Value, &Value, bool),
 ) -> Result<()> {
+    let (compiler, empty, observation) = selected_operands;
     let (role, relation, ds) = match key {
         "product_ref" => ("product", "direct", empty),
         "policy_ref" => ("policy", "direct", compiler),
@@ -525,9 +524,9 @@ fn direct_anchors(
     value: &Value,
     subject: &Value,
     compiler: &Value,
-    empty: &Value,
-    observation: bool,
+    selected_operands: (&Value, bool),
 ) -> Result<()> {
+    let (empty, observation) = selected_operands;
     let fields = value
         .as_object()
         .ok_or_else(|| shape::fail("typed descriptor payload object"))?;
@@ -559,9 +558,7 @@ fn direct_anchors(
                 v,
                 name,
                 subject,
-                compiler,
-                empty,
-                observation,
+                (compiler, empty, observation),
             )?,
             "evidence_refs" | "supporting_evidence_refs" | "authority_evidence_refs" => {
                 let refs = v
@@ -586,8 +583,7 @@ fn direct_anchors(
                 v,
                 subject,
                 compiler,
-                empty,
-                name == "observation_proof",
+                (empty, name == "observation_proof"),
             )?,
             "dependent_reversals" | "family_closures" | "fact_proofs" => {
                 let rows = v
@@ -595,7 +591,7 @@ fn direct_anchors(
                     .ok_or_else(|| shape::fail("direct descriptor proof rows"))?;
                 for row in rows {
                     m.visit("local.evidence_direct_proof_row")?;
-                    direct_anchors(m, a, anchors, row, subject, compiler, empty, false)?;
+                    direct_anchors(m, a, anchors, row, subject, compiler, (empty, false))?;
                 }
             }
             // Closed payload/body validation already establishes these opaque
@@ -668,8 +664,7 @@ pub fn produce_local_financial_request_evidence<'a>(
             payload.value(),
             subject.value(),
             compiler.value(),
-            empty.value(),
-            false,
+            (empty.value(), false),
         )?;
         for r in candidate.consumed_refs() {
             let row = row_for(m, r, inputs)?;
@@ -682,12 +677,14 @@ pub fn produce_local_financial_request_evidence<'a>(
                 r,
                 reference.value(),
                 body.value(),
-                candidate,
-                state,
-                payload.value(),
-                subject.value(),
-                compiler.value(),
-                empty.value(),
+                (
+                    candidate,
+                    state,
+                    payload.value(),
+                    subject.value(),
+                    compiler.value(),
+                    empty.value(),
+                ),
             )?;
         }
         let anchors = subject_anchor_subsets(
@@ -697,8 +694,7 @@ pub fn produce_local_financial_request_evidence<'a>(
             candidate,
             inputs,
             &anchors,
-            subject.value(),
-            compiler.value(),
+            (subject.value(), compiler.value()),
         )?;
         let mut descriptors = Set::new(m, &a)?;
         for row in &anchors.anchors.rows {
@@ -731,13 +727,16 @@ fn selected_anchor(
     r: &ExactRef,
     reference: &Value,
     body: &Value,
-    candidate: &EconomicCandidate,
-    state: &EconomicStateData<'_>,
-    payload: &Value,
-    subject: &Value,
-    compiler: &Value,
-    empty: &Value,
+    selected_operands: (
+        &EconomicCandidate,
+        &EconomicStateData<'_>,
+        &Value,
+        &Value,
+        &Value,
+        &Value,
+    ),
 ) -> Result<()> {
+    let (candidate, state, payload, subject, compiler, empty) = selected_operands;
     let schema = shape::text(m, body, "schema")?;
     m.visit("local.evidence_closed_schema_dispatch")?;
     let (role, relation, descriptor_mode, support) = match (r.kind.as_str(), schema) {
@@ -973,9 +972,9 @@ fn collect_subject_schema<'a>(
     key: &OperationKey,
     inputs: &'a [EconomicRecordView<'a>],
     reference: &Value,
-    set: &mut Set,
-    depth: usize,
+    selected_operands: (&mut Set, usize),
 ) -> Result<()> {
+    let (set, depth) = selected_operands;
     // A fixed typed subject chain: decision/revision -> immutable claim ->
     // target/work. This is not the normal request's generic Ref closure.
     if crate::validation_work::compare(m, depth, 16usize)?.is_gt() {
@@ -1023,7 +1022,7 @@ fn collect_subject_schema<'a>(
     };
     if let Some(next) = next {
         let depth = crate::validation_work::usize_add(m, depth, 1)?;
-        collect_subject_schema(m, a, program, key, inputs, next, set, depth)?;
+        collect_subject_schema(m, a, program, key, inputs, next, (set, depth))?;
     }
     Ok(())
 }
@@ -1034,9 +1033,9 @@ fn subject_anchor_subsets<'a>(
     candidate: &EconomicCandidate,
     inputs: &'a [EconomicRecordView<'a>],
     original: &Anchors,
-    binding_subjects: &Value,
-    compiler: &Value,
+    selected_operands: (&Value, &Value),
 ) -> Result<Anchors> {
+    let (binding_subjects, compiler) = selected_operands;
     let mut result = Anchors::new(m, a)?;
     for entry in &original.anchors.rows {
         m.visit("local.descriptor_subject_anchor")?;
@@ -1070,8 +1069,7 @@ fn subject_anchor_subsets<'a>(
                 candidate.key(),
                 inputs,
                 reference,
-                &mut set,
-                0,
+                (&mut set, 0),
             )?;
             set.array(m, a)?
         } else if matches!(role, "binding" | "app_terms") {

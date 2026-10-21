@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     canonical::audit_arena::{AuditArena, AuditedBytes, ExternalBufferLease},
-    validation_work::{self as w, RepresentationKind, ValidationWork},
+    validation_work::{self as w, RepresentationKind},
     Result,
 };
 use std::{mem, ops::Deref, sync::Arc};

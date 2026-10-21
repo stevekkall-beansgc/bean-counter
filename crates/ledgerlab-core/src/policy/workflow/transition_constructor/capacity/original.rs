@@ -2,7 +2,7 @@
 //! compiled family alternatives, not submitted dependency/capacity assertions.
 //! This is the structural part of the full future proof, not a work/byte proof.
 use super::super::super::selected_program::SelectedProgram;
-use super::super::{data::ExactRef, emitted_record::ConstructedEnvelope, meter, shape, CoreMeter};
+use super::super::{data::ExactRef, emitted_record::ConstructedEnvelope, shape, CoreMeter};
 use crate::{
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, ArithmeticOperation, ValidationWork},
@@ -43,7 +43,7 @@ pub(in crate::policy::workflow::transition_constructor) struct OriginalReservati
     pub family_body_bytes: Option<super::app_bytes::FamilyBodyBounds>,
     pub root_body_bytes: Option<super::app_bytes::RootBodyBounds>,
     pub source_bounds: super::source::OriginalSourceBounds,
-    pub pricing_kernels: Option<super::pricing::PricingKernels>,
+    pub(super) pricing_kernels: Option<super::pricing::PricingKernels>,
     _resource_metadata: ExternalBufferLease,
 }
 impl std::ops::Deref for OriginalReservations {
@@ -54,14 +54,14 @@ impl std::ops::Deref for OriginalReservations {
 }
 pub(in crate::policy::workflow::transition_constructor) struct DelayedCostReservation {
     pub target_ref: ExactRef,
-    pub component_slot: String,
-    pub supplier_binding_slot: String,
+    pub _component_slot: String,
+    pub _supplier_binding_slot: String,
     pub dependent_decision_id: String,
     pub maximum_inverse_actions: usize,
 }
 pub(in crate::policy::workflow::transition_constructor) struct AppCostReservation {
     pub target_ref: ExactRef,
-    pub component_slot: String,
+    pub _component_slot: String,
     pub dependent_decision_id: String,
     pub maximum_inverse_actions: usize,
 }
@@ -100,12 +100,15 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     c: &super::super::data::DraftContextData,
     program: &SelectedProgram,
     payload: &Value,
-    decision: &ConstructedEnvelope,
-    targets: &[ConstructedEnvelope],
-    work: &ConstructedEnvelope,
-    claim: &ConstructedEnvelope,
-    terms: &super::super::authority::Terms,
+    selected_operands: (
+        &ConstructedEnvelope,
+        &[ConstructedEnvelope],
+        &ConstructedEnvelope,
+        &ConstructedEnvelope,
+        &super::super::authority::Terms,
+    ),
 ) -> Result<OriginalReservations> {
+    let (decision, targets, work, claim, terms) = selected_operands;
     let selected = fresh_target_views(arena, m, targets)?;
     let decision_value = decision.decoded(m, 4194304)?;
     let work_value = work.decoded(m, 4194304)?;
@@ -117,14 +120,16 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
         c,
         program,
         payload,
-        &decision.reference,
-        &decision_value,
-        &selected.rows,
-        &work.reference,
-        &work_value,
-        &claim.reference,
-        &claim_value,
-        terms,
+        (
+            &decision.reference,
+            &decision_value,
+            &selected.rows,
+            &work.reference,
+            &work_value,
+            &claim.reference,
+            &claim_value,
+            terms,
+        ),
     )
 }
 
@@ -171,12 +176,15 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_financial(
     c: &super::super::data::DraftContextData,
     program: &SelectedProgram,
     payload: &Value,
-    decision: &ConstructedEnvelope,
-    targets: &[ConstructedEnvelope],
-    work: &ConstructedEnvelope,
-    claim: &ConstructedEnvelope,
-    terms: &super::super::authority::Terms,
+    selected_operands: (
+        &ConstructedEnvelope,
+        &[ConstructedEnvelope],
+        &ConstructedEnvelope,
+        &ConstructedEnvelope,
+        &super::super::authority::Terms,
+    ),
 ) -> Result<FinancialReservations> {
+    let (decision, targets, work, claim, terms) = selected_operands;
     let selected = fresh_target_views(arena, m, targets)?;
     let decision_value = decision.decoded(m, 4194304)?;
     let work_value = work.decoded(m, 4194304)?;
@@ -188,35 +196,50 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_financial(
         c,
         program,
         payload,
-        &decision.reference,
-        &decision_value,
-        &selected.rows,
-        &work.reference,
-        &work_value,
-        &claim.reference,
-        &claim_value,
-        terms,
+        (
+            &decision.reference,
+            &decision_value,
+            &selected.rows,
+            &work.reference,
+            &work_value,
+            &claim.reference,
+            &claim_value,
+            terms,
+        ),
     )
 }
 
 /// The same original reservation derivation receives actual decoded fresh OR
 /// retained bodies. A retained input never impersonates an emitted envelope.
+type OriginalDerivationInputs<'a> = (
+    &'a ExactRef,
+    &'a Value,
+    &'a [(ExactRef, super::super::record_body::RecordBody)],
+    &'a ExactRef,
+    &'a Value,
+    &'a ExactRef,
+    &'a Value,
+    &'a super::super::authority::Terms,
+);
 pub(super) fn derive_financial_data(
     arena: &AuditArena,
     m: &mut CoreMeter,
-    r: &mut super::super::records::Records,
-    c: &super::super::data::DraftContextData,
+    _r: &mut super::super::records::Records,
+    _c: &super::super::data::DraftContextData,
     program: &SelectedProgram,
     payload: &Value,
-    decision_ref: &ExactRef,
-    original_decision: &Value,
-    targets: &[(ExactRef, super::super::record_body::RecordBody)],
-    work_ref: &ExactRef,
-    original_work: &Value,
-    claim_ref: &ExactRef,
-    original_claim: &Value,
-    terms: &super::super::authority::Terms,
+    selected_operands: OriginalDerivationInputs<'_>,
 ) -> Result<FinancialReservations> {
+    let (
+        decision_ref,
+        original_decision,
+        targets,
+        work_ref,
+        original_work,
+        claim_ref,
+        original_claim,
+        terms,
+    ) = selected_operands;
     let instructions = shape::array(
         m,
         program.compiled_plan().canonical_value(),
@@ -295,11 +318,11 @@ pub(super) fn derive_financial_data(
     families
         .try_reserve_exact(family_count)
         .map_err(|_| shape::fail("original dependency vector allocation"))?;
-    let first = shape::text(m, &original_decision, "revision")?;
+    let first = shape::text(m, original_decision, "revision")?;
     if !shape::same_text(m, first, "1")? {
         return Err(shape::fail("capacity original root must be revision1"));
     }
-    let root_id = shape::text(m, &original_decision, "decision_id")?;
+    let root_id = shape::text(m, original_decision, "decision_id")?;
     bound(m, root_id.len(), 1, 128)?;
     let root_decision_id = copy(m, root_id)?;
     let original_binding_ref = shape::reference(m, &payload["binding_ref"])?;
@@ -311,7 +334,7 @@ pub(super) fn derive_financial_data(
     app_costs
         .try_reserve_exact(app_count)
         .map_err(|_| shape::fail("app reservation allocation"))?;
-    super::super::outcome::original_claim_association(m, &original_claim, &original_work)?;
+    super::super::outcome::original_claim_association(m, original_claim, original_work)?;
     let work_value = super::super::working_value::owning_reference(m, arena, work_ref)?;
     let decision_value = super::super::working_value::owning_reference(m, arena, decision_ref)?;
     if !shape::same(m, &original_claim["work_ref"], work_value.value())?
@@ -381,9 +404,9 @@ pub(super) fn derive_financial_data(
         let dependent =
             super::super::body::semantic_id(m, "wdecision_", "workflow-decision", tuple.value())?;
         delayed_costs.push(DelayedCostReservation {
-            target_ref: copy_ref(m, &work_ref)?,
-            component_slot: copy(m, slot)?,
-            supplier_binding_slot: copy(m, bindingslot)?,
+            target_ref: copy_ref(m, work_ref)?,
+            _component_slot: copy(m, slot)?,
+            _supplier_binding_slot: copy(m, bindingslot)?,
             dependent_decision_id: dependent,
             maximum_inverse_actions,
         });
@@ -425,8 +448,8 @@ pub(super) fn derive_financial_data(
         // Its zero alternative retains the decision vertex; a root inverse
         // requires at most that one active action, never an AP action.
         app_costs.push(AppCostReservation {
-            target_ref: copy_ref(m, &work_ref)?,
-            component_slot: copy(m, slot)?,
+            target_ref: copy_ref(m, work_ref)?,
+            _component_slot: copy(m, slot)?,
             dependent_decision_id: dependent,
             maximum_inverse_actions: 1,
         });
@@ -441,7 +464,7 @@ pub(super) fn derive_financial_data(
         {
             return Err(shape::fail("emitted original reservation association"));
         }
-        for original_family in shape::array(m, &value, "families")? {
+        for original_family in shape::array(m, value, "families")? {
             m.visit("capacity.original_family_reservation")?;
             let key = shape::text(m, original_family, "family_key")?;
             let slot = shape::text(m, original_family, "family_slot")?;
@@ -504,7 +527,7 @@ pub(super) fn derive_financial_data(
                 return Err(shape::fail("original family dimension widened"));
             }
             families.push(FamilyReservation {
-                target_ref: copy_ref(m, &target_ref)?,
+                target_ref: copy_ref(m, target_ref)?,
                 family_slot: copy(m, slot)?,
                 dependent_decision_id: copy(m, dependent)?,
                 maximum_inverse_actions,
@@ -543,22 +566,9 @@ fn derive_data(
     c: &super::super::data::DraftContextData,
     program: &SelectedProgram,
     payload: &Value,
-    decision_ref: &ExactRef,
-    original_decision: &Value,
-    targets: &[(ExactRef, super::super::record_body::RecordBody)],
-    work_ref: &ExactRef,
-    original_work: &Value,
-    claim_ref: &ExactRef,
-    original_claim: &Value,
-    terms: &super::super::authority::Terms,
+    selected_operands: OriginalDerivationInputs<'_>,
 ) -> Result<OriginalReservations> {
-    let financial = derive_financial_data(
-        arena,
-        m,
-        r,
-        c,
-        program,
-        payload,
+    let (
         decision_ref,
         original_decision,
         targets,
@@ -567,6 +577,24 @@ fn derive_data(
         claim_ref,
         original_claim,
         terms,
+    ) = selected_operands;
+    let financial = derive_financial_data(
+        arena,
+        m,
+        r,
+        c,
+        program,
+        payload,
+        (
+            decision_ref,
+            original_decision,
+            targets,
+            work_ref,
+            original_work,
+            claim_ref,
+            original_claim,
+            terms,
+        ),
     )?;
     let resource_metadata =
         arena.reserve_external_payload(mem::size_of::<OriginalReservations>(), m)?;
@@ -626,9 +654,7 @@ fn derive_data(
             terms,
             &original_work["key"]["logical_store_id"],
             roots,
-            families.len(),
-            app_costs.len(),
-            app_body_bytes.as_ref(),
+            (families.len(), app_costs.len(), app_body_bytes.as_ref()),
         )?)
     } else {
         None

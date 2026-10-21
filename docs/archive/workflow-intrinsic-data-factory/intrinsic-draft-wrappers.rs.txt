@@ -1,0 +1,41 @@
+/// A separate pure DATA entry. Intrinsic evidence is not a host origin proof;
+/// outputs retain all unresolved admission gates. New/unmatched evidence still
+/// executes the raw validator. The ordinary untrusted API is unchanged.
+pub(in crate::policy::workflow) fn draft_with_intrinsic_evidence<'inv>(
+    program: &SelectedProgram,
+    c: &DraftContextData,
+    payload: &[u8],
+    inputs: &[RecordInput],
+    state: &DraftStateData,
+    owner: &'inv super::intrinsic_record::IntrinsicDataScope,
+    evidence: &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
+    m: &mut CoreMeter,
+) -> Result<DraftTransition> {
+    m.enter_draft()?;
+    execute(
+        program,
+        c,
+        payload,
+        SuppliedRecords::Legacy(inputs),
+        state,
+        m,
+        Some((owner, evidence)),
+    )?
+    .draft_projection(m)
+}
+pub(in crate::policy::workflow) fn replay_with_intrinsic_evidence<'inv>(
+    program: &SelectedProgram,
+    c: &DraftContextData,
+    payload: &[u8],
+    inputs: &[RecordInput],
+    state: &DraftStateData,
+    owner: &'inv super::intrinsic_record::IntrinsicDataScope,
+    evidence: &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
+    expected: &DraftTransition,
+    m: &mut CoreMeter,
+) -> Result<DraftTransition> {
+    let draft =
+        draft_with_intrinsic_evidence(program, c, payload, inputs, state, owner, evidence, m)?;
+    compare_drafts(&draft, expected, m)?;
+    Ok(draft)
+}

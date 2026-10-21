@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::{original::FinancialReservations, topology};
 use crate::{
-    validation_work::{self as w, RepresentationKind},
+    validation_work::{self as w},
     Result,
 };
 use serde_json::Value;
@@ -25,9 +25,9 @@ fn dependency(
     dependent: &str,
     target: &ExactRef,
     family: Option<&str>,
-    actions: usize,
-    key: &Value,
+    selected_operands: (usize, &Value),
 ) -> Result<ConstructedEnvelope> {
+    let (actions, key) = selected_operands;
     let a = m
         .representation_arena()
         .ok_or_else(|| shape::fail("local dependency owner"))?;
@@ -128,8 +128,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             Some(&f.family_slot),
-            f.maximum_inverse_actions,
-            key,
+            (f.maximum_inverse_actions, key),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,
@@ -145,8 +144,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             None,
-            f.maximum_inverse_actions,
-            key,
+            (f.maximum_inverse_actions, key),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,
@@ -162,8 +160,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             None,
-            f.maximum_inverse_actions,
-            key,
+            (f.maximum_inverse_actions, key),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,

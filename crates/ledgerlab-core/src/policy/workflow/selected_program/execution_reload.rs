@@ -3,9 +3,7 @@
 //! retain it only with its independently completed PUB association in the same
 //! held snapshot. No serialization, Clone, eviction/remint or digest factory.
 use super::*;
-use crate::validation_work::{
-    ArithmeticOperation, OriginalAuditSession, ValidationVisit, ValidationWork,
-};
+use crate::validation_work::{ArithmeticOperation, OriginalAuditSession, ValidationWork};
 
 pub struct SelectedExecutionReloadKey {
     root: [u8; 32],
@@ -47,7 +45,10 @@ fn digest_bits(m: &mut CoreMeter, text: &str) -> Result<[u8; 32]> {
         Ok(difference + extra)
     }
     let mut result = [0u8; 32];
-    for (out, pair) in result.iter_mut().zip(text.as_bytes()[7..].chunks_exact(2)) {
+    for (out, pair) in result
+        .iter_mut()
+        .zip(text.as_bytes()[7..].as_chunks::<2>().0.iter())
+    {
         let high = nibble(m, pair[0])?;
         let low = nibble(m, pair[1])?;
         ValidationWork::arithmetic(

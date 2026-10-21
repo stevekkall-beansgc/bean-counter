@@ -1,0 +1,7 @@
+{
+  "source_commit": "1065242b3cb81a4d4eacb20624c1ae7a5301d63f",
+  "sources": {
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/intrinsic_record.rs": "02ddbc206b421c01bc82d1663636b4e0f4cc7d2d08053fb274e2d8daca7d59c6",
+    "construct.rs wrapper excerpt": "f7c01e9376d8ed5fd420ef84c24c21eba8ca21e135bcaf7cfece967ea85097ee"
+  }
+}

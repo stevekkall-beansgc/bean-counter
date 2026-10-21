@@ -14,7 +14,9 @@ fn literal(name: &str) -> Value {
     let hex = row["canonical_body_hex"].as_str().unwrap();
     let bytes = hex
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
         .collect::<Vec<_>>();
     serde_json::from_slice(&bytes).unwrap()
@@ -121,7 +123,9 @@ fn literal_input(name: &str) -> super::super::RecordInput {
             .as_str()
             .unwrap()
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
             .collect(),
     }
@@ -277,8 +281,7 @@ fn required_unit_declarations_and_current_quantity_exposure_are_paid_and_bounded
             &literal("A.catalog"),
             &literal("A.instantiation"),
             &t,
-            &literal("A.role"),
-            &literal("A.verified_grant")
+            (&literal("A.role"), &literal("A.verified_grant"))
         )
         .unwrap_err()
         .detail,
@@ -381,7 +384,8 @@ fn extra_selected_declarations_and_alien_initial_grant_are_refused_after_rebindi
         };
         let input = super::tests::document_input("workflow-source-grant", &grant);
         let mut m = CoreMeter::new(65536).unwrap();
-        let mut r = super::super::records::Records::new(&mut m, &[input.clone()]).unwrap();
+        let mut r =
+            super::super::records::Records::new(&mut m, std::slice::from_ref(&input)).unwrap();
         let consumed = r
             .get(
                 &mut m,
@@ -399,8 +403,7 @@ fn extra_selected_declarations_and_alien_initial_grant_are_refused_after_rebindi
                 &owner,
                 &literal("A.enrollment"),
                 &literal("A.source_state"),
-                &consumed,
-                &json!("customer-A")
+                (&consumed, &json!("customer-A"))
             )
             .unwrap_err()
             .detail,

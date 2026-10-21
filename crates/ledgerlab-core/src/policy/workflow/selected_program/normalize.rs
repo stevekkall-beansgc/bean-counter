@@ -258,7 +258,7 @@ pub(super) fn owning_set<T>(
     }
     Ok(())
 }
-fn text_value(arena: &AuditArena, m: &mut CoreMeter, value: &String) -> Result<AuditedValue> {
+fn text_value(arena: &AuditArena, m: &mut CoreMeter, value: &str) -> Result<AuditedValue> {
     arena.string_value(value, m)
 }
 pub(super) fn amount_value(
@@ -387,7 +387,9 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
     counter(m, &mut p.version)?;
     for s in &mut p.binding_slots {
         if m.representation_arena().is_some() {
-            owning_set(m, &mut s.allowed_activities, text_value)?;
+            owning_set(m, &mut s.allowed_activities, |arena, meter, value| {
+                text_value(arena, meter, value)
+            })?;
         } else {
             set(m, &mut s.allowed_activities)?;
         }
@@ -521,7 +523,10 @@ mod owning_tests {
         ];
         let (mut old, mut new) = (original.clone(), original);
         set(&mut legacy, &mut old).unwrap();
-        owning_set(session.meter_mut(), &mut new, text_value).unwrap();
+        owning_set(session.meter_mut(), &mut new, |arena, meter, value| {
+            text_value(arena, meter, value)
+        })
+        .unwrap();
         assert_eq!(old, new);
         let codes:Vec<Code>=serde_json::from_value(json!([{"code":"z","effect":{"kind":"none"}},{"code":"a","effect":{"kind":"premium","amount":{"kind":"percent","percent":"25"}}},{"code":"b","effect":{"kind":"discount","amount":{"kind":"percent","percent":"20"}}}])).unwrap();
         let (mut old, mut new) = (codes.clone(), codes);
@@ -548,7 +553,12 @@ mod owning_tests {
         assert_eq!(arena.usage().unwrap().live_bytes, before);
         let mut duplicates = vec!["same".to_owned(), "same".to_owned()];
         let unchanged = duplicates.clone();
-        let error = owning_set(session.meter_mut(), &mut duplicates, text_value).unwrap_err();
+        let error = owning_set(
+            session.meter_mut(),
+            &mut duplicates,
+            |arena, meter, value| text_value(arena, meter, value),
+        )
+        .unwrap_err();
         assert_eq!(error.code, "INVALID_SHAPE");
         assert_eq!(duplicates, unchanged);
         assert_eq!(arena.usage().unwrap().live_bytes, before);

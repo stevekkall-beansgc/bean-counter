@@ -1,6 +1,5 @@
 //! Complete selected family selection before root mutation. Original targets
 //! and assented clauses, not caller-provided reversals, define the closure.
-use super::super::emitted_record::ConstructedEnvelope;
 use super::super::targets;
 use super::*;
 pub(super) struct FamilyPlan {
@@ -289,9 +288,9 @@ pub(super) fn prepare(
     program: &SelectedProgram,
     plan: &RootPlan,
     request: &mut super::super::working_value::WorkingValue,
-    state: &DraftStateData,
-    app_reversals: &[usize],
+    selected_operands: (&DraftStateData, &[usize]),
 ) -> Result<Vec<FamilyPlan>> {
+    let (state, app_reversals) = selected_operands;
     let closures = shape::field(m, request, "family_closures")?;
     let closures_owner = super::super::working_value::WorkingValue::copy(m, closures)?;
     let closures = closures_owner
@@ -596,7 +595,7 @@ pub(super) fn prepare(
         )?;
         let fi = matching_input(
             m,
-            &closures,
+            closures,
             "family_state_ref",
             &head.reference,
             &mut used_closures,
@@ -620,7 +619,7 @@ pub(super) fn prepare(
                 let decision_ref = shape::reference(m, decision)?;
                 let di = matching_input(
                     m,
-                    &reversals,
+                    reversals,
                     "decision_ref",
                     &decision_ref,
                     &mut used_reversals,
@@ -718,7 +717,7 @@ mod tests {
         assert!(used.is_empty());
         let index = matching_input(
             &mut m,
-            &[first.clone()],
+            std::slice::from_ref(&first),
             "family_state_ref",
             &reference,
             &mut used,

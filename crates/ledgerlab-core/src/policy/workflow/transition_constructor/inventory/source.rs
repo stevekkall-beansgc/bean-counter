@@ -163,47 +163,6 @@ const CEILING: &[&str] = &[
     "ends_at",
 ];
 
-#[cfg(test)]
-mod ordered_source_tests {
-    use super::*;
-    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
-    #[test]
-    fn strict_order_preserves_selector_rules_without_repeating_all_pairs() {
-        // Exact legal64-name ceiling/regrouping from the existing schema.
-        // This proves only this changed selector operation, not a complete
-        // grant/source/financial envelope or a future-admission certificate.
-        let names: Vec<Value> = (0..64).map(|i| json!(format!("test:item{i:02}"))).collect();
-        let ceiling = vec![json!({"names":names})];
-        let narrowed: Vec<Value> = names.iter().map(|name| json!({"names":[name]})).collect();
-        let mut old = CoreMeter::new(65536).unwrap();
-        assert_eq!(
-            selector_subset(&mut old, &narrowed, &ceiling, 64)
-                .unwrap_err()
-                .code,
-            "PROGRAM_BUDGET_EXCEEDED"
-        );
-        for case in 0..3 {
-            let arena = AuditArena::new().unwrap();
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let mut m = session.meter_mut().original_economic_meter().unwrap();
-            m.enter_draft().unwrap();
-            let mut actual = narrowed.clone();
-            if case == 1 {
-                actual[63] = actual[62].clone();
-            }
-            if case == 2 {
-                actual[63] = json!({"names":["test:outside"]});
-            }
-            let result = selector_subset(&mut m, &actual, &ceiling, 64);
-            if case == 0 {
-                result.unwrap();
-                session.meter_mut().finish_original_economic(m).unwrap();
-            } else {
-                assert!(result.is_err());
-            }
-        }
-    }
-}
 /// Validate the exact initial birth; later current heads use this immutable
 /// original independently, never substitute their narrowed grant as the birth.
 pub(in crate::policy::workflow::transition_constructor) fn initial(
@@ -213,12 +172,12 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
     o: &InvocationToken,
     enrollment: &Value,
     state: &Value,
-    grant: &Value,
-    customer: &Value,
+    selected_operands: (&Value, &Value),
 ) -> Result<RecordBody> {
+    let (grant, customer) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::source::initial", |m| {
+        m.diagnostic_scope("inventory::source::initial", |m| {
             initial_data(
                 m,
                 r,
@@ -226,14 +185,16 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
                 o,
                 enrollment,
                 state,
-                grant,
-                customer,
-                &c.authorities[0].enrollment_ref,
-                &c.authorities[0].current_state_ref,
-                &c.authorities[0].current_grant_ref,
-                false,
+                (
+                    grant,
+                    customer,
+                    &c.authorities[0].enrollment_ref,
+                    &c.authorities[0].current_state_ref,
+                    &c.authorities[0].current_grant_ref,
+                    false,
+                ),
             )
-        });
+        })
     }
     #[cfg(not(test))]
     initial_data(
@@ -243,12 +204,14 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
         o,
         enrollment,
         state,
-        grant,
-        customer,
-        &c.authorities[0].enrollment_ref,
-        &c.authorities[0].current_state_ref,
-        &c.authorities[0].current_grant_ref,
-        false,
+        (
+            grant,
+            customer,
+            &c.authorities[0].enrollment_ref,
+            &c.authorities[0].current_state_ref,
+            &c.authorities[0].current_grant_ref,
+            false,
+        ),
     )
 }
 /// Exact initial birth operands remain separate from a later current source
@@ -260,22 +223,16 @@ pub(in crate::policy::workflow::transition_constructor) fn birth(
     o: &InvocationToken,
     enrollment: &Value,
     state: &Value,
-    grant: &Value,
-    customer: &Value,
-    enrollment_ref: &ExactRef,
-    state_ref: &ExactRef,
-    grant_ref: &ExactRef,
+    selected_operands: (&Value, &Value, &ExactRef, &ExactRef, &ExactRef),
 ) -> Result<RecordBody> {
+    let (grant, customer, enrollment_ref, state_ref, grant_ref) = selected_operands;
     let checked = r.source_birth_facts(
         m,
         c,
         enrollment,
         state,
         grant,
-        customer,
-        enrollment_ref,
-        state_ref,
-        grant_ref,
+        (customer, enrollment_ref, state_ref, grant_ref),
     )?;
     if let Some(registered) = checked.registered {
         return Ok(registered);
@@ -287,12 +244,14 @@ pub(in crate::policy::workflow::transition_constructor) fn birth(
         o,
         enrollment,
         state,
-        grant,
-        customer,
-        enrollment_ref,
-        state_ref,
-        grant_ref,
-        checked.outputs,
+        (
+            grant,
+            customer,
+            enrollment_ref,
+            state_ref,
+            grant_ref,
+            checked.outputs,
+        ),
     )?;
     r.remember_source_birth(m, c, &checked, &registered)?;
     Ok(registered)
@@ -304,13 +263,9 @@ fn initial_data(
     o: &InvocationToken,
     enrollment: &Value,
     state: &Value,
-    grant: &Value,
-    customer: &Value,
-    enrollment_ref: &ExactRef,
-    state_ref: &ExactRef,
-    grant_ref: &ExactRef,
-    produced: bool,
+    selected_operands: (&Value, &Value, &ExactRef, &ExactRef, &ExactRef, bool),
 ) -> Result<RecordBody> {
+    let (grant, customer, enrollment_ref, state_ref, grant_ref, produced) = selected_operands;
     if !produced {
         invoke!(
             shape::closed,
@@ -537,10 +492,12 @@ fn initial_data(
         o,
         &evidence,
         "customer_registration",
-        &json!({"customer":customer}),
-        &json!({"acceptor":data_field!(m,&registered,"acceptor")}),
-        &registered,
-        "registered_at"
+        (
+            &json!({"customer":customer}),
+            &json!({"acceptor":data_field!(m,&registered,"acceptor")}),
+            &*registered,
+            "registered_at"
+        )
     )?;
 
     let source_evidence = invoke!(
@@ -569,10 +526,12 @@ fn initial_data(
         o,
         &source_evidence,
         "source_enrollment",
-        &json!({"customer":customer}),
-        &json!({"principal_id":data_field!(m,&ceiling,"principal_id"),"source":data_field!(m,&ceiling,"source")}),
-        enrollment,
-        "enrolled_at"
+        (
+            &json!({"customer":customer}),
+            &json!({"principal_id":data_field!(m,&ceiling,"principal_id"),"source":data_field!(m,&ceiling,"source")}),
+            enrollment,
+            "enrolled_at"
+        )
     )?;
 
     invoke!(
@@ -583,9 +542,11 @@ fn initial_data(
         o,
         data_field!(m, &registered, "authority_ref"),
         &registered,
-        "registered_at",
-        data_field!(m, &registered, "registered_by"),
-        None
+        (
+            "registered_at",
+            data_field!(m, &registered, "registered_by"),
+            None
+        )
     )?;
     invoke!(
         evidence::root,
@@ -595,9 +556,11 @@ fn initial_data(
         o,
         data_field!(m, enrollment, "authority_ref"),
         enrollment,
-        "enrolled_at",
-        data_field!(m, enrollment, "enrolled_by"),
-        None
+        (
+            "enrolled_at",
+            data_field!(m, enrollment, "enrolled_by"),
+            None
+        )
     )?;
     if !produced {
         let expected = invoke!(
@@ -615,4 +578,46 @@ fn initial_data(
         invoke!(eq, m, &json!({"id":state_ref.id}), "id", &json!(expected))?;
     }
     Ok(registered)
+}
+
+#[cfg(test)]
+mod ordered_source_tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    #[test]
+    fn strict_order_preserves_selector_rules_without_repeating_all_pairs() {
+        // Exact legal64-name ceiling/regrouping from the existing schema.
+        // This proves only this changed selector operation, not a complete
+        // grant/source/financial envelope or a future-admission certificate.
+        let names: Vec<Value> = (0..64).map(|i| json!(format!("test:item{i:02}"))).collect();
+        let ceiling = vec![json!({"names":names})];
+        let narrowed: Vec<Value> = names.iter().map(|name| json!({"names":[name]})).collect();
+        let mut old = CoreMeter::new(65536).unwrap();
+        assert_eq!(
+            selector_subset(&mut old, &narrowed, &ceiling, 64)
+                .unwrap_err()
+                .code,
+            "PROGRAM_BUDGET_EXCEEDED"
+        );
+        for case in 0..3 {
+            let arena = AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut m = session.meter_mut().original_economic_meter().unwrap();
+            m.enter_draft().unwrap();
+            let mut actual = narrowed.clone();
+            if case == 1 {
+                actual[63] = actual[62].clone();
+            }
+            if case == 2 {
+                actual[63] = json!({"names":["test:outside"]});
+            }
+            let result = selector_subset(&mut m, &actual, &ceiling, 64);
+            if case == 0 {
+                result.unwrap();
+                session.meter_mut().finish_original_economic(m).unwrap();
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
 }

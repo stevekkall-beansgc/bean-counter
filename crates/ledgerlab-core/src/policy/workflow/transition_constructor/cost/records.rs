@@ -194,11 +194,10 @@ pub(in crate::policy::workflow::transition_constructor) fn advance(
     selected: &InvocationSelection,
     proof: &FinalEvidence,
     claim_reference: &ExactRef,
-    claim_value: &Value,
-    decision: &ConstructedEnvelope,
-    actions: &[ConstructedEnvelope],
+    selected_operands: (&Value, &ConstructedEnvelope, &[ConstructedEnvelope]),
     prior: Option<PreviousLineage<'_>>,
 ) -> Result<CostLineage> {
+    let (claim_value, decision, actions) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning cost lineage"))?;
@@ -310,7 +309,7 @@ pub(in crate::policy::workflow::transition_constructor) fn advance(
             arena.clone_value(&old.owner["supplier_obligation_ref"], m)?
         }
     };
-    let claim_ref = owning_reference(m, &arena, &claim_reference)?;
+    let claim_ref = owning_reference(m, &arena, claim_reference)?;
     let evidence_ref = owning_reference(m, &arena, &proof.assertion_ref)?;
     let invocation_ref = owning_reference(m, &arena, &selected.original_ref)?;
     let key = owned_key(m, &arena, &c.key)?;

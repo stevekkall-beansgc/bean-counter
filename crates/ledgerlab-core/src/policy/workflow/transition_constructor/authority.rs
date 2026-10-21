@@ -2,7 +2,7 @@
 use super::emitted_record::ConstructedEnvelope;
 use super::record_body::RecordBody;
 use super::{
-    arithmetic, body,
+    body,
     data::{DraftContextData, ExactRef},
     meter,
     records::Records,
@@ -68,8 +68,6 @@ pub(super) enum EconomicMode {
     DeadlineClose,
     CostFinalize,
     CostCorrect,
-    InvocationAuthorize,
-    InvocationClose,
 }
 impl EconomicMode {
     pub(super) fn operation(self) -> &'static str {
@@ -84,8 +82,6 @@ impl EconomicMode {
             Self::DeadlineClose => "outcome.close",
             Self::CostFinalize => "cost.finalize",
             Self::CostCorrect => "cost.correct",
-            Self::InvocationAuthorize => "invocation.authorize",
-            Self::InvocationClose => "invocation.close",
         }
     }
     pub(super) fn rights(self) -> &'static [&'static str] {
@@ -100,15 +96,13 @@ impl EconomicMode {
             | Self::QuantityCorrect
             | Self::WorkReverse
             | Self::CostCorrect => &["correct", "read"],
-            Self::InvocationAuthorize => &["invocation", "read"],
-            Self::InvocationClose => &["close", "read"],
         }
     }
 }
 pub(super) struct Terms {
     pub binding: RecordBody,
     pub accepted: RecordBody,
-    pub activation: RecordBody,
+    pub _activation: RecordBody,
     pub catalog: RecordBody,
     pub instantiation: RecordBody,
     pub slot_terms: RecordBody,
@@ -143,10 +137,9 @@ pub(super) fn historical_namespace(
     authority_ref: &Value,
     namespace: &Value,
     source: Option<&Value>,
-    operation: &str,
-    binding: &Value,
-    at: &Value,
+    selected_operands: (&str, &Value, &Value),
 ) -> Result<()> {
+    let (operation, binding, at) = selected_operands;
     let reference = super::shape::reference(m, authority_ref)?;
     let local = c
         .authorities
@@ -361,12 +354,9 @@ pub(super) fn grant(
     ceiling: &Value,
     c: &DraftContextData,
     customer: &Value,
-    activity: &str,
-    product: &str,
-    slot: &str,
-    at: &BigInt,
-    mode: EconomicMode,
+    selected_operands: (&str, &str, &str, &BigInt, EconomicMode),
 ) -> Result<()> {
+    let (activity, product, slot, at, mode) = selected_operands;
     grant_shape(m, g)?;
     grant_identity(m, g, ceiling, c)?;
     grant_intersection(m, owner, g, ceiling, at)?;
@@ -377,8 +367,7 @@ pub(super) fn grant(
         activity,
         product,
         slot,
-        mode.operation(),
-        mode.rights(),
+        (mode.operation(), mode.rights()),
     )
 }
 pub(super) fn grant_identity(
@@ -476,9 +465,9 @@ pub(super) fn grant_coverage(
     activity: &str,
     product: &str,
     slot: &str,
-    operation: &str,
-    rights: &[&str],
+    selected_operands: (&str, &[&str]),
 ) -> Result<()> {
+    let (operation, rights) = selected_operands;
     invoke!(
         contains,
         m,
@@ -548,8 +537,8 @@ pub(super) fn deadline_grant_scope(
     eligible &= selector_allows(m, g, "product_selectors", product)?;
     let starts = time(m, g, "starts_at")?;
     let ends = time(m, g, "ends_at")?;
-    eligible &= !meter::cmp(m, &at.into(), &starts.into())?.is_lt();
-    eligible &= meter::cmp(m, &at.into(), &ends.into())?.is_lt();
+    eligible &= !meter::cmp(m, &at.into(), &starts)?.is_lt();
+    eligible &= meter::cmp(m, &at.into(), &ends)?.is_lt();
     Ok(eligible)
 }
 pub(super) fn work(
@@ -559,10 +548,13 @@ pub(super) fn work(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+    ),
 ) -> Result<Operands> {
+    let (owner, times, program) = selected_operands;
     if program.uses_app_owned_cost_recipe() {
         let slot = shape::text(m, activity, "source_slot")?;
         return super::app_cost::work_operands(m, r, c, p, program, slot);
@@ -574,11 +566,7 @@ pub(super) fn work(
         p,
         activity,
         product,
-        owner,
-        times,
-        program,
-        EconomicMode::Work,
-        &[],
+        (owner, times, program, EconomicMode::Work, &[]),
     )
 }
 pub(super) fn economic(
@@ -588,12 +576,15 @@ pub(super) fn economic(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
-    mode: EconomicMode,
-    verified_facts: &[ExactRef],
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+        EconomicMode,
+        &[ExactRef],
+    ),
 ) -> Result<Operands> {
+    let (owner, times, program, mode, verified_facts) = selected_operands;
     let resolved = resolve_economic(
         m,
         r,
@@ -601,11 +592,7 @@ pub(super) fn economic(
         p,
         activity,
         product,
-        owner,
-        times,
-        program,
-        mode,
-        verified_facts,
+        (owner, times, program, mode, verified_facts),
     )?;
     let authority = resolved.authority_document(m, None)?;
     Ok(Operands {
@@ -621,13 +608,16 @@ pub(super) fn economic_original(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
-    mode: EconomicMode,
-    verified_facts: &[ExactRef],
-    original_namespace: &str,
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+        EconomicMode,
+        &[ExactRef],
+        &str,
+    ),
 ) -> Result<Operands> {
+    let (owner, times, program, mode, verified_facts, original_namespace) = selected_operands;
     let resolved = resolve_economic_original(
         m,
         r,
@@ -635,12 +625,14 @@ pub(super) fn economic_original(
         p,
         activity,
         product,
-        owner,
-        times,
-        program,
-        mode,
-        verified_facts,
-        original_namespace,
+        (
+            owner,
+            times,
+            program,
+            mode,
+            verified_facts,
+            original_namespace,
+        ),
     )?;
     let authority = resolved.authority_document(m, None)?;
     Ok(Operands {
@@ -656,12 +648,15 @@ pub(super) fn resolve_economic(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
-    mode: EconomicMode,
-    verified_facts: &[ExactRef],
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+        EconomicMode,
+        &[ExactRef],
+    ),
 ) -> Result<ResolvedOperands> {
+    let (owner, times, program, mode, verified_facts) = selected_operands;
     resolve_economic_identity(
         m,
         r,
@@ -669,12 +664,14 @@ pub(super) fn resolve_economic(
         p,
         activity,
         product,
-        owner,
-        times,
-        program,
-        mode,
-        verified_facts,
-        &c.canonical_economic_namespace,
+        (
+            owner,
+            times,
+            program,
+            mode,
+            verified_facts,
+            &c.canonical_economic_namespace,
+        ),
     )
 }
 /// Historical subject identity is distinct from today's assessor/corrector
@@ -687,13 +684,16 @@ pub(super) fn resolve_economic_original(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
-    mode: EconomicMode,
-    verified_facts: &[ExactRef],
-    original_namespace: &str,
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+        EconomicMode,
+        &[ExactRef],
+        &str,
+    ),
 ) -> Result<ResolvedOperands> {
+    let (owner, times, program, mode, verified_facts, original_namespace) = selected_operands;
     resolve_economic_identity(
         m,
         r,
@@ -701,12 +701,14 @@ pub(super) fn resolve_economic_original(
         p,
         activity,
         product,
-        owner,
-        times,
-        program,
-        mode,
-        verified_facts,
-        original_namespace,
+        (
+            owner,
+            times,
+            program,
+            mode,
+            verified_facts,
+            original_namespace,
+        ),
     )
 }
 fn resolve_economic_identity(
@@ -716,13 +718,16 @@ fn resolve_economic_identity(
     p: &Value,
     activity: &Value,
     product: &Value,
-    owner: &InvocationToken,
-    times: &ParsedDraftTimes<'_>,
-    program: &super::super::selected_program::SelectedProgram,
-    mode: EconomicMode,
-    verified_facts: &[ExactRef],
-    original_namespace: &str,
+    selected_operands: (
+        &InvocationToken,
+        &ParsedDraftTimes<'_>,
+        &super::super::selected_program::SelectedProgram,
+        EconomicMode,
+        &[ExactRef],
+        &str,
+    ),
 ) -> Result<ResolvedOperands> {
+    let (owner, times, program, mode, verified_facts, original_namespace) = selected_operands;
     m.phase(Phase::OriginalAuthority);
     if program.uses_app_owned_cost_recipe() {
         let source_slot = shape::text(m, activity, "source_slot")?;
@@ -733,9 +738,7 @@ fn resolve_economic_identity(
             p,
             program,
             mode,
-            source_slot,
-            verified_facts,
-            original_namespace,
+            (source_slot, verified_facts, original_namespace),
         );
     }
     if !meter::cmp(m, &c.authorities.len().into(), &1usize.into())?.is_eq() {
@@ -885,7 +888,15 @@ fn resolve_economic_identity(
     let projected = invoke!(field, m, &terms, "binding_inputs")?;
     super::inventory::binding::validate(m, &binding, &terms)?;
     super::inventory::binding::selected_declarations(m, &binding)?;
-    super::inventory::publication::validate(m, r, c, owner, program, &binding, &accepted, &terms)?;
+    super::inventory::publication::validate(
+        m,
+        r,
+        c,
+        owner,
+        program,
+        &binding,
+        (&accepted, &terms),
+    )?;
     for k in [
         "agreement_id",
         "version",
@@ -1129,11 +1140,13 @@ fn resolve_economic_identity(
         owner,
         &enrollment,
         &birth_state,
-        &original_grant,
-        &p["customer"],
-        &a.enrollment_ref,
-        &birth_ref,
-        original_ref,
+        (
+            &original_grant,
+            &p["customer"],
+            &a.enrollment_ref,
+            &birth_ref,
+            original_ref,
+        ),
     )?;
     let current = r.get(
         m,
@@ -1168,11 +1181,13 @@ fn resolve_economic_identity(
         ceiling,
         c,
         invoke!(field, m, p, "customer")?,
-        invoke!(text, m, p, "activity")?,
-        invoke!(text, m, product, "product_id")?,
-        source_slot,
-        &at,
-        mode
+        (
+            invoke!(text, m, p, "activity")?,
+            invoke!(text, m, product, "product_id")?,
+            source_slot,
+            &at,
+            mode
+        )
     )?;
     // Original accepted rights remain an independent intersection. A narrowed
     // current grant cannot silently substitute a different original capability.
@@ -1184,11 +1199,13 @@ fn resolve_economic_identity(
         ceiling,
         c,
         invoke!(field, m, p, "customer")?,
-        invoke!(text, m, p, "activity")?,
-        invoke!(text, m, product, "product_id")?,
-        source_slot,
-        &at,
-        mode
+        (
+            invoke!(text, m, p, "activity")?,
+            invoke!(text, m, product, "product_id")?,
+            source_slot,
+            &at,
+            mode
+        )
     )?;
     m.phase(Phase::CurrentAuthority);
     let nomination = invoke!(
@@ -1312,8 +1329,7 @@ fn resolve_economic_identity(
         &catalog,
         &instantiation,
         &slot_terms,
-        &role,
-        &current,
+        (&role, &current),
     )?;
     invoke!(
         contains,
@@ -1387,10 +1403,7 @@ fn resolve_economic_identity(
             owner,
             &e,
             "funding",
-            &subject,
-            &metadata,
-            &binding,
-            "accepted_at",
+            (&subject, &metadata, &binding, "accepted_at"),
         )?;
         invoke!(
             equal,
@@ -1478,9 +1491,7 @@ fn resolve_economic_identity(
                 owner,
                 &assent,
                 &ev,
-                purpose,
-                &registered,
-                &binding,
+                (purpose, &registered, &binding),
             )?;
             invoke!(
                 equal,
@@ -1544,9 +1555,7 @@ fn resolve_economic_identity(
         owner,
         root_value,
         &json!({"at":c.accepted_at}),
-        "at",
-        &json!(c.actor),
-        Some(&json!(c.key.source)),
+        ("at", &json!(c.actor), Some(&json!(c.key.source))),
     )?;
     super::inventory::observation::validate(m, c, &state, &observation, &verifier, &root)?;
     super::inventory::transitions::validate(
@@ -1556,9 +1565,7 @@ fn resolve_economic_identity(
         owner,
         program,
         &binding,
-        &accepted,
-        &activation,
-        &head,
+        (&accepted, &activation, &head),
     )?;
     let basis = invoke!(field, m, &root, "basis")?;
     for (key, want) in [
@@ -1618,7 +1625,7 @@ fn resolve_economic_identity(
         terms: Terms {
             binding,
             accepted,
-            activation,
+            _activation: activation,
             catalog,
             instantiation,
             slot_terms,

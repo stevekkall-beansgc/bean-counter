@@ -39,7 +39,7 @@ pub(super) fn document_borrowed(
         } else {
             crate::validation_work::RepresentationKind::Record
         };
-        let bytes = m.canonical_new_body_representation(&arena, &body, class)?;
+        let bytes = m.canonical_new_body_representation(&arena, body, class)?;
         m.new_body(bytes.bytes().len())?;
         let schema_bytes = m.canonical_owned_representation(
             &arena,
@@ -66,7 +66,7 @@ pub(super) fn document_borrowed(
         };
         return ConstructedEnvelope::from_owned(reference, bytes, &arena, m, class);
     }
-    let bytes = codec::encode_new(m, &body, maximum)?;
+    let bytes = codec::encode_new(m, body, maximum)?;
     let schema_bytes = codec::encode(m, &json!(schema), 262144)?;
     let digest = records::hash_parts(m, "workflow-document", &[&schema_bytes, &bytes], true)?;
     Ok(ConstructedEnvelope::from_bytes(
@@ -96,7 +96,7 @@ pub(super) fn record_borrowed(
 ) -> Result<ConstructedEnvelope> {
     if let Some(arena) = m.representation_arena() {
         let class = crate::validation_work::RepresentationKind::Record;
-        let bytes = m.canonical_new_body_representation(&arena, &body, class)?;
+        let bytes = m.canonical_new_body_representation(&arena, body, class)?;
         m.new_body(bytes.bytes().len())?;
         // Caller control-graph pre-admission must cover these short frame
         // values/Ref strings; returned bytes and decoded bodies own their leases.
@@ -137,7 +137,7 @@ pub(super) fn record_borrowed(
             class,
         );
     }
-    let bytes = codec::encode_new(m, &body, 4194304)?;
+    let bytes = codec::encode_new(m, body, 4194304)?;
     let kind_bytes = codec::encode(m, &json!(kind), 262144)?;
     let scope = codec::encode(m, &json!(key.scope), 262144)?;
     let digest = records::hash_parts(m, "workflow-record", &[&kind_bytes, &scope, &bytes], true)?;

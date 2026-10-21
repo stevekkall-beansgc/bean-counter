@@ -210,7 +210,7 @@ pub(super) fn body(dto: &TemplateDto, w: &mut dyn ValidationWork) -> Result<Valu
     paid::put(&mut out, "families", Value::Array(families), w)?;
     Ok(Value::Object(out))
 }
-pub(super) fn aliases(values: &mut Vec<String>, w: &mut dyn ValidationWork) -> Result<()> {
+pub(super) fn aliases(values: &mut [String], w: &mut dyn ValidationWork) -> Result<()> {
     if vw::compare(w, values.len(), 64usize)?.is_gt() {
         return Err(fail("TEMPLATE_LIMIT", "aliases"));
     }

@@ -95,9 +95,9 @@ pub(super) fn validate(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::request::validate", |m| {
+        m.diagnostic_scope("inventory::request::validate", |m| {
             validate_data(m, e, kind, payload_schema, None)
-        });
+        })
     }
     #[cfg(not(test))]
     validate_data(m, e, kind, payload_schema, None)

@@ -6,7 +6,7 @@ use super::emitted_record::ConstructedEnvelope;
 use super::{
     arithmetic::{self, Ratio},
     authority::Operands,
-    body, codec,
+    body,
     data::{DraftContextData, ExactRef},
     meter, shape, CoreMeter,
 };
@@ -281,11 +281,14 @@ pub(super) fn build(
     payload: &Value,
     operands: &Operands,
     work: &ConstructedEnvelope,
-    claim: &ConstructedEnvelope,
-    decision: &ConstructedEnvelope,
-    actions: &[ConstructedEnvelope],
+    selected_operands: (
+        &ConstructedEnvelope,
+        &ConstructedEnvelope,
+        &[ConstructedEnvelope],
+    ),
     m: &mut CoreMeter,
 ) -> Result<Targets> {
+    let (claim, decision, actions) = selected_operands;
     let plan = program.compiled_plan().canonical_value();
     let mut family_capacity = 0usize;
     let ownership = if let Some(arena) = m.representation_arena() {

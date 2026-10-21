@@ -302,6 +302,7 @@ impl SelectedProgram {
     pub(in crate::policy::workflow) fn fact_schemas(&self) -> &[(DefinitionRef, FactSchema)] {
         &self.schemas
     }
+    #[cfg(test)]
     pub(super) fn policy(&self) -> &Policy {
         &self.policy
     }
@@ -1479,8 +1480,7 @@ fn compile_selected_recipe(
             &policy,
             &product,
             &template,
-            recipe.plan_schema(),
-            recipe.compiler_semantics(),
+            (recipe.plan_schema(), recipe.compiler_semantics()),
         )?;
         let document = finish_owned_document(m, output.body, true)?;
         (document, output.fields)

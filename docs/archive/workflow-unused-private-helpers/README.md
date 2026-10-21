@@ -1,0 +1,1 @@
+Exact historical source files containing private helpers with no callers. Only the listed uncalled helper bodies are removed from compilation; shared live validators, record/owner paths and current financial evaluators remain. This is compatibility provenance, not an execution capability.

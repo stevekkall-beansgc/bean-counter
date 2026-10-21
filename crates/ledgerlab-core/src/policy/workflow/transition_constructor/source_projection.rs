@@ -186,9 +186,9 @@ fn requirement(
     activity: &str,
     product: &str,
     slot: &str,
-    operation: &str,
-    rights: &[&str],
+    selected_operands: (&str, &[&str]),
 ) -> Result<()> {
+    let (operation, rights) = selected_operands;
     let nominations = shape::array(m, binding, "source_slots")?;
     let row = shape::named(m, nominations, "name", slot)?;
     let nominees = shape::array(m, row, "sources")?;
@@ -221,8 +221,7 @@ fn requirement(
             activity,
             product,
             slot,
-            operation,
-            rights,
+            (operation, rights),
         )?;
         // Every originally nominated grant for this source remains independently
         // checked; no union of narrower grants is manufactured.
@@ -234,8 +233,7 @@ fn requirement(
                 activity,
                 product,
                 slot,
-                operation,
-                rights,
+                (operation, rights),
             )?;
         }
     }
@@ -362,8 +360,7 @@ pub fn validate_app_nominated_sources(
                             name,
                             product_name,
                             slot,
-                            "evidence.retain",
-                            &["read", "submit"],
+                            ("evidence.retain", &["read", "submit"]),
                         )?;
                     }
                 }
@@ -380,8 +377,7 @@ pub fn validate_app_nominated_sources(
                 name,
                 product_name,
                 work_slot,
-                "work.accept",
-                &["read", "submit"],
+                ("work.accept", &["read", "submit"]),
             )?;
             let correction_slot = shape::text(m, slot_terms, "correction_source_slot")?;
             // This original retail slot carries the existing quantity/reversal
@@ -400,8 +396,7 @@ pub fn validate_app_nominated_sources(
                     name,
                     product_name,
                     correction_slot,
-                    "quantity.correct",
-                    &["correct", "read"],
+                    ("quantity.correct", &["correct", "read"]),
                 )?;
             }
             requirement(
@@ -411,8 +406,7 @@ pub fn validate_app_nominated_sources(
                 name,
                 product_name,
                 correction_slot,
-                "work.reverse",
-                &["correct", "read"],
+                ("work.reverse", &["correct", "read"]),
             )?;
         }
         for family in shape::array(m, policy, "families")? {
@@ -476,8 +470,7 @@ pub fn validate_app_nominated_sources(
                 activity,
                 product_name,
                 slot,
-                "outcome.submit",
-                &["read", "submit"],
+                ("outcome.submit", &["read", "submit"]),
             )?;
             let slot = shape::text(m, family, "correction_source_slot")?;
             requirement(
@@ -487,8 +480,7 @@ pub fn validate_app_nominated_sources(
                 activity,
                 product_name,
                 slot,
-                "outcome.correct",
-                &["correct", "read"],
+                ("outcome.correct", &["correct", "read"]),
             )?;
             if let Some(close) = family.get("no_success_close") {
                 let slot = shape::text(m, close, "close_source_slot")?;
@@ -499,8 +491,7 @@ pub fn validate_app_nominated_sources(
                     activity,
                     product_name,
                     slot,
-                    "outcome.close",
-                    &["read", "submit"],
+                    ("outcome.close", &["read", "submit"]),
                 )?;
                 requirement(
                     m,
@@ -509,8 +500,7 @@ pub fn validate_app_nominated_sources(
                     activity,
                     product_name,
                     slot,
-                    "evidence.retain",
-                    &["read", "submit"],
+                    ("evidence.retain", &["read", "submit"]),
                 )?;
             }
         }
@@ -550,8 +540,7 @@ pub fn validate_app_nominated_sources(
                     activity,
                     product_name,
                     slot,
-                    operation,
-                    rights,
+                    (operation, rights),
                 )?;
             }
         }

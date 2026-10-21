@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     canonical::audit_arena::{AuditArena, AuditedValue},
-    validation_work::{self as w, ValidationWork},
+    validation_work::{self as w},
     Error, Result,
 };
 use serde_json::Value;

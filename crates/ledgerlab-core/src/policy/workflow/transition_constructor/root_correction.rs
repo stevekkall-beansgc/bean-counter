@@ -301,7 +301,8 @@ fn prepare(
         ] {
             equal(m, &claim[name], &wanted)?;
         }
-        let claim_identity = body::semantic_id(
+
+        body::semantic_id(
             m,
             "wclaim_",
             "workflow-work-claim",
@@ -312,8 +313,7 @@ fn prepare(
                 payload["business_operation_id"],
                 "completion"
             ]),
-        )?;
-        claim_identity
+        )?
     };
     if !shape::same_text(m, &claim_ref.id, &claim_identity)? {
         return Err(shape::fail("permanent original work claim identity"));
@@ -322,13 +322,12 @@ fn prepare(
     let decision_id = if m.representation_arena().is_some() {
         super::work_keys::decision(m, claim_id)?
     } else {
-        let decision_id = body::semantic_id(
+        body::semantic_id(
             m,
             "wdecision_",
             "workflow-decision",
             &json!([claim_id, "work"]),
-        )?;
-        decision_id
+        )?
     };
     let head = original_head(m, state, &decision_id)?;
     let current = r.get(
@@ -414,13 +413,12 @@ fn prepare(
         let tuple = arena.array_from_values(&[id.value(), revision.value()], m)?;
         body::semantic_id(m, "wdrev_", "workflow-decision-revision", tuple.value())?
     } else {
-        let stable_revision = body::semantic_id(
+        body::semantic_id(
             m,
             "wdrev_",
             "workflow-decision-revision",
             &json!([decision_id, old_revision.to_string()]),
-        )?;
-        stable_revision
+        )?
     };
     if !shape::same_text(m, &head.reference.id, &stable_revision)? {
         return Err(shape::fail("current root revision identity"));
@@ -431,13 +429,12 @@ fn prepare(
         let tuple = arena.array_from_values(&[id.value(), one.value()], m)?;
         body::semantic_id(m, "wdrev_", "workflow-decision-revision", tuple.value())?
     } else {
-        let first_id = body::semantic_id(
+        body::semantic_id(
             m,
             "wdrev_",
             "workflow-decision-revision",
             &json!([decision_id, "1"]),
-        )?;
-        first_id
+        )?
     };
     let (original_ref, original) = r.by_identity(
         m,
@@ -517,7 +514,7 @@ fn prepare(
     let current_facts = normalized.canonical_value();
     let mut replacement_facts = super::working_value::WorkingValue::copy(m, current_facts)?;
     let activity_name = text(m, &payload, "activity")?;
-    let old_prices = pricing::work(program, activity_name, &current_facts, m)?;
+    let old_prices = pricing::work(program, activity_name, current_facts, m)?;
     let mut affected_roots: Vec<String> = vec![];
     if metadata.is_some() {
         affected_roots
@@ -664,12 +661,7 @@ fn prepare(
             &authority_payload,
             &current_activity,
             product,
-            &owner,
-            &times,
-            program,
-            mode,
-            &[],
-            original_namespace,
+            (&owner, &times, program, mode, &[], original_namespace),
         )?
     } else {
         authority::resolve_economic(
@@ -679,11 +671,7 @@ fn prepare(
             &authority_payload,
             &current_activity,
             product,
-            &owner,
-            &times,
-            program,
-            mode,
-            &[],
+            (&owner, &times, program, mode, &[]),
         )?
     };
     equal(
@@ -703,10 +691,7 @@ fn prepare(
         program,
         &operands,
         &work_ref,
-        &work,
-        &claim_ref,
-        &original_ref,
-        &original,
+        (&work, &claim_ref, &original_ref, &original),
     )?;
     if !reverse {
         entry::quantities(
@@ -1612,7 +1597,7 @@ pub(super) fn execute<'inv, 'raw>(
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
 ) -> Result<Construction<'inv, 'raw>> {
-    execute_with_state(program, c, request, inputs, state, None, m, intrinsic)
+    execute_with_state(program, c, request, inputs, (state, None), m, intrinsic)
 }
 pub(super) fn execute_complete<'inv, 'raw>(
     program: &SelectedProgram,
@@ -1627,8 +1612,7 @@ pub(super) fn execute_complete<'inv, 'raw>(
         c,
         request,
         inputs,
-        state.financial,
-        Some(state),
+        (state.financial, Some(state)),
         m,
         None,
     )
@@ -1638,14 +1622,14 @@ fn execute_with_state<'inv, 'raw>(
     c: &'raw DraftContextData,
     mut request: super::working_value::WorkingValue,
     inputs: SuppliedRecords<'raw>,
-    state: &DraftStateData,
-    complete_state: Option<&EconomicStateData>,
+    selected_operands: (&DraftStateData, Option<&EconomicStateData>),
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
 ) -> Result<Construction<'inv, 'raw>> {
+    let (state, complete_state) = selected_operands;
     let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
@@ -1721,11 +1705,13 @@ fn execute_with_state<'inv, 'raw>(
                 &local,
                 program,
                 &plan.original_ref,
-                &plan.original,
-                &plan.work_ref,
-                &plan.work,
-                &plan.claim_ref,
-                &plan.operands.terms,
+                (
+                    &plan.original,
+                    &plan.work_ref,
+                    &plan.work,
+                    &plan.claim_ref,
+                    &plan.operands.terms,
+                ),
             )?);
             None
         } else {
@@ -1736,11 +1722,13 @@ fn execute_with_state<'inv, 'raw>(
                 &local,
                 program,
                 &plan.original_ref,
-                &plan.original,
-                &plan.work_ref,
-                &plan.work,
-                &plan.claim_ref,
-                &plan.operands.terms,
+                (
+                    &plan.original,
+                    &plan.work_ref,
+                    &plan.work,
+                    &plan.claim_ref,
+                    &plan.operands.terms,
+                ),
             )?)
         }
     } else {
@@ -1783,18 +1771,20 @@ fn execute_with_state<'inv, 'raw>(
             program,
             &plan.work_ref,
             &plan.current_ref,
-            if plan.reverse {
-                "work.reverse"
-            } else {
-                "quantity.correct"
-            },
-            &plan.payload,
-            &plan.operands.terms,
-            &mut request,
-            complete,
-            current_capacity
-                .as_ref()
-                .ok_or_else(|| shape::fail("app closure capacity head missing"))?,
+            (
+                if plan.reverse {
+                    "work.reverse"
+                } else {
+                    "quantity.correct"
+                },
+                &plan.payload,
+                &plan.operands.terms,
+                &mut request,
+                complete,
+                current_capacity
+                    .as_ref()
+                    .ok_or_else(|| shape::fail("app closure capacity head missing"))?,
+            ),
         )?)
     } else {
         None
@@ -1810,8 +1800,7 @@ fn execute_with_state<'inv, 'raw>(
         program,
         &plan,
         &mut request,
-        state,
-        app_reversals,
+        (state, app_reversals),
     )?;
     if let Some(app) = &app_closures {
         let app_count =
@@ -2243,14 +2232,14 @@ fn execute_with_state<'inv, 'raw>(
         } else {
             plan.current["dependency_refs"].clone()
         };
-        let decision = body::record(
+
+        body::record(
             m,
             &c.key,
             "workflow-decision",
             id,
             json!({"schema":"ledger-workflow-decision-revision/1","decision_id":plan.current["decision_id"],"revision":plan.next_revision,"prior_ref":plan.current_ref,"subject_ref":plan.work_ref,"kind":"work","transition":if plan.reverse{"work_reverse"}else{"quantity_correct"},"status":if plan.reverse{"reversed"}else{"active"},"original_terms_ref":plan.payload["binding_ref"],"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":root_actions,"active_action_refs":effects.active,"dependency_refs":dependencies,"operation_key":c.key,"accepted_at":c.accepted_at}),
-        )?;
-        decision
+        )?
     };
     if root_output_owner.is_some() {
         for raw in [
@@ -2360,14 +2349,14 @@ fn execute_with_state<'inv, 'raw>(
                 revision
             ]),
         )?;
-        let chain = body::record(
+
+        body::record(
             m,
             &c.key,
             "workflow-chain-state",
             id,
             json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"customer":plan.payload["customer"],"chain":plan.payload["chain"],"binding_ref":plan.payload["binding_ref"],"accepted_agreement_ref":local.authorities[0].accepted_agreement_ref,"activation_ref":local.authorities[0].activation_ref,"revision":revision,"admitted_events":admitted.to_string(),"links_root":prior["links_root"],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":prior_ref}),
-        )?;
-        chain
+        )?
     };
     if root_output_owner.is_some() {
         for raw in [
@@ -2433,7 +2422,7 @@ fn execute_with_state<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects,
-        app_causal: app_closures,
+        _app_causal: app_closures,
         current_capacity,
         candidate_heads: None,
         candidate_introductions: None,

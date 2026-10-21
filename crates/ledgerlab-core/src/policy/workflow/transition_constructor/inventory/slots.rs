@@ -1,5 +1,5 @@
 use super::super::super::selected_program::SelectedProgram;
-use super::super::{arithmetic, data::*, meter, shape, CoreMeter};
+use super::super::{arithmetic, meter, shape, CoreMeter};
 use super::check::*;
 use crate::Result;
 use serde_json::{json, Value};
@@ -41,17 +41,17 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     catalog: &Value,
     inst: &Value,
     t: &Value,
-    role: &Value,
-    current_grant: &Value,
+    selected_operands: (&Value, &Value),
 ) -> Result<()> {
+    let (role, current_grant) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::slots::validate", |m| {
-            validate_data(m, program, b, catalog, inst, t, role, Some(current_grant))
-        });
+        m.diagnostic_scope("inventory::slots::validate", |m| {
+            validate_data(m, program, b, catalog, inst, t, (role, Some(current_grant)))
+        })
     }
     #[cfg(not(test))]
-    validate_data(m, program, b, catalog, inst, t, role, Some(current_grant))
+    validate_data(m, program, b, catalog, inst, t, (role, Some(current_grant)))
 }
 fn validate_data(
     m: &mut CoreMeter,
@@ -60,9 +60,9 @@ fn validate_data(
     catalog: &Value,
     inst: &Value,
     t: &Value,
-    role: &Value,
-    current_grant: Option<&Value>,
+    selected_operands: (&Value, Option<&Value>),
 ) -> Result<()> {
+    let (role, current_grant) = selected_operands;
     invoke!(
         shape::closed,
         m,
@@ -651,58 +651,6 @@ fn validate_causal_projection(
     }
     Ok(())
 }
-#[cfg(test)]
-mod clause_tests {
-    use super::*;
-    fn input(n: usize, schema: &str) -> (Value, Value, Value, Value) {
-        let clauses:Vec<_>=(0..n).map(|i|json!({"root_component_slot":"root","family_slot":format!("family-{i:02}"),"correction_source_slot":"test:corrector","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"})).collect();
-        let families: Vec<_> = (0..n)
-            .map(|i| json!({"slot_id":format!("family-{i:02}"),"target_component_slot":"root"}))
-            .collect();
-        (
-            json!({"source_slots":[{"name":"test:corrector"}]}),
-            json!({"families":families}),
-            json!({"schema":schema,"causal_reversal_clauses":clauses}),
-            json!({"source_slots":["test:corrector"]}),
-        )
-    }
-    #[test]
-    fn causal_clause_33_and_64_join_actual_original_family_and_current_nomination() {
-        for schema in [
-            "ledger-workflow-slot-binding-terms/2",
-            "ledger-workflow-slot-binding-terms/3",
-        ] {
-            for n in [33, 64] {
-                let (b, c, t, g) = input(n, schema);
-                let mut m = CoreMeter::new(65536).unwrap();
-                validate_causal_clauses(&mut m, &b, &c, &t, &g).unwrap();
-                let mut wrong = g;
-                wrong["source_slots"] = json!([]);
-                let mut m = CoreMeter::new(65536).unwrap();
-                assert!(validate_causal_clauses(&mut m, &b, &c, &t, &wrong).is_err());
-            }
-        }
-    }
-    #[test]
-    fn causal_clause_schema_minimum_and_65_refusal_remain_closed() {
-        let (b, c, t, g) = input(0, "ledger-workflow-slot-binding-terms/2");
-        assert!(
-            validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g).is_err()
-        );
-        let (_, _, t, _) = input(0, "ledger-workflow-slot-binding-terms/3");
-        validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g).unwrap();
-        for schema in [
-            "ledger-workflow-slot-binding-terms/2",
-            "ledger-workflow-slot-binding-terms/3",
-        ] {
-            let (b, c, t, g) = input(65, schema);
-            assert!(
-                validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g)
-                    .is_err()
-            );
-        }
-    }
-}
 
 /// Borrowed pre-accept projection of the SAME selected slot validator. This is
 /// DATA checking only: caller retains exact source/party/current-grant custody,
@@ -712,12 +660,12 @@ pub fn validate_app_slot_projection(
     program: &SelectedProgram,
     scope: &[String; 2],
     binding: &Value,
-    catalog: &Value,
-    instantiation: &Value,
+    catalog_and_instantiation: (&Value, &Value),
     slot_terms: &Value,
     role: &Value,
     session: &mut crate::validation_work::OriginalAuditSession,
 ) -> Result<()> {
+    let (catalog, instantiation) = catalog_and_instantiation;
     let result = (|| {
         if !program.uses_app_owned_cost_recipe() {
             return Err(shape::fail(
@@ -755,8 +703,7 @@ pub fn validate_app_slot_projection(
             catalog,
             instantiation,
             slot_terms,
-            role,
-            None,
+            (role, None),
         )?;
         validate_app_funding_projection(m, program, binding, slot_terms, role)
     })();
@@ -821,4 +768,57 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_
         funding_literal(m, leg, "mode", "platform")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod clause_tests {
+    use super::*;
+    fn input(n: usize, schema: &str) -> (Value, Value, Value, Value) {
+        let clauses:Vec<_>=(0..n).map(|i|json!({"root_component_slot":"root","family_slot":format!("family-{i:02}"),"correction_source_slot":"test:corrector","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"})).collect();
+        let families: Vec<_> = (0..n)
+            .map(|i| json!({"slot_id":format!("family-{i:02}"),"target_component_slot":"root"}))
+            .collect();
+        (
+            json!({"source_slots":[{"name":"test:corrector"}]}),
+            json!({"families":families}),
+            json!({"schema":schema,"causal_reversal_clauses":clauses}),
+            json!({"source_slots":["test:corrector"]}),
+        )
+    }
+    #[test]
+    fn causal_clause_33_and_64_join_actual_original_family_and_current_nomination() {
+        for schema in [
+            "ledger-workflow-slot-binding-terms/2",
+            "ledger-workflow-slot-binding-terms/3",
+        ] {
+            for n in [33, 64] {
+                let (b, c, t, g) = input(n, schema);
+                let mut m = CoreMeter::new(65536).unwrap();
+                validate_causal_clauses(&mut m, &b, &c, &t, &g).unwrap();
+                let mut wrong = g;
+                wrong["source_slots"] = json!([]);
+                let mut m = CoreMeter::new(65536).unwrap();
+                assert!(validate_causal_clauses(&mut m, &b, &c, &t, &wrong).is_err());
+            }
+        }
+    }
+    #[test]
+    fn causal_clause_schema_minimum_and_65_refusal_remain_closed() {
+        let (b, c, t, g) = input(0, "ledger-workflow-slot-binding-terms/2");
+        assert!(
+            validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g).is_err()
+        );
+        let (_, _, t, _) = input(0, "ledger-workflow-slot-binding-terms/3");
+        validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g).unwrap();
+        for schema in [
+            "ledger-workflow-slot-binding-terms/2",
+            "ledger-workflow-slot-binding-terms/3",
+        ] {
+            let (b, c, t, g) = input(65, schema);
+            assert!(
+                validate_causal_clauses(&mut CoreMeter::new(65536).unwrap(), &b, &c, &t, &g)
+                    .is_err()
+            );
+        }
+    }
 }

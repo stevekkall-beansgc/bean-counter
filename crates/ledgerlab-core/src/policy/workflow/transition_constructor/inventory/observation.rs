@@ -13,9 +13,9 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::observation::validate", |m| {
+        m.diagnostic_scope("inventory::observation::validate", |m| {
             validate_data(m, c, state, ob, verifier, root, false)
-        });
+        })
     }
     #[cfg(not(test))]
     validate_data(m, c, state, ob, verifier, root, false)

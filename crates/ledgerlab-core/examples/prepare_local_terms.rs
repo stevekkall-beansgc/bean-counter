@@ -1,8 +1,5 @@
 //! Normalize proposed public fullterms INPUT; no store or acceptance authority.
-use ledgerlab_core::{
-    canonical,
-    policy::workflow::{AcceptanceTerms, FactSchema},
-};
+use ledgerlab_core::policy::workflow::{AcceptanceTerms, FactSchema};
 use serde_json::json;
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {

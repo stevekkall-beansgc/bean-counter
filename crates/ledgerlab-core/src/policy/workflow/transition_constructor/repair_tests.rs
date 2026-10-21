@@ -146,7 +146,12 @@ fn nested_equality_membership_and_subset_are_paid_and_short_circuit() {
     }
     let mut meter = CoreMeter::new(65536).unwrap();
     assert!(shape::member(&mut meter, &[json!(false), value.clone()], &value).unwrap());
-    shape::subset(&mut meter, &[value.clone()], &[value]).unwrap();
+    shape::subset(
+        &mut meter,
+        std::slice::from_ref(&value),
+        std::slice::from_ref(&value),
+    )
+    .unwrap();
     assert!(meter
         .usage()
         .trace
@@ -158,8 +163,10 @@ fn nested_equality_membership_and_subset_are_paid_and_short_circuit() {
 fn selected_chain_head_rejects_an_activation_reference() {
     let (_, c, p, _) = super::first_work_tests::test_inputs();
     let payload: serde_json::Value = serde_json::from_slice(&p).unwrap();
-    let mut state = super::DraftStateData::default();
-    state.chain_head = Some(c.authorities[0].activation_ref.clone());
+    let state = super::DraftStateData {
+        chain_head: Some(c.authorities[0].activation_ref.clone()),
+        ..Default::default()
+    };
     assert_eq!(
         super::inventory::entry::validate(
             &mut CoreMeter::new(65536).unwrap(),
@@ -325,7 +332,7 @@ fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
             &p,
             &reference,
             &prior,
-            &[link.reference.clone()]
+            std::slice::from_ref(&link.reference)
         )
         .unwrap()
         .0,

@@ -189,7 +189,7 @@ impl SlotTemplate {
             }
         })?;
         work.visit(Visit::Constraint)?;
-        if super::facts::source::different(&dto.schema, &SCHEMA, work, complete)? {
+        if super::facts::source::different(&dto.schema, SCHEMA, work, complete)? {
             return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "slot-template schema"));
         }
         name_with_work(&dto.template_id, work)?;

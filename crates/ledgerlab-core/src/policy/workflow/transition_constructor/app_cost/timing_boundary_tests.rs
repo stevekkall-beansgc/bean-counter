@@ -53,12 +53,12 @@ fn original<'a>(a: &AuditArena, m: &mut CoreMeter, declaration: &'a Value) -> Or
         work_ref: r.clone(),
         work: record(json!({"accepted_at":"2026-10-19T00:00:00.000000Z"})),
         claim_ref: r.clone(),
-        claim: empty.clone(),
+        _claim: empty.clone(),
         binding_ref: r.clone(),
         terms: Terms {
             binding: empty.clone(),
             accepted: empty.clone(),
-            activation: empty.clone(),
+            _activation: empty.clone(),
             catalog: empty.clone(),
             instantiation: empty.clone(),
             slot_terms: empty.clone(),
@@ -66,7 +66,7 @@ fn original<'a>(a: &AuditArena, m: &mut CoreMeter, declaration: &'a Value) -> Or
             role_ref: r.clone(),
         },
         declaration,
-        instruction: declaration,
+        _instruction: declaration,
         component_slot: "app".into(),
         original_decision_ref: r,
         _ownership: a.reserve_external_payload(1024, m).unwrap(),
@@ -93,8 +93,8 @@ fn pair(a: &AuditArena, m: &mut CoreMeter) -> EvidencePair {
     EvidencePair {
         attestation_ref: r.clone(),
         attestation: record(json!({})),
-        verification_ref: r,
-        verification: record(json!({})),
+        _verification_ref: r,
+        _verification: record(json!({})),
         _ownership: a.reserve_external_payload(1024, m).unwrap(),
     }
 }
@@ -137,7 +137,7 @@ fn boundary_app_initial_t0_does_not_slide_and_causal_expiry_is_distinct() {
     let declaration = json!({"finalize_within_us":"20000000","correction_within_us":"10000000","correction_anchor":"initial_cost_accepted_at","causal_reversal":{"root_relation":"original_work_delayed_cost_dependency","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}});
     let observation = AppObservation {
         pair: pair(&a, &mut m),
-        quantity: arithmetic::Ratio {
+        _quantity: arithmetic::Ratio {
             numerator: 1.into(),
             denominator: 1.into(),
         },
@@ -154,7 +154,7 @@ fn boundary_app_initial_t0_does_not_slide_and_causal_expiry_is_distinct() {
         old_cost: None,
         current: Some(current("2026-10-19T00:00:15.000000Z")),
         dependency_ref: reference(),
-        dependency: record(json!({})),
+        _dependency: record(json!({})),
         decision_id: "decision".into(),
         revision: 3.into(),
         _ownership: a.reserve_external_payload(1024, &mut m).unwrap(),
@@ -163,7 +163,7 @@ fn boundary_app_initial_t0_does_not_slide_and_causal_expiry_is_distinct() {
     for at in ["2026-10-19T00:00:19.999999Z", "2026-10-19T00:00:20.000000Z"] {
         let clock = timing::standalone(&mut m, &context(at), &program, &plan).unwrap();
         assert_eq!(
-            clock.standalone_correction_until,
+            clock._standalone_correction_until,
             Some(
                 Timestamp::parse("2026-10-19T00:00:20.000000Z")
                     .unwrap()

@@ -168,6 +168,7 @@ impl Meter {
     }
     /// AUTH02 original-recipe framing domain. It cannot enter compile/draft.
     /// No caller-selected maximum or production admission is exposed.
+    #[cfg(test)]
     pub(crate) fn original_audit() -> Result<Self> {
         Self::original_audit_with_limits(None)
     }
@@ -185,6 +186,7 @@ impl Meter {
         meter.work_limit = limits.map_or(Some(1_048_576), |l| l.semantic_work);
         Ok(meter)
     }
+    #[cfg(test)]
     pub(crate) fn original_remaining_work(&self) -> u64 {
         self.maximum.saturating_sub(self.usage.semantic_work)
     }
@@ -985,8 +987,7 @@ impl Meter {
                     kind,
                     &operands,
                     cost,
-                    self.usage.semantic_work,
-                    next,
+                    (self.usage.semantic_work, next),
                 ));
                 return Err(Error::new(
                     "PROGRAM_BUDGET_EXCEEDED",
@@ -1000,8 +1001,7 @@ impl Meter {
                     kind,
                     &operands,
                     cost,
-                    self.usage.semantic_work,
-                    next,
+                    (self.usage.semantic_work, next),
                 ));
             }
             if self.work_limit.is_some_and(|limit| next > limit) {
@@ -1011,8 +1011,7 @@ impl Meter {
                     kind,
                     &operands,
                     cost,
-                    self.usage.semantic_work,
-                    next,
+                    (self.usage.semantic_work, next),
                 ));
             } else {
                 diagnostic.storage = storage;
@@ -1020,8 +1019,8 @@ impl Meter {
                 let mut sites = Vec::with_capacity(diagnostic.sites.len());
                 sites.extend_from_slice(&diagnostic.sites);
                 diagnostic.callers.push(Caller {
-                    file: location.file(),
-                    line: location.line(),
+                    _file: location.file(),
+                    _line: location.line(),
                     sites,
                 });
             }
@@ -1134,21 +1133,21 @@ impl Meter {
 #[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct Attempt {
-    pub phase: Phase,
-    pub kind: &'static str,
-    pub operands: Vec<u64>,
-    pub cost: u64,
+    pub _phase: Phase,
+    pub _kind: &'static str,
+    pub _operands: Vec<u64>,
+    pub _cost: u64,
     pub before: u64,
     pub after: u64,
-    pub file: &'static str,
-    pub line: u32,
+    pub _file: &'static str,
+    pub _line: u32,
     pub sites: Vec<&'static str>,
 }
 #[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct Caller {
-    pub file: &'static str,
-    pub line: u32,
+    pub _file: &'static str,
+    pub _line: u32,
     pub sites: Vec<&'static str>,
 }
 #[cfg(test)]
@@ -1305,7 +1304,7 @@ impl Meter {
     ) -> Result<T> {
         #[cfg(test)]
         {
-            return self.diagnostic_scope(site, f);
+            self.diagnostic_scope(site, f)
         }
         #[cfg(not(test))]
         {
@@ -1338,8 +1337,7 @@ impl Meter {
                     "diagnostic.projection.copy",
                     &[],
                     0,
-                    self.usage.semantic_work,
-                    self.usage.semantic_work,
+                    (self.usage.semantic_work, self.usage.semantic_work),
                 ));
                 return Err(Error::new(
                     "PROGRAM_BUDGET_EXCEEDED",
@@ -1379,18 +1377,18 @@ impl Diagnostic {
         kind: &'static str,
         operands: &[u64],
         cost: u64,
-        before: u64,
-        after: u64,
+        selected_operands: (u64, u64),
     ) -> Attempt {
+        let (before, after) = selected_operands;
         Attempt {
-            phase,
-            kind,
-            operands: operands.to_vec(),
-            cost,
+            _phase: phase,
+            _kind: kind,
+            _operands: operands.to_vec(),
+            _cost: cost,
             before,
             after,
-            file: location.file(),
-            line: location.line(),
+            _file: location.file(),
+            _line: location.line(),
             sites: self.sites.clone(),
         }
     }
@@ -1426,15 +1424,7 @@ pub(crate) fn div(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     }
     m.arithmetic_result(a / b)
 }
-#[track_caller]
-pub(crate) fn rem(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
-    m.arithmetic("arith.rem", &[a, b])?;
-    if cmp(m, b, &BigInt::from(0))? == std::cmp::Ordering::Equal {
-        m.fail_original();
-        return Err(Error::new("ARITHMETIC_OVERFLOW", "zero divisor"));
-    }
-    m.arithmetic_result(a % b)
-}
+
 #[track_caller]
 pub(crate) fn neg(m: &mut Meter, a: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.neg", &[a])?;
@@ -1715,10 +1705,10 @@ mod original_audit_domain_tests {
 
 #[cfg(test)]
 mod operator_resource_tests {
-    use super::*;
+
     use crate::{
         canonical::audit_arena::AuditArena,
-        validation_work::{OriginalAuditSession, ResourceLimits, ValidationVisit, ValidationWork},
+        validation_work::{OriginalAuditSession, ResourceLimits, ValidationVisit},
     };
     #[test]
     fn operator_unlimited_and_finite_limits_share_one_child_and_checked_accounting() {

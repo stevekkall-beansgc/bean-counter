@@ -258,7 +258,7 @@ pub(super) struct Construction<'inv, 'raw> {
     pub records: super::records::Records<'inv, 'raw>,
     pub history_edges: Vec<(ExactRef, ExactRef)>,
     pub app_effects: Option<AppEffects>,
-    pub app_causal: Option<super::app_cost::causal::CausalBatch>,
+    pub _app_causal: Option<super::app_cost::causal::CausalBatch>,
     pub current_capacity: Option<super::capacity::current::CurrentCapacity>,
     pub candidate_heads: Option<super::candidate::heads::OwnedHeads>,
     pub candidate_introductions: Option<super::candidate::introductions::OwnedIntroductions>,

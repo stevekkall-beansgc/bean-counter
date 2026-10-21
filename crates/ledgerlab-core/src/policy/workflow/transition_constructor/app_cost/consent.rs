@@ -214,9 +214,7 @@ fn party_management_root(
         &owner,
         &authority["local_admin_ref"],
         &authority,
-        "observed_at",
-        &authority["actor"],
-        None,
+        ("observed_at", &authority["actor"], None),
     )?;
     Ok(())
 }
@@ -227,10 +225,9 @@ fn party_material(
     c: &DraftContextData,
     reference: &Value,
     subject: &Value,
-    metadata: &Value,
-    before: &Value,
-    key: &str,
+    selected_operands: (&Value, &Value, &str),
 ) -> Result<()> {
+    let (metadata, before, key) = selected_operands;
     let (_, evidence) = load(m, r, c, reference, "workflow-evidence", recipe.evidence)?;
     shape::closed(
         m,
@@ -283,9 +280,7 @@ fn party_material(
             &owner,
             &evidence["authority_ref"],
             &evidence,
-            "retained_at",
-            &evidence["retained_by"],
-            None,
+            ("retained_at", &evidence["retained_by"], None),
         )?;
     }
     Ok(())
@@ -297,9 +292,9 @@ fn party(
     c: &DraftContextData,
     b: &Value,
     accepted: &Value,
-    terms_ref: &ExactRef,
-    assent: &Value,
+    selected_operands: (&ExactRef, &Value),
 ) -> Result<RecordBody> {
+    let (terms_ref, assent) = selected_operands;
     shape::closed(
         m,
         assent,
@@ -417,9 +412,7 @@ fn party(
         c,
         &assent["evidence_ref"],
         subject.value(),
-        metadata.value(),
-        b,
-        "accepted_at",
+        (metadata.value(), b, "accepted_at"),
     )?;
     let statement = arena.string_value("operator_verified_party_exact_consent", m)?;
     let purpose = arena.string_value("party_operator_attestation", m)?;
@@ -438,9 +431,7 @@ fn party(
         c,
         &assent["operator_attestation_ref"],
         subject.value(),
-        metadata.value(),
-        b,
-        "accepted_at",
+        (metadata.value(), b, "accepted_at"),
     )?;
     let _ = auth_ref;
     Ok(auth)
@@ -452,9 +443,9 @@ pub(super) fn original(
     c: &DraftContextData,
     b: &Value,
     accepted: &Value,
-    terms_ref: &ExactRef,
-    registered: &Value,
+    selected_operands: (&ExactRef, &Value),
 ) -> Result<()> {
+    let (terms_ref, registered) = selected_operands;
     let recipe = recipe(program);
     let arena = m
         .representation_arena()
@@ -499,12 +490,18 @@ pub(super) fn original(
                     "ledger-workflow-retained-evidence/1",
                 )?;
                 inventory::evidence::assent(
-                    m, r, c, &owner, &assent, &evidence, purpose, registered, b,
+                    m,
+                    r,
+                    c,
+                    &owner,
+                    &assent,
+                    &evidence,
+                    (purpose, registered, b),
                 )?;
             }
             customer_count = w::usize_add(m, customer_count, 1)?;
         } else {
-            let auth = party(recipe, m, r, c, b, accepted, terms_ref, &assent)?;
+            let auth = party(recipe, m, r, c, b, accepted, (terms_ref, &assent))?;
             let consent = &assent["consent"];
             let payer = arena.string_value("payer", m)?;
             let bearer = arena.string_value("bearer", m)?;
@@ -706,9 +703,7 @@ mod management_tests {
                     &owner,
                     &json!(rows[0].reference),
                     &evidence,
-                    "retained_at",
-                    &evidence["retained_by"],
-                    None,
+                    ("retained_at", &evidence["retained_by"], None),
                 )
                 .map(|_| ())
             } else {

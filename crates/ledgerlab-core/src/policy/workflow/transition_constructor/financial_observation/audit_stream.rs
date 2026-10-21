@@ -1229,7 +1229,7 @@ mod tests {
                 .unwrap();
             drop(source_body);
             let financial_body = session
-                .parse_representation(&encoded(&financial), RepresentationKind::Record)
+                .parse_representation(&encoded(financial), RepresentationKind::Record)
                 .unwrap();
             stream
                 .set_financial_header(

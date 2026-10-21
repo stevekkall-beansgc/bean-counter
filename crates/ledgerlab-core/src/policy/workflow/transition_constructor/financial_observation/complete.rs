@@ -93,14 +93,14 @@ fn pin(
     if shape::same_text(m, kind, "decision")? {
         for h in &state.financial.decision_heads {
             m.visit("financial.complete_decision_pin")?;
-            if shape::same_ref(m, &h.reference, &reference)? {
+            if shape::same_ref(m, &h.reference, reference)? {
                 if !shape::same_text(m, revision, &h.revision)? {
                     return Err(shape::fail("decision pin revision"));
                 }
                 let body = r.get_schemas(
                     m,
                     &c.key,
-                    &reference,
+                    reference,
                     "workflow-decision",
                     &[
                         "ledger-workflow-decision-revision/1",
@@ -115,14 +115,14 @@ fn pin(
     } else if shape::same_text(m, kind, "family")? {
         for h in &state.financial.family_heads {
             m.visit("financial.complete_family_pin")?;
-            if shape::same_ref(m, &h.reference, &reference)? {
+            if shape::same_ref(m, &h.reference, reference)? {
                 if !shape::same_text(m, revision, &h.revision)? {
                     return Err(shape::fail("family pin revision"));
                 }
                 let body = r.get_schemas(
                     m,
                     &c.key,
-                    &reference,
+                    reference,
                     "workflow-family-state",
                     &[
                         "ledger-workflow-family-state/1",
@@ -141,11 +141,11 @@ fn pin(
         }
     } else if shape::same_text(m, kind, "chain")? {
         if let Some(h) = &state.financial.chain_head {
-            if shape::same_ref(m, h, &reference)? {
+            if shape::same_ref(m, h, reference)? {
                 let body = r.get(
                     m,
                     &c.key,
-                    &reference,
+                    reference,
                     "workflow-chain-state",
                     "ledger-workflow-chain-state/1",
                 )?;
@@ -156,14 +156,14 @@ fn pin(
     } else if shape::same_text(m, kind, "capacity")? {
         for h in state.capacity_heads {
             m.visit("financial.complete_capacity_pin")?;
-            if shape::same_ref(m, &h.reference, &reference)? {
+            if shape::same_ref(m, &h.reference, reference)? {
                 if !shape::same_text(m, revision, &h.revision)? {
                     return Err(shape::fail("capacity pin revision"));
                 }
                 let body = r.get(
                     m,
                     &c.key,
-                    &reference,
+                    reference,
                     "workflow-correction-capacity",
                     "ledger-correction-capacity/1",
                 )?;
@@ -185,14 +185,14 @@ fn pin(
         if let Some(app) = state.app {
             for h in app.cost_heads {
                 m.visit("financial.complete_app_pin")?;
-                if shape::same_ref(m, &h.reference, &reference)? {
+                if shape::same_ref(m, &h.reference, reference)? {
                     if !shape::same_text(m, revision, &h.revision)? {
                         return Err(shape::fail("app pin revision"));
                     }
                     let body = r.get(
                         m,
                         &c.key,
-                        &reference,
+                        reference,
                         "workflow-cost",
                         "ledger-workflow-app-cost-revision/1",
                     )?;

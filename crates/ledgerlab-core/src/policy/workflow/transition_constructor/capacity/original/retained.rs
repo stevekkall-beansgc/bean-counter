@@ -16,10 +16,10 @@ fn derive_for_work_with<T>(
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
-    work: &Value,
-    terms: &super::super::super::authority::Terms,
+    selected_operands: (&Value, &super::super::super::authority::Terms),
     finish: Derive<T>,
 ) -> Result<T> {
+    let (work, terms) = selected_operands;
     let scratch =
         2 * (mem::size_of::<ExactRef>() + 64 + 128 + 71) + 2 * (mem::size_of::<String>() + 128);
     let _metadata = arena.reserve_external_payload(scratch, m)?;
@@ -97,12 +97,14 @@ fn derive_for_work_with<T>(
         r,
         c,
         program,
-        &decision_ref,
-        &decision,
-        work_ref.reference(),
-        work,
-        &claim_ref,
-        terms,
+        (
+            &decision_ref,
+            &decision,
+            work_ref.reference(),
+            work,
+            &claim_ref,
+            terms,
+        ),
         finish,
     )
 }
@@ -113,14 +115,17 @@ fn derive_retained_with<T>(
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
-    decision_ref: &ExactRef,
-    decision: &Value,
-    work_ref: &ExactRef,
-    work: &Value,
-    claim_ref: &ExactRef,
-    terms: &super::super::super::authority::Terms,
+    selected_operands: (
+        &ExactRef,
+        &Value,
+        &ExactRef,
+        &Value,
+        &ExactRef,
+        &super::super::super::authority::Terms,
+    ),
     finish: Derive<T>,
 ) -> Result<T> {
+    let (decision_ref, decision, work_ref, work, claim_ref, terms) = selected_operands;
     let payload = shape::field(m, work, "payload")?;
     let claim = r.get(
         m,
@@ -269,14 +274,16 @@ fn derive_retained_with<T>(
         c,
         program,
         payload,
-        decision_ref,
-        decision,
-        &targets,
-        work_ref,
-        work,
-        claim_ref,
-        &claim,
-        terms,
+        (
+            decision_ref,
+            decision,
+            &targets,
+            work_ref,
+            work,
+            claim_ref,
+            &claim,
+            terms,
+        ),
     )
 }
 
@@ -287,14 +294,16 @@ type Derive<T> = fn(
     &DraftContextData,
     &SelectedProgram,
     &Value,
-    &ExactRef,
-    &Value,
-    &[(ExactRef, RecordBody)],
-    &ExactRef,
-    &Value,
-    &ExactRef,
-    &Value,
-    &super::super::super::authority::Terms,
+    (
+        &ExactRef,
+        &Value,
+        &[(ExactRef, RecordBody)],
+        &ExactRef,
+        &Value,
+        &ExactRef,
+        &Value,
+        &super::super::super::authority::Terms,
+    ),
 ) -> Result<T>;
 pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(
     a: &AuditArena,
@@ -305,7 +314,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(
     w: &Value,
     t: &super::super::super::authority::Terms,
 ) -> Result<OriginalReservations> {
-    derive_for_work_with(a, m, r, c, p, w, t, super::derive_data)
+    derive_for_work_with(a, m, r, c, p, (w, t), super::derive_data)
 }
 pub(in crate::policy::workflow::transition_constructor) fn derive_financial_for_work(
     a: &AuditArena,
@@ -316,7 +325,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_financial_for_
     w: &Value,
     t: &super::super::super::authority::Terms,
 ) -> Result<FinancialReservations> {
-    derive_for_work_with(a, m, r, c, p, w, t, super::derive_financial_data)
+    derive_for_work_with(a, m, r, c, p, (w, t), super::derive_financial_data)
 }
 pub(in crate::policy::workflow::transition_constructor) fn derive_retained(
     a: &AuditArena,
@@ -325,13 +334,16 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_retained(
     c: &DraftContextData,
     p: &SelectedProgram,
     d: &ExactRef,
-    dv: &Value,
-    w: &ExactRef,
-    wv: &Value,
-    cl: &ExactRef,
-    t: &super::super::super::authority::Terms,
+    selected_operands: (
+        &Value,
+        &ExactRef,
+        &Value,
+        &ExactRef,
+        &super::super::super::authority::Terms,
+    ),
 ) -> Result<OriginalReservations> {
-    derive_retained_with(a, m, r, c, p, d, dv, w, wv, cl, t, super::derive_data)
+    let (dv, w, wv, cl, t) = selected_operands;
+    derive_retained_with(a, m, r, c, p, (d, dv, w, wv, cl, t), super::derive_data)
 }
 pub(in crate::policy::workflow::transition_constructor) fn derive_financial_retained(
     a: &AuditArena,
@@ -340,24 +352,22 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_financial_reta
     c: &DraftContextData,
     p: &SelectedProgram,
     d: &ExactRef,
-    dv: &Value,
-    w: &ExactRef,
-    wv: &Value,
-    cl: &ExactRef,
-    t: &super::super::super::authority::Terms,
+    selected_operands: (
+        &Value,
+        &ExactRef,
+        &Value,
+        &ExactRef,
+        &super::super::super::authority::Terms,
+    ),
 ) -> Result<FinancialReservations> {
+    let (dv, w, wv, cl, t) = selected_operands;
     derive_retained_with(
         a,
         m,
         r,
         c,
         p,
-        d,
-        dv,
-        w,
-        wv,
-        cl,
-        t,
+        (d, dv, w, wv, cl, t),
         super::derive_financial_data,
     )
 }

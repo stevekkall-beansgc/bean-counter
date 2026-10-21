@@ -1,4 +1,3 @@
-use super::super::emitted_record::ConstructedEnvelope;
 use super::super::record_body::RecordBody;
 use super::super::{
     data::*,
@@ -19,7 +18,7 @@ pub(in crate::policy::workflow::transition_constructor) fn decode(
 ) -> Result<Vec<u8>> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::evidence::decode", |m| decode_data(m, s));
+        m.diagnostic_scope("inventory::evidence::decode", |m| decode_data(m, s))
     }
     #[cfg(not(test))]
     decode_data(m, s)
@@ -39,7 +38,7 @@ pub(in crate::policy::workflow::transition_constructor) fn decode_data(
     let groups = w::i64_operation(m, Op::DivideRemainder, s.len() as i64, 4)?;
     let mut out = Vec::new();
     let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    for (index, chunk) in s.as_bytes().chunks_exact(4).enumerate() {
+    for (index, chunk) in s.as_bytes().as_chunks::<4>().0.iter().enumerate() {
         m.visit_named("evidence.base64_group")?;
         let mut digits = [0i64; 4];
         let mut pad = 0usize;
@@ -109,13 +108,12 @@ pub(in crate::policy::workflow::transition_constructor) fn root(
     o: &InvocationToken,
     reference: &Value,
     before_doc: &Value,
-    before_key: &str,
-    expected_actor: &Value,
-    expected_source: Option<&Value>,
+    selected_operands: (&str, &Value, Option<&Value>),
 ) -> Result<RecordBody> {
+    let (before_key, expected_actor, expected_source) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::evidence::root", |m| {
+        m.diagnostic_scope("inventory::evidence::root", |m| {
             root_data(
                 m,
                 r,
@@ -123,11 +121,9 @@ pub(in crate::policy::workflow::transition_constructor) fn root(
                 o,
                 reference,
                 before_doc,
-                before_key,
-                expected_actor,
-                expected_source,
+                (before_key, expected_actor, expected_source),
             )
-        });
+        })
     }
     #[cfg(not(test))]
     root_data(
@@ -137,9 +133,7 @@ pub(in crate::policy::workflow::transition_constructor) fn root(
         o,
         reference,
         before_doc,
-        before_key,
-        expected_actor,
-        expected_source,
+        (before_key, expected_actor, expected_source),
     )
 }
 fn root_data(
@@ -149,10 +143,9 @@ fn root_data(
     o: &InvocationToken,
     reference: &Value,
     before_doc: &Value,
-    before_key: &str,
-    expected_actor: &Value,
-    expected_source: Option<&Value>,
+    selected_operands: (&str, &Value, Option<&Value>),
 ) -> Result<RecordBody> {
+    let (before_key, expected_actor, expected_source) = selected_operands;
     let root = invoke!(
         load,
         m,
@@ -241,22 +234,32 @@ pub(in crate::policy::workflow::transition_constructor) fn retained(
     o: &InvocationToken,
     e: &Value,
     purpose: &str,
-    subject: &Value,
-    metadata: &Value,
-    before_doc: &Value,
-    before_key: &str,
+    selected_operands: (&Value, &Value, &Value, &str),
 ) -> Result<()> {
+    let (subject, metadata, before_doc, before_key) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::evidence::retained", |m| {
+        m.diagnostic_scope("inventory::evidence::retained", |m| {
             retained_data(
-                m, r, c, o, e, purpose, subject, metadata, before_doc, before_key,
+                m,
+                r,
+                c,
+                o,
+                e,
+                purpose,
+                (subject, metadata, before_doc, before_key),
             )
-        });
+        })
     }
     #[cfg(not(test))]
     retained_data(
-        m, r, c, o, e, purpose, subject, metadata, before_doc, before_key,
+        m,
+        r,
+        c,
+        o,
+        e,
+        purpose,
+        (subject, metadata, before_doc, before_key),
     )
 }
 fn retained_data(
@@ -266,11 +269,9 @@ fn retained_data(
     o: &InvocationToken,
     e: &Value,
     purpose: &str,
-    subject: &Value,
-    metadata: &Value,
-    before_doc: &Value,
-    before_key: &str,
+    selected_operands: (&Value, &Value, &Value, &str),
 ) -> Result<()> {
+    let (subject, metadata, before_doc, before_key) = selected_operands;
     // Reuse only the factory-established immutable properties. All subject,
     // terms, mode, time, actor and root associations remain paid at this use.
     if let Some(facts) = r.evidence_facts(m, e)? {
@@ -291,9 +292,7 @@ fn retained_data(
             o,
             invoke!(shape::field, m, e, "authority_ref")?,
             e,
-            "retained_at",
-            data_field!(m, e, "retained_by"),
-            None
+            ("retained_at", data_field!(m, e, "retained_by"), None)
         )?;
         return Ok(());
     }
@@ -371,9 +370,7 @@ fn retained_data(
         o,
         invoke!(shape::field, m, e, "authority_ref")?,
         e,
-        "retained_at",
-        data_field!(m, e, "retained_by"),
-        None
+        ("retained_at", data_field!(m, e, "retained_by"), None)
     )?;
     Ok(())
 }
@@ -384,18 +381,17 @@ pub(in crate::policy::workflow::transition_constructor) fn assent(
     o: &InvocationToken,
     a: &Value,
     e: &Value,
-    purpose: &str,
-    registered: &Value,
-    binding: &Value,
+    selected_operands: (&str, &Value, &Value),
 ) -> Result<()> {
+    let (purpose, registered, binding) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::evidence::assent", |m| {
-            assent_data(m, r, c, o, a, e, purpose, registered, binding)
-        });
+        m.diagnostic_scope("inventory::evidence::assent", |m| {
+            assent_data(m, r, c, o, a, e, (purpose, registered, binding))
+        })
     }
     #[cfg(not(test))]
-    assent_data(m, r, c, o, a, e, purpose, registered, binding)
+    assent_data(m, r, c, o, a, e, (purpose, registered, binding))
 }
 fn assent_data(
     m: &mut CoreMeter,
@@ -404,10 +400,9 @@ fn assent_data(
     o: &InvocationToken,
     a: &Value,
     e: &Value,
-    purpose: &str,
-    registered: &Value,
-    binding: &Value,
+    selected_operands: (&str, &Value, &Value),
 ) -> Result<()> {
+    let (purpose, registered, binding) = selected_operands;
     invoke!(
         shape::closed,
         m,
@@ -444,9 +439,11 @@ fn assent_data(
         o,
         e,
         purpose,
-        &json!({"customer":data_field!(m,&a,"customer"),"agreement_id":data_field!(m,&a,"agreement_id")}),
-        &metadata,
-        binding,
-        "accepted_at"
+        (
+            &json!({"customer":data_field!(m,&a,"customer"),"agreement_id":data_field!(m,&a,"agreement_id")}),
+            &metadata,
+            binding,
+            "accepted_at"
+        )
     )
 }

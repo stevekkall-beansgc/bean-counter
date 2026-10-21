@@ -7,6 +7,7 @@ use crate::{
     Result,
 };
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 #[path = "local_assets.rs"]
 mod assets;
 #[path = "local_operator_assets.rs"]
@@ -19,6 +20,7 @@ pub(super) const DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/ca
 pub(super) const PARENT_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler7-data.json");
 pub(super) const OPERATOR_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json");
 const OPERATOR_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile3.json");
+#[cfg(test)]
 const MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile.json");
 const PARENT_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile2.json");
 
@@ -122,9 +124,7 @@ mod tests {
                 AuditArena::new().unwrap()
             };
             let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let support = if version == 8 {
-                SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap()
-            } else if version == 7 {
+            let support = if version == 8 || version == 7 {
                 SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap()
             } else {
                 SelectedCompilerSupport::legacy_local_for_test(&mut s).unwrap()

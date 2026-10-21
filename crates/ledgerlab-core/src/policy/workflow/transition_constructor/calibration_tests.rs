@@ -186,7 +186,7 @@ fn selected_a_setup_non_admitting_semantic_regression() {
     let refused = construct::semantic_regression(&program, &c, &p, &inputs, &state, &mut less);
     assert_eq!(refused.unwrap_err().code, "PROGRAM_BUDGET_EXCEEDED");
     let used = less.usage();
-    assert!(used.semantic_work <= n - 1);
+    assert!(used.semantic_work < n);
     assert_eq!(used.trace, m.usage().trace[..used.trace.len()]);
     assert_eq!(
         draft.unresolved_admission_obligations,

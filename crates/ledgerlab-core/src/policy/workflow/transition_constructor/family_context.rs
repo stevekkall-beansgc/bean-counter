@@ -19,7 +19,7 @@ pub(super) struct FamilyContext<'p> {
     pub work_ref: ExactRef,
     pub work: RecordBody,
     pub claim_ref: ExactRef,
-    pub claim: RecordBody,
+    pub _claim: RecordBody,
     pub decision_ref: ExactRef,
     pub decision: RecordBody,
     pub family_head_ref: ExactRef,
@@ -267,7 +267,7 @@ pub(super) fn select<'p>(
         work_ref,
         work,
         claim_ref,
-        claim,
+        _claim: claim,
         decision_ref,
         decision,
         family_head_ref: head.reference.clone(),
@@ -327,12 +327,7 @@ impl FamilyContext<'_> {
             p.value(),
             activity.value(),
             product,
-            &owner,
-            &times,
-            program,
-            mode,
-            &[],
-            namespace,
+            (&owner, &times, program, mode, &[], namespace),
         )?;
         let originals = shape::array(m, &self.target, "families")?;
         let slot = shape::text(m, &self.family_head, "family_slot")?;
@@ -351,10 +346,12 @@ impl FamilyContext<'_> {
             program,
             &resolved.terms,
             &self.work_ref,
-            &self.work,
-            &self.claim_ref,
-            &self.decision_ref,
-            &self.decision,
+            (
+                &self.work,
+                &self.claim_ref,
+                &self.decision_ref,
+                &self.decision,
+            ),
         )?;
         Ok(resolved)
     }

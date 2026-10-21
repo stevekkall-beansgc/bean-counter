@@ -8,19 +8,19 @@ use super::super::super::{
 };
 use super::{add, mul, ordered, shape, CoreMeter, SourceFrameBound};
 use crate::{
-    validation_work::{self as w, ValidationWork},
+    validation_work::{self as w},
     Result,
 };
 use serde_json::Value;
 
 pub(in crate::policy::workflow::transition_constructor) struct SourceCallbackBound {
-    pub birth: usize,
-    pub grants: usize,
-    pub records: usize,
-    pub observation: usize,
-    pub remaining_callbacks: usize,
-    pub timestamp_memo_overhead: usize,
-    pub timestamp_reuse_saved: usize,
+    pub _birth: usize,
+    pub _grants: usize,
+    pub _records: usize,
+    pub _observation: usize,
+    pub _remaining_callbacks: usize,
+    pub _timestamp_memo_overhead: usize,
+    pub _timestamp_reuse_saved: usize,
     pub total: usize,
 }
 fn sum(m: &mut CoreMeter, parts: &[usize]) -> Result<usize> {
@@ -225,120 +225,6 @@ fn root_dimensions(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::super::super::{
-        authority::Terms, data::EconomicRecordView, first_work_tests,
-    };
-    use super::*;
-    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
-    #[test]
-    fn original_frame_loads_exact_birth_roots_and_composes_all_callback_terms() {
-        // Actual record/shape/canonical consumers over the existing conditional
-        // prerequisite data. This proves this derivation's joins and component
-        // composition only; no history/source authority or eligibility exists.
-        let (program, c, _, records) = first_work_tests::test_inputs();
-        let views: Vec<_> = records
-            .iter()
-            .map(|r| EconomicRecordView {
-                reference: &r.reference,
-                canonical_body: &r.canonical_body,
-            })
-            .collect();
-        let arena = AuditArena::new().unwrap();
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut child = session.meter_mut().original_economic_meter().unwrap();
-        let m = &mut child;
-        let mut r = Records::borrowed(m, &arena, &c.key, &views, &[]).unwrap();
-        let binding = r
-            .get(
-                m,
-                &c.key,
-                &c.authorities[0].binding_ref,
-                "workflow-binding",
-                "ledger-workflow-binding/1",
-            )
-            .unwrap();
-        let accepted = r
-            .get(
-                m,
-                &c.key,
-                &c.authorities[0].accepted_agreement_ref,
-                "workflow-accepted-agreement",
-                "ledger-workflow-accepted-agreement/1",
-            )
-            .unwrap();
-        let activation = r
-            .get(
-                m,
-                &c.key,
-                &c.authorities[0].activation_ref,
-                "workflow-activation",
-                "ledger-workflow-activation-transition/1",
-            )
-            .unwrap();
-        let catalog = load(
-            m,
-            &mut r,
-            &c,
-            &binding,
-            "slot_catalog_ref",
-            "workflow-slot-catalog",
-            "ledger-workflow-slot-catalog/1",
-        )
-        .unwrap();
-        let instantiation = load(
-            m,
-            &mut r,
-            &c,
-            &binding,
-            "slot_instantiation_ref",
-            "workflow-slot-instantiation",
-            "ledger-workflow-slot-instantiation/1",
-        )
-        .unwrap();
-        let slot_terms_ref = shape::reference(m, &binding["bindings"][0]["binding_ref"]).unwrap();
-        let slot_terms = r
-            .get(
-                m,
-                &c.key,
-                &slot_terms_ref,
-                "workflow-slot-terms",
-                "ledger-workflow-slot-binding-terms/2",
-            )
-            .unwrap();
-        let role_ref = shape::reference(m, &slot_terms["role_ref"]).unwrap();
-        let terms = Terms {
-            binding,
-            accepted,
-            activation,
-            catalog,
-            instantiation,
-            slot_terms,
-            slot_terms_ref,
-            role_ref,
-        };
-        let original = super::super::original_frames(m, &mut r, &c, &terms, &program).unwrap();
-        assert_eq!(original.frames.len(), 1);
-        assert_eq!(original.terms_grant_count, 1);
-        let frame = &original.frames[0];
-        let callbacks = frame.complete_callback_work.as_ref().unwrap();
-        assert_eq!(
-            callbacks.total,
-            callbacks.birth
-                + callbacks.grants
-                + callbacks.records
-                + callbacks.observation
-                + callbacks.remaining_callbacks
-                + callbacks.timestamp_memo_overhead
-                - callbacks.timestamp_reuse_saved
-        );
-        assert!(callbacks.birth > 18 * frame.grant.timestamp_parse_work_through_original_end);
-        assert!(callbacks.grants > 2 * frame.grant.semantic_work);
-        assert!(callbacks.records > frame.maximum_grant_records_work);
-        assert!(callbacks.observation > 4261 + 258);
-    }
-}
 fn raw_retained(
     m: &mut CoreMeter,
     evidence: &Value,
@@ -380,10 +266,9 @@ pub(super) fn derive(
     program: &SelectedProgram,
     terms: &super::super::super::authority::Terms,
     frame: &SourceFrameBound,
-    original_grants: usize,
-    original_grant_guards: usize,
-    original_grant_refs: &[super::super::super::data::ExactRef],
+    selected_operands: (usize, usize, &[super::super::super::data::ExactRef]),
 ) -> Result<SourceCallbackBound> {
+    let (original_grants, original_grant_guards, original_grant_refs) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("source frame bound owner"))?;
@@ -806,13 +691,128 @@ pub(super) fn derive(
     )?;
     let total = w::usize_sub(m, total, timestamp_reuse_saved)?;
     Ok(SourceCallbackBound {
-        birth,
-        grants,
-        records,
-        observation,
-        remaining_callbacks,
-        timestamp_memo_overhead,
-        timestamp_reuse_saved,
+        _birth: birth,
+        _grants: grants,
+        _records: records,
+        _observation: observation,
+        _remaining_callbacks: remaining_callbacks,
+        _timestamp_memo_overhead: timestamp_memo_overhead,
+        _timestamp_reuse_saved: timestamp_reuse_saved,
         total,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::super::{
+        authority::Terms, data::EconomicRecordView, first_work_tests,
+    };
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    #[test]
+    fn original_frame_loads_exact_birth_roots_and_composes_all_callback_terms() {
+        // Actual record/shape/canonical consumers over the existing conditional
+        // prerequisite data. This proves this derivation's joins and component
+        // composition only; no history/source authority or eligibility exists.
+        let (program, c, _, records) = first_work_tests::test_inputs();
+        let views: Vec<_> = records
+            .iter()
+            .map(|r| EconomicRecordView {
+                reference: &r.reference,
+                canonical_body: &r.canonical_body,
+            })
+            .collect();
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child = session.meter_mut().original_economic_meter().unwrap();
+        let m = &mut child;
+        let mut r = Records::borrowed(m, &arena, &c.key, &views, &[]).unwrap();
+        let binding = r
+            .get(
+                m,
+                &c.key,
+                &c.authorities[0].binding_ref,
+                "workflow-binding",
+                "ledger-workflow-binding/1",
+            )
+            .unwrap();
+        let accepted = r
+            .get(
+                m,
+                &c.key,
+                &c.authorities[0].accepted_agreement_ref,
+                "workflow-accepted-agreement",
+                "ledger-workflow-accepted-agreement/1",
+            )
+            .unwrap();
+        let activation = r
+            .get(
+                m,
+                &c.key,
+                &c.authorities[0].activation_ref,
+                "workflow-activation",
+                "ledger-workflow-activation-transition/1",
+            )
+            .unwrap();
+        let catalog = load(
+            m,
+            &mut r,
+            &c,
+            &binding,
+            "slot_catalog_ref",
+            "workflow-slot-catalog",
+            "ledger-workflow-slot-catalog/1",
+        )
+        .unwrap();
+        let instantiation = load(
+            m,
+            &mut r,
+            &c,
+            &binding,
+            "slot_instantiation_ref",
+            "workflow-slot-instantiation",
+            "ledger-workflow-slot-instantiation/1",
+        )
+        .unwrap();
+        let slot_terms_ref = shape::reference(m, &binding["bindings"][0]["binding_ref"]).unwrap();
+        let slot_terms = r
+            .get(
+                m,
+                &c.key,
+                &slot_terms_ref,
+                "workflow-slot-terms",
+                "ledger-workflow-slot-binding-terms/2",
+            )
+            .unwrap();
+        let role_ref = shape::reference(m, &slot_terms["role_ref"]).unwrap();
+        let terms = Terms {
+            binding,
+            accepted,
+            _activation: activation,
+            catalog,
+            instantiation,
+            slot_terms,
+            slot_terms_ref,
+            role_ref,
+        };
+        let original = super::super::original_frames(m, &mut r, &c, &terms, &program).unwrap();
+        assert_eq!(original.frames.len(), 1);
+        assert_eq!(original._terms_grant_count, 1);
+        let frame = &original.frames[0];
+        let callbacks = frame.complete_callback_work.as_ref().unwrap();
+        assert_eq!(
+            callbacks.total,
+            callbacks._birth
+                + callbacks._grants
+                + callbacks._records
+                + callbacks._observation
+                + callbacks._remaining_callbacks
+                + callbacks._timestamp_memo_overhead
+                - callbacks._timestamp_reuse_saved
+        );
+        assert!(callbacks._birth > 18 * frame.grant.timestamp_parse_work_through_original_end);
+        assert!(callbacks._grants > 2 * frame.grant.semantic_work);
+        assert!(callbacks._records > frame.maximum_grant_records_work);
+        assert!(callbacks._observation > 4261 + 258);
+    }
 }

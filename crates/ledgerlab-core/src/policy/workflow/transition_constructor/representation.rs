@@ -1,5 +1,5 @@
 //! Private parsing data for exactly one invocation; never authority.
-use super::{data::ExactRef, records, shape, CoreMeter};
+use super::{data::ExactRef, shape, CoreMeter};
 use crate::{
     canonical::audit_arena::ExternalBufferLease, domain::Timestamp, validation_work as w, Result,
 };

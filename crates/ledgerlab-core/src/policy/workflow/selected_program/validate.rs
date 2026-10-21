@@ -19,9 +19,9 @@ fn cost_component(
     slot_book: &str,
     root: &str,
     key: &str,
-    evidence_slot: &str,
-    ceiling: &Amount,
+    selected_operands: (&str, &Amount),
 ) -> Result<()> {
+    let (evidence_slot, ceiling) = selected_operands;
     name(m, evidence_slot)?;
     if !super::compiler::same_literal(m, &r.phase, "cost")?
         || !super::compiler::same_literal(m, root, key)?
@@ -309,8 +309,7 @@ pub(super) fn policy(
                     slot.book.as_str(),
                     c.root_key(),
                     c.key(),
-                    evidence_slot,
-                    ceiling,
+                    (evidence_slot, ceiling),
                 )?;
                 if !super::compiler::same_literal(m, &slot.book, "retail")? {
                     return Err(bad("app cost retail book"));
@@ -342,8 +341,7 @@ pub(super) fn policy(
                     slot.book.as_str(),
                     c.root_key(),
                     c.key(),
-                    evidence_slot,
-                    ceiling,
+                    (evidence_slot, ceiling),
                 )?;
                 if slot.book != "retail" {
                     return Err(bad("retail final_cost book"));
@@ -389,8 +387,7 @@ pub(super) fn policy(
                     slot.book.as_str(),
                     c.root_key(),
                     c.key(),
-                    evidence_slot,
-                    ceiling,
+                    (evidence_slot, ceiling),
                 )?;
                 if slot.book != "supplier" {
                     return Err(bad("supplier_final_cost book"));

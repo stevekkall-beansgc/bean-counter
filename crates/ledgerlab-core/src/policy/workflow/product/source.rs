@@ -458,7 +458,7 @@ pub(super) fn references(values: &mut Vec<Reference>, w: &mut dyn ValidationWork
     *values = refs;
     Ok(())
 }
-pub(super) fn names(values: &mut Vec<String>, w: &mut dyn ValidationWork) -> Result<()> {
+pub(super) fn names(values: &mut [String], w: &mut dyn ValidationWork) -> Result<()> {
     paid::sort(values, w, |a, b, w| paid::text_cmp(a, b, w))?;
     for pair in values.windows(2) {
         if paid::text_cmp(&pair[0], &pair[1], w)?.is_eq() {

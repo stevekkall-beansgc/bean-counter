@@ -1,0 +1,1 @@
+Historical private intrinsic DATA factory and uncalled wrappers. The wrappers had no callers. The exact tested intrinsic parser/factory remains under cfg(test); runtime consumer identity, owner checks, raw fallback, and retained-at data remain compiled. This archive is not a supported admission or origin-verification capability.

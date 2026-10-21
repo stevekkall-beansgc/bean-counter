@@ -1,7 +1,7 @@
 //! Initial private agreement structures only. These values establish no
 //! enrollment, assent, authority, accepted binding, activation or monetary right.
 use super::{
-    facts::{counter, name, reject_null},
+    facts::{name, reject_null},
     SlotTemplate, TemplateBook,
 };
 use crate::{

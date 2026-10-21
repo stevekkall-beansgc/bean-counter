@@ -21,12 +21,7 @@ use crate::{
     Error, Result,
 };
 use serde_json::Value;
-macro_rules! call {
-    ($f:path,$m:expr,$a:expr,$b:expr) => {{
-        let (a, b) = ($a, $b);
-        $f($m, a, b)
-    }};
-}
+
 fn eq(m: &mut CoreMeter, a: &Value, b: &Value) -> Result<()> {
     shape::equal(m, a, b)
 }
@@ -120,7 +115,7 @@ pub(super) fn resolve(
         super::super::records::hash_parts(m, "workflow-acceptance-terms", &[bytes], false)?;
     literal(m, &accepted, "terms_digest", &digest)?;
     let owner = InvocationToken::new();
-    inventory::publication::validate(m, r, c, &owner, program, &binding, &accepted, &acceptance)?;
+    inventory::publication::validate(m, r, c, &owner, program, &binding, (&accepted, &acceptance))?;
     let activation = r.get(
         m,
         &c.key,
@@ -268,8 +263,7 @@ pub(super) fn resolve(
         &catalog,
         &instantiation,
         &slot_terms,
-        &role,
-        &source.current,
+        (&role, &source.current),
     )?;
     if mode == EconomicMode::Work {
         future_source_shape(m, r, c, &binding, &slot_terms)?;
@@ -310,10 +304,7 @@ pub(super) fn resolve(
                 &owner,
                 &evidence,
                 "funding",
-                subject.value(),
-                metadata.value(),
-                &binding,
-                "accepted_at",
+                (subject.value(), metadata.value(), &binding, "accepted_at"),
             )?;
         }
     }
@@ -324,15 +315,14 @@ pub(super) fn resolve(
         c,
         &binding,
         &accepted,
-        &acceptance_ref,
-        &source.registered,
+        (&acceptance_ref, &source.registered),
     )?;
     Ok((
         reference,
         authority::Terms {
             binding,
             accepted,
-            activation,
+            _activation: activation,
             catalog,
             instantiation,
             slot_terms,
@@ -465,10 +455,9 @@ pub(in crate::policy::workflow::transition_constructor) fn resolved(
     payload: &Value,
     program: &SelectedProgram,
     mode: EconomicMode,
-    source_slot: &str,
-    verified_facts: &[ExactRef],
-    original_namespace: &str,
+    selected_operands: (&str, &[ExactRef], &str),
 ) -> Result<authority::ResolvedOperands> {
+    let (source_slot, verified_facts, original_namespace) = selected_operands;
     let (binding_ref, terms, source) = resolve(m, r, c, payload, program, mode, source_slot)?;
     let original = shape::text(m, &terms.binding, "source_namespace")?;
     if !shape::same_text(m, original, original_namespace)? {

@@ -14,7 +14,6 @@ use crate::{
     Result,
 };
 use num_bigint::BigInt;
-use serde_json::Value;
 pub(super) struct AppLineage {
     pub consumption: ConstructedEnvelope,
     pub revision: ConstructedEnvelope,
@@ -65,9 +64,9 @@ pub(super) fn advance(
     observation_ref: &ExactRef,
     final_cost: &AppFinalAmount,
     decision_ref: &ExactRef,
-    revision: &BigInt,
-    prior: Option<&ExactRef>,
+    selected_operands: (&BigInt, Option<&ExactRef>),
 ) -> Result<AppLineage> {
+    let (revision, prior) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app cost lineage"))?;

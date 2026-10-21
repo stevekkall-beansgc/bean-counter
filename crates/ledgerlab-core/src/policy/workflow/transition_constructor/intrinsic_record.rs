@@ -5,18 +5,23 @@
 //! dictionary, canonical document identity, content grammar/hash, typed times
 //! and reference grammar. Its subject/root/time/terms associations are NOT
 //! proved; they remain consuming-context obligations. Other kinds fail closed.
+#[cfg(test)]
+use super::inventory::evidence;
 use super::{
     data::{ExactRef, RecordInput},
-    inventory::evidence,
     CoreMeter,
 };
+#[cfg(test)]
+use crate::canonical::{self, CanonicalBytes};
 use crate::{
-    canonical::{self, CanonicalBytes},
     domain::Timestamp,
     validation_work::{self as w, ValidationWork},
     Error, Result,
 };
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 
@@ -41,6 +46,7 @@ pub struct IntrinsicDataScope {
 impl IntrinsicDataScope {
     /// A pure DATA lifetime anchor. The host separately binds it to the actual
     /// held StoreRoot/snapshot in its private completed-origin capability.
+    #[cfg(test)]
     pub fn new(logical_store_id: String, scope: [String; 2]) -> Self {
         Self {
             logical_store_id,
@@ -55,6 +61,7 @@ impl IntrinsicDataScope {
         &self.scope
     }
 }
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvidencePurpose {
     CustomerRegistration,
@@ -64,90 +71,87 @@ pub enum EvidencePurpose {
     Funding,
     AdmissionStop,
 }
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvidenceInstallationMode {
     RealLocal,
     IsolatedSynthetic,
 }
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvidenceMedia {
     Utf8Text,
     OctetStream,
 }
+#[cfg(test)]
 pub enum EvidenceMetadata {
     Registration {
-        acceptor: String,
+        _acceptor: String,
     },
     Enrollment {
-        source: String,
-        principal_id: String,
+        _source: String,
+        _principal_id: String,
     },
     Assent {
-        terms_digest: String,
-        acceptor: String,
-        accepted_at: Timestamp,
+        _terms_digest: String,
+        _acceptor: String,
+        _accepted_at: Timestamp,
     },
     Operator {
-        terms_digest: String,
-        acceptor: String,
-        assent_evidence_ref: ExactRef,
+        _terms_digest: String,
+        _acceptor: String,
+        _assent_evidence_ref: ExactRef,
     },
     Funding {
-        resource_owner: String,
-        payer: String,
+        _resource_owner: String,
+        _payer: String,
     },
     Stop {
-        binding_ref: ExactRef,
-        target_transition_ref: ExactRef,
+        _binding_ref: ExactRef,
+        _target_transition_ref: ExactRef,
         reason: String,
     },
 }
 pub struct RetainedEvidenceFacts {
+    #[cfg(test)]
     purpose: EvidencePurpose,
-    customer: String,
-    agreement_id: Option<String>,
-    media: EvidenceMedia,
-    installation_mode: EvidenceInstallationMode,
+    #[cfg(test)]
+    _customer: String,
+    #[cfg(test)]
+    _agreement_id: Option<String>,
+    #[cfg(test)]
+    _media: EvidenceMedia,
+    #[cfg(test)]
+    _installation_mode: EvidenceInstallationMode,
+    #[cfg(test)]
     content: Vec<u8>,
-    content_sha256: String,
+    #[cfg(test)]
+    _content_sha256: String,
+    #[cfg(test)]
     metadata: EvidenceMetadata,
     retained_at: Timestamp,
-    retained_by: String,
-    authority_ref: ExactRef,
+    #[cfg(test)]
+    _retained_by: String,
+    #[cfg(test)]
+    _authority_ref: ExactRef,
 }
 impl RetainedEvidenceFacts {
+    #[cfg(test)]
     pub fn purpose(&self) -> EvidencePurpose {
         self.purpose
     }
-    pub fn customer(&self) -> &str {
-        &self.customer
-    }
-    pub fn agreement_id(&self) -> Option<&str> {
-        self.agreement_id.as_deref()
-    }
-    pub fn installation_mode(&self) -> EvidenceInstallationMode {
-        self.installation_mode
-    }
-    pub fn media(&self) -> EvidenceMedia {
-        self.media
-    }
+
+    #[cfg(test)]
     pub fn content(&self) -> &[u8] {
         &self.content
     }
-    pub fn content_sha256(&self) -> &str {
-        &self.content_sha256
-    }
+
+    #[cfg(test)]
     pub fn metadata(&self) -> &EvidenceMetadata {
         &self.metadata
     }
     pub fn retained_at(&self) -> &Timestamp {
         &self.retained_at
-    }
-    pub fn retained_by(&self) -> &str {
-        &self.retained_by
-    }
-    pub fn authority_ref(&self) -> &ExactRef {
-        &self.authority_ref
     }
 }
 pub struct IntrinsicRecord<'inv> {
@@ -166,6 +170,7 @@ impl<'inv> IntrinsicRecord<'inv> {
     pub fn body(&self) -> &Value {
         &self.body
     }
+    #[cfg(test)]
     pub fn retained_evidence(&self) -> &RetainedEvidenceFacts {
         &self.evidence
     }
@@ -190,12 +195,14 @@ impl<'inv> IntrinsicRecord<'inv> {
 fn fail(s: &str) -> Error {
     Error::new("INTEGRITY_FAILURE", s)
 }
+#[cfg(test)]
 fn text<'a>(work: &mut dyn IntrinsicValidationWork, v: &'a Value, key: &str) -> Result<&'a str> {
     work.visit_named("intrinsic.field")?;
     let value = v.get(key).ok_or_else(|| fail("missing intrinsic field"))?;
     work.visit_named("intrinsic.text_type")?;
     value.as_str().ok_or_else(|| fail("intrinsic text field"))
 }
+#[cfg(test)]
 fn field<'a>(work: &mut dyn IntrinsicValidationWork, v: &'a Value, key: &str) -> Result<&'a Value> {
     work.visit_named("intrinsic.field")?;
     v.get(key).ok_or_else(|| fail("missing intrinsic field"))
@@ -220,6 +227,7 @@ fn same_required(work: &mut dyn IntrinsicValidationWork, a: &str, b: &str) -> Re
         Err(fail("intrinsic association mismatch"))
     }
 }
+#[cfg(test)]
 fn closed(
     work: &mut dyn IntrinsicValidationWork,
     v: &Value,
@@ -248,6 +256,7 @@ fn closed(
     }
     Ok(())
 }
+#[cfg(test)]
 fn bounded_text(work: &mut dyn IntrinsicValidationWork, s: &str, max: usize) -> Result<String> {
     if w::compare(work, s.len(), 0usize)? != Ordering::Greater
         || w::compare(work, s.len(), max)? == Ordering::Greater
@@ -257,6 +266,7 @@ fn bounded_text(work: &mut dyn IntrinsicValidationWork, s: &str, max: usize) -> 
     work.write_bytes(s.len())?;
     Ok(s.to_owned())
 }
+#[cfg(test)]
 fn opaque(work: &mut dyn IntrinsicValidationWork, s: &str, max: usize) -> Result<String> {
     if w::compare(work, s.len(), 0usize)? != Ordering::Greater
         || w::compare(work, s.len(), max)? == Ordering::Greater
@@ -273,6 +283,7 @@ fn opaque(work: &mut dyn IntrinsicValidationWork, s: &str, max: usize) -> Result
     work.write_bytes(s.len())?;
     Ok(s.to_owned())
 }
+#[cfg(test)]
 fn digest(work: &mut dyn IntrinsicValidationWork, s: &str, prefixed: bool) -> Result<()> {
     let hex = if prefixed {
         if w::compare(work, s.len(), 71usize)? != Ordering::Equal {
@@ -300,6 +311,7 @@ fn digest(work: &mut dyn IntrinsicValidationWork, s: &str, prefixed: bool) -> Re
     }
     Ok(())
 }
+#[cfg(test)]
 fn reference_parts(
     work: &mut dyn IntrinsicValidationWork,
     kind_data: &str,
@@ -328,6 +340,7 @@ fn reference_parts(
     }
     Ok(())
 }
+#[cfg(test)]
 fn reference(
     work: &mut dyn IntrinsicValidationWork,
     v: &Value,
@@ -350,6 +363,7 @@ fn reference(
     })
 }
 
+#[cfg(test)]
 fn metadata(
     work: &mut dyn IntrinsicValidationWork,
     purpose: &str,
@@ -375,7 +389,7 @@ fn metadata(
                 closed(work, v, &["acceptor"], &[])?;
                 let s = text(work, v, "acceptor")?;
                 EvidenceMetadata::Registration {
-                    acceptor: opaque(work, s, 128)?,
+                    _acceptor: opaque(work, s, 128)?,
                 }
             }
             EvidencePurpose::SourceEnrollment => {
@@ -384,8 +398,8 @@ fn metadata(
                 let source = opaque(work, s, 256)?;
                 let s = text(work, v, "principal_id")?;
                 EvidenceMetadata::Enrollment {
-                    source,
-                    principal_id: opaque(work, s, 128)?,
+                    _source: source,
+                    _principal_id: opaque(work, s, 128)?,
                 }
             }
             EvidencePurpose::Assent => {
@@ -399,9 +413,9 @@ fn metadata(
                 let s = text(work, v, "accepted_at")?;
                 let accepted_at = Timestamp::parse_with_work(s, work)?;
                 EvidenceMetadata::Assent {
-                    terms_digest,
-                    acceptor,
-                    accepted_at,
+                    _terms_digest: terms_digest,
+                    _acceptor: acceptor,
+                    _accepted_at: accepted_at,
                 }
             }
             EvidencePurpose::OperatorAttestation => {
@@ -427,9 +441,9 @@ fn metadata(
                 let s = text(work, v, "statement")?;
                 same_required(work, s, "operator_verified_exact_terms_acceptance")?;
                 EvidenceMetadata::Operator {
-                    terms_digest,
-                    acceptor,
-                    assent_evidence_ref,
+                    _terms_digest: terms_digest,
+                    _acceptor: acceptor,
+                    _assent_evidence_ref: assent_evidence_ref,
                 }
             }
             EvidencePurpose::Funding => {
@@ -441,8 +455,8 @@ fn metadata(
                 let s = text(work, v, "mode")?;
                 same_required(work, s, "customer_local")?;
                 EvidenceMetadata::Funding {
-                    resource_owner,
-                    payer,
+                    _resource_owner: resource_owner,
+                    _payer: payer,
                 }
             }
             EvidencePurpose::AdmissionStop => {
@@ -460,8 +474,8 @@ fn metadata(
                 let s = text(work, v, "reason")?;
                 let reason = bounded_text(work, s, 1024)?;
                 EvidenceMetadata::Stop {
-                    binding_ref,
-                    target_transition_ref,
+                    _binding_ref: binding_ref,
+                    _target_transition_ref: target_transition_ref,
                     reason,
                 }
             }
@@ -473,6 +487,7 @@ fn metadata(
         "intrinsic evidence purpose",
     ))
 }
+#[cfg(test)]
 fn document_digest(
     work: &mut dyn IntrinsicValidationWork,
     schema: &str,
@@ -497,6 +512,7 @@ fn document_digest(
 /// This does not check an introduction, original operation/manifest/receipt,
 /// required root body, subject associations, current rights or time eligibility.
 /// CompletedOrigin is a separate host-private result of actual origin replay.
+#[cfg(test)]
 pub fn validate_retained_evidence_with_work<'inv>(
     owner: &'inv IntrinsicDataScope,
     input: &'inv RecordInput,
@@ -612,16 +628,16 @@ pub fn validate_retained_evidence_with_work<'inv>(
         body,
         evidence: RetainedEvidenceFacts {
             purpose,
-            customer,
-            agreement_id,
-            media,
-            installation_mode,
+            _customer: customer,
+            _agreement_id: agreement_id,
+            _media: media,
+            _installation_mode: installation_mode,
             content,
-            content_sha256,
+            _content_sha256: content_sha256,
             metadata,
             retained_at,
-            retained_by,
-            authority_ref,
+            _retained_by: retained_by,
+            _authority_ref: authority_ref,
         },
     })
 }
@@ -631,6 +647,7 @@ mod tests {
     use super::*;
     use crate::validation_work::{ArithmeticOperation, ValidationVisit};
     use num_bigint::BigInt;
+    #[cfg(test)]
     fn funding() -> RecordInput {
         let source: Value =
             serde_json::from_str(include_str!("fixtures/prerequisite-input-data.json")).unwrap();
@@ -643,7 +660,9 @@ mod tests {
         let hex = row["canonical_body_hex"].as_str().unwrap();
         let raw = hex
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
             .collect();
         RecordInput {
@@ -651,6 +670,7 @@ mod tests {
             canonical_body: raw,
         }
     }
+    #[cfg(test)]
     fn rebind(input: &mut RecordInput, change: impl FnOnce(&mut Value)) {
         let mut body = canonical::parse_bounded(&input.canonical_body, 4194304).unwrap();
         change(&mut body);
@@ -665,10 +685,12 @@ mod tests {
         input.reference.id = format!("wdoc_{}", &digest[7..]);
         input.reference.digest = digest;
     }
+    #[cfg(test)]
     fn owner() -> IntrinsicDataScope {
         IntrinsicDataScope::new("fixture-store".into(), ["fixture".into(), "sandbox".into()])
     }
     #[test]
+    #[cfg(test)]
     fn evidence_intrinsic_is_immutable_data_and_each_consume_pays_association() {
         let input = funding();
         let owner = owner();
@@ -693,6 +715,7 @@ mod tests {
         assert!(parsed.consume(&mut m, &owner, &wrong).is_err());
     }
     #[test]
+    #[cfg(test)]
     fn evidence_intrinsic_rehashed_unknown_metadata_and_content_hash_refuse() {
         for variant in 0..3 {
             let mut input = funding();
@@ -718,6 +741,7 @@ mod tests {
         assert!(validate_retained_evidence_with_work(&owner, &input, &mut m).is_err());
     }
     #[test]
+    #[cfg(test)]
     fn stop_reason_preserves_multiline_text_with_paid_length_only_bounds() {
         let data: Value =
             serde_json::from_str(include_str!("fixtures/prerequisite-input-data.json")).unwrap();
@@ -755,6 +779,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(test)]
     fn checked_operand_reuse_preserves_exact_pool_owner_and_scope_association() {
         use super::super::{data::OperationKey, records::Records};
         let input = funding();
@@ -804,10 +829,10 @@ mod tests {
             .is_err());
     }
     #[test]
+    #[cfg(test)]
     fn checked_evidence_still_checks_current_subject_time_and_historical_root() {
         use super::super::{
             data::{DraftContextData, OperationKey},
-            inventory::evidence,
             records::Records,
             representation::InvocationToken,
         };
@@ -827,7 +852,9 @@ mod tests {
             .as_str()
             .unwrap()
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
             .collect();
         let root = RecordInput {
@@ -874,10 +901,7 @@ mod tests {
                 &InvocationToken::new(),
                 parsed.body(),
                 "funding",
-                &expected_subject,
-                &metadata,
-                &before,
-                "at",
+                (&expected_subject, &metadata, &before, "at"),
             );
             assert_eq!(
                 result.is_ok(),
@@ -891,18 +915,23 @@ mod tests {
         attempted: bool,
     }
     impl ValidationWork for Deny {
+        #[cfg(test)]
         fn visit(&mut self, k: ValidationVisit) -> Result<()> {
             ValidationWork::visit(&mut self.meter, k)
         }
+        #[cfg(test)]
         fn arithmetic(&mut self, k: ArithmeticOperation, n: &[&BigInt]) -> Result<()> {
             ValidationWork::arithmetic(&mut self.meter, k, n)
         }
+        #[cfg(test)]
         fn scan_bytes(&mut self, n: usize) -> Result<()> {
             self.meter.scan_bytes(n)
         }
+        #[cfg(test)]
         fn write_bytes(&mut self, n: usize) -> Result<()> {
             self.meter.write_bytes(n)
         }
+        #[cfg(test)]
         fn hash_bytes(&mut self, n: usize) -> Result<()> {
             self.meter.hash_bytes(n)
         }
@@ -920,6 +949,7 @@ mod tests {
         }
     }
     #[test]
+    #[cfg(test)]
     fn evidence_intrinsic_callback_refusal_returns_no_record() {
         let input = funding();
         let owner = owner();
@@ -932,6 +962,7 @@ mod tests {
         assert!(work.attempted);
     }
     #[test]
+    #[cfg(test)]
     fn original_raw_decoder_and_intrinsic_callback_decoder_have_identical_work() {
         let mut raw = CoreMeter::new(65536).unwrap();
         let mut generic = CoreMeter::new(65536).unwrap();

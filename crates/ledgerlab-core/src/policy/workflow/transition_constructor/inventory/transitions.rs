@@ -42,9 +42,9 @@ pub(super) fn operation(
 ) -> Result<RecordBody> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::transitions::operation", |m| {
+        m.diagnostic_scope("inventory::transitions::operation", |m| {
             operation_data(m, r, c, k, kind, false)
-        });
+        })
     }
     #[cfg(not(test))]
     operation_data(m, r, c, k, kind, false)
@@ -156,9 +156,9 @@ pub(super) fn admission(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::transitions::admission", |m| {
+        m.diagnostic_scope("inventory::transitions::admission", |m| {
             admission_data(m, auth, key, b, at, actor, kind)
-        });
+        })
     }
     #[cfg(not(test))]
     admission_data(m, auth, key, b, at, actor, kind)
@@ -260,18 +260,17 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     o: &InvocationToken,
     program: &super::super::super::selected_program::SelectedProgram,
     b: &Value,
-    a: &Value,
-    t: &Value,
-    h: &Value,
+    selected_operands: (&Value, &Value, &Value),
 ) -> Result<()> {
+    let (a, t, h) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::transitions::validate", |m| {
-            validate_data(m, r, c, o, program, b, a, t, h)
-        });
+        m.diagnostic_scope("inventory::transitions::validate", |m| {
+            validate_data(m, r, c, o, program, b, (a, t, h))
+        })
     }
     #[cfg(not(test))]
-    validate_data(m, r, c, o, program, b, a, t, h)
+    validate_data(m, r, c, o, program, b, (a, t, h))
 }
 fn validate_data(
     m: &mut CoreMeter,
@@ -280,10 +279,9 @@ fn validate_data(
     o: &InvocationToken,
     program: &super::super::super::selected_program::SelectedProgram,
     b: &Value,
-    a: &Value,
-    t: &Value,
-    h: &Value,
+    selected_operands: (&Value, &Value, &Value),
 ) -> Result<()> {
+    let (a, t, h) = selected_operands;
     invoke!(
         shape::closed,
         m,
@@ -561,9 +559,11 @@ fn validate_data(
         o,
         program,
         b,
-        data_field!(m, &activate, "authority_snapshot"),
-        data_field!(m, h, "operation_key"),
-        data_field!(m, &activate, "accepted_at")
+        (
+            data_field!(m, &activate, "authority_snapshot"),
+            data_field!(m, h, "operation_key"),
+            data_field!(m, &activate, "accepted_at")
+        )
     )?;
     // Acceptance birth is independently located, not inferred from activation.
     let accept = if program.uses_family_close_recipe() {
@@ -612,9 +612,11 @@ fn validate_data(
         o,
         program,
         b,
-        &accepted_auth,
-        data_field!(m, a, "operation_key"),
-        data_field!(m, a, "accepted_at")
+        (
+            &*accepted_auth,
+            data_field!(m, a, "operation_key"),
+            data_field!(m, a, "accepted_at")
+        )
     )?;
     let results = invoke!(shape::array, m, &accept, "result_refs")?;
     invoke!(count, m, results, 3)?;

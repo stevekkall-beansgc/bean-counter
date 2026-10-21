@@ -31,7 +31,7 @@ pub(in crate::policy::workflow::transition_constructor) struct FinalizedClosure 
     pub evaluation: ConstructedEnvelope,
     pub decision: ConstructedEnvelope,
     pub revision: ConstructedEnvelope,
-    pub source_slot: String,
+    pub _source_slot: String,
     _ownership: ExternalBufferLease,
 }
 fn literal(m: &mut CoreMeter, value: &Value, key: &str, wanted: &str) -> Result<()> {
@@ -43,7 +43,7 @@ fn literal(m: &mut CoreMeter, value: &Value, key: &str, wanted: &str) -> Result<
 }
 /// Only validated original root identity and exact per-kind operands determine
 /// the retained edge. No future digest, caller bound or saved expected output.
-pub(in crate::policy::workflow::transition_constructor) fn dependency(
+fn dependency(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -140,18 +140,16 @@ pub(in crate::policy::workflow::transition_constructor) fn dependency(
 }
 /// Select the immutable original dependent edge, then consume an actual
 /// expected current decision/revision from the normalized root request.
-pub(in crate::policy::workflow::transition_constructor) fn finalized(
+fn finalized(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
     original: &OriginalApp,
     current: CurrentApp,
-    root_ref: &ExactRef,
-    root_operation: &str,
-    reversal: &Value,
-    state: &EconomicStateData,
+    selected_operands: (&ExactRef, &str, &Value, &EconomicStateData),
 ) -> Result<FinalizedClosure> {
+    let (root_ref, root_operation, reversal, state) = selected_operands;
     if !program.uses_app_cost_causal_recipe() {
         return Err(shape::fail("app causal recipe required"));
     }
@@ -298,9 +296,11 @@ pub(in crate::policy::workflow::transition_constructor) fn finalized(
         original,
         &source,
         EconomicMode::CostCorrect,
-        Some(&observation.pair.attestation_ref),
-        &[&final_cost.pair.attestation_ref],
-        Some(&current.revision_ref),
+        (
+            Some(&observation.pair.attestation_ref),
+            &[&final_cost.pair.attestation_ref],
+            Some(&current.revision_ref),
+        ),
     )?;
     let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-app-causal-authority/1","window":"original_standalone_window","clause":"accepted_app_causal_clause","decision":"ledger-workflow-decision-revision/3","evaluation":"ledger-workflow-evaluation-proof/1","lineage":"ledger-workflow-app-cost-revision/1","kind":"cost","transition":"dependent_reverse","status":"reversed","empty":[]}"#,RepresentationKind::SourceDefinition)?;
     let fields_size = w::usize_add(m, 48 * std::mem::size_of::<(&str, &Value)>(), 0)?;
@@ -485,7 +485,6 @@ pub(in crate::policy::workflow::transition_constructor) fn finalized(
         ],
         m,
     )?;
-    use crate::validation_work::ValidationWork;
     m.scan_bytes(slot.len())?;
     m.write_bytes(slot.len())?;
     let source_slot = slot.to_owned();
@@ -497,7 +496,7 @@ pub(in crate::policy::workflow::transition_constructor) fn finalized(
         evaluation,
         decision,
         revision,
-        source_slot,
+        _source_slot: source_slot,
         _ownership: ownership,
     })
 }
@@ -509,22 +508,21 @@ pub(in crate::policy::workflow::transition_constructor) struct PendingClosure {
     pub authority: ConstructedEnvelope,
     pub check: AuditedValue,
     pub dependency_ref: ExactRef,
-    pub source_slot: String,
+    pub _source_slot: String,
     original_root: super::super::record_body::RecordBody,
     original_work_ref: ExactRef,
     _ownership: ExternalBufferLease,
 }
-pub(in crate::policy::workflow::transition_constructor) fn pending(
+fn pending(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
     original: &OriginalApp,
     dependent_id: &str,
-    root_ref: &ExactRef,
-    root_operation: &str,
-    state: &EconomicStateData,
+    selected_operands: (&ExactRef, &str, &EconomicStateData),
 ) -> Result<PendingClosure> {
+    let (root_ref, root_operation, state) = selected_operands;
     if !program.uses_app_cost_causal_recipe() {
         return Err(shape::fail("app pending causal recipe"));
     }
@@ -749,9 +747,7 @@ pub(in crate::policy::workflow::transition_constructor) fn pending(
         original,
         &source,
         EconomicMode::CostCorrect,
-        None,
-        &[],
-        None,
+        (None, &[], None),
     )?;
     let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-app-pending-causal-authority/1","absence":"no_initial_app_cost_claim"}"#,RepresentationKind::SourceDefinition)?;
     let fields_size = w::usize_add(m, 44 * std::mem::size_of::<(&str, &Value)>(), 0)?;
@@ -831,7 +827,6 @@ pub(in crate::policy::workflow::transition_constructor) fn pending(
     } else {
         check
     };
-    use crate::validation_work::ValidationWork;
     m.scan_bytes(slot.len())?;
     m.write_bytes(slot.len())?;
     let source_slot = slot.to_owned();
@@ -844,14 +839,13 @@ pub(in crate::policy::workflow::transition_constructor) fn pending(
         authority,
         check,
         dependency_ref,
-        source_slot,
+        _source_slot: source_slot,
         original_root,
         original_work_ref,
         _ownership: ownership,
     })
 }
 fn copy(m: &mut CoreMeter, s: &str) -> Result<String> {
-    use crate::validation_work::ValidationWork;
     m.scan_bytes(s.len())?;
     m.write_bytes(s.len())?;
     Ok(s.to_owned())
@@ -919,13 +913,17 @@ pub(in crate::policy::workflow::transition_constructor) fn prepare(
     program: &SelectedProgram,
     work_ref: &ExactRef,
     root_ref: &ExactRef,
-    root_operation: &str,
-    original_payload: &Value,
-    terms: &super::super::authority::Terms,
-    request: &mut WorkingValue,
-    state: &EconomicStateData,
-    current_capacity: &super::super::capacity::current::CurrentCapacity,
+    selected_operands: (
+        &str,
+        &Value,
+        &super::super::authority::Terms,
+        &mut WorkingValue,
+        &EconomicStateData,
+        &super::super::capacity::current::CurrentCapacity,
+    ),
 ) -> Result<CausalBatch> {
+    let (root_operation, original_payload, terms, request, state, current_capacity) =
+        selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app causal batch"))?;
@@ -1096,10 +1094,7 @@ pub(in crate::policy::workflow::transition_constructor) fn prepare(
                 program,
                 &original,
                 current,
-                root_ref,
-                root_operation,
-                &normalized,
-                state,
+                (root_ref, root_operation, &normalized, state),
             )?;
             let values = shape::array(m, &normalized, "authority_evidence_refs")?;
             // Keep the caller's exact object, replacing only the named Ref set with
@@ -1153,9 +1148,7 @@ pub(in crate::policy::workflow::transition_constructor) fn prepare(
                     program,
                     &original,
                     &dependent_id,
-                    root_ref,
-                    root_operation,
-                    state,
+                    (root_ref, root_operation, state),
                 )?);
             }
         }

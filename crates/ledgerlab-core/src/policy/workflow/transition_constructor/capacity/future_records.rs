@@ -8,14 +8,14 @@ use crate::{
     Result,
 };
 pub(in crate::policy::workflow::transition_constructor) struct FutureRecords {
-    pub root_correction: usize,
-    pub family_submit: usize,
-    pub family_correction: usize,
-    pub family_close: usize,
-    pub app_finalize: usize,
-    pub app_correction: usize,
-    pub app_observation_retain: usize,
-    pub app_final_evidence_retain: usize,
+    pub _root_correction: usize,
+    pub _family_submit: usize,
+    pub _family_correction: usize,
+    pub _family_close: usize,
+    pub _app_finalize: usize,
+    pub _app_correction: usize,
+    pub _app_observation_retain: usize,
+    pub _app_final_evidence_retain: usize,
     pub maximum_attested_family_fields: usize,
     pub maximum_source_frames: usize,
 }
@@ -111,14 +111,14 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     // <=7 on the complete route, with no capacity change
     // merely because evidence has been retained but not yet associated.
     Ok(FutureRecords {
-        root_correction: root,
-        family_submit: submit,
-        family_correction: correction,
-        family_close: close,
-        app_finalize: 11,
-        app_correction: 11,
-        app_observation_retain: 7,
-        app_final_evidence_retain: 7,
+        _root_correction: root,
+        _family_submit: submit,
+        _family_correction: correction,
+        _family_close: close,
+        _app_finalize: 11,
+        _app_correction: 11,
+        _app_observation_retain: 7,
+        _app_final_evidence_retain: 7,
         maximum_attested_family_fields: maximum_proofs,
         maximum_source_frames: source_frames,
     })

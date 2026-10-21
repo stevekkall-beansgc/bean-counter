@@ -154,12 +154,7 @@ pub(super) fn build(
             &p,
             &current_activity,
             product,
-            &token,
-            &times,
-            program,
-            mode,
-            &[],
-            namespace,
+            (&token, &times, program, mode, &[], namespace),
         )?
     } else {
         authority::economic(
@@ -169,15 +164,17 @@ pub(super) fn build(
             &p,
             &current_activity,
             product,
-            &token,
-            &times,
-            program,
-            if root.reverse {
-                EconomicMode::WorkReverse
-            } else {
-                EconomicMode::QuantityCorrect
-            },
-            &[],
+            (
+                &token,
+                &times,
+                program,
+                if root.reverse {
+                    EconomicMode::WorkReverse
+                } else {
+                    EconomicMode::QuantityCorrect
+                },
+                &[],
+            ),
         )?
     };
     equal(
@@ -277,8 +274,13 @@ pub(super) fn build(
         let basis = body::ref_set(m, basis)?;
         let family_key = text(m, &f.declaration, "family_key")?;
         let active = correction::verify_current(
-            m, r, c, program, old, claim_ref, &p, family_key, &net, &basis, &effect, root_slot,
-            &operands,
+            m,
+            r,
+            c,
+            program,
+            old,
+            claim_ref,
+            (&p, family_key, &net, &basis, &effect, root_slot, &operands),
         )?;
         let next = meter::add(m, &revision, &1.into())?.to_string();
         let none = pricing::explicit_none(program, family_key, m)?;

@@ -11,9 +11,9 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::entry::validate", |m| {
+        m.diagnostic_scope("inventory::entry::validate", |m| {
             validate_data(m, c, p, state)
-        });
+        })
     }
     #[cfg(not(test))]
     validate_data(m, c, p, state)
@@ -29,11 +29,12 @@ fn validate_data(
 }
 fn validate_body(
     m: &mut CoreMeter,
-    c: &DraftContextData,
+    _c: &DraftContextData,
     p: &Value,
     state: &DraftStateData,
 ) -> Result<()> {
-    for name in ["activity"] {
+    {
+        let name = "activity";
         invoke!(qualified, m, invoke!(shape::text, m, p, name)?)?;
     }
     for field in [
@@ -219,9 +220,9 @@ pub(in crate::policy::workflow::transition_constructor) fn quantities(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::entry::quantities", |m| {
+        m.diagnostic_scope("inventory::entry::quantities", |m| {
             quantities_data(m, b, t, activity, facts)
-        });
+        })
     }
     #[cfg(not(test))]
     quantities_data(m, b, t, activity, facts)
@@ -267,9 +268,9 @@ pub(in crate::policy::workflow::transition_constructor) fn exposure(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::entry::exposure", |m| {
+        m.diagnostic_scope("inventory::entry::exposure", |m| {
             exposure_data(m, b, t, atoms)
-        });
+        })
     }
     #[cfg(not(test))]
     exposure_data(m, b, t, atoms)

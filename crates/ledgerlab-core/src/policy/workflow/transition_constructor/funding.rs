@@ -317,9 +317,7 @@ pub(super) fn construction_effect(
         &t.new_envelopes,
         state.financial,
         &t.proposed_heads,
-        work_ref.reference(),
-        binding_ref.reference(),
-        &root_id,
+        (work_ref.reference(), binding_ref.reference(), &root_id),
     )?;
     let effect = work_effect(
         &arena,
@@ -351,10 +349,9 @@ pub(super) fn held_work_total(
     outputs: &[super::emitted_record::ConstructedEnvelope],
     state: &super::data::DraftStateData,
     proposed: &super::data::ProposedHeads,
-    work: &ExactRef,
-    binding: &ExactRef,
-    root_id: &str,
+    selected_operands: (&ExactRef, &ExactRef, &str),
 ) -> Result<BigInt> {
+    let (work, binding, root_id) = selected_operands;
     let mut root_seen = false;
     let mut total = BigInt::from(0);
     for head in &state.decision_heads {
@@ -958,13 +955,15 @@ fn work_effect(
         });
     }
     Ok(super::candidate::CustomerLocalFundingEffect::from_derived(
-        copy_ref(m, &bound.work_claim_ref)?,
-        text(m, &bound.binding_slot)?,
-        copy_ref(m, binding_ref)?,
-        copy_ref(m, &t.slot_terms_ref)?,
-        copy_ref(m, &t.role_ref)?,
-        text(m, leg_name)?,
-        refs,
+        (
+            copy_ref(m, &bound.work_claim_ref)?,
+            text(m, &bound.binding_slot)?,
+            copy_ref(m, binding_ref)?,
+            copy_ref(m, &t.slot_terms_ref)?,
+            copy_ref(m, &t.role_ref)?,
+            text(m, leg_name)?,
+            refs,
+        ),
         text(m, currency)?,
         18,
         text(m, ceiling_text)?,
@@ -1010,7 +1009,9 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .as_bytes()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
                 .collect::<Vec<_>>();
             (
@@ -1053,7 +1054,7 @@ mod tests {
         let mut terms = Terms {
             binding: super::super::record_body::RecordBody::Legacy(binding),
             accepted: super::super::record_body::RecordBody::Legacy(json!({})),
-            activation: super::super::record_body::RecordBody::Legacy(json!({})),
+            _activation: super::super::record_body::RecordBody::Legacy(json!({})),
             catalog: super::super::record_body::RecordBody::Legacy(catalog),
             instantiation: super::super::record_body::RecordBody::Legacy(instantiation),
             slot_terms: super::super::record_body::RecordBody::Legacy(terms),

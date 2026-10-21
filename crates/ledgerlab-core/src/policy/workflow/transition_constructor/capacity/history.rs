@@ -11,11 +11,11 @@ use crate::{
 };
 
 pub(in crate::policy::workflow::transition_constructor) struct AppHistory {
-    pub maximum_versions_per_claim: usize,
-    pub maximum_total_versions: usize,
-    pub records: usize,
-    pub body_bytes: usize,
-    pub selected_guard_work: usize,
+    pub _maximum_versions_per_claim: usize,
+    pub _maximum_total_versions: usize,
+    pub _records: usize,
+    pub _body_bytes: usize,
+    pub _selected_guard_work: usize,
 }
 fn mul(m: &mut CoreMeter, a: usize, b: usize) -> Result<usize> {
     ValidationWork::arithmetic(m, ArithmeticOperation::Multiply, &[&a.into(), &b.into()])?;
@@ -86,11 +86,11 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
 ) -> Result<AppHistory> {
     if w::compare(m, original.app_costs.len(), 0usize)?.is_eq() {
         return Ok(AppHistory {
-            maximum_versions_per_claim: 0,
-            maximum_total_versions: 0,
-            records: 0,
-            body_bytes: 0,
-            selected_guard_work: 0,
+            _maximum_versions_per_claim: 0,
+            _maximum_total_versions: 0,
+            _records: 0,
+            _body_bytes: 0,
+            _selected_guard_work: 0,
         });
     }
     let app = original
@@ -150,11 +150,11 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
         versions(m, original.app_costs.len())?
     };
     Ok(AppHistory {
-        maximum_versions_per_claim,
-        maximum_total_versions: generations,
-        records: mul(m, 12, generations)?,
-        body_bytes: mul(m, bytes, generations)?,
-        selected_guard_work: mul(m, guards, generations)?,
+        _maximum_versions_per_claim: maximum_versions_per_claim,
+        _maximum_total_versions: generations,
+        _records: mul(m, 12, generations)?,
+        _body_bytes: mul(m, bytes, generations)?,
+        _selected_guard_work: mul(m, guards, generations)?,
     })
 }
 

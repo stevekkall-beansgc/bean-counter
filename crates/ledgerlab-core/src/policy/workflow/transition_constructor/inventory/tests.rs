@@ -18,7 +18,9 @@ fn fixture(name: &str) -> Value {
         .as_str()
         .unwrap()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
         .collect();
     serde_json::from_slice(&raw).unwrap()
@@ -71,8 +73,7 @@ fn initial_source_ceiling_and_registration_metadata_are_real_data_checks() {
             &o,
             &enrollment,
             &state,
-            &grant,
-            &json!("customer-A"),
+            (&grant, &json!("customer-A")),
         );
         if change == 0 {
             assert!(result.is_ok(), "{:?}", result);
@@ -106,8 +107,7 @@ fn rebound_catalog_root_and_retail_payer_refuse_at_relational_validator() {
             &catalog,
             &inst,
             &terms,
-            &role,
-            &fixture("A.verified_grant"),
+            (&role, &fixture("A.verified_grant")),
         );
         if change == 0 {
             assert!(result.is_ok(), "{:?}", result);
@@ -138,10 +138,12 @@ fn retained_content_hash_and_exact_acceptor_metadata_refuse_after_rebinding() {
             &o,
             &ev,
             "customer_registration",
-            &json!({"customer":"customer-A"}),
-            &json!({"acceptor":"customer-A"}),
-            &fixture("A.customer"),
-            "registered_at",
+            (
+                &json!({"customer":"customer-A"}),
+                &json!({"acceptor":"customer-A"}),
+                &fixture("A.customer"),
+                "registered_at",
+            ),
         );
         if change == 0 {
             assert!(result.is_ok(), "{:?}", result);
@@ -181,9 +183,7 @@ fn future_service_start_does_not_invalidate_prior_exact_assent() {
         &o,
         &assent,
         &ev,
-        "assent",
-        &fixture("A.customer"),
-        &binding,
+        ("assent", &fixture("A.customer"), &binding),
     )
     .unwrap();
 }
@@ -208,10 +208,12 @@ fn closed_media_nonempty_base64_and_original_quantity_minimum_refuse() {
             &o,
             &ev,
             "customer_registration",
-            &json!({"customer":"customer-A"}),
-            &json!({"acceptor":"customer-A"}),
-            &fixture("A.customer"),
-            "registered_at",
+            (
+                &json!({"customer":"customer-A"}),
+                &json!({"acceptor":"customer-A"}),
+                &fixture("A.customer"),
+                "registered_at",
+            ),
         )
         .unwrap_err();
         assert!(
@@ -234,8 +236,7 @@ fn closed_media_nonempty_base64_and_original_quantity_minimum_refuse() {
         &fixture("A.catalog"),
         &fixture("A.instantiation"),
         &terms,
-        &fixture("A.role"),
-        &fixture("A.verified_grant"),
+        (&fixture("A.role"), &fixture("A.verified_grant")),
     )
     .unwrap_err();
     assert_eq!(error.detail, "quantity below original minimum");
@@ -288,8 +289,7 @@ fn changed_historical_registration_root_is_valid_without_snapshot_ref_equality()
         &o,
         &enrollment,
         &fixture("A.source_state"),
-        &fixture("A.verified_grant"),
-        &json!("customer-A"),
+        (&fixture("A.verified_grant"), &json!("customer-A")),
     )
     .unwrap();
 }
@@ -324,8 +324,7 @@ fn charged_base64_exact_work_and_refusal_and_closed_source_names() {
             &o,
             &enrollment,
             &fixture("A.source_state"),
-            &grant,
-            &json!("customer-A"),
+            (&grant, &json!("customer-A")),
         )
         .unwrap_err();
         assert!(
@@ -359,8 +358,7 @@ fn publication_program_context_linkage_consumes_actual_source_inputs() {
             &o,
             &program,
             &b,
-            &fixture("A.accepted"),
-            &fixture("A.terms"),
+            (&fixture("A.accepted"), &fixture("A.terms")),
         );
         if change == 0 {
             assert!(result.is_ok(), "{:?}", result);
@@ -389,8 +387,7 @@ fn source_enrollment_actor_link_survives_snapshot_relaxation() {
         &o,
         &enrol,
         &fixture("A.source_state"),
-        &fixture("A.verified_grant"),
-        &json!("customer-A"),
+        (&fixture("A.verified_grant"), &json!("customer-A")),
     )
     .unwrap_err();
     assert_eq!(error.detail, "data relation");
@@ -407,7 +404,7 @@ fn initial_birth_locates_original_operation_not_an_alias_result_locator() {
     let mut m = CoreMeter::semantic_regression(None).unwrap();
     m.enter_semantic_regression().unwrap();
     let mut r = Records::new(&mut m, &inputs).unwrap();
-    let result = transitions::validate(&mut m, &mut r, &c, &o, &program, &b, &a, &t, &h);
+    let result = transitions::validate(&mut m, &mut r, &c, &o, &program, &b, (&a, &t, &h));
     assert!(
         result.is_ok(),
         "{:?} work={} ",

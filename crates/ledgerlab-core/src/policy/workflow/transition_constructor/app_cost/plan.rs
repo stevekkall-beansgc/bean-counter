@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     canonical::audit_arena::ExternalBufferLease,
-    validation_work::{self as w, RepresentationKind, ValidationWork},
+    validation_work::{self as w, RepresentationKind},
     Error, Result,
 };
 use num_bigint::BigInt;
@@ -78,7 +78,7 @@ pub(super) struct AppPlan<'p> {
     pub old_cost: Option<AppFinalAmount>,
     pub current: Option<CurrentApp>,
     pub dependency_ref: ExactRef,
-    pub dependency: RecordBody,
+    pub _dependency: RecordBody,
     pub decision_id: String,
     pub revision: BigInt,
     pub(super) _ownership: ExternalBufferLease,
@@ -805,7 +805,7 @@ pub(super) fn prepare<'p>(
         old_cost,
         current,
         dependency_ref,
-        dependency,
+        _dependency: dependency,
         decision_id,
         revision,
         _ownership: ownership,

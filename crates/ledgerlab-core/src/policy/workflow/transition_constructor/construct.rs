@@ -4,22 +4,20 @@ use super::super::selected_program::SelectedProgram;
 use super::emitted_record::ConstructedEnvelope;
 use super::records::SuppliedRecords;
 use super::{
-    arithmetic, authority, body, codec,
+    authority, body,
     data::*,
     meter, pricing,
-    records::{self, Records},
+    records::{self},
     representation::{InvocationToken, ParsedDraftTimes},
     shape, CoreMeter, Phase,
 };
-use crate::{domain::Timestamp, Error, Result};
+use crate::{Error, Result};
 use num_bigint::BigInt;
 use serde_json::{json, Value};
 fn unsupported(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
 }
-fn exact(v: &Value) -> Result<ExactRef> {
-    serde_json::from_value(v.clone()).map_err(|_| shape::fail("reference"))
-}
+
 pub fn draft_transition(
     program: &SelectedProgram,
     c: &DraftContextData,
@@ -40,47 +38,6 @@ pub fn draft_transition(
     )?
     .draft_projection(m)
 }
-/// A separate pure DATA entry. Intrinsic evidence is not a host origin proof;
-/// outputs retain all unresolved admission gates. New/unmatched evidence still
-/// executes the raw validator. The ordinary untrusted API is unchanged.
-pub(in crate::policy::workflow) fn draft_with_intrinsic_evidence<'inv>(
-    program: &SelectedProgram,
-    c: &DraftContextData,
-    payload: &[u8],
-    inputs: &[RecordInput],
-    state: &DraftStateData,
-    owner: &'inv super::intrinsic_record::IntrinsicDataScope,
-    evidence: &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
-    m: &mut CoreMeter,
-) -> Result<DraftTransition> {
-    m.enter_draft()?;
-    execute(
-        program,
-        c,
-        payload,
-        SuppliedRecords::Legacy(inputs),
-        state,
-        m,
-        Some((owner, evidence)),
-    )?
-    .draft_projection(m)
-}
-pub(in crate::policy::workflow) fn replay_with_intrinsic_evidence<'inv>(
-    program: &SelectedProgram,
-    c: &DraftContextData,
-    payload: &[u8],
-    inputs: &[RecordInput],
-    state: &DraftStateData,
-    owner: &'inv super::intrinsic_record::IntrinsicDataScope,
-    evidence: &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
-    expected: &DraftTransition,
-    m: &mut CoreMeter,
-) -> Result<DraftTransition> {
-    let draft =
-        draft_with_intrinsic_evidence(program, c, payload, inputs, state, owner, evidence, m)?;
-    compare_drafts(&draft, expected, m)?;
-    Ok(draft)
-}
 pub(super) fn execute<'inv, 'raw>(
     program: &SelectedProgram,
     c: &'raw DraftContextData,
@@ -95,8 +52,8 @@ pub(super) fn execute<'inv, 'raw>(
 ) -> Result<Construction<'inv, 'raw>> {
     m.begin_request(payload)?;
     m.phase(Phase::ParseNormalize);
-    let mut p = super::working_value::WorkingValue::parse(m, payload)?;
-    execute_parsed(program, c, p, inputs, state, None, m, intrinsic)
+    let p = super::working_value::WorkingValue::parse(m, payload)?;
+    execute_parsed(program, c, p, inputs, (state, None), m, intrinsic)
 }
 /// SAME monetary interpreter with the actual held extra app/capacity/party
 /// state. No caller-ready flag and no independent meter/budget is introduced.
@@ -226,8 +183,7 @@ pub(super) fn execute_complete<'raw>(
             arena,
             sources: state.initial_source_correspondences,
         },
-        state.financial,
-        Some(state),
+        (state.financial, Some(state)),
         m,
         None,
     )?;
@@ -276,18 +232,18 @@ fn execute_parsed<'inv, 'raw>(
     c: &'raw DraftContextData,
     mut p: super::working_value::WorkingValue,
     inputs: SuppliedRecords<'raw>,
-    state: &DraftStateData,
-    complete_state: Option<&EconomicStateData>,
+    selected_operands: (&DraftStateData, Option<&EconomicStateData>),
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
 ) -> Result<Construction<'inv, 'raw>> {
-    if m.representation_arena().is_some() {
-        if shape::same(m, &p["schema"], &json!("ledger-workflow-outcome-close/2"))? {
-            return super::close::execute(program, c, p, inputs, state, m, intrinsic);
-        }
+    let (state, complete_state) = selected_operands;
+    if m.representation_arena().is_some()
+        && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome-close/2"))?
+    {
+        return super::close::execute(program, c, p, inputs, state, m, intrinsic);
     }
     if shape::same(
         m,
@@ -437,7 +393,15 @@ fn execute_parsed<'inv, 'raw>(
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
     }
-    let a = authority::work(m, &mut r, c, &p, activity, product, &owner, &times, program)?;
+    let a = authority::work(
+        m,
+        &mut r,
+        c,
+        &p,
+        activity,
+        product,
+        (&owner, &times, program),
+    )?;
     m.visit("draft.original_plan")?;
     if !shape::same(
         m,
@@ -642,8 +606,8 @@ fn execute_parsed<'inv, 'raw>(
             &json!([claim_id, "work"]),
         )?
     };
-    let prices = pricing::work(program, &activity_name, &p["facts"], m)?;
-    super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, &activity_name, &p["facts"])?;
+    let prices = pricing::work(program, activity_name, &p["facts"], m)?;
+    super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, activity_name, &p["facts"])?;
     let mut total = num_bigint::BigInt::from(0);
     for price in &prices {
         m.visit("inventory.output_charge")?;
@@ -978,7 +942,7 @@ fn execute_parsed<'inv, 'raw>(
         (evaluation, decision)
     };
     let mut targets =
-        super::targets::build(program, c, &p, &a, &work, &claim, &decision, &actions, m)?;
+        super::targets::build(program, c, &p, &a, &work, (&claim, &decision, &actions), m)?;
     construction_owners[4] = targets._ownership.take();
     m.phase(Phase::Construct);
     if let Some(arena) = m.representation_arena() {
@@ -1224,8 +1188,8 @@ fn execute_parsed<'inv, 'raw>(
         if let Some(pr) = prior {
             chain_body["prior_ref"] = json!(pr);
         }
-        let chain = body::record(m, &c.key, "workflow-chain-state", chain_id, chain_body)?;
-        chain
+
+        body::record(m, &c.key, "workflow-chain-state", chain_id, chain_body)?
     };
     let proposed_heads = ProposedHeads {
         decision: vec![(decision_id, "1".into(), decision.reference.clone())],
@@ -1242,11 +1206,7 @@ fn execute_parsed<'inv, 'raw>(
                 c,
                 program,
                 &p,
-                &decision,
-                &targets.records,
-                &work,
-                &claim,
-                &a.terms,
+                (&decision, &targets.records, &work, &claim, &a.terms),
             )?);
             None
         } else {
@@ -1257,11 +1217,7 @@ fn execute_parsed<'inv, 'raw>(
                 c,
                 program,
                 &p,
-                &decision,
-                &targets.records,
-                &work,
-                &claim,
-                &a.terms,
+                (&decision, &targets.records, &work, &claim, &a.terms),
             )?)
         }
     } else {
@@ -1349,7 +1305,7 @@ fn execute_parsed<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects: None,
-        app_causal: None,
+        _app_causal: None,
         current_capacity: None,
         candidate_heads: None,
         candidate_introductions: None,

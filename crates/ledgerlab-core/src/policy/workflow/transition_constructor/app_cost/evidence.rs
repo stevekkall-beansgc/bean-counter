@@ -333,8 +333,8 @@ pub(super) fn final_amount(
 pub(super) struct EvidencePair {
     pub attestation_ref: ExactRef,
     pub attestation: RecordBody,
-    pub verification_ref: ExactRef,
-    pub verification: RecordBody,
+    pub _verification_ref: ExactRef,
+    pub _verification: RecordBody,
     _ownership: ExternalBufferLease,
 }
 /// The original retention origin must be completed by the host before this
@@ -505,8 +505,8 @@ pub(super) fn pair(
     Ok(EvidencePair {
         attestation_ref,
         attestation: att,
-        verification_ref,
-        verification,
+        _verification_ref: verification_ref,
+        _verification: verification,
         _ownership: ownership,
     })
 }
@@ -576,7 +576,7 @@ pub(super) fn normalize(
 
 pub(super) struct AppObservation {
     pub pair: EvidencePair,
-    pub quantity: arithmetic::Ratio,
+    pub _quantity: arithmetic::Ratio,
 }
 pub(super) struct AppFinalAmount {
     pub pair: EvidencePair,
@@ -600,7 +600,10 @@ pub(super) fn resolve_observation(
         None,
     )?;
     let quantity = observation(m, c, program, original, &pair.attestation)?;
-    Ok(AppObservation { pair, quantity })
+    Ok(AppObservation {
+        pair,
+        _quantity: quantity,
+    })
 }
 pub(super) fn resolve_final(
     m: &mut CoreMeter,

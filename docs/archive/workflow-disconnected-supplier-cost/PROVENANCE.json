@@ -1,0 +1,34 @@
+{
+  "source_commit": "1065242b3cb81a4d4eacb20624c1ae7a5301d63f",
+  "files": {
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost.rs.txt",
+      "sha256": "980d7b5fb14e247e0d815fb8e398b5549d474790f94043994c3a9c9800f2d077"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost/authority.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost-authority.rs.txt",
+      "sha256": "cf2dbaf6ad4f39ba1add7e57eaa4fda191e806b5722fb3b026e1521115f6fbf1"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost/evaluation.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost-evaluation.rs.txt",
+      "sha256": "bed6c138ad4e21a791ff44fc9b9a04e5b1e665c90815c412aaf62f17b2469d58"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost/operands.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost-operands.rs.txt",
+      "sha256": "c2d983f096dad8f8dc33b09e52e953d3397e3f1bc10f91476c71642c60f922b3"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost/plan.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost-plan.rs.txt",
+      "sha256": "04b4c610b617573ea6a440d041f7a9e8ab87a085ecc98cca42c3036f01313a26"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/cost/records.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/cost-records.rs.txt",
+      "sha256": "26acd6753db4e9a5087bc8e94f1c50f0713e434182b7ae3b8a8b55912cafadd0"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/capacity/production.rs": {
+      "archive": "docs/archive/workflow-disconnected-supplier-cost/capacity-production.rs.txt",
+      "sha256": "d0e39e9d64ac5d5eb2edd6c3d842898af0d84e68d747320c683d1c08a86e7b01"
+    }
+  },
+  "status": "Unconnected supplier /1 monetary producer and experimental capacity emitters. No runtime caller of produce/initial/successor. The /1 intent normalizer stays compiled; exact existing high-water and lineage tests retain their actual helpers in cfg(test). App /2 producer/current financial reservations untouched."
+}

@@ -213,62 +213,7 @@ pub(super) fn decode(
     };
     Ok((policy, owner))
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
-    fn policy() -> Value {
-        let source:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
-        source["documents"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|v| v["schema"] == "ledger-workflow-policy/1")
-            .unwrap()
-            .clone()
-    }
-    #[test]
-    fn owning_policy_decode_reuses_derived_dictionary_and_paid_refs() {
-        let mut values = vec![policy()];
-        for (edit, value) in [
-            ("unknown", Value::String("x".into())),
-            (
-                "product_ref",
-                serde_json::json!({"kind":"workflow-product","id":"bad","digest":"bad"}),
-            ),
-            ("scale", Value::String("18".into())),
-        ] {
-            let mut raw = policy();
-            raw[edit] = value;
-            values.push(raw);
-        }
-        let mut raw = policy();
-        raw["rules"][0]["formula"]["unknown"] = Value::String("x".into());
-        values.push(raw);
-        for value in values {
-            let legacy = serde_json::from_value::<Policy>(value.clone())
-                .map(|p| serde_json::to_value(p).unwrap());
-            let arena = AuditArena::new().unwrap();
-            let before = arena.usage().unwrap().live_bytes;
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let m = session.meter_mut();
-            let n = payload_bound(m, &value).unwrap();
-            let owner = arena.reserve_external_payload(n, m).unwrap();
-            let result = decode(m, value, owner);
-            match (legacy, result) {
-                (Ok(expected), Ok((actual, owner))) => {
-                    assert_eq!(serde_json::to_value(&actual).unwrap(), expected);
-                    assert!(arena.usage().unwrap().live_bytes > before);
-                    drop(actual);
-                    drop(owner);
-                }
-                (Err(_), Err(error)) => assert_eq!(error, fail()),
-                _ => panic!("derived policy dictionary diverged"),
-            }
-            assert_eq!(arena.usage().unwrap().live_bytes, before);
-        }
-    }
-}
+
 // Accounting-only projection of the SAME model dictionaries. Serde remains
 // the sole decoder/refusal authority; these calls reserve its actual field,
 // tag and type dispatch work before it runs (not a second policy parser).
@@ -539,4 +484,61 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    fn policy() -> Value {
+        let source:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
+        source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["schema"] == "ledger-workflow-policy/1")
+            .unwrap()
+            .clone()
+    }
+    #[test]
+    fn owning_policy_decode_reuses_derived_dictionary_and_paid_refs() {
+        let mut values = vec![policy()];
+        for (edit, value) in [
+            ("unknown", Value::String("x".into())),
+            (
+                "product_ref",
+                serde_json::json!({"kind":"workflow-product","id":"bad","digest":"bad"}),
+            ),
+            ("scale", Value::String("18".into())),
+        ] {
+            let mut raw = policy();
+            raw[edit] = value;
+            values.push(raw);
+        }
+        let mut raw = policy();
+        raw["rules"][0]["formula"]["unknown"] = Value::String("x".into());
+        values.push(raw);
+        for value in values {
+            let legacy = serde_json::from_value::<Policy>(value.clone())
+                .map(|p| serde_json::to_value(p).unwrap());
+            let arena = AuditArena::new().unwrap();
+            let before = arena.usage().unwrap().live_bytes;
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let m = session.meter_mut();
+            let n = payload_bound(m, &value).unwrap();
+            let owner = arena.reserve_external_payload(n, m).unwrap();
+            let result = decode(m, value, owner);
+            match (legacy, result) {
+                (Ok(expected), Ok((actual, owner))) => {
+                    assert_eq!(serde_json::to_value(&actual).unwrap(), expected);
+                    assert!(arena.usage().unwrap().live_bytes > before);
+                    drop(actual);
+                    drop(owner);
+                }
+                (Err(_), Err(error)) => assert_eq!(error, fail()),
+                _ => panic!("derived policy dictionary diverged"),
+            }
+            assert_eq!(arena.usage().unwrap().live_bytes, before);
+        }
+    }
 }

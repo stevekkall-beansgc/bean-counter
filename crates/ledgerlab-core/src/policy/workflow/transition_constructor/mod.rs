@@ -56,7 +56,8 @@ mod funding;
 mod intent;
 pub use intent::{normalize_local_saved_intent, normalize_saved_intent};
 mod emitted_record;
-pub(in crate::policy::workflow) mod original_financial;
+#[cfg(test)]
+mod legacy_original_compatibility;
 mod outcome;
 mod outcome_proofs;
 pub(in crate::policy::workflow) mod owned_facts;

@@ -1,0 +1,69 @@
+{
+  "source_commit": "1065242b3cb81a4d4eacb20624c1ae7a5301d63f",
+  "sources": {
+    "crates/ledgerlab-core/src/policy/workflow/facts.rs": {
+      "archive": "policy-workflow-facts.rs.txt",
+      "sha256": "b06938c4c7ed49c4c63f43b8e4255f24732820fa5c53fdbc00363ccfc0e9e3d3",
+      "removed_uncalled_helpers": [
+        "number_type_with_work"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/construct.rs": {
+      "archive": "policy-workflow-transition_constructor-construct.rs.txt",
+      "sha256": "47e78a9dfbdb83322e7bb87f85007fc9c2ed455447f50764f6b777d3bd937e68",
+      "removed_uncalled_helpers": [
+        "exact"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/correction.rs": {
+      "archive": "policy-workflow-transition_constructor-correction.rs.txt",
+      "sha256": "62d95677e51a9a2865bd0adb75561438fd219b380d37095f54c44af928edb3ef",
+      "removed_uncalled_helpers": [
+        "field_copy"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/source_authority.rs": {
+      "archive": "policy-workflow-transition_constructor-source_authority.rs.txt",
+      "sha256": "13c0c2ddb932e4b34d9deb1b5cc6bb9af87dcfb81377697fbb26add1f8a007bd",
+      "removed_uncalled_helpers": [
+        "source_local"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/app_cost.rs": {
+      "archive": "policy-workflow-transition_constructor-app_cost.rs.txt",
+      "sha256": "fa6edb3b75e9642b5ff33abd8698a0d17512a71087e16b13209c20974cd1ffdd",
+      "removed_uncalled_helpers": [
+        "produce"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/pricing.rs": {
+      "archive": "policy-workflow-transition_constructor-pricing.rs.txt",
+      "sha256": "62a2296405980d9f15bfc127d4d1e9d738b2f5c63ed4b20c248e24b88fde56fc",
+      "removed_uncalled_helpers": [
+        "final_cost"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/records.rs": {
+      "archive": "policy-workflow-transition_constructor-records.rs.txt",
+      "sha256": "f76b2406a92834a3a31265d2c111788118042ba844466f32d7e33e6bb9fd5802",
+      "removed_uncalled_helpers": [
+        "borrowed_ap"
+      ]
+    },
+    "crates/ledgerlab-core/src/validation_work/economic_meter.rs": {
+      "archive": "validation_work-economic_meter.rs.txt",
+      "sha256": "e4f609bfe2a2f1e06daaf88d45a01f5be0ed6fa569e057eca62d9e135179dbf5",
+      "removed_uncalled_helpers": [
+        "rem"
+      ]
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/authority.rs": {
+      "archive": "policy-workflow-transition_constructor-authority.rs.txt",
+      "sha256": "f74cb5ce5cf6f6c8aeab5ba70cc7638573a137f94315eaf40ec3ed91604a7972",
+      "removed_uncalled_helpers": [
+        "EconomicMode::InvocationAuthorize",
+        "EconomicMode::InvocationClose (variants and their own match arms)"
+      ]
+    }
+  }
+}

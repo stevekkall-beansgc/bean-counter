@@ -20,12 +20,7 @@ use crate::{
     Result,
 };
 use serde_json::Value;
-macro_rules! call {
-    ($f:path,$m:expr,$a:expr,$b:expr) => {{
-        let (a, b) = ($a, $b);
-        $f($m, a, b)
-    }};
-}
+
 pub(super) struct AppEvaluation {
     pub new_claim: Option<ConstructedEnvelope>,
     pub claim_ref: ExactRef,
@@ -468,12 +463,13 @@ pub(super) fn evaluate(
         &plan.observation.pair.attestation_ref,
         &plan.final_cost,
         &decision.reference,
-        &plan.revision,
-        plan.current.as_ref().map(|old| &old.revision_ref),
+        (
+            &plan.revision,
+            plan.current.as_ref().map(|old| &old.revision_ref),
+        ),
     )?;
     use super::super::candidate::{ClaimEffect, PermanentClaimKey};
     fn copy(m: &mut CoreMeter, s: &str) -> Result<String> {
-        use crate::validation_work::ValidationWork;
         m.scan_bytes(s.len())?;
         m.write_bytes(s.len())?;
         Ok(s.to_owned())

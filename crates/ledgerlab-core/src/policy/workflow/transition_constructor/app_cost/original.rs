@@ -12,7 +12,7 @@ use super::super::{
     record_body::RecordBody,
     records::Records,
     shape,
-    source_authority::{self, OriginalSourceSubject, SourceSelection},
+    source_authority::SourceSelection,
     working_value::{owning_reference, NormalizedInput},
     CoreMeter,
 };
@@ -22,7 +22,6 @@ use crate::{
     validation_work::{self as w, ValidationWork},
     Error, Result,
 };
-use num_bigint::BigInt;
 use serde_json::Value;
 
 macro_rules! call {
@@ -43,11 +42,11 @@ pub(super) struct OriginalApp<'p> {
     pub work_ref: ExactRef,
     pub work: RecordBody,
     pub claim_ref: ExactRef,
-    pub claim: RecordBody,
+    pub _claim: RecordBody,
     pub binding_ref: ExactRef,
     pub terms: authority::Terms,
     pub declaration: &'p Value,
-    pub instruction: &'p Value,
+    pub _instruction: &'p Value,
     pub component_slot: String,
     pub original_decision_ref: ExactRef,
     pub(super) _ownership: ExternalBufferLease,
@@ -102,7 +101,7 @@ pub(super) fn select<'p>(
     component_slot: &str,
     state: &EconomicStateData,
 ) -> Result<OriginalApp<'p>> {
-    select_mode(m, r, c, program, work_ref, component_slot, state, true)
+    select_mode(m, r, c, program, work_ref, component_slot, (state, true))
 }
 pub(super) fn select_for_root<'p>(
     m: &mut CoreMeter,
@@ -113,7 +112,7 @@ pub(super) fn select_for_root<'p>(
     component_slot: &str,
     state: &EconomicStateData,
 ) -> Result<OriginalApp<'p>> {
-    select_mode(m, r, c, program, work_ref, component_slot, state, false)
+    select_mode(m, r, c, program, work_ref, component_slot, (state, false))
 }
 fn select_mode<'p>(
     m: &mut CoreMeter,
@@ -122,9 +121,9 @@ fn select_mode<'p>(
     program: &'p SelectedProgram,
     work_ref: &ExactRef,
     component_slot: &str,
-    state: &EconomicStateData,
-    require_initial_root: bool,
+    selected_operands: (&EconomicStateData, bool),
 ) -> Result<OriginalApp<'p>> {
+    let (state, require_initial_root) = selected_operands;
     if !program.uses_app_owned_cost_recipe() {
         return Err(Error::new(
             "ORIGINAL_VERIFIER_UNAVAILABLE",
@@ -509,12 +508,12 @@ fn select_mode<'p>(
         work_ref: reference(m, work_ref)?,
         work,
         claim_ref,
-        claim,
+        _claim: claim,
         binding_ref,
         terms: authority::Terms {
             binding,
             accepted,
-            activation,
+            _activation: activation,
             catalog,
             instantiation,
             slot_terms: terms,
@@ -522,7 +521,7 @@ fn select_mode<'p>(
             role_ref,
         },
         declaration,
-        instruction,
+        _instruction: instruction,
         component_slot: slot_copy,
         original_decision_ref,
         _ownership: ownership,

@@ -158,7 +158,7 @@ fn sorted_strings(values: &mut Vec<String>, work: &mut dyn ValidationWork) -> Re
     Ok(())
 }
 pub(super) fn refs(
-    values: &mut Vec<Value>,
+    values: &mut [Value],
     kind: &str,
     min: usize,
     max: usize,
@@ -232,7 +232,7 @@ pub(super) fn names<'a>(
     Ok(())
 }
 pub(super) fn quantities(
-    rows: &mut Vec<QuantityCeiling>,
+    rows: &mut [QuantityCeiling],
     work: &mut dyn ValidationWork,
 ) -> Result<()> {
     if w::compare(work, rows.len(), 64usize)?.is_gt() {
@@ -312,7 +312,7 @@ pub(super) fn amount(value: &Amount, work: &mut dyn ValidationWork) -> Result<()
     }
     Ok(())
 }
-pub(super) fn exposures(rows: &mut Vec<Exposure>, work: &mut dyn ValidationWork) -> Result<()> {
+pub(super) fn exposures(rows: &mut [Exposure], work: &mut dyn ValidationWork) -> Result<()> {
     if w::compare(work, rows.len(), 16usize)?.is_gt() {
         return Err(Error::new("INVALID_SHAPE", "exposure ceiling count"));
     }

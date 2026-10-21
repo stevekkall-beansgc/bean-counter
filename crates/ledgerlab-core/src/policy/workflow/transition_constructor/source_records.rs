@@ -188,8 +188,7 @@ fn document(
 /// supplied by its original host verifier. No DraftContext/economic authority,
 /// saved result list, completed-origin boolean or numerical credit is accepted.
 pub fn produce_initial_source_records(
-    key: &OperationKey,
-    payload: &Value,
+    key_and_payload: (&OperationKey, &Value),
     ceiling: &Value,
     installation_mode: &str,
     actor: &str,
@@ -197,14 +196,14 @@ pub fn produce_initial_source_records(
     root_ref: &ExactRef,
     session: &mut OriginalAuditSession,
 ) -> Result<InitialSourceRecords> {
+    let (key, payload) = key_and_payload;
     let result = produce(
         key,
         payload,
         ceiling,
         installation_mode,
         actor,
-        accepted_at,
-        root_ref,
+        (accepted_at, root_ref),
         session,
     );
     if result.is_err() {
@@ -218,10 +217,10 @@ fn produce(
     ceiling: &Value,
     mode: &str,
     actor: &str,
-    at: &str,
-    root: &ExactRef,
+    selected_operands: (&str, &ExactRef),
     s: &mut OriginalAuditSession,
 ) -> Result<InitialSourceRecords> {
+    let (at, root) = selected_operands;
     let a = s.arena().shared_handle();
     let m = s.meter_mut();
     // Retained Ref strings, return/move controls and hash/ID temporaries coexist
@@ -393,8 +392,7 @@ mod tests {
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let baseline = arena.usage().unwrap();
         let actual = produce_initial_source_records(
-            &key,
-            &payload,
+            (&key, &payload),
             &enrollment_value["ceiling"],
             enrollment_value["installation_mode"].as_str().unwrap(),
             enrollment_value["enrolled_by"].as_str().unwrap(),
@@ -488,11 +486,13 @@ mod tests {
                 &invocation,
                 &e,
                 &st,
-                &g,
-                &customer,
-                &enrollment.reference,
-                &state.reference,
-                &grant.reference,
+                (
+                    &g,
+                    &customer,
+                    &enrollment.reference,
+                    &state.reference,
+                    &grant.reference,
+                ),
             );
             if case == 0 {
                 result.unwrap();
@@ -515,8 +515,7 @@ mod tests {
         let mut incomplete = enrollment_value["ceiling"].clone();
         incomplete.as_object_mut().unwrap().remove("source");
         assert!(produce_initial_source_records(
-            &key,
-            &payload,
+            (&key, &payload),
             &incomplete,
             "isolated_synthetic",
             "fixture-admin",

@@ -18,7 +18,9 @@ fn current(name: &str) -> Value {
         .as_str()
         .unwrap()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
         .collect::<Vec<_>>();
     serde_json::from_slice(&bytes).unwrap()
@@ -195,7 +197,8 @@ fn saved_registry_rehashed_cross_version_kind_norm_and_unknown_tuples_refuse() {
             // refusal is not a stale outer digest/ID or unconsumed body failure.
             let mut m = CoreMeter::new(65536).unwrap();
             let mut records =
-                super::super::super::records::Records::new(&mut m, &[input.clone()]).unwrap();
+                super::super::super::records::Records::new(&mut m, std::slice::from_ref(&input))
+                    .unwrap();
             let key = serde_json::from_value(op["key"].clone()).unwrap();
             records
                 .get(

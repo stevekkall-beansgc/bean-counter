@@ -10,12 +10,163 @@ use super::super::{
     CoreMeter,
 };
 use crate::{
-    validation_work::{self as w, ValidationWork},
+    validation_work::{self as w},
     Result,
 };
 use serde_json::Value;
 
 use super::super::input_edges::body;
+
+/// Must execute in the SAME economic child after every result/reservation has
+/// been constructed. Current/ref grammar and F's exact ordered set framing
+/// have already been checked; actual membership comparisons still execute.
+pub(in crate::policy::workflow::transition_constructor) fn check(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    t: &mut Construction,
+) -> Result<()> {
+    let financial = t
+        .financial_observation
+        .as_ref()
+        .ok_or_else(|| shape::fail("actual observation missing during result containment"))?;
+    check_selected(
+        m,
+        &c.key,
+        &mut t.records,
+        &t.new_envelopes,
+        &financial.observation,
+    )
+}
+fn check_selected(
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    records: &mut Records,
+    envelopes: &[ConstructedEnvelope],
+    observation: &Value,
+) -> Result<()> {
+    let preexisting = shape::array(m, observation, "preexisting_input_refs")?;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning result input containment"))?;
+    for reference in records.consumed() {
+        m.visit("containment.actual_consumed_operand")?;
+        // Records appends ONLY preexisting operands to this private vector;
+        // pending source rows have their separate intrinsic count. No caller
+        // partition or repeated identity-index lookup establishes this fact.
+        let value = owning_reference(m, &arena, reference)?;
+        if !shape::member(m, preexisting, value.value())? {
+            return Err(shape::fail("consumed old input absent from observed I"));
+        }
+    }
+    {
+        let mut emit = |value: &Value, m: &mut CoreMeter| -> Result<()> {
+            let reference = parse_owned_reference(m, &arena, value)?;
+            for row in envelopes {
+                m.visit("containment.actual_new_reference")?;
+                if shape::same_ref(m, reference.reference(), &row.reference)? {
+                    return Ok(());
+                }
+            }
+            if !shape::member(m, preexisting, value)? {
+                return Err(shape::fail(
+                    "constructed result introduces an unaudited old input",
+                ));
+            }
+            // A matching header Ref alone is not an input body. Preserve the exact
+            // old record in the SAME owning I partition; complete transitive
+            // closure/original semantics remain separately mandatory.
+            records.provenance(m, key, reference.reference())?;
+            Ok(())
+        };
+        for row in envelopes {
+            m.visit("containment.actual_constructed_result")?;
+            let value = row.decoded(m, 4194304)?;
+            body(
+                &value,
+                &row.reference.kind,
+                false,
+                m,
+                &mut emit,
+                &mut |_, _, _| Err(shape::fail("new result cannot own an old history cut")),
+            )?;
+        }
+    }
+    // Complete the actual explicit-Ref fixed point, not the prefetched operand
+    // inventory or the supplied header list. Recipe-specific implicit locators
+    // still have to be selected independently by the interpreter/parent seam.
+    let history = shape::array(m, observation, "history_edges")?;
+    let mut derived_history = 0usize;
+    let mut position = 0usize;
+    while w::compare(m, position, records.consumed().len())?.is_lt() {
+        m.visit("containment.actual_old_closure_owner")?;
+        let owner_value = owning_reference(m, &arena, &records.consumed()[position])?;
+        let owner = parse_owned_reference(m, &arena, owner_value.value())?;
+        let value = records.provenance(m, key, owner.reference())?;
+        let mut edge = |value: &Value, m: &mut CoreMeter| -> Result<()> {
+            let target = parse_owned_reference(m, &arena, value)?;
+            for row in envelopes {
+                m.visit("containment.old_to_new_exclusion")?;
+                if shape::same_ref(m, target.reference(), &row.reference)? {
+                    return Err(shape::fail(
+                        "preexisting input refers to a new pending result",
+                    ));
+                }
+            }
+            if !shape::member(m, preexisting, value)? {
+                return Err(shape::fail("old input closure edge absent from observed I"));
+            }
+            records.provenance(m, key, target.reference())?;
+            Ok(())
+        };
+        let mut cut = |field: &'static str, target: &Value, m: &mut CoreMeter| -> Result<()> {
+            let reference = parse_owned_reference(m, &arena, target)?;
+            if !shape::same_text(m, &reference.reference().kind, &owner.reference().kind)? {
+                return Err(shape::fail("qualified history target kind"));
+            }
+            let mut count = 0usize;
+            for supplied in history {
+                m.visit("containment.exact_history_edge")?;
+                let actual_owner = shape::field(m, supplied, "owner_ref")?;
+                if !shape::same(m, actual_owner, owner_value.value())? {
+                    continue;
+                }
+                let actual_field = shape::text(m, supplied, "field")?;
+                if !shape::same_text(m, actual_field, field)? {
+                    continue;
+                }
+                let actual_target = shape::field(m, supplied, "target_ref")?;
+                if shape::same(m, actual_target, target)? {
+                    count = w::usize_add(m, count, 1)?;
+                }
+            }
+            if !w::compare(m, count, 1usize)?.is_eq() {
+                return Err(shape::fail("missing or duplicate actual history cut"));
+            }
+            derived_history = w::usize_add(m, derived_history, 1)?;
+            Ok(())
+        };
+        // Exact predecessor identity/revision/schema/authority was part of the
+        // earlier origin's SAME saved recipe, independently completed before
+        // this consuming attempt. This only derives its current immediate cut;
+        // it does not mint historical completion from a body or header.
+        body(
+            &value,
+            &owner.reference().kind,
+            true,
+            m,
+            &mut edge,
+            &mut cut,
+        )?;
+        position = w::usize_add(m, position, 1)?;
+    }
+    if !w::compare(m, derived_history, history.len())?.is_eq() {
+        return Err(shape::fail("extra supplied financial history cut"));
+    }
+    if !w::compare(m, records.consumed().len(), preexisting.len())?.is_eq() {
+        return Err(shape::fail("observed I contains an unselected input"));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -232,154 +383,4 @@ mod tests {
         drop(session);
         assert_eq!(arena.usage().unwrap().live_bytes, before);
     }
-}
-
-/// Must execute in the SAME economic child after every result/reservation has
-/// been constructed. Current/ref grammar and F's exact ordered set framing
-/// have already been checked; actual membership comparisons still execute.
-pub(in crate::policy::workflow::transition_constructor) fn check(
-    m: &mut CoreMeter,
-    c: &DraftContextData,
-    t: &mut Construction,
-) -> Result<()> {
-    let financial = t
-        .financial_observation
-        .as_ref()
-        .ok_or_else(|| shape::fail("actual observation missing during result containment"))?;
-    check_selected(
-        m,
-        &c.key,
-        &mut t.records,
-        &t.new_envelopes,
-        &financial.observation,
-    )
-}
-fn check_selected(
-    m: &mut CoreMeter,
-    key: &OperationKey,
-    records: &mut Records,
-    envelopes: &[ConstructedEnvelope],
-    observation: &Value,
-) -> Result<()> {
-    let preexisting = shape::array(m, observation, "preexisting_input_refs")?;
-    let arena = m
-        .representation_arena()
-        .ok_or_else(|| shape::fail("owning result input containment"))?;
-    for reference in records.consumed() {
-        m.visit("containment.actual_consumed_operand")?;
-        // Records appends ONLY preexisting operands to this private vector;
-        // pending source rows have their separate intrinsic count. No caller
-        // partition or repeated identity-index lookup establishes this fact.
-        let value = owning_reference(m, &arena, reference)?;
-        if !shape::member(m, preexisting, value.value())? {
-            return Err(shape::fail("consumed old input absent from observed I"));
-        }
-    }
-    let mut emit = |value: &Value, m: &mut CoreMeter| -> Result<()> {
-        let reference = parse_owned_reference(m, &arena, value)?;
-        for row in envelopes {
-            m.visit("containment.actual_new_reference")?;
-            if shape::same_ref(m, reference.reference(), &row.reference)? {
-                return Ok(());
-            }
-        }
-        if !shape::member(m, preexisting, value)? {
-            return Err(shape::fail(
-                "constructed result introduces an unaudited old input",
-            ));
-        }
-        // A matching header Ref alone is not an input body. Preserve the exact
-        // old record in the SAME owning I partition; complete transitive
-        // closure/original semantics remain separately mandatory.
-        records.provenance(m, key, reference.reference())?;
-        Ok(())
-    };
-    for row in envelopes {
-        m.visit("containment.actual_constructed_result")?;
-        let value = row.decoded(m, 4194304)?;
-        body(
-            &value,
-            &row.reference.kind,
-            false,
-            m,
-            &mut emit,
-            &mut |_, _, _| Err(shape::fail("new result cannot own an old history cut")),
-        )?;
-    }
-    drop(emit);
-    // Complete the actual explicit-Ref fixed point, not the prefetched operand
-    // inventory or the supplied header list. Recipe-specific implicit locators
-    // still have to be selected independently by the interpreter/parent seam.
-    let history = shape::array(m, observation, "history_edges")?;
-    let mut derived_history = 0usize;
-    let mut position = 0usize;
-    while w::compare(m, position, records.consumed().len())?.is_lt() {
-        m.visit("containment.actual_old_closure_owner")?;
-        let owner_value = owning_reference(m, &arena, &records.consumed()[position])?;
-        let owner = parse_owned_reference(m, &arena, owner_value.value())?;
-        let value = records.provenance(m, key, owner.reference())?;
-        let mut edge = |value: &Value, m: &mut CoreMeter| -> Result<()> {
-            let target = parse_owned_reference(m, &arena, value)?;
-            for row in envelopes {
-                m.visit("containment.old_to_new_exclusion")?;
-                if shape::same_ref(m, target.reference(), &row.reference)? {
-                    return Err(shape::fail(
-                        "preexisting input refers to a new pending result",
-                    ));
-                }
-            }
-            if !shape::member(m, preexisting, value)? {
-                return Err(shape::fail("old input closure edge absent from observed I"));
-            }
-            records.provenance(m, key, target.reference())?;
-            Ok(())
-        };
-        let mut cut = |field: &'static str, target: &Value, m: &mut CoreMeter| -> Result<()> {
-            let reference = parse_owned_reference(m, &arena, target)?;
-            if !shape::same_text(m, &reference.reference().kind, &owner.reference().kind)? {
-                return Err(shape::fail("qualified history target kind"));
-            }
-            let mut count = 0usize;
-            for supplied in history {
-                m.visit("containment.exact_history_edge")?;
-                let actual_owner = shape::field(m, supplied, "owner_ref")?;
-                if !shape::same(m, actual_owner, owner_value.value())? {
-                    continue;
-                }
-                let actual_field = shape::text(m, supplied, "field")?;
-                if !shape::same_text(m, actual_field, field)? {
-                    continue;
-                }
-                let actual_target = shape::field(m, supplied, "target_ref")?;
-                if shape::same(m, actual_target, target)? {
-                    count = w::usize_add(m, count, 1)?;
-                }
-            }
-            if !w::compare(m, count, 1usize)?.is_eq() {
-                return Err(shape::fail("missing or duplicate actual history cut"));
-            }
-            derived_history = w::usize_add(m, derived_history, 1)?;
-            Ok(())
-        };
-        // Exact predecessor identity/revision/schema/authority was part of the
-        // earlier origin's SAME saved recipe, independently completed before
-        // this consuming attempt. This only derives its current immediate cut;
-        // it does not mint historical completion from a body or header.
-        body(
-            &value,
-            &owner.reference().kind,
-            true,
-            m,
-            &mut edge,
-            &mut cut,
-        )?;
-        position = w::usize_add(m, position, 1)?;
-    }
-    if !w::compare(m, derived_history, history.len())?.is_eq() {
-        return Err(shape::fail("extra supplied financial history cut"));
-    }
-    if !w::compare(m, records.consumed().len(), preexisting.len())?.is_eq() {
-        return Err(shape::fail("observed I contains an unselected input"));
-    }
-    Ok(())
 }

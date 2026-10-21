@@ -10,15 +10,15 @@ pub(super) mod current;
 mod future_records;
 pub(super) mod history;
 mod pricing;
-mod production;
+
 mod source;
 
 /// Exact measured I∪N portion of the executed transition. This is deliberately
 /// distinct from a prospective capacity proof: O is added by the closed wrapper
 /// producer, and future F/E and all-ancestor bounds must still be derived.
 pub(super) struct ActualMembers {
-    pub without_operation_records: usize,
-    pub without_operation_body_bytes: usize,
+    pub _without_operation_records: usize,
+    pub _without_operation_body_bytes: usize,
 }
 pub(super) fn actual_members(
     m: &mut super::CoreMeter,
@@ -91,8 +91,8 @@ pub(super) fn actual_members(
         ));
     }
     Ok(ActualMembers {
-        without_operation_records: count,
-        without_operation_body_bytes: bytes,
+        _without_operation_records: count,
+        _without_operation_body_bytes: bytes,
     })
 }
 

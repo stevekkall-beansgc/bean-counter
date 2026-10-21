@@ -217,6 +217,7 @@ pub(super) fn price_instructions(
 }
 enum CostSelection<'a> {
     Deferred,
+    #[cfg(test)]
     Final {
         supplier_slot: &'a str,
         supplier_component: Option<&'a str>,
@@ -228,52 +229,7 @@ enum CostSelection<'a> {
         eligible_atoms: &'a BigInt,
     },
 }
-/// Only the authenticated cost executor supplies eligible supplier atoms. The
-/// original program supplies every formula; saved action amounts are never
-/// pricing operands.
-pub(super) fn final_cost(
-    program: &SelectedProgram,
-    activity: &str,
-    supplier_slot: &str,
-    supplier_component: &str,
-    eligible_atoms: &BigInt,
-    m: &mut CoreMeter,
-) -> Result<PricedInstructions> {
-    if !program.uses_owner_local_cost_recipe() {
-        return Err(Error::new(
-            "UNSUPPORTED_SCHEMA_PROFILE",
-            "original supplier compiler recipe",
-        ));
-    }
-    let instructions = shape::array(
-        m,
-        program.compiled_plan().canonical_value(),
-        "typed_instructions",
-    )?;
-    let components = shape::array(
-        m,
-        program.compiled_plan().canonical_value(),
-        "component_slots",
-    )?;
-    let maximum = arithmetic::integer(m, "999999999999999999999999999999", false)?;
-    if meter::cmp(m, eligible_atoms, &0.into())?.is_lt()
-        || meter::cmp(m, eligible_atoms, &maximum)?.is_gt()
-    {
-        return Err(fail("eligible supplier amount"));
-    }
-    price_instructions_selected(
-        instructions,
-        components,
-        activity,
-        &Value::Null,
-        m,
-        Some(CostSelection::Final {
-            supplier_slot,
-            supplier_component: Some(supplier_component),
-            eligible_atoms,
-        }),
-    )
-}
+
 /// Actual attributable amount and original WorkRecord facts enter the SAME
 /// original instruction evaluator. There is no supplier selection or payable.
 /// Evidence/source/lineage eligibility is established by the app executor.
@@ -380,6 +336,7 @@ fn price_instructions_selected(
                         continue;
                     }
                 }
+                #[cfg(test)]
                 CostSelection::Final {
                     supplier_slot,
                     supplier_component,
@@ -516,8 +473,17 @@ fn price_instructions_selected(
                 };
                 customer_final_cost_rational(m, formula, &eligible, &scale)?
             }
+            #[cfg(not(test))]
+            "supplier_final_cost" | "final_cost" => {
+                return Err(Error::new(
+                    "WAITING_FINAL_COST",
+                    "exact final supplier evidence required",
+                ))
+            }
+            #[cfg(test)]
             "supplier_final_cost" | "final_cost" => {
                 let atoms = match &selection {
+                    #[cfg(test)]
                     Some(CostSelection::Final { eligible_atoms, .. }) => *eligible_atoms,
                     _ => {
                         return Err(Error::new(
@@ -543,10 +509,11 @@ fn price_instructions_selected(
             _ => return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "selected formula")),
         };
         let atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
-        if matches!(
-            selection,
-            Some(CostSelection::Final { .. } | CostSelection::AppFinal { .. })
-        ) {
+        let final_selection = matches!(selection, Some(CostSelection::AppFinal { .. }));
+        #[cfg(test)]
+        let final_selection =
+            final_selection || matches!(selection, Some(CostSelection::Final { .. }));
+        if final_selection {
             let ceiling = &formula["ceiling"];
             let currency = shape::text(m, ceiling, "currency")?;
             if !shape::same_text(m, currency, "USD")?
@@ -644,8 +611,8 @@ fn add_ratio(m: &mut CoreMeter, a: &Ratio, b: &Ratio) -> Result<Ratio> {
 /// no current policy, aggregate invoice, or current statement enters the basis.
 pub(super) struct PricedOutcome {
     pub ordinal: String,
-    pub root_key: String,
-    pub family_key: String,
+    pub _root_key: String,
+    pub _family_key: String,
     pub rational: Ratio,
     pub atoms: i128,
     pub none: bool,
@@ -735,8 +702,8 @@ pub(super) fn explicit_none(
     let key = copied(m, family_key)?;
     Ok(PricedOutcome {
         ordinal,
-        root_key: root,
-        family_key: key,
+        _root_key: root,
+        _family_key: key,
         _ownership: output_ownership,
         rational: Ratio {
             numerator: 0.into(),
@@ -868,8 +835,8 @@ pub(super) fn outcome(
     let key = copied(m, family_key)?;
     Ok(PricedOutcome {
         ordinal,
-        root_key: root,
-        family_key: key,
+        _root_key: root,
+        _family_key: key,
         _ownership: output_ownership,
         rational,
         atoms,
@@ -987,7 +954,7 @@ mod outcome_tests {
         )
         .unwrap();
         assert_eq!(price.ordinal, choice.ordinal);
-        assert_eq!(price.root_key, choice.root_key);
+        assert_eq!(price._root_key, choice._root_key);
         assert_eq!(price.rational.numerator, 0.into());
         assert_eq!(price.rational.denominator, 1.into());
         assert!(price.none);

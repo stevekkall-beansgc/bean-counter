@@ -14,9 +14,9 @@ pub(in crate::policy::workflow::transition_constructor) use frame::SourceCallbac
 pub(in crate::policy::workflow::transition_constructor) struct GrantBound {
     pub semantic_work: usize,
     pub timestamp_parse_work_through_original_end: usize,
-    pub maximum_product_selectors: usize,
-    pub maximum_activity_selectors: usize,
-    pub maximum_link_selectors: usize,
+    pub _maximum_product_selectors: usize,
+    pub _maximum_activity_selectors: usize,
+    pub _maximum_link_selectors: usize,
     pub maximum_decoded_guard_work: usize,
     pub maximum_body_bytes: usize,
 }
@@ -310,9 +310,9 @@ pub(super) fn derive(m: &mut CoreMeter, ceiling: &Value) -> Result<GrantBound> {
         maximum_body_bytes,
         semantic_work: total,
         timestamp_parse_work_through_original_end: timestamp_bound,
-        maximum_product_selectors: product.maximum,
-        maximum_activity_selectors: activity.maximum,
-        maximum_link_selectors: link.maximum,
+        _maximum_product_selectors: product.maximum,
+        _maximum_activity_selectors: activity.maximum,
+        _maximum_link_selectors: link.maximum,
         maximum_decoded_guard_work,
     })
 }
@@ -330,8 +330,8 @@ pub(in crate::policy::workflow::transition_constructor) struct SourceFrameBound 
 }
 pub(in crate::policy::workflow::transition_constructor) struct OriginalSourceBounds {
     pub frames: Vec<SourceFrameBound>,
-    pub terms_grant_count: usize,
-    pub distinct_original_grants: usize,
+    pub _terms_grant_count: usize,
+    pub _distinct_original_grants: usize,
     _ownership: crate::canonical::audit_arena::ExternalBufferLease,
 }
 /// Derive the source dimensions from every actual ORIGINAL Terms grant, not
@@ -558,15 +558,17 @@ pub(super) fn original_frames(
             program,
             terms,
             frame,
-            maximum_terms_grants,
-            maximum_terms_grant_guards,
-            &references,
+            (
+                maximum_terms_grants,
+                maximum_terms_grant_guards,
+                &references,
+            ),
         )?);
     }
     Ok(OriginalSourceBounds {
         frames,
-        terms_grant_count: maximum_terms_grants,
-        distinct_original_grants: references.len(),
+        _terms_grant_count: maximum_terms_grants,
+        _distinct_original_grants: references.len(),
         _ownership: ownership,
     })
 }
@@ -593,9 +595,9 @@ mod tests {
         let arena = AuditArena::new().unwrap();
         let mut derive_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let bound = derive(derive_session.meter_mut(), &ceiling).unwrap();
-        assert_eq!(bound.maximum_activity_selectors, 3);
-        assert_eq!(bound.maximum_product_selectors, 1);
-        assert_eq!(bound.maximum_link_selectors, 0);
+        assert_eq!(bound._maximum_activity_selectors, 3);
+        assert_eq!(bound._maximum_product_selectors, 1);
+        assert_eq!(bound._maximum_link_selectors, 0);
         let selectors = [
             json!({"names":["test:a"]}),
             json!({"names":["test:b"]}),
@@ -650,11 +652,13 @@ mod tests {
                 &ceiling,
                 &context,
                 &json!("customer"),
-                "test:a",
-                "test:product",
-                "test:worker",
-                &at.into(),
-                EconomicMode::Work,
+                (
+                    "test:a",
+                    "test:product",
+                    "test:worker",
+                    &at.into(),
+                    EconomicMode::Work,
+                ),
             );
             if mask == 2 {
                 assert!(result.is_err());

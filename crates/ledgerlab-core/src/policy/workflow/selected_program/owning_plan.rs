@@ -146,9 +146,9 @@ pub(super) fn build(
     p: &Policy,
     product: &Product,
     template: &SlotTemplate,
-    plan_schema: &str,
-    semantics: &str,
+    selected_operands: (&str, &str),
 ) -> Result<Output> {
+    let (plan_schema, semantics) = selected_operands;
     let a = m
         .representation_arena()
         .ok_or_else(|| fail("owning plan arena"))?;

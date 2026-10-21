@@ -173,7 +173,7 @@ pub fn select_local_operation_locators(
         let p = s.parse_representation(raw, RepresentationKind::OriginalRequest)?;
         let m = s.meter_mut();
         super::codec::validate_selected_types(m, p.value())?;
-        let schema = txt(m, p.value(), "schema")?;
+        let _schema = txt(m, p.value(), "schema")?;
         super::candidate::assembly::operation(m, p.value())?;
         let mut r = Records::borrowed_parent_app(m, &a, capture.key, inputs)?;
         let header = mem::size_of::<LocalOperationLocators>()
@@ -420,8 +420,7 @@ pub fn select_local_operation_locators(
             capture,
             v,
             target_ref.as_ref(),
-            &mut copies,
-            &mut claims,
+            (&mut copies, &mut claims),
         )?;
         let outcome_links = outcome_links(
             program,
@@ -430,8 +429,7 @@ pub fn select_local_operation_locators(
             &mut r,
             capture.key,
             v,
-            &subject,
-            &mut copies,
+            (&subject, &mut copies),
         )?;
         let required_slots = authority_slots(
             program,
@@ -440,8 +438,7 @@ pub fn select_local_operation_locators(
             &mut r,
             capture.key,
             v,
-            &subject,
-            &mut copies,
+            (&subject, &mut copies),
         )?;
         Ok(LocalOperationLocators {
             subject,
@@ -543,9 +540,9 @@ fn authority_slots(
     r: &mut Records,
     key: &OperationKey,
     request: &Value,
-    subject: &LocalSubjectBinding,
-    owners: &mut Vec<ExternalBufferLease>,
+    selected_operands: (&LocalSubjectBinding, &mut Vec<ExternalBufferLease>),
 ) -> Result<Vec<String>> {
+    let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
     let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
@@ -691,9 +688,9 @@ fn outcome_links(
     r: &mut Records,
     key: &OperationKey,
     request: &Value,
-    subject: &LocalSubjectBinding,
-    owners: &mut Vec<ExternalBufferLease>,
+    selected_operands: (&LocalSubjectBinding, &mut Vec<ExternalBufferLease>),
 ) -> Result<Vec<(ExactRef, String)>> {
+    let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
     let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?;
     let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
@@ -784,9 +781,7 @@ fn outcome_links(
             owners,
             &mut out,
             claim_ref.reference(),
-            &claim,
-            &inst,
-            subject,
+            (&claim, &inst, subject),
         )?;
     } else {
         let work_ref = subject
@@ -846,9 +841,7 @@ fn outcome_links(
                 owners,
                 &mut out,
                 claim_ref.reference(),
-                &claim,
-                &inst,
-                subject,
+                (&claim, &inst, subject),
             )?;
         }
     }
@@ -861,10 +854,9 @@ fn push_outcome_link(
     owners: &mut Vec<ExternalBufferLease>,
     out: &mut Vec<(ExactRef, String)>,
     claim_ref: &ExactRef,
-    claim: &Value,
-    inst: &Value,
-    subject: &LocalSubjectBinding,
+    selected_operands: (&Value, &Value, &LocalSubjectBinding),
 ) -> Result<()> {
+    let (claim, inst, subject) = selected_operands;
     let binding = super::working_value::owning_reference(m, a, subject.original_binding_ref())?;
     shape::equal(
         m,
@@ -934,9 +926,9 @@ fn claim_keys(
     c: &EconomicCapture<'_>,
     p: &Value,
     target: Option<&OwnedExactRef>,
-    owners: &mut Vec<ExternalBufferLease>,
-    out: &mut Vec<PermanentClaimKey>,
+    selected_operands: (&mut Vec<ExternalBufferLease>, &mut Vec<PermanentClaimKey>),
 ) -> Result<()> {
+    let (owners, out) = selected_operands;
     let schema = txt(m, p, "schema")?;
     m.visit("local.locator_claim_recipe")?;
     match schema {
@@ -1402,8 +1394,7 @@ mod correction_lookup_tests {
             &capture,
             &request,
             Some(&target_ref),
-            &mut owners,
-            &mut keys,
+            (&mut owners, &mut keys),
         )
         .unwrap();
         match &keys[0] {
@@ -1454,22 +1445,37 @@ mod correction_lookup_tests {
             &mut r,
             &key,
             &reverse,
-            &subject,
-            &mut owners,
+            (&subject, &mut owners),
         )
         .unwrap();
         assert_eq!(slots, ["root:corrector", "support:assessor"]);
         let close = json!({"schema":"ledger-workflow-family-close-attest/1","attestation":{"subject":{"target_ref":target.reference,"family_slot":"actual:family"}}});
         let subject = subject_refs(m, &a, &mut r, &key, &close).unwrap();
         assert_eq!(
-            authority_slots(&program, m, &a, &mut r, &key, &close, &subject, &mut owners).unwrap(),
+            authority_slots(
+                &program,
+                m,
+                &a,
+                &mut r,
+                &key,
+                &close,
+                (&subject, &mut owners)
+            )
+            .unwrap(),
             ["support:assessor"]
         );
         let mut wrong = reverse.clone();
         wrong["family_closures"][0]["expected_revision"] = json!("2");
-        assert!(
-            authority_slots(&program, m, &a, &mut r, &key, &wrong, &subject, &mut owners).is_err()
-        );
+        assert!(authority_slots(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &wrong,
+            (&subject, &mut owners)
+        )
+        .is_err());
         let claim=super::super::body::record(&mut producer,&key,"workflow-outcome-claim",format!("woclaim_{}","9".repeat(64)),json!({"schema":"ledger-workflow-outcome-claim/1","target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","original_payload":{"target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","activity":"support:assess","binding_ref":bound.reference,"policy_ref":program.root_policy_ref()}})).unwrap();
         let claimed=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","a".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3","state":"claimed","claim_ref":claim.reference})).unwrap();
         let rows = [&terms, &inst, &bound, &work, &target, &claimed, &claim];
@@ -1490,8 +1496,7 @@ mod correction_lookup_tests {
             &mut r,
             &key,
             &reverse,
-            &subject,
-            &mut owners,
+            (&subject, &mut owners),
         )
         .unwrap();
         assert_eq!(links.len(), 1);
@@ -1508,8 +1513,7 @@ mod correction_lookup_tests {
                 &mut r,
                 &key,
                 &correction,
-                &subject,
-                &mut owners
+                (&subject, &mut owners)
             )
             .unwrap(),
             links
@@ -1522,8 +1526,7 @@ mod correction_lookup_tests {
             &mut r,
             &key,
             &reverse,
-            &subject,
-            &mut owners
+            (&subject, &mut owners)
         )
         .is_err());
     }

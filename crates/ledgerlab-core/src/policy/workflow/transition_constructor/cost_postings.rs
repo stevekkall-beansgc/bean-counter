@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     canonical::audit_arena::{AuditArena, AuditedValue},
-    validation_work::{self as w, RepresentationKind, ValidationWork},
+    validation_work::{self as w, RepresentationKind},
     Result,
 };
 use num_bigint::BigInt;
@@ -784,8 +784,8 @@ mod tests {
         ] {
             let family_price = pricing::PricedOutcome {
                 ordinal: "3".into(),
-                root_key: "model:cost".into(),
-                family_key: "assessment".into(),
+                _root_key: "model:cost".into(),
+                _family_key: "assessment".into(),
                 rational: arithmetic::Ratio {
                     numerator: atoms.into(),
                     denominator: 1.into(),

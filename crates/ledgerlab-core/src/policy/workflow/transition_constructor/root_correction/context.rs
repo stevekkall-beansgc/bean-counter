@@ -216,6 +216,59 @@ pub(super) fn selected(
     })
 }
 
+pub(super) fn selected_local(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    frame: &AuthorityContextData,
+) -> Result<RootContext> {
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("local root capture owner"))?;
+    if frame.authority_observation_ref.is_some() || !c.source_observation_inputs.is_empty() {
+        return Err(shape::fail(
+            "local root capture carries experimental metadata",
+        ));
+    }
+    let mut bytes = mem::size_of::<RootContext>() + mem::size_of::<AuthorityContextData>();
+    for s in [
+        &c.key.logical_store_id,
+        &c.key.scope[0],
+        &c.key.scope[1],
+        &c.key.source,
+        &c.key.operation_id,
+        &c.actor,
+        &c.canonical_economic_namespace,
+        &c.installation_mode,
+        &c.received_at,
+        &c.accepted_at,
+        &frame.source_slot,
+    ] {
+        size_text(m, &mut bytes, s)?;
+    }
+    for r in [
+        &frame.enrollment_ref,
+        &frame.current_state_ref,
+        &frame.current_grant_ref,
+        &frame.binding_ref,
+        &frame.accepted_agreement_ref,
+        &frame.activation_ref,
+    ] {
+        size_ref(m, &mut bytes, r)?;
+    }
+    for r in &frame.original_grant_refs {
+        size_ref(m, &mut bytes, r)?;
+        bytes = add(m, bytes, mem::size_of::<ExactRef>())?;
+    }
+    let owner = a.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    let mut value = c.clone();
+    value.authorities = vec![frame.clone()];
+    Ok(RootContext {
+        value,
+        _ownership: Some(owner),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,57 +342,4 @@ mod tests {
         drop(owned);
         assert_eq!(arena.usage().unwrap().live_bytes, baseline);
     }
-}
-
-pub(super) fn selected_local(
-    m: &mut CoreMeter,
-    c: &DraftContextData,
-    frame: &AuthorityContextData,
-) -> Result<RootContext> {
-    let a = m
-        .representation_arena()
-        .ok_or_else(|| shape::fail("local root capture owner"))?;
-    if frame.authority_observation_ref.is_some() || !c.source_observation_inputs.is_empty() {
-        return Err(shape::fail(
-            "local root capture carries experimental metadata",
-        ));
-    }
-    let mut bytes = mem::size_of::<RootContext>() + mem::size_of::<AuthorityContextData>();
-    for s in [
-        &c.key.logical_store_id,
-        &c.key.scope[0],
-        &c.key.scope[1],
-        &c.key.source,
-        &c.key.operation_id,
-        &c.actor,
-        &c.canonical_economic_namespace,
-        &c.installation_mode,
-        &c.received_at,
-        &c.accepted_at,
-        &frame.source_slot,
-    ] {
-        size_text(m, &mut bytes, s)?;
-    }
-    for r in [
-        &frame.enrollment_ref,
-        &frame.current_state_ref,
-        &frame.current_grant_ref,
-        &frame.binding_ref,
-        &frame.accepted_agreement_ref,
-        &frame.activation_ref,
-    ] {
-        size_ref(m, &mut bytes, r)?;
-    }
-    for r in &frame.original_grant_refs {
-        size_ref(m, &mut bytes, r)?;
-        bytes = add(m, bytes, mem::size_of::<ExactRef>())?;
-    }
-    let owner = a.reserve_external_payload(bytes, m)?;
-    m.write_bytes(bytes)?;
-    let mut value = c.clone();
-    value.authorities = vec![frame.clone()];
-    Ok(RootContext {
-        value,
-        _ownership: Some(owner),
-    })
 }

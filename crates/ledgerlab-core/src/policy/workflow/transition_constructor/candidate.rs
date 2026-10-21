@@ -309,13 +309,15 @@ impl CustomerLocalFundingEffect {
         &self.binding_slot
     }
     pub(super) fn from_derived(
-        original_work_claim_ref: ExactRef,
-        binding_slot: String,
-        binding_ref: ExactRef,
-        slot_terms_ref: ExactRef,
-        role_ref: ExactRef,
-        funding_leg: String,
-        evidence_refs: Vec<ExactRef>,
+        derived_obligation: (
+            ExactRef,
+            String,
+            ExactRef,
+            ExactRef,
+            ExactRef,
+            String,
+            Vec<ExactRef>,
+        ),
         currency: String,
         scale: u8,
         exposure_ceiling_atoms: String,
@@ -323,6 +325,15 @@ impl CustomerLocalFundingEffect {
         prospective_exposure_atoms: String,
         ownership: ExternalBufferLease,
     ) -> Self {
+        let (
+            original_work_claim_ref,
+            binding_slot,
+            binding_ref,
+            slot_terms_ref,
+            role_ref,
+            funding_leg,
+            evidence_refs,
+        ) = derived_obligation;
         Self {
             original_work_claim_ref,
             binding_slot,

@@ -13,7 +13,7 @@ use super::{
     data::*,
     inventory::entry,
     meter, outcome, outcome_proofs, pricing,
-    records::{self, Records},
+    records::Records,
     representation::{InvocationToken, ParsedDraftTimes},
     shape, targets, CoreMeter,
 };
@@ -105,12 +105,7 @@ fn equal(m: &mut CoreMeter, a: &Value, b: &Value) -> Result<()> {
         Err(shape::fail("original correction relation"))
     }
 }
-fn field_copy(m: &mut CoreMeter, v: &Value, k: &str) -> Result<Value> {
-    let value = call!(shape::field, m, v, k)?;
-    // The whole-core allocation ledger must pre-admit this owning Value copy;
-    // this slice remains noncommittable until that composition is complete.
-    Ok(value.clone())
-}
+
 pub(super) fn verify_original_claim_namespace(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -148,9 +143,7 @@ pub(super) fn verify_original_claim_namespace(
         &first["authority_ref"],
         &claim["source_namespace"],
         None,
-        "outcome.submit",
-        binding,
-        &claim["accepted_at"],
+        ("outcome.submit", binding, &claim["accepted_at"]),
     )
 }
 fn load(
@@ -639,10 +632,7 @@ pub(super) fn execute<'inv, 'raw>(
             program,
             &work_ref,
             &work["payload"],
-            root_id,
-            &binding_ref,
-            &instantiation,
-            &state.decision_heads,
+            (root_id, &binding_ref, &instantiation, &state.decision_heads),
         )?;
         if !call!(meter::cmp, m, &ordinary.into(), &2.into())?.is_eq() {
             return Err(unsupported("selected root and outcome heads only"));
@@ -908,12 +898,14 @@ pub(super) fn execute<'inv, 'raw>(
             &admin_payload,
             &correction_activity,
             product,
-            &owner,
-            &times,
-            program,
-            EconomicMode::OutcomeCorrect,
-            &proofs.references,
-            namespace,
+            (
+                &owner,
+                &times,
+                program,
+                EconomicMode::OutcomeCorrect,
+                &proofs.references,
+                namespace,
+            ),
         )?
     } else {
         call!(
@@ -924,11 +916,13 @@ pub(super) fn execute<'inv, 'raw>(
             &admin_payload,
             &correction_activity,
             product,
-            &owner,
-            &times,
-            program,
-            EconomicMode::OutcomeCorrect,
-            &proofs.references
+            (
+                &owner,
+                &times,
+                program,
+                EconomicMode::OutcomeCorrect,
+                proofs.references.as_slice()
+            )
         )?
     };
     call!(
@@ -947,10 +941,7 @@ pub(super) fn execute<'inv, 'raw>(
         program,
         &operands,
         &work_ref,
-        &work,
-        &work_claim_ref,
-        &root_ref,
-        &root
+        (&*work, &work_claim_ref, &root_ref, &*root)
     )?;
     let (link_ref, link) = call!(
         load,
@@ -1023,13 +1014,15 @@ pub(super) fn execute<'inv, 'raw>(
         program,
         &old,
         &claim_ref,
-        &p,
-        &key,
-        &net,
-        &basis,
-        &effect,
-        &root_slot,
-        &operands
+        (
+            &*p,
+            key.as_str(),
+            &net,
+            basis.as_slice(),
+            effect.as_str(),
+            root_slot.as_str(),
+            &*operands
+        )
     )?;
     let price = if none {
         pricing::explicit_none(program, &key, m)?
@@ -1220,7 +1213,7 @@ pub(super) fn execute<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects: None,
-        app_causal: None,
+        _app_causal: None,
         current_capacity: None,
         candidate_heads: None,
         candidate_introductions: None,
@@ -1308,14 +1301,17 @@ pub(super) fn verify_current(
     program: &SelectedProgram,
     old: &Value,
     claim: &ExactRef,
-    p: &Value,
-    key: &str,
-    net: &BigInt,
-    basis: &[ExactRef],
-    effect: &str,
-    root: &str,
-    operands: &authority::Terms,
+    selected_operands: (
+        &Value,
+        &str,
+        &BigInt,
+        &[ExactRef],
+        &str,
+        &str,
+        &authority::Terms,
+    ),
 ) -> Result<Vec<(ExactRef, RecordBody)>> {
+    let (p, key, net, basis, effect, root, operands) = selected_operands;
     let (_, evaluation) = call!(
         load,
         m,

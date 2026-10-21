@@ -1,7 +1,6 @@
 //! Shared original-family submit DATA construction. Host origin/current-index,
 //! capacity, funding and atomicity remain separate gates; no output can commit.
 use super::super::selected_program::SelectedProgram;
-use super::emitted_record::ConstructedEnvelope;
 use super::record_body::RecordBody;
 use super::records::SuppliedRecords;
 use super::{
@@ -13,7 +12,7 @@ use super::{
     meter, outcome_proofs, pricing,
     records::{self, Records},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape, targets, CoreMeter, Phase,
+    shape, targets, CoreMeter,
 };
 use crate::{domain::Timestamp, Error, Result};
 use num_bigint::BigInt;
@@ -89,11 +88,9 @@ pub(super) fn local_ordinary_head_count(
     program: &SelectedProgram,
     work_ref: &ExactRef,
     work_payload: &Value,
-    root_id: &str,
-    binding_ref: &ExactRef,
-    instantiation: &Value,
-    heads: &[DecisionHead],
+    selected_operands: (&str, &ExactRef, &Value, &[DecisionHead]),
 ) -> Result<usize> {
+    let (root_id, binding_ref, instantiation, heads) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("local outcome head owner"))?;
@@ -421,10 +418,7 @@ pub(super) fn execute<'inv, 'raw>(
             program,
             &work_ref,
             work_payload,
-            root_id,
-            &binding_ref,
-            &instantiation,
-            &state.decision_heads,
+            (root_id, &binding_ref, &instantiation, &state.decision_heads),
         )?
     } else {
         state.decision_heads.len()
@@ -826,12 +820,14 @@ pub(super) fn execute<'inv, 'raw>(
             &authority_payload,
             activity,
             product,
-            &owner,
-            &times,
-            program,
-            EconomicMode::OutcomeSubmit,
-            &proofs.references,
-            namespace,
+            (
+                &owner,
+                &times,
+                program,
+                EconomicMode::OutcomeSubmit,
+                &proofs.references,
+                namespace,
+            ),
         )?
     } else {
         authority::economic(
@@ -841,11 +837,13 @@ pub(super) fn execute<'inv, 'raw>(
             &authority_payload,
             activity,
             product,
-            &owner,
-            &times,
-            program,
-            EconomicMode::OutcomeSubmit,
-            &proofs.references,
+            (
+                &owner,
+                &times,
+                program,
+                EconomicMode::OutcomeSubmit,
+                &proofs.references,
+            ),
         )?
     };
     original_target_association(m, &operands, &target, target_family, family)?;
@@ -878,10 +876,7 @@ pub(super) fn execute<'inv, 'raw>(
         program,
         &operands,
         &work_ref,
-        &work,
-        &claim_ref,
-        &root_decision_ref,
-        &root_decision,
+        (&work, &claim_ref, &root_decision_ref, &root_decision),
     )?;
     let code_field = shape::text(m, family, "code_field")?;
     let code = shape::text(m, &p["facts"], code_field)?;
@@ -1027,7 +1022,7 @@ pub(super) fn execute<'inv, 'raw>(
             &link.reference,
         )?
     } else {
-        let effect_id = original_family_effect(
+        original_family_effect(
             m,
             &c.key.scope,
             &target["agreement_id"],
@@ -1035,8 +1030,7 @@ pub(super) fn execute<'inv, 'raw>(
             &claim_ref,
             &json!(family_slot),
             &link.reference,
-        )?;
-        effect_id
+        )?
     };
     let (step, actions) = if let Some(arena) = m.representation_arena() {
         let root = arena.string_value(root_slot, m)?;
@@ -1237,14 +1231,14 @@ pub(super) fn execute<'inv, 'raw>(
             "workflow-family-state",
             &json!([target_ref.id, family_slot, revision.to_string()]),
         )?;
-        let family_state = body::record(
+
+        body::record(
             m,
             &c.key,
             "workflow-family-state",
             family_id,
             json!({"schema":"ledger-workflow-family-state/1","target_ref":target_ref,"family_slot":family_slot,"revision":revision.to_string(),"state":"claimed","window":original_window,"anchor_work_ref":work_ref,"closure_evidence_refs":[],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":head.reference,"claim_ref":claim.reference,"decision_ref":decision.reference}),
-        )?;
-        family_state
+        )?
     };
     let old_chain_ref = state
         .chain_head
@@ -1352,14 +1346,14 @@ pub(super) fn execute<'inv, 'raw>(
                 chain_revision.to_string()
             ]),
         )?;
-        let chain = body::record(
+
+        body::record(
             m,
             &c.key,
             "workflow-chain-state",
             chain_id,
             json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"customer":work_payload["customer"],"chain":work_payload["chain"],"binding_ref":p["binding_ref"],"accepted_agreement_ref":c.authorities[0].accepted_agreement_ref,"activation_ref":c.authorities[0].activation_ref,"revision":chain_revision.to_string(),"admitted_events":admitted.to_string(),"links_root":links_root,"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_chain_ref}),
-        )?;
-        chain
+        )?
     };
     let mut result_owner = None;
     let heads = if let Some(arena) = m.representation_arena() {
@@ -1413,7 +1407,7 @@ pub(super) fn execute<'inv, 'raw>(
             chain: Some(copy(m, &chain.reference)?),
         }
     } else {
-        let heads = ProposedHeads {
+        ProposedHeads {
             decision: vec![(expected_decision, "1".into(), decision.reference.clone())],
             family: vec![(
                 target_ref,
@@ -1422,8 +1416,7 @@ pub(super) fn execute<'inv, 'raw>(
                 family_state.reference.clone(),
             )],
             chain: Some(chain.reference.clone()),
-        };
-        heads
+        }
     };
     let normalized_payload = p.bytes(m)?;
     let mut envelopes = if result_owner.is_some() {
@@ -1477,7 +1470,7 @@ pub(super) fn execute<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects: None,
-        app_causal: None,
+        _app_causal: None,
         current_capacity: None,
         candidate_heads: None,
         candidate_introductions: None,
@@ -1498,11 +1491,9 @@ pub(super) fn verify_original_actions(
     program: &SelectedProgram,
     operands: &authority::Terms,
     work_ref: &ExactRef,
-    work: &Value,
-    claim_ref: &ExactRef,
-    decision_ref: &ExactRef,
-    decision: &Value,
+    selected_operands: (&Value, &ExactRef, &ExactRef, &Value),
 ) -> Result<()> {
+    let (work, claim_ref, decision_ref, decision) = selected_operands;
     shape::closed(
         m,
         work,
@@ -1536,9 +1527,7 @@ pub(super) fn verify_original_actions(
             &decision["authority_ref"],
             &work["source_namespace"],
             Some(&work["key"]["source"]),
-            "work.accept",
-            &p["binding_ref"],
-            &work["accepted_at"],
+            ("work.accept", &p["binding_ref"], &work["accepted_at"]),
         )?;
     } else {
         call!(
@@ -1694,7 +1683,7 @@ pub(super) fn verify_original_actions(
     let event_id = if m.representation_arena().is_some() {
         super::work_keys::event(m, &old_key, p)?
     } else {
-        let event_id = body::semantic_id(
+        body::semantic_id(
             m,
             "wevent_",
             "workflow-event",
@@ -1704,8 +1693,7 @@ pub(super) fn verify_original_actions(
                 old_key.source,
                 p["external_event_id"]
             ]),
-        )?;
-        event_id
+        )?
     };
     if !shape::same_text(m, &event_id, &work_ref.id)? {
         return Err(shape::fail("original work event identity"));
@@ -1815,7 +1803,13 @@ pub(super) fn verify_original_actions(
     let prices = pricing::work(program, activity, facts.canonical_value(), m)?;
     if m.representation_arena().is_some() {
         return verify_original_owned_postings(
-            m, r, c, &old_key, operands, claim_ref, &stable, &prices, decision,
+            m,
+            r,
+            c,
+            &old_key,
+            operands,
+            claim_ref,
+            (&stable, &prices, decision),
         );
     }
     let mut expected_actions = vec![];
@@ -1988,10 +1982,9 @@ fn verify_original_owned_postings(
     key: &OperationKey,
     terms: &authority::Terms,
     claim: &ExactRef,
-    decision_id: &str,
-    prices: &pricing::PricedInstructions,
-    decision: &Value,
+    selected_operands: (&str, &pricing::PricedInstructions, &Value),
 ) -> Result<()> {
+    let (decision_id, prices, decision) = selected_operands;
     use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
     let arena = m
         .representation_arena()
@@ -2332,6 +2325,7 @@ pub(super) fn original_claim_association(
 
 #[cfg(test)]
 mod relation_tests {
+    use super::super::emitted_record::ConstructedEnvelope;
     use super::*;
     fn reference(kind: &str, prefix: &str) -> ExactRef {
         ExactRef {
@@ -2356,7 +2350,7 @@ mod relation_tests {
                     json!({"agreement_id":"agreement"}),
                 ),
                 accepted: super::super::record_body::RecordBody::Legacy(json!({})),
-                activation: super::super::record_body::RecordBody::Legacy(json!({})),
+                _activation: super::super::record_body::RecordBody::Legacy(json!({})),
                 catalog: super::super::record_body::RecordBody::Legacy(
                     json!({"components":[{"slot_id":"root","root_slot":"root","role_slot":"payer"}],"families":[{"slot_id":"assessment","target_component_slot":"root","role_slot":"payer"}]}),
                 ),
@@ -2526,6 +2520,7 @@ pub(super) fn original_family_effect(
 
 #[cfg(test)]
 mod local_head_view_tests {
+    use super::super::emitted_record::ConstructedEnvelope;
     use super::*;
     use crate::{
         canonical::{self, audit_arena::AuditArena},
@@ -2647,9 +2642,9 @@ mod local_head_view_tests {
             subject: &ExactRef,
             binding: &ExactRef,
             action: &ExactRef,
-            app: bool,
-            tag: &str,
+            selected_operands: (bool, &str),
         ) -> ConstructedEnvelope {
+            let (app, tag) = selected_operands;
             body::record(m,key,"workflow-decision",format!("wdrev_{}",tag.repeat(64)),json!({"schema":if app{"ledger-workflow-decision-revision/3"}else{"ledger-workflow-decision-revision/1"},"decision_id":id,"revision":"1","subject_ref":subject,"kind":if app{"cost"}else{"work"},"original_terms_ref":binding,"active_action_refs":[action]})).unwrap()
         }
         let root_action = action(&mut producer, &key, &root_id, "4", "1000000000000000000");
@@ -2661,8 +2656,7 @@ mod local_head_view_tests {
             &work.reference,
             &binding.reference,
             &root_action.reference,
-            false,
-            "6",
+            (false, "6"),
         );
         let app_decision = decision(
             &mut producer,
@@ -2671,8 +2665,7 @@ mod local_head_view_tests {
             &claim.reference,
             &binding.reference,
             &app_action.reference,
-            true,
-            "7",
+            (true, "7"),
         );
         let premium_id = format!("wdecision_{}", "8".repeat(64));
         let premium_action = action(&mut producer, &key, &premium_id, "9", "250000000000000000");
@@ -2691,8 +2684,7 @@ mod local_head_view_tests {
             &outcome_claim.reference,
             &binding.reference,
             &premium_action.reference,
-            false,
-            "a",
+            (false, "a"),
         );
         let old = [
             work,
@@ -2747,10 +2739,7 @@ mod local_head_view_tests {
                 &program,
                 &old[0].reference,
                 &work_payload,
-                &root_id,
-                &binding.reference,
-                &inst,
-                &state.decision_heads
+                (&root_id, &binding.reference, &inst, &state.decision_heads)
             )
             .unwrap(),
             1
@@ -2767,9 +2756,7 @@ mod local_head_view_tests {
                 family: vec![],
                 chain: None,
             },
-            &old[0].reference,
-            &binding.reference,
-            &root_id,
+            (&old[0].reference, &binding.reference, &root_id),
         )
         .unwrap();
         assert_eq!(before, BigInt::from(3) * BigInt::from(10u8).pow(18));
@@ -2780,9 +2767,7 @@ mod local_head_view_tests {
             &outputs,
             &state,
             &proposed,
-            &old[0].reference,
-            &binding.reference,
-            &root_id,
+            (&old[0].reference, &binding.reference, &root_id),
         )
         .unwrap();
         assert_eq!(after, BigInt::from(325) * BigInt::from(10u8).pow(16));
@@ -2801,10 +2786,7 @@ mod local_head_view_tests {
                 &program,
                 &old[0].reference,
                 &work_payload,
-                &root_id,
-                &binding.reference,
-                &inst,
-                &state.decision_heads
+                (&root_id, &binding.reference, &inst, &state.decision_heads)
             )
             .unwrap(),
             2
@@ -2819,10 +2801,7 @@ mod local_head_view_tests {
             &program,
             &old[0].reference,
             &work_payload,
-            &root_id,
-            &binding.reference,
-            &inst,
-            &state.decision_heads
+            (&root_id, &binding.reference, &inst, &state.decision_heads)
         )
         .is_err());
         state.decision_heads[1].revision = "1".into();
@@ -2834,10 +2813,7 @@ mod local_head_view_tests {
             &program,
             &old[0].reference,
             &work_payload,
-            &root_id,
-            &binding.reference,
-            &inst,
-            &state.decision_heads
+            (&root_id, &binding.reference, &inst, &state.decision_heads)
         )
         .is_err());
         state.decision_heads.pop();
@@ -2850,10 +2826,7 @@ mod local_head_view_tests {
                 &program,
                 &old[0].reference,
                 &work_payload,
-                &root_id,
-                &binding.reference,
-                &inst,
-                &state.decision_heads
+                (&root_id, &binding.reference, &inst, &state.decision_heads)
             )
             .unwrap(),
             2

@@ -1,5 +1,5 @@
 //! Closed selected Binding/Terms declarations, distinct from host authentication.
-use super::super::{codec, data::*, meter, shape, CoreMeter};
+use super::super::{codec, meter, shape, CoreMeter};
 use super::check::*;
 use crate::Result;
 use serde_json::{json, Value};
@@ -94,9 +94,9 @@ pub(in crate::policy::workflow::transition_constructor) fn ordered(
 pub(super) fn inputs(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::binding::inputs", |m| {
+        m.diagnostic_scope("inventory::binding::inputs", |m| {
             inputs_data(m, v, assented, false)
-        });
+        })
     }
     #[cfg(not(test))]
     inputs_data(m, v, assented, false)
@@ -276,9 +276,9 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
 ) -> Result<()> {
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::binding::validate", |m| {
+        m.diagnostic_scope("inventory::binding::validate", |m| {
             validate_data(m, b, terms, false)
-        });
+        })
     }
     #[cfg(not(test))]
     validate_data(m, b, terms, false)

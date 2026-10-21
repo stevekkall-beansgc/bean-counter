@@ -47,9 +47,9 @@ fn deadline_grant_allows(
     slot: &Value,
     customer: &Value,
     activity: &str,
-    product: &str,
-    at: i64,
+    selected_operands: (&str, i64),
 ) -> Result<bool> {
+    let (product, at) = selected_operands;
     let mut eligible = true;
     for (field, want) in [
         ("source", json!(c.key.source)),
@@ -177,8 +177,7 @@ fn deadline_slot(
             name,
             &selected.work["payload"]["customer"],
             trigger,
-            product_id,
-            at,
+            (product_id, at),
         )?;
         eligible &= deadline_grant_allows(
             m,
@@ -187,8 +186,7 @@ fn deadline_slot(
             name,
             &selected.work["payload"]["customer"],
             trigger,
-            product_id,
-            at,
+            (product_id, at),
         )?;
         if !w::compare(m, a.original_grant_refs.len(), 0usize)?.is_gt() {
             return Err(shape::fail("missing original deadline grant"));
@@ -213,8 +211,7 @@ fn deadline_slot(
                 name,
                 &selected.work["payload"]["customer"],
                 trigger,
-                product_id,
-                at,
+                (product_id, at),
             )?;
         }
         if eligible {
@@ -503,11 +500,7 @@ fn retained_proof(
             &enrollment["ceiling"],
             c,
             &selected.work["payload"]["customer"],
-            trigger,
-            product_id,
-            source_slot,
-            &trusted.into(),
-            mode,
+            (trigger, product_id, source_slot, &trusted.into(), mode),
         )?;
         for original_ref in &a.original_grant_refs {
             m.visit("close.retention_original_grant")?;
@@ -525,11 +518,7 @@ fn retained_proof(
                 &enrollment["ceiling"],
                 c,
                 &selected.work["payload"]["customer"],
-                trigger,
-                product_id,
-                source_slot,
-                &trusted.into(),
-                mode,
+                (trigger, product_id, source_slot, &trusted.into(), mode),
             )?;
         }
     }
@@ -749,7 +738,7 @@ pub(super) fn execute<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects: None,
-        app_causal: None,
+        _app_causal: None,
         current_capacity: None,
         candidate_heads: None,
         candidate_introductions: None,
@@ -837,8 +826,7 @@ mod tests {
             &json!("test:closer"),
             &json!("customer"),
             "test:assessment",
-            "test:product",
-            at
+            ("test:product", at)
         )
         .unwrap());
         for (field, value) in [
@@ -857,8 +845,7 @@ mod tests {
                 &json!("test:closer"),
                 &json!("customer"),
                 "test:assessment",
-                "test:product",
-                at
+                ("test:product", at)
             )
             .unwrap());
         }
@@ -870,8 +857,7 @@ mod tests {
             &json!("test:closer"),
             &json!("customer"),
             "test:assessment",
-            "test:product",
-            end
+            ("test:product", end)
         )
         .unwrap());
         // This checks the actual paid per-grant predicate, not host custody,

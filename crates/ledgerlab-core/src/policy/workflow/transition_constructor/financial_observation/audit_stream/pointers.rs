@@ -358,7 +358,12 @@ fn flags(m: &mut CoreMeter, mask: u32) -> Result<[bool; ORIGIN_POINTER_BLOCK]> {
     m.scan_bytes(mem::size_of::<u32>())?;
     m.write_bytes(ORIGIN_POINTER_BLOCK)?;
     let mut out = [false; ORIGIN_POINTER_BLOCK];
-    for (dst, byte) in out.chunks_exact_mut(8).zip(mask.to_le_bytes()) {
+    for (dst, byte) in out
+        .as_chunks_mut::<8>()
+        .0
+        .iter_mut()
+        .zip(mask.to_le_bytes())
+    {
         ValidationWork::visit(m, w::ValidationVisit::RefLookup)?;
         m.scan_bytes(8)?;
         m.write_bytes(8)?;

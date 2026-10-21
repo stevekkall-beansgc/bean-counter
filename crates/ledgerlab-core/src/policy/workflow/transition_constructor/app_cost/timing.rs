@@ -5,7 +5,7 @@ use super::super::{arithmetic, data::DraftContextData, meter, shape, CoreMeter};
 use super::plan::AppPlan;
 use crate::{
     domain::Timestamp,
-    validation_work::{self as w, ArithmeticOperation, ValidationWork},
+    validation_work::{ArithmeticOperation, ValidationWork},
     Error, Result,
 };
 use num_bigint::BigInt;
@@ -39,9 +39,9 @@ fn add_duration(m: &mut CoreMeter, base: i64, source: &Value, key: &str) -> Resu
     Ok(micros)
 }
 pub(super) struct AppClocks {
-    pub finalize_by: i64,
-    pub standalone_correction_until: Option<i64>,
-    pub prospective_standalone_until: i64,
+    pub _finalize_by: i64,
+    pub _standalone_correction_until: Option<i64>,
+    pub _prospective_standalone_until: i64,
 }
 pub(super) fn standalone(
     m: &mut CoreMeter,
@@ -109,9 +109,9 @@ pub(super) fn standalone(
         None
     };
     Ok(AppClocks {
-        finalize_by,
-        standalone_correction_until,
-        prospective_standalone_until,
+        _finalize_by: finalize_by,
+        _standalone_correction_until: standalone_correction_until,
+        _prospective_standalone_until: prospective_standalone_until,
     })
 }
 

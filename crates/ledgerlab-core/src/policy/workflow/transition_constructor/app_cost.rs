@@ -27,26 +27,15 @@ mod timing;
 /// One actual app finalize/correct producer; financial preparation still needs
 /// the complete original/current authority, reservation and resource factory.
 pub(super) struct AppConstruction<'program, 'raw> {
-    pub plan: plan::AppPlan<'program>,
+    plan: plan::AppPlan<'program>,
     pub normalized_payload: super::emitted_record::EncodedBody,
     pub authority: super::emitted_record::ConstructedEnvelope,
     pub source: super::source_authority::SourceSelection,
     pub current_capacity: super::capacity::current::CurrentCapacity,
-    pub monetary: evaluation::AppEvaluation,
+    monetary: evaluation::AppEvaluation,
     pub records: super::records::Records<'raw, 'raw>,
 }
-pub(super) fn produce<'program, 'raw>(
-    program: &'program super::super::selected_program::SelectedProgram,
-    c: &'raw super::data::DraftContextData,
-    payload: &[u8],
-    inputs: &'raw [super::data::EconomicRecordView<'raw>],
-    state: &super::data::EconomicStateData<'_>,
-    m: &mut super::CoreMeter,
-) -> crate::Result<AppConstruction<'program, 'raw>> {
-    m.begin_request(payload)?;
-    let request = super::working_value::WorkingValue::parse(m, payload)?;
-    produce_parsed(program, c, request, inputs, state, m)
-}
+
 pub(super) fn produce_parsed<'program, 'raw>(
     program: &'program super::super::selected_program::SelectedProgram,
     c: &'raw super::data::DraftContextData,
@@ -161,10 +150,7 @@ impl<'program, 'raw> AppConstruction<'program, 'raw> {
         c: &'raw super::data::DraftContextData,
         m: &mut super::CoreMeter,
     ) -> crate::Result<super::data::Construction<'raw, 'raw>> {
-        use super::{
-            body, data::*, emitted_record::ConstructedEnvelope, shape,
-            working_value::owning_reference,
-        };
+        use super::{data::*, emitted_record::ConstructedEnvelope, shape};
         use crate::validation_work::{
             self as w, ArithmeticOperation, RepresentationKind, ValidationWork,
         };
@@ -299,7 +285,7 @@ impl<'program, 'raw> AppConstruction<'program, 'raw> {
                 claims: monetary.claims,
                 heads: app_heads,
             }),
-            app_causal: None,
+            _app_causal: None,
             current_capacity: Some(current_capacity),
             candidate_heads: None,
             candidate_introductions: None,
@@ -316,7 +302,6 @@ impl<'program, 'raw> AppConstruction<'program, 'raw> {
     }
 }
 fn copy_output(m: &mut super::CoreMeter, value: &str) -> crate::Result<String> {
-    use crate::validation_work::ValidationWork;
     m.scan_bytes(value.len())?;
     m.write_bytes(value.len())?;
     Ok(value.to_owned())

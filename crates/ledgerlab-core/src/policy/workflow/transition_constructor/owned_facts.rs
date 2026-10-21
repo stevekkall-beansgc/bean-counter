@@ -5,7 +5,7 @@ use super::super::{FactSchema, FactValue, NormalizedFacts};
 use super::{shape, CoreMeter};
 use crate::{
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
-    validation_work::{self as w, ArithmeticOperation, ValidationVisit, ValidationWork},
+    validation_work::{self as w, ArithmeticOperation, ValidationWork},
     Result,
 };
 use serde_json::Value;

@@ -446,9 +446,9 @@ pub(super) fn body(
             binding(value, m, emit)?;
         } else if intent && shape::same_text(m, name, "payload")? {
             intent_payload(value, m, emit)?;
-        } else if work && shape::same_text(m, name, "payload")? {
-            work_payload(value, m, emit)?;
-        } else if outcome && shape::same_text(m, name, "original_payload")? {
+        } else if (work && shape::same_text(m, name, "payload")?)
+            || (outcome && shape::same_text(m, name, "original_payload")?)
+        {
             work_payload(value, m, emit)?;
         } else if evaluation && shape::same_text(m, name, "facts")? {
             continue;
@@ -539,7 +539,7 @@ pub fn select_local_input_edges(
             _ => None,
         };
         let mut count = 0usize;
-        let mut walk = |emit: &mut Emit<'_>, m: &mut CoreMeter| -> Result<()> {
+        let walk = |emit: &mut Emit<'_>, m: &mut CoreMeter| -> Result<()> {
             if let Some(fields) = fields {
                 for field in fields {
                     m.visit("local.selected_semantic_role")?;

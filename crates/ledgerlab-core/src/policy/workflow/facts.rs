@@ -997,16 +997,7 @@ fn normalize_value_mode(
         }
     })
 }
-fn number_type_with_work(
-    min: &mut String,
-    max: &mut String,
-    unit: &Option<String>,
-    scale: u8,
-    integer: bool,
-    work: &mut dyn ValidationWork,
-) -> Result<FactType> {
-    number_type_mode(min, max, unit, scale, integer, work, false)
-}
+
 #[allow(clippy::too_many_arguments)]
 fn number_type_mode(
     min: &mut String,

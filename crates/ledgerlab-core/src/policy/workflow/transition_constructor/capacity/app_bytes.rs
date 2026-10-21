@@ -35,69 +35,6 @@ impl Body {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::super::codec;
-    use super::*;
-    use crate::{
-        canonical::{self, audit_arena::AuditArena},
-        validation_work::OriginalAuditSession,
-    };
-    use serde_json::json;
-    #[test]
-    fn prospective_closed_body_guard_counts_structure_independently_of_string_bytes() {
-        let reference = json!({"kind":"workflow-work","id":"work","digest":"digest"});
-        for count in [0, 1, 32] {
-            let facts = json!({"units":"100","label":"x".repeat(10000),"flag":true,"scale":18});
-            let value = json!({"facts":facts,"refs":vec![reference.clone();count]});
-            let arena = AuditArena::new().unwrap();
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let m = session.meter_mut();
-            let fact_shape = exact(m, &value["facts"]).unwrap();
-            let refs = array(m, count, REF).unwrap();
-            let bound = object(m, &[("facts", fact_shape), ("refs", refs)]).unwrap();
-            let mut actual = CoreMeter::new(65536).unwrap();
-            codec::validate_selected_types(&mut actual, &value).unwrap();
-            assert!(actual.usage().semantic_work <= bound.guard as u64);
-            assert!(
-                canonical::CanonicalBytes::from_value(&value)
-                    .unwrap()
-                    .as_slice()
-                    .len()
-                    <= bound.bytes
-            );
-            assert_eq!(bound.depth, if count == 0 { 2 } else { 3 });
-        }
-        let fields = json!([
-            {"name":"example:text","required":true,"type":{"kind":"string","min_bytes":"0","max_bytes":"8"},"provenance":{"kind":"caller"}},
-            {"name":"example:choice","required":true,"type":{"kind":"enum","values":["example:a","example:z"]},"provenance":{"kind":"caller"}},
-            {"name":"example:integer","required":true,"type":{"kind":"integer","min":"-999999999999999999999999999999","max":"999999999999999999999999999999"},"provenance":{"kind":"caller"}},
-            {"name":"example:decimal","required":true,"type":{"kind":"decimal","min":"-999999999999999999999999999999","max":"999999999999999999999999999999","max_scale":"18"},"provenance":{"kind":"caller"}},
-            {"name":"example:flag","required":false,"type":{"kind":"boolean"},"provenance":{"kind":"caller"}}
-        ]);
-        let schema=super::super::super::super::FactSchema::parse(&serde_json::to_vec(&json!({"schema":"ledger-workflow-fact-schema/1","schema_id":"example:range","version":"1","normalization":"ledger-facts-normalization/1","fields":fields})).unwrap()).unwrap();
-        let input = json!({"example:text":"\"".repeat(8),"example:choice":"example:z","example:integer":"-999999999999999999999999999999","example:decimal":"-999999999999.999999999999999999","example:flag":false});
-        let normalized = schema
-            .normalize(&serde_json::to_vec(&input).unwrap())
-            .unwrap();
-        let arena = AuditArena::new().unwrap();
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let bound = normalized_facts(session.meter_mut(), schema.canonical_value()).unwrap();
-        let actual = canonical::CanonicalBytes::from_value(normalized.canonical_value()).unwrap();
-        assert!(actual.as_slice().len() <= bound.bytes);
-        let mut guard = CoreMeter::new(65536).unwrap();
-        codec::validate_selected_types(&mut guard, normalized.canonical_value()).unwrap();
-        assert!(guard.usage().semantic_work <= bound.guard as u64);
-        assert_eq!(bound.depth, 1);
-        let mut m = CoreMeter::new(65536).unwrap();
-        let too_deep = Body {
-            bytes: 2,
-            guard: 5,
-            depth: 32,
-        };
-        assert!(object(&mut m, &[("extra", too_deep)]).is_err());
-    }
-}
 const ID: Body = Body::scalar(514);
 const SOURCE: Body = Body::scalar(1538);
 const NAME: Body = Body::scalar(130);
@@ -544,15 +481,15 @@ pub(in crate::policy::workflow::transition_constructor) struct FamilyFactBounds 
 /// capacity outputs are separate terms; these cannot be a wire envelope.
 pub(in crate::policy::workflow::transition_constructor) struct FamilyBodyBounds {
     pub facts: FamilyFactBounds,
-    pub claim: usize,
-    pub link: usize,
+    pub _claim: usize,
+    pub _link: usize,
     pub action: usize,
     pub evaluation: usize,
     pub decision: usize,
     pub family_state: usize,
-    pub chain: usize,
+    pub _chain: usize,
     pub authority: usize,
-    pub maximum_decoded_body_guard: usize,
+    pub _maximum_decoded_body_guard: usize,
 }
 pub(in crate::policy::workflow::transition_constructor) fn family_bodies(
     m: &mut CoreMeter,
@@ -831,15 +768,15 @@ pub(in crate::policy::workflow::transition_constructor) fn family_bodies(
     }
     Ok(FamilyBodyBounds {
         facts,
-        claim: claim.bytes,
-        link: link.bytes,
+        _claim: claim.bytes,
+        _link: link.bytes,
         action: action.bytes,
         evaluation: evaluation.bytes,
         decision: decision.bytes,
         family_state: family.bytes,
-        chain: chain.bytes,
+        _chain: chain.bytes,
         authority: authority.bytes,
-        maximum_decoded_body_guard: guard,
+        _maximum_decoded_body_guard: guard,
     })
 }
 
@@ -853,7 +790,7 @@ pub(in crate::policy::workflow::transition_constructor) struct RootBodyBounds {
     pub decision: usize,
     pub authority: usize,
     pub chain: usize,
-    pub maximum_decoded_body_guard: usize,
+    pub _maximum_decoded_body_guard: usize,
 }
 pub(in crate::policy::workflow::transition_constructor) fn root_bodies(
     m: &mut CoreMeter,
@@ -862,10 +799,9 @@ pub(in crate::policy::workflow::transition_constructor) fn root_bodies(
     terms: &super::super::authority::Terms,
     logical_store: &Value,
     maximum_original_actions: usize,
-    families: usize,
-    apps: usize,
-    app_bodies: Option<&AppBodyBounds>,
+    selected_operands: (usize, usize, Option<&AppBodyBounds>),
 ) -> Result<RootBodyBounds> {
+    let (families, apps, app_bodies) = selected_operands;
     let facts = facts_for_reference(m, program, &payload["fact_schema_ref"])?;
     let context = exact(m, &terms.binding["accepted_context"])?;
     let scope = exact(m, &terms.slot_terms["scope"])?;
@@ -1065,28 +1001,28 @@ pub(in crate::policy::workflow::transition_constructor) fn root_bodies(
         decision: decision.bytes,
         authority: authority.bytes,
         chain: chain.bytes,
-        maximum_decoded_body_guard: guard,
+        _maximum_decoded_body_guard: guard,
     })
 }
 
 pub(in crate::policy::workflow::transition_constructor) struct AppBodyBounds {
     pub action: usize,
     pub evaluation: usize,
-    pub claim: usize,
+    pub _claim: usize,
     pub consumption: usize,
     pub revision: usize,
     pub decision: usize,
     pub standalone_authority: usize,
-    pub finalized_authority: usize,
-    pub pending_authority: usize,
+    pub _finalized_authority: usize,
+    pub _pending_authority: usize,
     pub finalized_parent_check: usize,
     pub pending_parent_check: usize,
-    pub retirement: usize,
-    pub observation: usize,
+    pub _retirement: usize,
+    pub _observation: usize,
     pub final_evidence: usize,
     pub evidence_verification: usize,
-    pub finalize_new_bodies: usize,
-    pub correct_new_bodies: usize,
+    pub _finalize_new_bodies: usize,
+    pub _correct_new_bodies: usize,
     pub finalized_causal_new_bodies: usize,
     pub pending_causal_new_bodies: usize,
     pub decoded: AppDecodedBounds,
@@ -1094,25 +1030,25 @@ pub(in crate::policy::workflow::transition_constructor) struct AppBodyBounds {
 /// Named app-body selected-guard contributions. These are neither the
 /// economic executor total nor a bound on arbitrary unvalidated JSON.
 pub(in crate::policy::workflow::transition_constructor) struct AppDecodedBounds {
-    pub finalize_new_bodies: usize,
-    pub correct_new_bodies: usize,
-    pub finalized_causal_new_bodies: usize,
-    pub pending_causal_new_bodies: usize,
-    pub observation: usize,
+    pub _finalize_new_bodies: usize,
+    pub _correct_new_bodies: usize,
+    pub _finalized_causal_new_bodies: usize,
+    pub _pending_causal_new_bodies: usize,
+    pub _observation: usize,
     pub final_evidence: usize,
     pub evidence_verification: usize,
     pub action: usize,
     pub evaluation: usize,
-    pub claim: usize,
+    pub _claim: usize,
     pub consumption: usize,
     pub revision: usize,
     pub decision: usize,
     pub standalone_authority: usize,
-    pub finalized_authority: usize,
-    pub pending_authority: usize,
+    pub _finalized_authority: usize,
+    pub _pending_authority: usize,
     pub finalized_parent_check: usize,
     pub pending_parent_check: usize,
-    pub retirement: usize,
+    pub _retirement: usize,
 }
 /// Actual immutable original payload/context remain fixed for standalone app
 /// pricing and causal inversion. The caller supplies the SAME validated terms,
@@ -1573,44 +1509,108 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     let decoded = AppDecodedBounds {
         action: action.guard,
         evaluation: evaluation.guard,
-        claim: claim.guard,
+        _claim: claim.guard,
         consumption: consumption.guard,
         revision: revision.guard,
         decision: decision.guard,
         standalone_authority: standalone_authority.guard,
-        finalized_authority: finalized_authority.guard,
-        pending_authority: pending_authority.guard,
+        _finalized_authority: finalized_authority.guard,
+        _pending_authority: pending_authority.guard,
         finalized_parent_check: finalized_parent_check.guard,
         pending_parent_check: pending_parent_check.guard,
-        retirement: retirement.guard,
-        observation: observation.guard,
+        _retirement: retirement.guard,
+        _observation: observation.guard,
         final_evidence: final_evidence.guard,
         evidence_verification: evidence_verification.guard,
-        finalize_new_bodies: finalize_new_bodies.guard,
-        correct_new_bodies: correct_new_bodies.guard,
-        finalized_causal_new_bodies: finalized_causal_new_bodies.guard,
-        pending_causal_new_bodies: pending_causal_new_bodies.guard,
+        _finalize_new_bodies: finalize_new_bodies.guard,
+        _correct_new_bodies: correct_new_bodies.guard,
+        _finalized_causal_new_bodies: finalized_causal_new_bodies.guard,
+        _pending_causal_new_bodies: pending_causal_new_bodies.guard,
     };
     Ok(AppBodyBounds {
         action: action.bytes,
         evaluation: evaluation.bytes,
-        claim: claim.bytes,
+        _claim: claim.bytes,
         consumption: consumption.bytes,
         revision: revision.bytes,
         decision: decision.bytes,
         standalone_authority: standalone_authority.bytes,
-        finalized_authority: finalized_authority.bytes,
-        pending_authority: pending_authority.bytes,
+        _finalized_authority: finalized_authority.bytes,
+        _pending_authority: pending_authority.bytes,
         finalized_parent_check: finalized_parent_check.bytes,
         pending_parent_check: pending_parent_check.bytes,
-        retirement: retirement.bytes,
-        observation: observation.bytes,
+        _retirement: retirement.bytes,
+        _observation: observation.bytes,
         final_evidence: final_evidence.bytes,
         evidence_verification: evidence_verification.bytes,
-        finalize_new_bodies: finalize_new_bodies.bytes,
-        correct_new_bodies: correct_new_bodies.bytes,
+        _finalize_new_bodies: finalize_new_bodies.bytes,
+        _correct_new_bodies: correct_new_bodies.bytes,
         finalized_causal_new_bodies: finalized_causal_new_bodies.bytes,
         pending_causal_new_bodies: pending_causal_new_bodies.bytes,
         decoded,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::codec;
+    use super::*;
+    use crate::{
+        canonical::{self, audit_arena::AuditArena},
+        validation_work::OriginalAuditSession,
+    };
+    use serde_json::json;
+    #[test]
+    fn prospective_closed_body_guard_counts_structure_independently_of_string_bytes() {
+        let reference = json!({"kind":"workflow-work","id":"work","digest":"digest"});
+        for count in [0, 1, 32] {
+            let facts = json!({"units":"100","label":"x".repeat(10000),"flag":true,"scale":18});
+            let value = json!({"facts":facts,"refs":vec![reference.clone();count]});
+            let arena = AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let m = session.meter_mut();
+            let fact_shape = exact(m, &value["facts"]).unwrap();
+            let refs = array(m, count, REF).unwrap();
+            let bound = object(m, &[("facts", fact_shape), ("refs", refs)]).unwrap();
+            let mut actual = CoreMeter::new(65536).unwrap();
+            codec::validate_selected_types(&mut actual, &value).unwrap();
+            assert!(actual.usage().semantic_work <= bound.guard as u64);
+            assert!(
+                canonical::CanonicalBytes::from_value(&value)
+                    .unwrap()
+                    .as_slice()
+                    .len()
+                    <= bound.bytes
+            );
+            assert_eq!(bound.depth, if count == 0 { 2 } else { 3 });
+        }
+        let fields = json!([
+            {"name":"example:text","required":true,"type":{"kind":"string","min_bytes":"0","max_bytes":"8"},"provenance":{"kind":"caller"}},
+            {"name":"example:choice","required":true,"type":{"kind":"enum","values":["example:a","example:z"]},"provenance":{"kind":"caller"}},
+            {"name":"example:integer","required":true,"type":{"kind":"integer","min":"-999999999999999999999999999999","max":"999999999999999999999999999999"},"provenance":{"kind":"caller"}},
+            {"name":"example:decimal","required":true,"type":{"kind":"decimal","min":"-999999999999999999999999999999","max":"999999999999999999999999999999","max_scale":"18"},"provenance":{"kind":"caller"}},
+            {"name":"example:flag","required":false,"type":{"kind":"boolean"},"provenance":{"kind":"caller"}}
+        ]);
+        let schema=super::super::super::super::FactSchema::parse(&serde_json::to_vec(&json!({"schema":"ledger-workflow-fact-schema/1","schema_id":"example:range","version":"1","normalization":"ledger-facts-normalization/1","fields":fields})).unwrap()).unwrap();
+        let input = json!({"example:text":"\"".repeat(8),"example:choice":"example:z","example:integer":"-999999999999999999999999999999","example:decimal":"-999999999999.999999999999999999","example:flag":false});
+        let normalized = schema
+            .normalize(&serde_json::to_vec(&input).unwrap())
+            .unwrap();
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let bound = normalized_facts(session.meter_mut(), schema.canonical_value()).unwrap();
+        let actual = canonical::CanonicalBytes::from_value(normalized.canonical_value()).unwrap();
+        assert!(actual.as_slice().len() <= bound.bytes);
+        let mut guard = CoreMeter::new(65536).unwrap();
+        codec::validate_selected_types(&mut guard, normalized.canonical_value()).unwrap();
+        assert!(guard.usage().semantic_work <= bound.guard as u64);
+        assert_eq!(bound.depth, 1);
+        let mut m = CoreMeter::new(65536).unwrap();
+        let too_deep = Body {
+            bytes: 2,
+            guard: 5,
+            depth: 32,
+        };
+        assert!(object(&mut m, &[("extra", too_deep)]).is_err());
+    }
 }

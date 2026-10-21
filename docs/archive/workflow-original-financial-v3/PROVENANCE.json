@@ -1,0 +1,14 @@
+{
+  "source_commit": "1065242b3cb81a4d4eacb20624c1ae7a5301d63f",
+  "files": {
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/original_financial.rs": {
+      "archive": "docs/archive/workflow-original-financial-v3/original_financial.rs.txt",
+      "sha256": "89a4ba45853b55f52b56523dcbe48b5d5ed62e5a5075cd59a7306ff7b1269abd"
+    },
+    "crates/ledgerlab-core/src/policy/workflow/transition_constructor/financial_observation.rs": {
+      "archive": "docs/archive/workflow-original-financial-v3/financial_observation.rs.txt",
+      "sha256": "b1df17d7a9c14856549004bb1a9aa70525dccfd001eb92c81fa7d8fb1f0f5897"
+    }
+  },
+  "status": "Incomplete disconnected historical Operation3 DATA implementation; no available audit endpoint. Preserved reference source, not compiled."
+}

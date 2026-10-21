@@ -20,7 +20,7 @@ use crate::{
     validation_work::{OriginalAuditSession, RepresentationKind},
     Error, Result,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 pub struct RetainedAssertionEnvelope {
@@ -51,7 +51,7 @@ pub struct RetainedAssertionData {
     pub(super) assertion_index: usize,
     pub(super) reused_assertion: Option<RetainedAssertionEnvelope>,
     pub(super) verification_ref: ExactRef,
-    pub(super) consumed: OwnedConsumed,
+    pub(super) _consumed: OwnedConsumed,
     pub(super) claims: Vec<super::candidate::ClaimEffect>,
     pub(super) _output_ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
@@ -85,8 +85,7 @@ impl RetainedAssertionData {
             .expect("checked assertion identity")
     }
     fn assertion_body(&self) -> &Value {
-        &self
-            .reused_assertion
+        self.reused_assertion
             .as_ref()
             .unwrap_or_else(|| &self.introduced[self.assertion_index])
             .inner
@@ -260,8 +259,7 @@ fn execute<'raw>(
 ) -> Result<RetainedAssertionData> {
     m.begin_request(raw)?;
     entry::context_selected(m, c, program)?;
-    let mut parsed =
-        m.parse_owned_representation(arena, raw, RepresentationKind::OriginalRequest)?;
+    let parsed = m.parse_owned_representation(arena, raw, RepresentationKind::OriginalRequest)?;
     let p = parsed.value();
     // Generic syntax parsing does not discharge economic closed/type guards.
     codec::validate_selected_value(m, p, 262144)?;
@@ -312,7 +310,7 @@ impl GenericRetention<'_> {
             assertion_index,
             reused_assertion,
             verification_ref,
-            consumed: records.into_consumed_owned(),
+            _consumed: records.into_consumed_owned(),
             claims,
             _output_ownership: Some(ownership),
         })
@@ -395,7 +393,7 @@ pub(super) fn execute_complete<'raw>(
             claims,
             heads: Vec::new(),
         }),
-        app_causal: None,
+        _app_causal: None,
         current_capacity: None,
         candidate_heads: None,
         candidate_introductions: None,
@@ -897,11 +895,7 @@ fn resolve_field(
             p.value(),
             activity,
             product,
-            &owner,
-            &times,
-            program,
-            EconomicMode::EvidenceRetain,
-            &[],
+            (&owner, &times, program, EconomicMode::EvidenceRetain, &[]),
         )?;
         additional_operation(m, r, c, "work.accept")?;
         {
@@ -1072,12 +1066,57 @@ fn owned_ref(m: &mut CoreMeter, arena: &AuditArena, r: &ExactRef) -> Result<Audi
         m,
     )
 }
+
+/// Exact-key point-hit DATA is reconciled by the host against its completed
+/// prefix. The child independently reads and compares the old assertion; it
+/// never treats the held projection as body/origin or authority proof.
+pub(super) fn existing_assertion(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    state: &EconomicStateData,
+    produced: &ConstructedEnvelope,
+) -> Result<bool> {
+    if !m.check("retention.permanent_assertion_hit", || {
+        state.retained_assertion.is_some()
+    })? {
+        return Ok(false);
+    }
+    let old = state
+        .retained_assertion
+        .expect("checked permanent assertion hit");
+    let body = r.provenance(m, &c.key, old)?;
+    let value = produced.decoded(m, 4194304)?;
+    if !shape::same(m, &body["source"], &value["source"])?
+        || !shape::same(m, &body["attestation_id"], &value["attestation_id"])?
+    {
+        return Err(shape::fail("held assertion exact permanent key"));
+    }
+    let canonical = r.canonical(m, old)?;
+    if !shape::same_ref(m, old, &produced.reference)?
+        || !shape::same_bytes(m, canonical, &produced.canonical_body)?
+    {
+        return Err(Error::new(
+            "IDENTITY_CONFLICT",
+            "permanent assertion identity has different canonical body",
+        ));
+    }
+    if !matches!(
+        r.used_canonical(m, old)?,
+        super::records::UsedCanonical::Preexisting(_)
+    ) {
+        return Err(shape::fail("held assertion must be retained old I"));
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::policy::workflow::selected_program::{
         compile_selected_program, SelectedCompilerSupport, SelectedSourceInput,
     };
+    use serde_json::json;
     fn program() -> SelectedProgram {
         let source:Value=canonical::parse(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
         let input = SelectedSourceInput {
@@ -1241,7 +1280,7 @@ mod tests {
                     assert!(
                         existing_assertion(&mut m, &mut records, &c, &state, &produced).unwrap()
                     );
-                    assert_eq!(records.consumed(), &[old.reference.clone()]);
+                    assert_eq!(records.consumed(), std::slice::from_ref(&old.reference));
                     assert!(matches!(
                         records.used_canonical(&mut m, &old.reference).unwrap(),
                         super::super::records::UsedCanonical::Preexisting(_)
@@ -1282,47 +1321,4 @@ mod tests {
             assert_eq!(arena.usage().unwrap().live_bytes, baseline);
         }
     }
-}
-
-/// Exact-key point-hit DATA is reconciled by the host against its completed
-/// prefix. The child independently reads and compares the old assertion; it
-/// never treats the held projection as body/origin or authority proof.
-pub(super) fn existing_assertion(
-    m: &mut CoreMeter,
-    r: &mut Records,
-    c: &DraftContextData,
-    state: &EconomicStateData,
-    produced: &ConstructedEnvelope,
-) -> Result<bool> {
-    if !m.check("retention.permanent_assertion_hit", || {
-        state.retained_assertion.is_some()
-    })? {
-        return Ok(false);
-    }
-    let old = state
-        .retained_assertion
-        .expect("checked permanent assertion hit");
-    let body = r.provenance(m, &c.key, old)?;
-    let value = produced.decoded(m, 4194304)?;
-    if !shape::same(m, &body["source"], &value["source"])?
-        || !shape::same(m, &body["attestation_id"], &value["attestation_id"])?
-    {
-        return Err(shape::fail("held assertion exact permanent key"));
-    }
-    let canonical = r.canonical(m, old)?;
-    if !shape::same_ref(m, old, &produced.reference)?
-        || !shape::same_bytes(m, canonical, &produced.canonical_body)?
-    {
-        return Err(Error::new(
-            "IDENTITY_CONFLICT",
-            "permanent assertion identity has different canonical body",
-        ));
-    }
-    if !matches!(
-        r.used_canonical(m, old)?,
-        super::records::UsedCanonical::Preexisting(_)
-    ) {
-        return Err(shape::fail("held assertion must be retained old I"));
-    }
-    Ok(true)
 }

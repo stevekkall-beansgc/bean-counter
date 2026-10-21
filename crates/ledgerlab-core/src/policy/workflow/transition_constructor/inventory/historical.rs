@@ -34,18 +34,17 @@ pub(super) fn source_and_root(
     o: &InvocationToken,
     program: &SelectedProgram,
     b: &Value,
-    auth: &Value,
-    key: &Value,
-    at: &Value,
+    selected_operands: (&Value, &Value, &Value),
 ) -> Result<()> {
+    let (auth, key, at) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::historical::source_and_root", |m| {
-            source_and_root_data(m, r, c, o, program, b, auth, key, at)
-        });
+        m.diagnostic_scope("inventory::historical::source_and_root", |m| {
+            source_and_root_data(m, r, c, o, program, b, (auth, key, at))
+        })
     }
     #[cfg(not(test))]
-    source_and_root_data(m, r, c, o, program, b, auth, key, at)
+    source_and_root_data(m, r, c, o, program, b, (auth, key, at))
 }
 fn source_and_root_data(
     m: &mut CoreMeter,
@@ -54,10 +53,9 @@ fn source_and_root_data(
     o: &InvocationToken,
     program: &SelectedProgram,
     b: &Value,
-    auth: &Value,
-    key: &Value,
-    at: &Value,
+    selected_operands: (&Value, &Value, &Value),
 ) -> Result<()> {
+    let (auth, key, at) = selected_operands;
     let sr = invoke!(shape::array, m, auth, "source_state_refs")?;
     invoke!(count, m, sr, 1)?;
     let state = invoke!(
@@ -135,8 +133,7 @@ fn source_and_root_data(
         o,
         &enrollment,
         &state,
-        &grant,
-        data_field!(m, b, "customer")
+        (&*grant, data_field!(m, b, "customer"))
     )?;
     let captured_time = invoke!(time, m, &json!({"at":at}), "at")?;
     let start = invoke!(time, m, &grant, "starts_at")?;
@@ -250,9 +247,11 @@ fn source_and_root_data(
         o,
         data_field!(m, auth, "local_admin_ref"),
         &json!({"at":at}),
-        "at",
-        data_field!(m, auth, "actor"),
-        Some(data_field!(m, key, "source"))
+        (
+            "at",
+            data_field!(m, auth, "actor"),
+            Some(data_field!(m, key, "source"))
+        )
     )?;
     invoke!(
         copy,

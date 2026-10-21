@@ -180,10 +180,6 @@ pub(super) enum SuppliedRecords<'a> {
         arena: AuditArena,
         sources: &'a [&'a super::source_records::InitialSourceCorrespondence],
     },
-    Borrowed {
-        records: &'a [EconomicRecordView<'a>],
-        arena: &'a AuditArena,
-    },
 }
 impl<'a> SuppliedRecords<'a> {
     pub(super) fn resolve<'inv, 'short>(
@@ -210,7 +206,6 @@ impl<'a> SuppliedRecords<'a> {
                 result.install_initial_source_outputs(m, sources)?;
                 Ok(result)
             }
-            Self::Borrowed { records, arena } => Records::borrowed(m, arena, key, records, pending),
         }
     }
 }
@@ -413,15 +408,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         records.app_records = true;
         Ok(records)
     }
-    pub(super) fn borrowed_ap(
-        m: &mut CoreMeter,
-        arena: &AuditArena,
-        key: &'raw OperationKey,
-        inputs: &'raw [EconomicRecordView<'raw>],
-        pending: &'raw [RecordInput],
-    ) -> Result<Self> {
-        Self::borrowed_mode(m, arena, key, inputs, pending, true, false)
-    }
+
     fn borrowed_mode(
         m: &mut CoreMeter,
         arena: &AuditArena,
@@ -693,11 +680,9 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         enrollment: &Value,
         state: &Value,
         grant: &Value,
-        customer: &Value,
-        enrollment_ref: &ExactRef,
-        state_ref: &ExactRef,
-        grant_ref: &ExactRef,
+        selected_operands: (&Value, &ExactRef, &ExactRef, &ExactRef),
     ) -> Result<SourceBirthCheck> {
+        let (customer, enrollment_ref, state_ref, grant_ref) = selected_operands;
         let mut check = SourceBirthCheck {
             registered: None,
             outputs: false,
@@ -786,16 +771,20 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         owner: &super::representation::InvocationToken,
         reference: &ExactRef,
         g: &Value,
-        enrollment_ref: &ExactRef,
-        enrollment: &Value,
-        c: &super::data::DraftContextData,
-        customer: &Value,
-        activity: &str,
-        product: &str,
-        slot: &str,
-        at: &num_bigint::BigInt,
+        selected_operands: (
+            &ExactRef,
+            &Value,
+            &super::data::DraftContextData,
+            &Value,
+            &str,
+            &str,
+            &str,
+            &num_bigint::BigInt,
+        ),
         mode: super::authority::EconomicMode,
     ) -> Result<()> {
+        let (enrollment_ref, enrollment, c, customer, activity, product, slot, at) =
+            selected_operands;
         m.visit("source.grant_exact_instant")?;
         let instant = i64::try_from(at).map_err(|_| invalid("source grant timestamp integer"))?;
         let ceiling = super::shape::field(m, enrollment, "ceiling")?;
@@ -836,8 +825,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             activity,
             product,
             slot,
-            mode.operation(),
-            mode.rights(),
+            (mode.operation(), mode.rights()),
         )?;
         if !reusable {
             if let Some((g, e)) = positions {
@@ -870,10 +858,9 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         reference: &ExactRef,
         state: &RecordBody,
         observation: &RecordBody,
-        verifier: &RecordBody,
-        root: &RecordBody,
-        app_catalog: bool,
+        selected_operands: (&RecordBody, &RecordBody, bool),
     ) -> Result<()> {
+        let (verifier, root, app_catalog) = selected_operands;
         let position = if self.source_context_owner(m, c)? {
             self.source_body_position(m, reference, observation)?
         } else {
@@ -1022,7 +1009,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             m.visit("resolve.optional_identity")?;
             if let Some(position) = position {
                 return self
-                    .get_grammatical_schemas(m, key, r, kind, &[schema], false, Some(position))
+                    .get_grammatical_schemas(m, key, r, kind, (&[schema], false), Some(position))
                     .map(Some);
             }
             // In once-only identity tables, a valid but different digest at
@@ -1034,7 +1021,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             {
                 None => Ok(None),
                 Some(_) => self
-                    .get_grammatical_schemas(m, key, r, kind, &[schema], false, None)
+                    .get_grammatical_schemas(m, key, r, kind, (&[schema], false), None)
                     .map(Some),
             };
         }
@@ -1147,8 +1134,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             key,
             r,
             expected_kind,
-            &[expected_schema],
-            false,
+            (&[expected_schema], false),
             position,
         )
     }
@@ -1172,7 +1158,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         expected_kind: &str,
         expected_schema: &str,
     ) -> Result<RecordBody> {
-        self.get_grammatical_schemas(m, key, r, expected_kind, &[expected_schema], false, None)
+        self.get_grammatical_schemas(m, key, r, expected_kind, (&[expected_schema], false), None)
     }
     pub(super) fn get_parsed_schemas(
         &mut self,
@@ -1184,7 +1170,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         schemas: &[&str],
     ) -> Result<RecordBody> {
         reference.require_owner(m, owner)?;
-        self.get_grammatical_schemas(m, key, reference.exact(), kind, schemas, false, None)
+        self.get_grammatical_schemas(m, key, reference.exact(), kind, (schemas, false), None)
     }
     /// Exact closed saved-schema dispatch. The resolved body chooses only among
     /// the caller's code-owned per-kind versions; kind/domain/hash checks are
@@ -1198,7 +1184,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         schemas: &[&str],
     ) -> Result<RecordBody> {
         let position = self.checked_reference(m, r)?;
-        self.get_grammatical_schemas(m, key, r, expected_kind, schemas, false, position)
+        self.get_grammatical_schemas(m, key, r, expected_kind, (schemas, false), position)
     }
     /// Supplemental immutable provenance, not an intrinsic per-kind proof or
     /// an authorization operand. The host must complete its actual origin.
@@ -1209,7 +1195,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         r: &ExactRef,
     ) -> Result<RecordBody> {
         let position = self.checked_reference(m, r)?;
-        self.get_grammatical_schemas(m, key, r, &r.kind, &[], true, position)
+        self.get_grammatical_schemas(m, key, r, &r.kind, (&[], true), position)
     }
     fn get_grammatical_schemas(
         &mut self,
@@ -1217,10 +1203,10 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         key: &OperationKey,
         r: &ExactRef,
         expected_kind: &str,
-        schemas: &[&str],
-        provenance_only: bool,
+        selected_operands: (&[&str], bool),
         checked_reference_position: Option<usize>,
     ) -> Result<RecordBody> {
+        let (schemas, provenance_only) = selected_operands;
         // Framing reuse is owned by this invocation's store/scope. A cached
         // hash whose tuple included the original scope cannot authorize a
         // subsequent lookup under another scope, even with an exact Ref.
@@ -1595,6 +1581,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     /// Exact I-set membership from this invocation's immutable operand index.
     /// A present but unused operand is not a consumed member. This does not
     /// parse or admit anything, and cannot establish original custody.
+    #[cfg(test)]
     pub(super) fn consumed_canonical(
         &self,
         m: &mut CoreMeter,
@@ -1962,7 +1949,7 @@ mod owning_tests {
         assert!(m.usage().semantic_work > semantic);
         assert_eq!(m.usage().unique_resolved_refs, 1);
         assert_eq!(m.usage().unique_resolved_bytes, bytes.len() as u64);
-        assert_eq!(table.consumed(), &[reference.clone()]);
+        assert_eq!(table.consumed(), std::slice::from_ref(&reference));
         assert_eq!(
             table.consumed_canonical(&mut m, &reference).unwrap(),
             Some(bytes.as_slice())
@@ -2117,14 +2104,16 @@ mod source_facts_tests {
                 &owner,
                 &grant.reference,
                 &g,
-                &enrollment.reference,
-                &e,
-                &c,
-                &json!("customer"),
-                "test:activity",
-                "test:product",
-                "test:worker",
-                &at.into(),
+                (
+                    &enrollment.reference,
+                    &e,
+                    &c,
+                    &json!("customer"),
+                    "test:activity",
+                    "test:product",
+                    "test:worker",
+                    &at.into(),
+                ),
                 EconomicMode::Work,
             )
             .unwrap();
@@ -2135,14 +2124,16 @@ mod source_facts_tests {
                 &owner,
                 &grant.reference,
                 &g,
-                &enrollment.reference,
-                &e,
-                &c,
-                &json!("customer"),
-                "test:activity",
-                "test:product",
-                "test:worker",
-                &at.into(),
+                (
+                    &enrollment.reference,
+                    &e,
+                    &c,
+                    &json!("customer"),
+                    "test:activity",
+                    "test:product",
+                    "test:worker",
+                    &at.into(),
+                ),
                 EconomicMode::Work,
             )
             .unwrap();
@@ -2153,14 +2144,16 @@ mod source_facts_tests {
                 &owner,
                 &grant.reference,
                 &g,
-                &enrollment.reference,
-                &e,
-                &c,
-                &json!("customer"),
-                "test:activity",
-                "test:product",
-                "test:worker",
-                &at.into(),
+                (
+                    &enrollment.reference,
+                    &e,
+                    &c,
+                    &json!("customer"),
+                    "test:activity",
+                    "test:product",
+                    "test:worker",
+                    &at.into()
+                ),
                 EconomicMode::CostCorrect
             )
             .is_err());
@@ -2173,14 +2166,16 @@ mod source_facts_tests {
                 &owner,
                 &grant.reference,
                 &g,
-                &enrollment.reference,
-                &e,
-                &c,
-                &json!("customer"),
-                "test:activity",
-                "test:product",
-                "test:worker",
-                &invalid_at.into(),
+                (
+                    &enrollment.reference,
+                    &e,
+                    &c,
+                    &json!("customer"),
+                    "test:activity",
+                    "test:product",
+                    "test:worker",
+                    &invalid_at.into()
+                ),
                 EconomicMode::Work
             )
             .is_err());
@@ -2195,14 +2190,16 @@ mod source_facts_tests {
                 &owner,
                 &grant.reference,
                 &g,
-                &enrollment.reference,
-                &e,
-                &later,
-                &json!("customer"),
-                "test:activity",
-                "test:product",
-                "test:worker",
-                &at.into(),
+                (
+                    &enrollment.reference,
+                    &e,
+                    &later,
+                    &json!("customer"),
+                    "test:activity",
+                    "test:product",
+                    "test:worker",
+                    &at.into()
+                ),
                 EconomicMode::Work
             )
             .is_err());

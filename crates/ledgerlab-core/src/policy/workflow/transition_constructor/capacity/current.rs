@@ -13,7 +13,7 @@ use crate::{
 use num_bigint::BigInt;
 
 pub(in crate::policy::workflow::transition_constructor) struct CurrentCapacity {
-    pub reference: ExactRef,
+    pub _reference: ExactRef,
     pub body: RecordBody,
     pub revision: BigInt,
     pub reserved: Vec<ExactRef>,
@@ -76,12 +76,14 @@ pub(in crate::policy::workflow::transition_constructor) fn compare_original_stru
             current,
             ancestor.value(),
             &family.dependent_decision_id,
-            "outcome_family",
-            &family.target_ref,
-            Some(&family.family_slot),
-            binding.value(),
-            &root["operation_key"],
-            family.maximum_inverse_actions,
+            (
+                "outcome_family",
+                &family.target_ref,
+                Some(&family.family_slot),
+                binding.value(),
+                &root["operation_key"],
+                family.maximum_inverse_actions,
+            ),
         )?;
     }
     for cost in &original.delayed_costs {
@@ -93,12 +95,14 @@ pub(in crate::policy::workflow::transition_constructor) fn compare_original_stru
             current,
             ancestor.value(),
             &cost.dependent_decision_id,
-            "delayed_cost",
-            &cost.target_ref,
-            None,
-            binding.value(),
-            &root["operation_key"],
-            cost.maximum_inverse_actions,
+            (
+                "delayed_cost",
+                &cost.target_ref,
+                None,
+                binding.value(),
+                &root["operation_key"],
+                cost.maximum_inverse_actions,
+            ),
         )?;
     }
     for cost in &original.app_costs {
@@ -110,12 +114,14 @@ pub(in crate::policy::workflow::transition_constructor) fn compare_original_stru
             current,
             ancestor.value(),
             &cost.dependent_decision_id,
-            "delayed_cost",
-            &cost.target_ref,
-            None,
-            binding.value(),
-            &root["operation_key"],
-            cost.maximum_inverse_actions,
+            (
+                "delayed_cost",
+                &cost.target_ref,
+                None,
+                binding.value(),
+                &root["operation_key"],
+                cost.maximum_inverse_actions,
+            ),
         )?;
     }
     let union = original.structural_union(&arena, m)?;
@@ -148,13 +154,16 @@ fn original_edge(
     current: &CurrentCapacity,
     ancestor: &serde_json::Value,
     dependent: &str,
-    kind: &str,
-    target: &ExactRef,
-    family: Option<&str>,
-    binding: &serde_json::Value,
-    key: &serde_json::Value,
-    actions: usize,
+    selected_operands: (
+        &str,
+        &ExactRef,
+        Option<&str>,
+        &serde_json::Value,
+        &serde_json::Value,
+        usize,
+    ),
 ) -> Result<()> {
+    let (kind, target, family, binding, key, actions) = selected_operands;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning original dependency comparison"))?;
@@ -556,7 +565,7 @@ fn retained_root_head_mode(
     shape::equal(m, &capacity["retirement_refs"], normalized.value())?;
     let reference = copy_ref(m, &head.reference)?;
     Ok(CurrentCapacity {
-        reference,
+        _reference: reference,
         body: capacity,
         revision,
         reserved: reserved_refs,

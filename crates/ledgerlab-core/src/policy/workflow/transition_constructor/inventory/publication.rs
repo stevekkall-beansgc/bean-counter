@@ -1,10 +1,6 @@
 use super::super::super::selected_program::SelectedProgram;
 use super::super::{
-    body,
-    data::*,
-    records::{self, Records},
-    representation::InvocationToken,
-    shape, CoreMeter,
+    body, data::*, records::Records, representation::InvocationToken, shape, CoreMeter,
 };
 use super::check::*;
 use crate::Result;
@@ -17,17 +13,17 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     o: &InvocationToken,
     program: &SelectedProgram,
     b: &Value,
-    a: &Value,
-    terms: &Value,
+    selected_operands: (&Value, &Value),
 ) -> Result<()> {
+    let (a, terms) = selected_operands;
     #[cfg(test)]
     {
-        return m.diagnostic_scope("inventory::publication::validate", |m| {
-            validate_data(m, r, c, o, program, b, a, terms)
-        });
+        m.diagnostic_scope("inventory::publication::validate", |m| {
+            validate_data(m, r, c, o, program, b, (a, terms))
+        })
     }
     #[cfg(not(test))]
-    validate_data(m, r, c, o, program, b, a, terms)
+    validate_data(m, r, c, o, program, b, (a, terms))
 }
 fn validate_data(
     m: &mut CoreMeter,
@@ -36,9 +32,9 @@ fn validate_data(
     o: &InvocationToken,
     program: &SelectedProgram,
     b: &Value,
-    a: &Value,
-    terms: &Value,
+    selected_operands: (&Value, &Value),
 ) -> Result<()> {
+    let (a, terms) = selected_operands;
     let publication_ref = data_field!(m, a, "publication_ref");
     let publication = invoke!(
         load,
