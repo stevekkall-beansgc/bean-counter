@@ -2,6 +2,13 @@
 
 These instructions match **v0.9.7 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes.
 
+## Unreleased supported-workflow candidate
+
+The restricted local workflow candidate is separate from the published v0.9.7 billing product. Its implementation foundation `af1739154cb3ff2cda009e746c91d46a4ae636d1` passed the unchanged local mandatory unit/contract and end-to-end gates: 533 unit-side tests and 47 CLI tests, with three existing ignored tests, plus 12 synthetic-verification and 30 bounded-cohort checks. Exact-source remote CI and a new native/platform qualification were not run in that packet.
+
+This documentation freeze starts fresh installed macOS candidate qualification of the [supported recipe](docs/local-workflow-supported-recipe.md), including corrections, causal reversal, explicit closure, original retries, restore and opt-in financial failure cuts. Those installed checks are pending until their exact candidate and executable results are recorded. Earlier repaired-build workflow evidence remains historical evidence for its own source and binary identities. There is no new version, tag, publication or expanded capability claim.
+
+
 Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.7 fixes require their own qualification.
 
 Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
