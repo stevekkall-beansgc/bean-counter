@@ -10,6 +10,20 @@ Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-count
 
 Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
 
+## Before your first run
+
+**On macOS, use physical paths and a private trial parent.** `/tmp` and `/var` are symlink aliases. The commands below use `cd -P` and `pwd -P` to obtain physical paths. Changing directories alone does not rewrite an existing `PACKAGE_ROOT` or `LEDGER`; rebind both as shown in [Use private physical paths](#use-private-physical-paths). The trial parent must have mode **0700**, not 0755. Create only the parent; let the examples create their new work children.
+
+**For a live app, keep this order: terms → work → base → later assessment → outcome.** v0.9.7 clarified the existing eligibility rule; it did not change it. Sleeping after an already-known result is delayed reporting, not a later assessment. Perform the agreed new evaluation after the ordinary window starts and record its actual time.
+
+| What happened | What to record |
+| --- | --- |
+| Work failed before completion | Evidence only; no completed-work base or outcome. |
+| Completed work has an unknown later assessment | Preserve the accepted base; save assessment-error evidence; no outcome. |
+| A later assessment verifies the agreed negative condition | Submit the agreed negative adjustment only when eligible, with evidence. |
+
+Never turn a provider exception into `unsuccessful-by-cutoff`. An error proves neither zero results nor elapsed cutoff. These states and timestamps are illustrated in the [live-app guide](docs/live-app-integration.md).
+
 ## 1. Check your computer
 
 The qualification targets are **macOS 26.6.2 on Apple silicon** and **Ubuntu 24.04.5 x86-64 with glibc 2.39**. Other systems are unverified; Windows is unsupported. You need a terminal, `curl` and **Python 3.11 or newer** to verify/install and run the example. The installed billing executable itself does not need Python.
@@ -86,6 +100,8 @@ export LEDGER="$PACKAGE_ROOT/ledger"
 Continue only after installation succeeds and the version reports `ledger 0.9.7 (local development)`. That is the matching binary's exact version string. The installer verifies archive identity, file hashes, modes and inventory before running the binary, and creates a private installation.
 
 ## 4. Run the synthetic receipt journey
+
+**Check paths before running:** `PACKAGE_ROOT` and `LEDGER` must both use the physical installation path. The fresh trial parent below is private (0700); if reusing a deliberately selected trial parent, inspect it and use `chmod 700` on that parent only. Keep previous work children intact.
 
 Use a fresh working directory. This example records completed work, success/unsuccessful outcomes, an authorized correction, identical retries and a quiescent backup/reopen. Its terms and evidence are synthetic, not real customer consent or authority.
 

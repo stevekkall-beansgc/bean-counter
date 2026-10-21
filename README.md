@@ -1,12 +1,28 @@
 # Bean Counter
 
-<img src="docs/assets/bean-counter.svg" alt="Bean Counter: an orange bean wearing an accountant’s green visor" width="180" height="180">
-
 **Give your application a billing history you can explain.**
 
 Bean Counter is an Apache-2.0 local billing engine for applications that produce completed work. Set an agreed price or quantity rate, record the work, and keep a durable receipt. When a request is retried or a charge needs correcting, the earlier records stay intact and the statement explains what changed.
 
-For example, an application can charge for a completed report, record an agreed later quality assessment, and reconcile the resulting base charge and adjustment. Your application supplies the facts and authority; Bean Counter preserves and checks the billing records.
+![Your products. One billing layer: a web product, AI workflow and backend job send product events to Bean Counter for terms and rating, events and corrections, periods and statements; the outputs are charges with amounts and evidence, statements with periods and adjustments, and JSON and finance CSV exports.](docs/assets/billing-layer.png)
+
+Connect through the local CLI/JSON interface within one business. Your application supplies authorized events; you operate the engine and connect its exports to your finance tools.
+
+## A small billing story
+
+Your app finishes a report. The agreed price is **$1.00**, so it saves a receipt. A later quality review earns the customer an agreed **$0.20 discount**. The statement shows **$0.80 owed**, with both records intact.
+
+| What happens | What Bean Counter keeps |
+| --- | --- |
+| Agree the terms before work begins | The price, customer and permissions |
+| Finish and save the report | A base charge and its receipt |
+| Perform the agreed later assessment | A linked adjustment and its explanation |
+| Retry a request after losing the response | The original receipt, without another charge |
+| Correct a mistake | A new correction that preserves the earlier history |
+
+**Agree → complete → record → assess → reconcile.**
+
+Your app supplies the facts and authority. Bean Counter keeps the billing history straight. A failed attempt is not completed work; an assessment error is not a quality verdict. The [live-app recipe](docs/live-app-integration.md) shows how to keep those cases separate.
 
 ## Try the open beta
 
