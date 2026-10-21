@@ -4,7 +4,9 @@
 Build the CLI with scripts/build_workflow.py --local-execution
 --operator-resources, and build the two existing prepare_local_* examples from
 that captured source. Pass those executables explicitly. Every CLI request,
-response and actual argv is retained. A failure stops this invocation; --resume
+response and actual argv is retained. Positive submits may resolve one exact
+UNAVAILABLE result through original-key status and at most one identical retry.
+Every other failure stops this invocation; --resume
 is an explicit operator action and never changes an accepted request.
 """
 from pathlib import Path
@@ -118,7 +120,7 @@ class Journey:
         path.write_bytes(canonical(value))
         return path
 
-    def command(self, name, argv, expected=0):
+    def command(self, name, argv, expected=0, allow_unavailable=False):
         index = len(self.meta["commands"])
         stem = self.root / (f"{index:03d}-" + name)
         started = now()
@@ -136,11 +138,17 @@ class Journey:
         self.save()
         print(name, result.returncode, flush=True)
         if result.returncode != expected:
+            if allow_unavailable and expected == 0 and result.returncode == 7:
+                value = json.loads(result.stdout)
+                if (isinstance(value, dict) and value.get("schema") == "ledger-cli/1"
+                        and value.get("status") == "error" and value.get("code") == "UNAVAILABLE"):
+                    return value
             raise RuntimeError(f"{name}: exit {result.returncode}, expected {expected}: {result.stdout.decode(errors='replace')}")
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
-    def workflow(self, name, *args, expected=0):
-        return self.command(name, [self.binary, "workflow", "--directory", self.installation, *args, "--json"], expected)
+    def workflow(self, name, *args, expected=0, allow_unavailable=False):
+        return self.command(name, [self.binary, "workflow", "--directory", self.installation, *args, "--json"],
+                            expected, allow_unavailable)
 
     def key(self, operation):
         return {"logical_store_id": self.store, "scope": self.scope, "source": self.source, "operation_id": operation}
@@ -153,7 +161,36 @@ class Journey:
         saved = self.root / (name + ".committed.json")
         if saved.exists():
             return json.loads(saved.read_bytes())
-        result = self.workflow(name, "submit", request)
+        original_bytes = request.read_bytes()
+        result = self.workflow(name, "submit", request, allow_unavailable=True)
+        if self.meta["commands"][-1]["exit"] == 7:
+            key = json.loads(original_bytes)["key"]
+            key_path = self.write(name + ".availability-key.json", key)
+            before = self.snapshot()
+            (self.root / (name + ".availability-before.json")).write_bytes(canonical(before))
+            status = self.workflow(name + "-availability-status", "status", key_path)
+            after = self.snapshot()
+            (self.root / (name + ".availability-after.json")).write_bytes(canonical(after))
+            assert after == before, "original status changed logical state"
+            assert isinstance(status, dict) and status.get("schema") == "ledger-operation-status/1", status
+            assert request.read_bytes() == original_bytes, "saved request changed during availability recovery"
+            if status.get("status") == "committed":
+                assert set(status) == {"schema", "status", "receipt", "request_evidence"}, status
+                result = dict(status, schema="ledger-operation-result/1")
+                recovery = "original_committed_receipt"
+            else:
+                assert set(status) == {"schema", "status", "key"} and status["status"] == "not_observed", status
+                assert status["key"] == key, status
+                # This second submit is deliberately strict: another failure stops.
+                result = self.workflow(name + "-availability-retry", "submit", request)
+                recovery = "one_identical_submit_after_explicit_absence"
+            assert result.get("schema") == "ledger-operation-result/1" and result.get("status") == "committed", result
+            assert result["receipt"]["key"] == key, result
+            assert result["receipt"]["original_request_bytes_sha256"] == sha(original_bytes), result
+            self.meta["checks"].append({"check": "bounded_original_identity_availability_recovery", "operation": name,
+                                       "recovery": recovery, "status_no_append": True,
+                                       "original_request_bytes_sha256": sha(original_bytes)})
+            self.save()
         saved.write_bytes(canonical(result))
         return result
 

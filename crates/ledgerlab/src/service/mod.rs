@@ -4,36 +4,7 @@ mod project;
 #[cfg(test)]
 mod tests;
 use crate::{store::errors::StoreError, ServiceError};
-// Temporary, opt-in synthetic Linux CI diagnosis; no payloads are emitted.
-pub(crate) fn workflow_ci_diagnostic(label: &'static str) {
-    if std::env::var_os("LEDGER_WORKFLOW_CI_DIAGNOSTIC").as_deref()
-        == Some(std::ffi::OsStr::new("mapping-only"))
-    {
-        eprintln!("WORKFLOW-CI-DIAG {label}");
-    }
-}
 pub(crate) fn store_error(e: StoreError) -> ServiceError {
-    workflow_ci_diagnostic(match &e {
-        StoreError::ResourceQuota { .. } => "store.ResourceQuota",
-        StoreError::Io(_) => "store.Io",
-        StoreError::Database(_) => "store.Database",
-        StoreError::Postgres(_) => "store.Postgres",
-        StoreError::Migration(_) => "store.Migration",
-        StoreError::Owned => "store.Owned",
-        StoreError::Overloaded => "store.Overloaded",
-        StoreError::ReadBudgetExhausted => "store.ReadBudgetExhausted",
-        StoreError::BillingHistoryLimit => "store.BillingHistoryLimit",
-        StoreError::BillingPeriod => "store.BillingPeriod",
-        StoreError::BillingClockNotAdvanced => "store.BillingClockNotAdvanced",
-        StoreError::BillingUpgradeRequired => "store.BillingUpgradeRequired",
-        StoreError::BillingM5SchemaRequired => "store.BillingM5SchemaRequired",
-        StoreError::Deadline => "store.Deadline",
-        StoreError::InvalidStore(_) => "store.InvalidStore",
-        StoreError::Integrity(_) => "store.Integrity",
-        StoreError::WritesDisabled => "store.WritesDisabled",
-        StoreError::ExpectedCurrent => "store.ExpectedCurrent",
-        StoreError::DeliveryConflict => "store.DeliveryConflict",
-    });
     if let StoreError::ResourceQuota {
         setting,
         limit,

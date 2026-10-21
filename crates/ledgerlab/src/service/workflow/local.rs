@@ -823,15 +823,15 @@ impl LocalOwnerAdmin {
     fn management_paths(
         &self,
         store: &SqliteStore,
-        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+        _s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
     ) -> Result<()> {
         #[cfg(target_os = "macos")]
         {
             let paths = store
-                .workflow_management_paths(s)
+                .workflow_management_paths(_s)
                 .map_err(agreement::financial::management_read_error)?;
             for (path, directory) in [(paths.directory(), true), (paths.database(), false)] {
-                local_io::private_existing_with_work(path, directory, s.semantic_work()).map_err(
+                local_io::private_existing_with_work(path, directory, _s.semantic_work()).map_err(
                     |error| match error {
                         local_io::LocalError::Service(error) => error,
                         _ => reject("AUTHORITY_REQUIRED"),

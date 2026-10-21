@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 scripts/test-native-package.py
           python3 -m unittest scripts/test_native_package_journey_hashes.py
+          python3 scripts/test_workflow_supported_availability.py
       - name: Build and strictly verify exact candidate archive
         shell: bash
         run: |
@@ -96,8 +97,6 @@ jobs:
           printf '%s\n' "$test_binary" > "$PWD/work/workflow-linux-test-binary.txt"
           sha256sum "$test_binary"
       - name: Qualify installed supported workflow and recovery
-        env:
-          LEDGER_WORKFLOW_CI_DIAGNOSTIC: mapping-only
         shell: bash
         run: |
           set -euo pipefail
