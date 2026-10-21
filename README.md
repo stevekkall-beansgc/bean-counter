@@ -1,5 +1,7 @@
 # Bean Counter
 
+> Source/candidate note: this checkout prepares **unpublished 0.10.0**. Published v0.9.7 instructions and assets below keep their original meaning. Candidate testers use the [workflow handoff](docs/workflow-candidate-testing.md); its exact-version helpers must not be mixed with v0.9.7 binaries.
+
 **Give your application a billing history you can explain.**
 
 Bean Counter is an Apache-2.0 local billing engine for applications that produce completed work. Set an agreed price or quantity rate, record the work, and keep a durable receipt. When a request is retried or a charge needs correcting, the earlier records stay intact and the statement explains what changed.

@@ -1,0 +1,45 @@
+name: Workflow candidate test result
+description: Report a sanitized synthetic result for the unpublished workflow candidate.
+title: "[workflow candidate] "
+body:
+  - type: markdown
+    attributes:
+      value: "Use synthetic data only. Do not attach an installation, credentials, real customer evidence or private paths. Stop on unexpected failure; never rebill under a replacement identity."
+  - type: input
+    id: identity
+    attributes:
+      label: Candidate version and exact source SHA
+      placeholder: "0.10.0, full 40-character source SHA"
+    validations:
+      required: true
+  - type: input
+    id: artifact
+    attributes:
+      label: Target, archive SHA256 and installed executable SHA256
+    validations:
+      required: true
+  - type: textarea
+    id: host
+    attributes:
+      label: Host and operator resources
+      description: "OS/version, CPU architecture, RAM, free disk/filesystem and finite/null settings. Exclude usernames/private paths."
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Command, expected result and actual result
+      description: "Include exit/error code, synthetic request/receipt IDs and reviewed RUN.json entries. Distinguish refusal from unknown commit."
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Evidence and retry boundary
+      options:
+        - label: "I used exact supplied bytes and recorded their identities, or explained the difference."
+          required: true
+        - label: "I included only reviewed synthetic evidence, no complete installation or credentials."
+          required: true
+        - label: "I preserved original request identities and stopped at unexpected failure."
+          required: true

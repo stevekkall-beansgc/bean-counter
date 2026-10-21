@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import copy
 
 VERIFY = Path(__file__).with_name("verify-native-package.py")
 ROOT = "bean-counter-v0.9.2-x86_64-unknown-linux-gnu"
@@ -119,10 +120,49 @@ def check_committed_example_isolation(directory):
         raise RuntimeError("packager accepted a tracked example symlink")
 
 
+def check_workflow_build_identity(directory):
+    spec = importlib.util.spec_from_file_location("native_packager", VERIFY.with_name("package-native.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    capture = directory / "workflow-capture"
+    capture.mkdir()
+    inventory = {"schema": "ledger-build-source-inventory/1", "recipe": "bean-counter-build-inputs/1",
+                 "entries": [{"path": "synthetic.rs", "bytes": "4", "sha256": digest(b"test")}]}
+    canonical = module.build_workflow.canonical
+    inventory_digest = "sha256:" + digest(b"bean-counter/build-source-inventory/1\0" + canonical(inventory).encode())
+    descriptor = json.loads((VERIFY.parent.parent / "contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json").read_bytes())
+    compiler_digest = "sha256:" + digest(b"bean-counter/workflow-document/1\0" + canonical([descriptor["schema"], descriptor]).encode())
+    inputs = {"source": {"base_commit": COMMIT, "state": "clean_commit", "inventory_digest": inventory_digest},
+              "recipe": {"package_name": "ledgerlab-cli", "package_version": "0.10.0", "build_profile": "release",
+                         "target": "x86_64-unknown-linux-gnu", "features": [],
+                         "compiler_ref": {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + compiler_digest[7:], "digest": compiler_digest}}}
+    path = capture / "build-inputs.json"
+    path.write_text(canonical(inputs))
+    (capture / "inventory.json").write_text(canonical(inventory))
+    observed = module.workflow_build_evidence(path, COMMIT, "0.10.0", "x86_64-unknown-linux-gnu")
+    if observed != (path.read_bytes(), (capture / "inventory.json").read_bytes()):
+        raise RuntimeError("workflow package changed captured evidence bytes")
+    cases = [("source", "base_commit", "c" * 40), ("source", "state", "worktree_snapshot"),
+             ("source", "inventory_digest", "sha256:" + "0" * 64),
+             ("recipe", "package_version", "0.9.7"), ("recipe", "target", "aarch64-apple-darwin"),
+             ("recipe", "build_profile", "test"), ("recipe", "features", ["unexpected"]),
+             ("recipe", "compiler_ref", {"kind": "workflow-compiler-descriptor", "id": "wrong", "digest": "sha256:" + "0" * 64})]
+    for section, field, value in cases:
+        wrong = copy.deepcopy(inputs)
+        wrong[section][field] = value
+        path.write_text(canonical(wrong))
+        try:
+            module.workflow_build_evidence(path, COMMIT, "0.10.0", "x86_64-unknown-linux-gnu")
+        except SystemExit:
+            continue
+        raise RuntimeError(f"workflow packager accepted mismatched {section}.{field}")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="native-package-security-") as temporary:
         directory = Path(temporary)
         check_committed_example_isolation(directory)
+        check_workflow_build_identity(directory)
         good, sums = write_case(directory, ARCHIVE_NAME[:-len(".tar.gz")])
         positive = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(sums), COMMIT, "--version", "0.9.2"],
                                   text=True, capture_output=True)
@@ -157,7 +197,7 @@ def main():
         result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT, "--version", "0.9.2"], capture_output=True, text=True)
         if result.returncode == 0 or "archive SHA-256 mismatch" not in result.stderr:
             raise RuntimeError(f"bad checksum did not reach checksum validation: {result.stderr!r}")
-    print("native package verifier: optimized positive case, 11 negative security cases and committed-example isolation passed")
+    print("native package verifier: optimized positive, 11 security negatives, committed isolation and workflow build identity with 8 mismatch refusals passed")
 
 
 if __name__ == "__main__":

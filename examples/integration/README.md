@@ -1,5 +1,7 @@
 # Local product integration — Bean Counter
 
+> Source/candidate note: this checkout prepares **unpublished 0.10.0**. Published v0.9.7 instructions and assets below keep their original meaning. Candidate testers use the [workflow handoff](../../docs/workflow-candidate-testing.md); its exact-version helpers must not be mixed with v0.9.7 binaries.
+
 The current M5 local SQLite source profile includes customers and sources, fixed-price and scale-18 usage, explicit billing periods, recurrence and finance exports. Read the [billing quickstart](../../docs/billing-quickstart.md), [M2 caller contract](../../docs/billing-m2-cli-contract.md) and [M5 qualification](../../docs/m5-qualification.md). The [Python](billing_outbox.py) and [Node.js](billing_outbox.mjs) examples persist original requests and reconcile uncertain results. Their inputs are synthetic. The patched helpers in this checkout recognize complete history explanations `/2` and `/3`, while rejecting period statement `/4` and unknown versions. The helpers bundled in v0.9.0 still require `/2` and cannot acknowledge usage `/3`; the v0.9.1 distribution packages this correction. A pending acknowledgement does not mean the charge failed: preserve the original request and retry it after updating the helper.
 
 ## Native release and installation

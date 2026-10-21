@@ -2,7 +2,7 @@ name: m8-native-linux
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/bean-counter-wave2a-candidate-20261021]
   pull_request:
   workflow_dispatch:
 
@@ -50,8 +50,8 @@ jobs:
           artifact_dir="$PWD/work/m8-linux/artifacts"
           mkdir -p "$PWD/work/m8-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
-          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.9.7-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
-          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.9.7-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
           cp scripts/verify-native-package.py scripts/install-native-package.py scripts/install-linux-x86_64.sh "$artifact_dir/"
       - name: Check out exact schema-10 legacy source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           artifact_dir="$PWD/work/m8-linux/artifacts"
           install_dir="$PWD/work/m8-linux/installed"
-          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.9.7-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
+          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
           file "$install_dir/ledger"
           ldd "$install_dir/ledger"
           python3 "$install_dir/scripts/check-package-docs.py" "$install_dir"
@@ -85,10 +85,78 @@ jobs:
         run: |
           set -euo pipefail
           LEDGER_BINARY="$PWD/work/m8-linux/installed/ledger" cargo test --locked -p ledgerlab-cli --test billing --test finance_csv --test local --test help
+      - name: Build captured test executable before starting live workflow windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/build_workflow.py --test --local-execution --operator-resources --output "$PWD/work/workflow-linux-tests"
+          test_binary=$(find "$PWD/work/workflow-linux-tests/target/x86_64-unknown-linux-gnu/debug/deps" -maxdepth 1 -type f -name 'ledgerlab-*' -perm -u+x)
+          test -n "$test_binary"
+          test "$(printf '%s\n' "$test_binary" | wc -l)" -eq 1
+          printf '%s\n' "$test_binary" > "$PWD/work/workflow-linux-test-binary.txt"
+          sha256sum "$test_binary"
+      - name: Qualify installed supported workflow and recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          install_dir="$PWD/work/m8-linux/installed"
+          out="$PWD/work/workflow-linux"
+          mkdir -m 700 "$out" "$out/helper-bin"
+          install -m 700 "$install_dir/helpers/prepare_local_publication" "$out/helper-bin/prepare_local_publication"
+          install -m 700 "$install_dir/helpers/prepare_local_terms" "$out/helper-bin/prepare_local_terms"
+          ledger="$install_dir/ledger"
+          pub="$out/helper-bin/prepare_local_publication"
+          terms="$out/helper-bin/prepare_local_terms"
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/main"
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case pending --pending-finalize-check --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/pending"
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case no-success --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/no-success"
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case deadline --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/deadline"
+          python3 "$install_dir/scripts/e2e/workflow_supported_negatives.py" --ledger "$ledger" --fixture "$out/main/pre-reverse-fixture" --output "$out/negatives" --groups N1 N2 N3 N4 N6 N8 N9
+          python3 "$install_dir/scripts/e2e/workflow_supported_negatives.py" --ledger "$ledger" --fixture "$out/main" --output "$out/terminal-outcome" --groups N7
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case restore --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/restored" --restore-from "$out/no-success" --restore-operations no-success-work no-success-close
+      - name: Qualify actual financial interruption and retained migration mechanisms
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$PWD/work/m8-linux/artifacts/workflow-recovery"
+          mkdir -m 700 "$evidence"
+          test_binary=$(cat "$PWD/work/workflow-linux-test-binary.txt")
+          "$test_binary" --list > "$evidence/test-list.txt"
+          sha256sum "$test_binary" > "$evidence/test-binary.sha256"
+          stack_kib=$(ulimit -s)
+          case "$stack_kib" in ''|*[!0-9]*) echo 'finite observed CLI stack required for opt-in tests' >&2; exit 1;; esac
+          stack_bytes=$((stack_kib * 1024))
+          printf 'observed_cli_stack_kib=%s\nRUST_MIN_STACK=%s\n' "$stack_kib" "$stack_bytes" > "$evidence/test-stack.txt"
+          for test in local10_precommit_cut_leaves_no_partial_financial_append local10_committed_reply_loss_reopens_and_identity_retries_once; do
+            RUST_MIN_STACK="$stack_bytes" LEDGER_WORKFLOW_TEST_FIXTURE="$PWD/work/workflow-linux/main" "$test_binary" --exact "service::workflow::agreement::financial::local10_durability_tests::$test" --ignored --test-threads=1 > "$evidence/$test.log" 2>&1
+          done
+          for test in \
+            store::sqlite::workflow::tests::exact_fixture_commit_identity_and_cache_free_database_reopen \
+            store::sqlite::workflow::tests::every_insert_failure_rolls_back_all_records_indexes_and_feed \
+            store::sqlite::workflow_integration_tests::explicit_upgrade_preserves_legacy_bytes_and_reopens_with_legacy_writer \
+            store::sqlite::workflow_integration_tests::upgrade_failure_rolls_back_schema_and_all_additive_tables \
+            store::sqlite::migrate::financial_upgrade_tests::financial_upgrade_preserves_opaque_original_rows_and_references \
+            store::sqlite::migrate::financial_upgrade_tests::app_upgrade_preserves_history_and_enforces_independent_global_consumption \
+            store::sqlite::fence::tests::resource_anchored_commit_recovers_each_existing_cut; do
+            "$test_binary" --exact "$test" --test-threads=1 > "$evidence/${test##*::}.log" 2>&1
+          done
+          cp "$PWD/work/workflow-linux-tests/build-inputs.json" "$PWD/work/workflow-linux-tests/inventory.json" "$evidence/"
       - name: Retain exact tested archive and qualification evidence
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bean-counter-v0.9.7-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
-          path: work/m8-linux/artifacts/
+          name: bean-counter-v0.10.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            work/m8-linux/artifacts/
+            work/workflow-linux/**/RUN.json
+            work/workflow-linux/**/*.request.json
+            work/workflow-linux/**/*.committed.json
+            work/workflow-linux/**/*.stdout
+            work/workflow-linux/**/*.stderr
+            work/workflow-linux/**/status-retry-before.json
+            work/workflow-linux/**/status-retry-after.json
+            work/workflow-linux-tests/build-inputs.json
+            work/workflow-linux-tests/inventory.json
           if-no-files-found: error
           retention-days: 14

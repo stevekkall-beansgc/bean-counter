@@ -1,5 +1,7 @@
 # Download Bean Counter and get your first receipt
 
+> Source/candidate note: this checkout prepares **unpublished 0.10.0**. Published v0.9.7 instructions and assets below keep their original meaning. Candidate testers use the [workflow handoff](docs/workflow-candidate-testing.md); its exact-version helpers must not be mixed with v0.9.7 binaries.
+
 Bean Counter is an Apache-2.0 **local billing engine** for applications that produce completed generated work. Record an agreed fixed fee or quantity-based charge, keep a durable receipt, reconcile retries and make explained corrections. You run it on your computer and manage its storage and backups.
 
 These instructions match **v0.9.7 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. This page installs those version-matched bytes and runs a synthetic example; no account, paid API, Rust compiler or Node installation is needed. The package includes the [bounded-cohort example](examples/integration/bounded-cohort/README.md), its full fixtures and qualification checker.

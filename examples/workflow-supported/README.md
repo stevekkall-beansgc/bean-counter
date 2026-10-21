@@ -1,12 +1,12 @@
 # Supported local workflow candidate
 
-These inputs are synthetic. They create no live customer charge, provider payment or invoice. The supported scope and known diagnostic limitation are in [the recipe checklist](../../docs/local-workflow-supported-recipe.md). This is prerelease candidate verification, not release approval.
+These inputs are synthetic. They create no live customer charge, provider payment or invoice. The supported scope and known diagnostic limitation are in [the recipe checklist](../../docs/local-workflow-supported-recipe.md). This is verification of the unpublished 0.10.0 candidate, not release approval. Start with [the tester handoff](../../docs/workflow-candidate-testing.md) for a new private output directory, archive identity checks and expected results.
 
 Use the repository's pinned Rust toolchain. From this checkout, capture a normal operator-resource build, then build the two input-only helpers from that same captured source:
 
 ```sh
 python3 scripts/build_workflow.py --local-execution --operator-resources --output "$BUILD"
-CARGO_TARGET_DIR="$BUILD/target" cargo build --manifest-path "$BUILD/source/Cargo.toml" \
+LEDGER_WORKFLOW_BUILD_INPUTS_JSON="$BUILD/build-inputs.json" CARGO_TARGET_DIR="$BUILD/target" cargo build --manifest-path "$BUILD/source/Cargo.toml" \
   -p ledgerlab --example prepare_local_publication --example prepare_local_terms \
   --release --target aarch64-apple-darwin --locked --offline
 ```

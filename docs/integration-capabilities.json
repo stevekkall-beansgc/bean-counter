@@ -27,6 +27,17 @@
       "evidence-classification"
     ]
   },
+  "unreleased_candidate": {
+    "version": "0.10.0",
+    "publication_status": "unpublished; no tag or release",
+    "qualification_status": "final-source QA/CI/native gates pending; distribution qualification record supplies exact results",
+    "source_commit_evidence": "candidate BUILD-INFO.txt, MANIFEST.json, PROVENANCE.json and separate qualification record; prior v0.9.7 packages are not this candidate",
+    "billing_contract": "v0.3 unchanged",
+    "optional_workflow_schema": 17,
+    "workflow_scope": "docs/local-workflow-supported-recipe.md",
+    "tester_handoff": "docs/workflow-candidate-testing.md",
+    "helpers_require_exact_version": "0.10.0"
+  },
   "native_baseline": {
     "version": "0.9.7",
     "qualification_status": "consult-matching-release-qualification",

@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+import build_workflow
 
 
 def output(*args, cwd=None):
@@ -20,6 +21,34 @@ def output(*args, cwd=None):
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def workflow_build_evidence(inputs_path, commit, version, target):
+    if not inputs_path.is_file():
+        raise SystemExit("workflow package requires its captured build-inputs file")
+    raw = inputs_path.read_bytes()
+    inputs = json.loads(raw)
+    recipe = inputs["recipe"]
+    inventory_raw = inputs_path.with_name("inventory.json").read_bytes()
+    inventory = json.loads(inventory_raw)
+    inventory_digest = "sha256:" + hashlib.sha256(
+        b"bean-counter/build-source-inventory/1\0" + build_workflow.canonical(inventory).encode()).hexdigest()
+    descriptor = json.loads((Path(__file__).resolve().parents[1] /
+        "contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json").read_bytes())
+    compiler_digest = "sha256:" + hashlib.sha256(b"bean-counter/workflow-document/1\0" +
+        build_workflow.canonical([descriptor["schema"], descriptor]).encode()).hexdigest()
+    compiler_ref = {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + compiler_digest[7:], "digest": compiler_digest}
+    if (inputs["source"]["base_commit"] != commit
+            or inputs["source"]["state"] != "clean_commit"
+            or inputs["source"]["inventory_digest"] != inventory_digest
+            or recipe["package_name"] != "ledgerlab-cli"
+            or recipe["package_version"] != version
+            or recipe["build_profile"] != "release"
+            or recipe["target"] != target
+            or recipe["compiler_ref"] != compiler_ref
+            or recipe["features"] != []):
+        raise SystemExit("workflow build inputs do not match this exact clean release candidate")
+    return raw, inventory_raw
 
 
 def sqlite_evidence(repo):
@@ -98,6 +127,11 @@ def main():
         raise SystemExit("refusing to package a dirty source checkout")
     if artifacts.exists() or artifacts.is_symlink():
         raise SystemExit(f"refusing existing artifact directory: {artifacts}")
+    workflow_inputs = None
+    workflow_inventory = None
+    if workflow_candidate:
+        inputs_path = Path(os.environ.get("LEDGER_WORKFLOW_BUILD_INPUTS_JSON", ""))
+        workflow_inputs, workflow_inventory = workflow_build_evidence(inputs_path, commit, version, target)
     target_dir = Path(os.environ.get("CARGO_TARGET_DIR", repo / "target")) / target / "release" / "ledger"
     if not target_dir.is_file():
         raise SystemExit(f"missing native release binary: {target_dir}")
@@ -144,6 +178,9 @@ def main():
             shutil.copyfile(repo / "docs" / filename, docs / filename)
         if workflow_candidate:
             shutil.copyfile(repo / "docs/local-workflow-supported-recipe.md", docs / "local-workflow-supported-recipe.md")
+            shutil.copyfile(repo / "docs/workflow-candidate-testing.md", docs / "workflow-candidate-testing.md")
+            (stage / "WORKFLOW-BUILD-INPUTS.json").write_bytes(workflow_inputs)
+            (stage / "WORKFLOW-SOURCE-INVENTORY.json").write_bytes(workflow_inventory)
             with (stage / "README.md").open("a", encoding="utf-8") as readme:
                 readme.write("\n## Unreleased supported-workflow candidate\n\nThis optional candidate material is not a release or full-registry capability claim. Read [the supported scope](docs/local-workflow-supported-recipe.md) and [the synthetic walkthrough](examples/workflow-supported/README.md). The two input-only helpers are in `helpers/`.\n")
             helpers = stage / "helpers"
@@ -157,6 +194,8 @@ def main():
         copy_committed_contracts(repo, commit, stage)
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
+        if workflow_candidate:
+            shutil.copyfile(repo / "release/notes-v0.10.0.md", stage / "release/notes-v0.10.0.md")
         shutil.copyfile(repo / "START-HERE.md", stage / "START-HERE.md")
         (stage / "AGENTS.md").write_text(
             "# Integrate the installed local billing CLI\n\n"
@@ -219,6 +258,15 @@ def main():
             "binary_sha256": sha(stage / "ledger"),
         }
         build_info.update(sqlite_evidence(repo))
+        if workflow_candidate:
+            build_info.update({
+                "workflow_build_inputs_sha256": hashlib.sha256(workflow_inputs).hexdigest(),
+                "workflow_source_inventory_sha256": hashlib.sha256(workflow_inventory).hexdigest(),
+                "workflow_capture_command": "python3 scripts/build_workflow.py --local-execution --operator-resources --output <CAPTURE>",
+                "cargo_build_command": f"cargo build --locked --offline --package ledgerlab-cli --target {target} --target-dir <CAPTURE>/target --release (cwd <CAPTURE>/source)",
+                "workflow_helper_build_command": f"LEDGER_WORKFLOW_BUILD_INPUTS_JSON=<CAPTURE>/build-inputs.json CARGO_TARGET_DIR=<CAPTURE>/target cargo build --manifest-path <CAPTURE>/source/Cargo.toml --package ledgerlab --example prepare_local_publication --example prepare_local_terms --target {target} --release --locked --offline",
+                "workflow_path_notation": "<CAPTURE> denotes the declared build capture; private absolute paths are omitted",
+            })
         build_info["toolchain_verbose"] = output("rustc", "--version", "--verbose").replace("\n", "; ")
         (stage / "BUILD-INFO.txt").write_text("".join(f"{key}={value}\n" for key, value in build_info.items()), encoding="utf-8")
         for path in stage.rglob("*"):

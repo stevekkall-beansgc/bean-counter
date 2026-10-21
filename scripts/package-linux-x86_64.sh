@@ -16,5 +16,15 @@ if [ -n "$(git -C "$repo" status --porcelain --untracked-files=all)" ]; then
     exit 1
 fi
 cd "$repo"
-cargo build --locked --release --target "$target" --manifest-path Cargo.toml -p ledgerlab-cli
-python3 "$repo/scripts/package-native.py" "$repo" "$1" "$target"
+# The 0.10.0 candidate advertises the opt-in local workflow. Preserve the
+# immutable capture beside the requested fresh artifact directory.
+cargo fetch --locked
+capture="$1.workflow-build"
+python3 "$repo/scripts/build_workflow.py" --local-execution --operator-resources --output "$capture"
+capture=$(CDPATH= cd -- "$capture" && pwd -P)
+export LEDGER_WORKFLOW_BUILD_INPUTS_JSON="$capture/build-inputs.json"
+export CARGO_TARGET_DIR="$capture/target"
+cargo build --manifest-path "$capture/source/Cargo.toml" --package ledgerlab \
+  --example prepare_local_publication --example prepare_local_terms \
+  --target "$target" --release --locked --offline
+python3 "$repo/scripts/package-native.py" "$repo" "$1" "$target" --workflow-candidate
