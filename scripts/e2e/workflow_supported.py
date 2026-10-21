@@ -8,6 +8,7 @@ response and actual argv is retained. A failure stops this invocation; --resume
 is an explicit operator action and never changes an accepted request.
 """
 from pathlib import Path
+from contextlib import contextmanager
 import argparse, base64, copy, datetime as dt, hashlib, json, shutil, sqlite3, subprocess, sys, time
 
 REPO = Path(__file__).resolve().parents[2]
@@ -156,8 +157,16 @@ class Journey:
         saved.write_bytes(canonical(result))
         return result
 
+    @contextmanager
     def connection(self):
-        return sqlite3.connect("file:" + str(self.installation / ".ledger/local.db") + "?mode=ro", uri=True)
+        # sqlite3.Connection.__exit__ ends a transaction but does not close the
+        # reader. Bound every readonly reader to this observation, including
+        # failures, before the next separate-process workflow command.
+        connection = sqlite3.connect("file:" + str(self.installation / ".ledger/local.db") + "?mode=ro", uri=True)
+        try:
+            yield connection
+        finally:
+            connection.close()
 
     def document(self, ref):
         with self.connection() as db:
