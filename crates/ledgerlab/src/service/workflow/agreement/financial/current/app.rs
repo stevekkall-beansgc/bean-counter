@@ -3,11 +3,8 @@
 use super::super::request_wrapper as check;
 use super::*;
 mod nonwork;
-mod work_candidate;
 mod work_capture;
-mod work_context;
 mod work_heads;
-mod work_seeds;
 use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
@@ -23,12 +20,12 @@ pub(in super::super) struct ObservedAppBinding {
     _work_received_storage: Option<ExternalBufferLease>,
     pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_input_bodies: Option<prefix::RetainedEconomicBodies>,
-    pub(super) local_extra: Option<nonwork::ExtraState>,
+    local_extra: Option<nonwork::ExtraState>,
     pub(super) local_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::LocalOperationLocators>,
     pub(super) local_input_bodies: Option<super::super::local_inputs::LocalInputs>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
-    pub(super) work_state: Option<work_heads::OwnedWorkState>,
+    work_state: Option<work_heads::OwnedWorkState>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(in super::super) at: Timestamp,
@@ -47,7 +44,7 @@ pub(in super::super) struct ObservedAppActivation {
     pub(in super::super) binding: ObservedAppBinding,
     pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     pub(in super::super) records: super::super::activation::ActivationRecords,
-    pub(in super::super) admission_source: Option<usize>,
+    _admission_source: Option<usize>,
     pub(in super::super) admission_records: Option<ActivationAdmissionRecords>,
     _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
 }
@@ -70,8 +67,7 @@ pub(in super::super) async fn observe(
         key,
         "work.accept",
         binding,
-        Some(customer),
-        None,
+        (Some(customer), None),
         session,
     )
     .await?;
@@ -208,8 +204,7 @@ pub(in super::super) async fn observe_activation(
         key,
         kind,
         binding,
-        None,
-        Some(agreement),
+        (None, Some(agreement)),
         session,
     )
     .await?;
@@ -354,7 +349,7 @@ pub(in super::super) async fn observe_activation(
         binding: observed,
         normalized_payload,
         records,
-        admission_source,
+        _admission_source: admission_source,
         admission_records,
         _held_head: head,
     })
@@ -365,10 +360,10 @@ async fn observe_binding(
     key: &OperationKey,
     operation: &str,
     binding_ref: &Value,
-    expected_customer: Option<&Value>,
-    expected_agreement: Option<&Value>,
+    context: (Option<&Value>, Option<&Value>),
     session: &mut OriginalAuditSession,
 ) -> Result<ObservedAppBinding> {
+    let (expected_customer, expected_agreement) = context;
     let result = async {
         session.check_cancelled().map_err(core_error)?;
         let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;

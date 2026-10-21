@@ -127,11 +127,10 @@ impl InlineDocuments {
         key: &OperationKey,
         reference: &Value,
         kind: &str,
-        schema: &str,
-        before: i64,
-        maximum: usize,
+        context: (&str, i64, usize),
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        let (schema, before, maximum) = context;
         let expected = encode(reference, s)?;
         for doc in &self.documents {
             s.semantic_work()
@@ -409,9 +408,7 @@ pub(super) async fn resolve_graph(
                 key,
                 request_wrapper::field(projected, field, s)?,
                 kind,
-                schema,
-                before,
-                maximum,
+                (schema, before, maximum),
                 s,
             )
             .await?;
@@ -426,9 +423,7 @@ pub(super) async fn resolve_graph(
                 key,
                 role,
                 "workflow-roles",
-                "ledger-workflow-role-assignment/1",
-                before,
-                maximum,
+                ("ledger-workflow-role-assignment/1", before, maximum),
                 s,
             )
             .await?;
@@ -443,9 +438,7 @@ pub(super) async fn resolve_graph(
                 key,
                 request_wrapper::field(binding, "binding_ref", s)?,
                 "workflow-slot-terms",
-                "ledger-workflow-slot-binding-terms/7",
-                before,
-                maximum,
+                ("ledger-workflow-slot-binding-terms/7", before, maximum),
                 s,
             )
             .await?;

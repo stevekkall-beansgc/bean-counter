@@ -21,7 +21,7 @@ const REGISTRY: &str = "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa
 
 pub(super) struct SelectedPublicationData {
     pub(super) program: SelectedProgram,
-    pub(super) normalized_payload: AuditedBytes,
+    _normalized_payload: AuditedBytes,
     retained: Vec<current::source::SourceRecord>,
     _retained_control: ExternalBufferLease,
     // This covers only compiler INPUT copies. The core owns its output graph.
@@ -308,7 +308,7 @@ pub(super) async fn compile_request(
         )?;
         Ok(SelectedPublicationData {
             program,
-            normalized_payload,
+            _normalized_payload: normalized_payload,
             retained,
             _retained_control: retained_control,
             _compiler_input: compiler_input,
@@ -336,19 +336,6 @@ impl SelectedPublicationData {
         }
         Ok(())
     }
-    pub(super) fn match_retained(
-        &self,
-        prefix: &mut prefix::FoldedInventory,
-        s: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        for record in &self.retained {
-            s.semantic_work()
-                .visit(Visit::Element)
-                .map_err(core_error)?;
-            prefix.require_record(record.reference(), s)?;
-        }
-        Ok(())
-    }
 }
 
 /// The actual held-owner/identity-first fresh stage. Captured root, literal
@@ -357,7 +344,7 @@ impl SelectedPublicationData {
 pub(super) struct PendingSelectedPublication {
     pub(super) incoming: ingress::IncomingRequest,
     pub(super) compiled: SelectedPublicationData,
-    pub(super) local_root: wire::SourceRecord,
+    _local_root: wire::SourceRecord,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     management: ManagementObservation,
@@ -441,7 +428,7 @@ where
         Ok(PendingSelectedPublication {
             incoming,
             compiled,
-            local_root,
+            _local_root: local_root,
             at,
             before,
             management,

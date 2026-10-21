@@ -3,7 +3,7 @@
 use super::*;
 use crate::store::sqlite::workflow::financial::{AppClaimLocator, HeadKey, HeadLocator};
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    self as core, CostHead, LocalOperationLocators, PermanentClaimKey,
+    self as core, CostHead, PermanentClaimKey,
 };
 
 pub(super) struct ExtraState {
@@ -69,7 +69,7 @@ pub(in super::super::super) async fn observe(
     let binding = serde_json::to_value(subject.original_binding_ref())
         .map_err(|_| ServiceError::IntegrityFailure)?;
     let kind = core_operation_kind(payload, s)?;
-    let mut o = observe_binding(ledger, tx, key, kind, &binding, None, None, s).await?;
+    let mut o = observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?;
     let original_binding = s
         .parse_representation(
             o.original.acceptance.binding.bytes(),

@@ -4,12 +4,12 @@
 use super::*;
 pub(in super::super) struct ReplayedAcceptance {
     original: ReconstructedAcceptance,
-    incoming: ingress::IncomingRequest,
+    _incoming: ingress::IncomingRequest,
     local_root: wire::SourceRecord,
     terms_record: wire::SourceRecord,
     authority: wire::SourceRecord,
     private_documents: private::InlineDocuments,
-    sources: Vec<current::source::ObservedSource>,
+    _observed_sources: Vec<current::source::ObservedSource>,
     consents: consent::Coverage,
     head_records: emit::AcceptanceHeadRecords,
     normalized: request::NormalizedAcceptance,
@@ -176,12 +176,14 @@ pub(in super::super) async fn reconstruct(
             input,
             publication,
             &private_documents,
-            source,
-            &local_root,
-            actor,
-            &original.at,
-            origin.wrappers().sequence(),
-            prefix,
+            (
+                source,
+                &local_root,
+                actor,
+                &original.at,
+                origin.wrappers().sequence(),
+                prefix,
+            ),
             s,
         )
         .await?;
@@ -192,9 +194,7 @@ pub(in super::super) async fn reconstruct(
             &consents,
             &local_root,
             origin.key(),
-            actor,
-            &original.at,
-            "agreement.accept",
+            (actor, &original.at, "agreement.accept"),
             s,
         )?;
         let asserted = encode(asserted, s)?;
@@ -321,12 +321,12 @@ pub(in super::super) async fn reconstruct(
         journal.compare_original(origin, s)?;
         Ok(ReplayedAcceptance {
             original,
-            incoming,
+            _incoming: incoming,
             local_root,
             terms_record,
             authority,
             private_documents,
-            sources,
+            _observed_sources: sources,
             consents,
             head_records,
             normalized,
@@ -453,10 +453,10 @@ impl ReplayedAcceptance {
         publication: &prefix::RecompiledPublication,
         binding: &Value,
         key: &OperationKey,
-        actor: &str,
-        at: &Timestamp,
+        context: (&str, &Timestamp),
         s: &mut OriginalAuditSession,
     ) -> Result<usize> {
+        let (actor, at) = context;
         nominations::validate(
             sources,
             &self.private_documents,
@@ -489,9 +489,7 @@ impl ReplayedAcceptance {
             &self.consents,
             root,
             key,
-            actor,
-            at,
-            "agreement.activate",
+            (actor, at, "agreement.activate"),
             s,
         )
     }

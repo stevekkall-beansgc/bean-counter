@@ -79,12 +79,6 @@ fn literal(text: &str, session: &mut OriginalAuditSession) -> Result<AuditedByte
 pub(super) fn reference(r: &ExactRef, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     reference_parts(&r.kind, &r.id, &r.digest, session)
 }
-pub(super) fn definition_reference(
-    r: &ledgerlab_core::policy::workflow::DefinitionRef,
-    session: &mut OriginalAuditSession,
-) -> Result<AuditedBytes> {
-    reference_parts(r.kind(), r.id(), r.digest(), session)
-}
 fn reference_parts(
     kind: &str,
     id: &str,
@@ -501,7 +495,7 @@ fn digest(raw: &[u8; 32]) -> [u8; 71] {
     let mut out = [0; 71];
     out[..7].copy_from_slice(b"sha256:");
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for (byte, pair) in raw.iter().zip(out[7..].chunks_exact_mut(2)) {
+    for (byte, pair) in raw.iter().zip(out[7..].as_chunks_mut::<2>().0.iter_mut()) {
         pair[0] = HEX[(byte >> 4) as usize];
         pair[1] = HEX[(byte & 15) as usize];
     }
@@ -1096,8 +1090,7 @@ fn frame_inner<'a>(
         sequence.bytes(),
         &manifest_ref,
         result_kind.bytes(),
-        results_bytes.bytes(),
-        evidence,
+        (results_bytes.bytes(), evidence),
         session,
     )?;
     // Store operands borrow the SAME candidate, never reparsed output or a
@@ -1220,10 +1213,10 @@ fn receipt(
     sequence: &[u8],
     manifest_ref: &WireRef,
     result_kind: &[u8],
-    results: &[u8],
-    evidence: &Value,
+    context: (&[u8], &Value),
     session: &mut OriginalAuditSession,
 ) -> Result<(AuditedBytes, WireRef)> {
+    let (results, evidence) = context;
     let resolution = super::request_wrapper::field(evidence, "descriptor_resolution", session)?;
     let manifest_digest = literal(&manifest_ref.reference.digest, session)?;
     let mut receipt_fields = [

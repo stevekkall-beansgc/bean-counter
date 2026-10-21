@@ -86,10 +86,10 @@ impl AppAcceptanceInput {
     ) -> Result<ObservedAcceptanceConsent> {
         let result = async {
             let customer = self
-                .customer_consent(tx, key, enrollment, customer_assent, actor, at, before, s)
+                .customer_consent(tx, key, enrollment, customer_assent, (actor, at, before), s)
                 .await?;
             let platform = self
-                .platform_consent(tx, key, resource_leg, party_assent, at, before, s)
+                .platform_consent(tx, key, resource_leg, party_assent, (at, before), s)
                 .await?;
             self.finish_resource_consent(
                 customer,
@@ -270,15 +270,12 @@ impl AppAcceptanceInput {
                     key,
                     enrollment,
                     registration,
-                    customer_assent,
-                    actor,
-                    at,
-                    before,
+                    (customer_assent, actor, at, before),
                     s,
                 )
                 .await?;
             let platform = self
-                .original_platform_consent(tx, key, resource_leg, party_assent, at, before, s)
+                .original_platform_consent(tx, key, resource_leg, party_assent, (at, before), s)
                 .await?;
             let platform = prefix.original_platform_at(platform, s)?;
             self.finish_resource_consent(
@@ -313,25 +310,23 @@ pub(super) async fn observe_all(
     input: &AppAcceptanceInput,
     publication: &prefix::RecompiledPublication,
     documents: &private::InlineDocuments,
-    admission: &current::source::ObservedSource,
-    root: &wire::SourceRecord,
-    actor: &str,
-    at: &Timestamp,
-    before: i64,
+    context: (
+        &current::source::ObservedSource,
+        &wire::SourceRecord,
+        &str,
+        &Timestamp,
+        i64,
+    ),
     s: &mut OriginalAuditSession,
 ) -> Result<Coverage> {
+    let (admission, root, actor, at, before) = context;
     observe_all_at(
         tx,
         incoming,
         input,
         publication,
         documents,
-        admission,
-        root,
-        actor,
-        at,
-        before,
-        None,
+        (admission, root, actor, at, before, None),
         s,
     )
     .await
@@ -342,26 +337,24 @@ pub(super) async fn reconstruct_all(
     input: &AppAcceptanceInput,
     publication: &prefix::RecompiledPublication,
     documents: &private::InlineDocuments,
-    admission: &current::source::ObservedSource,
-    root: &wire::SourceRecord,
-    actor: &str,
-    at: &Timestamp,
-    before: i64,
-    prefix: &mut prefix::FoldedInventory,
+    context: (
+        &current::source::ObservedSource,
+        &wire::SourceRecord,
+        &str,
+        &Timestamp,
+        i64,
+        &mut prefix::FoldedInventory,
+    ),
     s: &mut OriginalAuditSession,
 ) -> Result<Coverage> {
+    let (admission, root, actor, at, before, prefix) = context;
     observe_all_at(
         tx,
         incoming,
         input,
         publication,
         documents,
-        admission,
-        root,
-        actor,
-        at,
-        before,
-        Some(prefix),
+        (admission, root, actor, at, before, Some(prefix)),
         s,
     )
     .await
@@ -372,14 +365,17 @@ async fn observe_all_at(
     input: &AppAcceptanceInput,
     publication: &prefix::RecompiledPublication,
     documents: &private::InlineDocuments,
-    admission: &current::source::ObservedSource,
-    root: &wire::SourceRecord,
-    actor: &str,
-    at: &Timestamp,
-    before: i64,
-    mut historical: Option<&mut prefix::FoldedInventory>,
+    context: (
+        &current::source::ObservedSource,
+        &wire::SourceRecord,
+        &str,
+        &Timestamp,
+        i64,
+        Option<&mut prefix::FoldedInventory>,
+    ),
     s: &mut OriginalAuditSession,
 ) -> Result<Coverage> {
+    let (admission, root, actor, at, before, mut historical) = context;
     let binding = request_wrapper::field(input.terms.canonical_value(), "binding_inputs", s)?;
     let rows = request_wrapper::field(binding, "bindings", s)?
         .as_array()
@@ -742,7 +738,14 @@ impl Coverage {
                 let observed = match snapshot {
                     PlatformSnapshot::Held => {
                         input
-                            .platform_consent(tx, key, resource_leg, parsed.value(), at, before, s)
+                            .platform_consent(
+                                tx,
+                                key,
+                                resource_leg,
+                                parsed.value(),
+                                (at, before),
+                                s,
+                            )
                             .await?
                     }
                     PlatformSnapshot::Original => {
@@ -752,8 +755,7 @@ impl Coverage {
                                 key,
                                 resource_leg,
                                 parsed.value(),
-                                at,
-                                before,
+                                (at, before),
                                 s,
                             )
                             .await?;
@@ -854,10 +856,10 @@ pub(super) async fn observe_local_platforms(
     binding: &Value,
     tx: &mut SqliteTx,
     key: &OperationKey,
-    at: &Timestamp,
-    before: i64,
+    context: (&Timestamp, i64),
     s: &mut OriginalAuditSession,
 ) -> Result<CurrentPlatformConsents> {
+    let (at, before) = context;
     let legs = request_wrapper::field(binding, "funding_legs", s)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?;
@@ -877,7 +879,7 @@ pub(super) async fn observe_local_platforms(
         let party = request_wrapper::text(leg, "payer", s)?;
         let assent = assents.select(input, Some(party), s)?;
         let observed = input
-            .platform_consent(tx, key, name, assent, at, before, s)
+            .platform_consent(tx, key, name, assent, (at, before), s)
             .await?;
         for r in std::iter::once(observed.mapping().reference())
             .chain(observed.mapping().evidence_refs())

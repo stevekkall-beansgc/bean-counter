@@ -189,7 +189,7 @@ pub(super) fn digest_text(
         .map_err(core_error)?;
     require(bytes.len() == 64, "INTEGRITY_FAILURE")?;
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    for (expected, pair) in digest.iter().zip(bytes.chunks_exact(2)) {
+    for (expected, pair) in digest.iter().zip(bytes.as_chunks::<2>().0.iter()) {
         session
             .semantic_work()
             .visit(Visit::MemberCompare)

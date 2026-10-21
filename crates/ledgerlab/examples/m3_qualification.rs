@@ -342,6 +342,13 @@ fn describe(error: LocalError) -> String {
             "commit outcome unknown: reopen and resolve the original identity".into()
         }
         LocalError::Service(ServiceError::Rejection(code)) => format!("refused: {code}"),
+        LocalError::Service(ServiceError::ResourceLimit {
+            setting,
+            limit,
+            observed,
+        }) => {
+            format!("operator resource limit: {setting} limit={limit} observed={observed}")
+        }
         LocalError::Service(ServiceError::ReadBudgetExhausted) => {
             "read budget exhausted; not an answer".into()
         }

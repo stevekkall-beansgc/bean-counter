@@ -41,16 +41,6 @@ impl ObservedPartyAuthorization {
     pub(in super::super) fn evidence_refs(&self) -> [&ExactRef; 2] {
         [&self.evidence.reference, &self.attestation.reference]
     }
-    pub(in super::super) fn original_authority_refs(
-        &self,
-        session: &mut OriginalAuditSession,
-    ) -> Result<[&Value; 3]> {
-        Ok([
-            check::field(self.original.body(), "authority_ref", session)?,
-            check::field(self.evidence.body(), "authority_ref", session)?,
-            check::field(self.attestation.body(), "authority_ref", session)?,
-        ])
-    }
 }
 fn number(a: usize, b: usize, op: Op, session: &mut OriginalAuditSession) -> Result<usize> {
     session
@@ -666,15 +656,6 @@ impl ObservedPlatformConsent {
     pub(in super::super) fn evidence_refs(&self) -> [&ExactRef; 2] {
         [&self.evidence.reference, &self.attestation.reference]
     }
-    pub(in super::super) fn original_authority_refs(
-        &self,
-        session: &mut OriginalAuditSession,
-    ) -> Result<[&Value; 2]> {
-        Ok([
-            check::field(self.evidence.body(), "authority_ref", session)?,
-            check::field(self.attestation.body(), "authority_ref", session)?,
-        ])
-    }
 }
 fn equal_text(a: &str, b: &str, session: &mut OriginalAuditSession) -> Result<bool> {
     session
@@ -700,10 +681,10 @@ pub(in super::super) async fn platform_consent(
     terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
     resource_leg: &str,
     assent: &Value,
-    at: &Timestamp,
-    before: i64,
+    context: (&Timestamp, i64),
     session: &mut OriginalAuditSession,
 ) -> Result<ObservedPlatformConsent> {
+    let (at, before) = context;
     let result =
         platform_consent_inner(tx, key, terms, resource_leg, assent, at, before, session).await;
     if result.is_err() {
@@ -740,9 +721,7 @@ async fn platform_consent_inner(
         terms,
         mapping.body(),
         resource_leg,
-        assent,
-        at,
-        before,
+        (assent, at, before),
         session,
     )
     .await?;
@@ -857,10 +836,10 @@ pub(in super::super) async fn platform_consent_original(
     terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
     resource_leg: &str,
     assent: &Value,
-    at: &Timestamp,
-    before: i64,
+    context: (&Timestamp, i64),
     session: &mut OriginalAuditSession,
 ) -> Result<OriginalPlatformConsent> {
+    let (at, before) = context;
     let result = async {
         let consent = check::field(assent, "consent", session)?;
         let (mapping, mapping_evidence, mapping_attestation) = original_authorization(
@@ -887,9 +866,7 @@ pub(in super::super) async fn platform_consent_original(
             terms,
             mapping.body(),
             resource_leg,
-            assent,
-            at,
-            before,
+            (assent, at, before),
             session,
         )
         .await?;
@@ -915,11 +892,10 @@ async fn platform_material(
     terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
     mapping_body: &Value,
     resource_leg: &str,
-    assent: &Value,
-    at: &Timestamp,
-    before: i64,
+    context: (&Value, &Timestamp, i64),
     session: &mut OriginalAuditSession,
 ) -> Result<PlatformMaterial> {
+    let (assent, at, before) = context;
     let terms_body = terms.canonical_value();
     check::same_text(
         check::text(terms_body, "schema", session)?,

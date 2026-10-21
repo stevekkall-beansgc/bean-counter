@@ -184,10 +184,10 @@ impl TargetedAcceptance {
         publication: &prefix::RecompiledPublication,
         binding: &Value,
         key: &OperationKey,
-        actor: &str,
-        at: &Timestamp,
+        context: (&str, &Timestamp),
         s: &mut OriginalAuditSession,
     ) -> Result<usize> {
+        let (actor, at) = context;
         nominations::validate(
             sources,
             &self.private_documents,
@@ -236,8 +236,7 @@ impl TargetedAcceptance {
             binding,
             tx,
             key,
-            at,
-            before,
+            (at, before),
             s,
         )
         .await

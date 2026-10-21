@@ -172,10 +172,10 @@ impl IncomingRequest {
         } else if acceptance::same_recipe_text(kind, "policy.publish", session)? {
             return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
         }
-        if matches!(recipe, IngressRecipe::OriginalAdministration) {
-            if !acceptance::same_recipe_text(kind, "authority.change", session)? {
-                request_wrapper::same_text(kind, "evidence.retain", session)?;
-            }
+        if matches!(recipe, IngressRecipe::OriginalAdministration)
+            && !acceptance::same_recipe_text(kind, "authority.change", session)?
+        {
+            request_wrapper::same_text(kind, "evidence.retain", session)?;
         }
         let payload = request_wrapper::field(value, "payload", session)?;
         session

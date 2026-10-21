@@ -87,33 +87,6 @@ impl Request {
             raw: raw.to_vec(),
         })
     }
-    /// Lexical financial-envelope routing only. The pure core owns complete
-    /// version-aware payload normalization; this cannot create eligible inputs.
-    pub(super) fn parse_financial(raw: &[u8]) -> Result<Self> {
-        let outer = parse_outer(raw)?;
-        require(
-            super::financial::is_kind(&outer.kind)
-                || (outer.kind == "authority.change"
-                    && outer.payload["schema"] == "ledger-cost-authority-enroll/1")
-                || (outer.kind == "evidence.retain"
-                    && matches!(
-                        outer.payload["schema"].as_str(),
-                        Some(
-                            "ledger-workflow-fact-attest/1"
-                                | "ledger-workflow-family-close-attest/1"
-                                | "ledger-workflow-supplier-cost-attest/1"
-                                | "ledger-workflow-app-observe/1"
-                                | "ledger-workflow-app-cost-attest/1"
-                        )
-                    )),
-            "UNSUPPORTED_SCHEMA_PROFILE",
-        )?;
-        require(outer.payload.is_object(), "INVALID_SHAPE")?;
-        Ok(Self {
-            outer,
-            raw: raw.to_vec(),
-        })
-    }
     pub(super) fn key(&self) -> &OperationKey {
         &self.outer.key
     }
@@ -147,6 +120,37 @@ fn no_null(v: &Value) -> bool {
         Value::Array(a) => a.iter().all(no_null),
         Value::Object(o) => o.values().all(no_null),
         _ => true,
+    }
+}
+
+#[cfg(test)]
+impl Request {
+    /// Lexical financial-envelope routing only. The pure core owns complete
+    /// version-aware payload normalization; this cannot create eligible inputs.
+    pub(super) fn parse_financial(raw: &[u8]) -> Result<Self> {
+        let outer = parse_outer(raw)?;
+        require(
+            super::financial::is_kind(&outer.kind)
+                || (outer.kind == "authority.change"
+                    && outer.payload["schema"] == "ledger-cost-authority-enroll/1")
+                || (outer.kind == "evidence.retain"
+                    && matches!(
+                        outer.payload["schema"].as_str(),
+                        Some(
+                            "ledger-workflow-fact-attest/1"
+                                | "ledger-workflow-family-close-attest/1"
+                                | "ledger-workflow-supplier-cost-attest/1"
+                                | "ledger-workflow-app-observe/1"
+                                | "ledger-workflow-app-cost-attest/1"
+                        )
+                    )),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        require(outer.payload.is_object(), "INVALID_SHAPE")?;
+        Ok(Self {
+            outer,
+            raw: raw.to_vec(),
+        })
     }
 }
 

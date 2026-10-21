@@ -268,7 +268,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            11 | 12 | 13 | 14 | 15 | 16 | 17 => {
+            11..=17 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
             }
@@ -1243,6 +1243,21 @@ impl SqliteTx {
         }
         result
     }
+}
+
+fn legacy_billing_work_error(error: FinancialReadError) -> StoreError {
+    match error {
+        FinancialReadError::Store(error) => error,
+        FinancialReadError::Resource(_) => StoreError::Integrity("noop billing work failed"),
+    }
+}
+fn billing_resource_compare(
+    a: i64,
+    b: i64,
+    work: &mut dyn ValidationWork,
+) -> Result<std::cmp::Ordering, FinancialReadError> {
+    work.arithmetic(ResourceOp::Compare, &[&a.into(), &b.into()])?;
+    Ok(a.cmp(&b))
 }
 
 #[cfg(test)]
@@ -2402,19 +2417,4 @@ mod tests {
             ledger.close().await;
         }
     }
-}
-
-fn legacy_billing_work_error(error: FinancialReadError) -> StoreError {
-    match error {
-        FinancialReadError::Store(error) => error,
-        FinancialReadError::Resource(_) => StoreError::Integrity("noop billing work failed"),
-    }
-}
-fn billing_resource_compare(
-    a: i64,
-    b: i64,
-    work: &mut dyn ValidationWork,
-) -> Result<std::cmp::Ordering, FinancialReadError> {
-    work.arithmetic(ResourceOp::Compare, &[&a.into(), &b.into()])?;
-    Ok(a.cmp(&b))
 }

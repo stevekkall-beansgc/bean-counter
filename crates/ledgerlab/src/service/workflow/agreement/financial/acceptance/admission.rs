@@ -49,11 +49,10 @@ pub(super) fn authority(
     consents: &consent::Coverage,
     root: &wire::SourceRecord,
     key: &OperationKey,
-    actor: &str,
-    at: &Timestamp,
-    operation: &'static str,
+    context: (&str, &Timestamp, &'static str),
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
+    let (actor, at, operation) = context;
     let refs = wire::RefSet::new(
         consents.verification_refs(),
         consents.verification_refs().len(),

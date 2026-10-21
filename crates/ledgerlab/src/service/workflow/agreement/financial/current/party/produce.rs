@@ -776,52 +776,6 @@ fn management_authority(
         session,
     )
 }
-/// Actual locked management input acquisition and canonical result construction.
-/// Full chronological origins must complete before these bytes can be prepared.
-pub(in super::super::super) async fn prepare(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    req: &IncomingRequest,
-    session: &mut OriginalAuditSession,
-) -> Result<PendingPartyOperation> {
-    let result = async {
-        let management = ledger
-            .admin
-            .fresh_management(&ledger.store, tx, req.key(), session)
-            .await?;
-        prepare_inner(ledger, tx, req, &management, session).await
-    }
-    .await;
-    if result.is_err() {
-        session.invalidate();
-        tx.workflow_proof_failure_handle()
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-    result
-}
-/// Same producer, borrowing the actual unchanged held management snapshot.
-pub(in super::super::super) async fn prepare_observed(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    req: &IncomingRequest,
-    management: &crate::service::workflow::local::OwnedLocalManagement,
-    session: &mut OriginalAuditSession,
-) -> Result<PendingPartyOperation> {
-    let result = async {
-        ledger
-            .admin
-            .recheck_management_fresh(management, &ledger.store, tx, req.key(), session)
-            .await?;
-        prepare_inner(ledger, tx, req, management, session).await
-    }
-    .await;
-    if result.is_err() {
-        session.invalidate();
-        tx.workflow_proof_failure_handle()
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-    result
-}
 /// New local entry only. Its caller selects the exact new journal registry;
 /// no old audit tuple is reclassified and no resource/origin flag is returned.
 pub(in super::super::super) async fn prepare_local_observed(
@@ -854,10 +808,32 @@ pub(in super::super::super) async fn prepare_local_observed(
     }
     result
 }
-enum PartyPreparation {
-    Chronological,
-    LocalSelected,
+#[cfg(test)]
+/// Same producer, borrowing the actual unchanged held management snapshot.
+pub(in super::super::super) async fn prepare_observed(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    management: &crate::service::workflow::local::OwnedLocalManagement,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    let result = async {
+        ledger
+            .admin
+            .recheck_management_fresh(management, &ledger.store, tx, req.key(), session)
+            .await?;
+        prepare_inner(ledger, tx, req, management, session).await
+    }
+    .await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
 }
+
+#[cfg(test)]
 async fn prepare_inner(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -875,8 +851,15 @@ async fn prepare_inner(
     )
     .await
 }
+
+enum PartyPreparation {
+    #[cfg(test)]
+    Chronological,
+    LocalSelected,
+}
+
 async fn prepare_selected_inner(
-    ledger: &LocalWorkflowLedger,
+    _ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     req: &IncomingRequest,
     management: &crate::service::workflow::local::OwnedLocalManagement,
@@ -994,7 +977,7 @@ async fn prepare_selected_inner(
         std::array::from_fn(|_| None)
     };
     let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
-    let root = root(&setup, scope_value, &at, session)?;
+    let root = root(setup, scope_value, &at, session)?;
     let mut pending = construct(
         req,
         payload,
@@ -1008,11 +991,12 @@ async fn prepare_selected_inner(
         session,
     )?;
     match preparation {
+        #[cfg(test)]
         PartyPreparation::Chronological => {
             let mut earlier =
-                prefix::party_before_observed(ledger, tx, req.key(), before, management, session)
+                prefix::party_before_observed(_ledger, tx, req.key(), before, management, session)
                     .await?;
-            pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
+            pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), setup, session)?;
             pending._prefix = earlier;
         }
         PartyPreparation::LocalSelected => {
@@ -1595,7 +1579,6 @@ impl PendingPartyOperation {
             let id = encode(check::field(spec, "authorization_id", session)?, session)?;
             let key = prefix::inventory::StateKey::new("party-head", &[id.bytes()], session)?;
             inventory
-                .as_deref_mut()
                 .ok_or(ServiceError::IntegrityFailure)?
                 .match_head(&key, authorization.stored.body.bytes(), session)?;
             check::same_text(

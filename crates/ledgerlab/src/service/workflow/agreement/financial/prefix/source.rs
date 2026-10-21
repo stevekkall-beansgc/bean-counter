@@ -646,7 +646,7 @@ async fn registration_inner<'a>(
 /// operands still owning. No retention truth, consent or completed origin is
 /// inferred from the purpose or from the declared bytes.
 pub(in super::super) struct RetainedEvidence<'a> {
-    input: ledgerlab_core::policy::workflow::OwnedEvidenceInput,
+    _input: ledgerlab_core::policy::workflow::OwnedEvidenceInput,
     management: Management<'a>,
     dependencies: [Option<current::source::SourceRecord>; 2],
     result: wire::SourceRecord,
@@ -837,7 +837,7 @@ async fn retention_inner<'a>(
     )
     .await?;
     Ok(RetainedEvidence {
-        input,
+        _input: input,
         management,
         dependencies,
         result,
@@ -859,17 +859,7 @@ pub(in super::super) struct InitialSource {
         Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
     _customers: ExternalBufferLease,
 }
-impl InitialSource {
-    pub(in super::super) fn result_refs(
-        &self,
-    ) -> [&ledgerlab_core::policy::workflow::transition_constructor::ExactRef; 3] {
-        [
-            self.enrollment.reference(),
-            self.grant.reference(),
-            self.state.reference(),
-        ]
-    }
-}
+impl InitialSource {}
 fn same_bytes(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<()> {
     s.semantic_work()
         .visit(Visit::MemberCompare)
@@ -1063,7 +1053,7 @@ async fn initial_inner(
         origin.key(),
         request_wrapper::field(operation, "key", s)?,
         actor,
-        &at,
+        at,
         root.reference(),
         s,
     )?;
@@ -1198,16 +1188,20 @@ fn wrap_birth_records(
         wire::initial_source_record("ledger-workflow-source-state/1", state, s)?,
     ])
 }
+#[cfg(test)]
 fn birth_records(
     request: &SourceRequest,
     p: &Value,
     key: &OperationKey,
     key_value: &Value,
     actor: &str,
-    at: &Timestamp,
-    root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    context: (
+        &Timestamp,
+        &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    ),
     s: &mut OriginalAuditSession,
 ) -> Result<[wire::SourceRecord; 3]> {
+    let (at, root) = context;
     let produced = produce_birth_records(request, p, key, key_value, actor, at, root, s)?;
     wrap_birth_records(produced, s)
 }
@@ -1260,8 +1254,7 @@ mod birth_tests {
             &key,
             &key_value,
             input["ceiling"]["principal_id"].as_str().unwrap(),
-            &at,
-            &root,
+            (&at, &root),
             &mut s,
         )
         .unwrap();
@@ -1494,7 +1487,7 @@ async fn compare_source_results(
 /// chronological owner must match this state to the actual as-of active head;
 /// this carrier cannot confer that match or a completed origin.
 pub(in super::super) struct SourceSuccessor<'a> {
-    request: SourceRequest,
+    _request: SourceRequest,
     management: Management<'a>,
     enrollment: current::source::SourceRecord,
     prior_state: current::source::SourceRecord,
@@ -1794,7 +1787,7 @@ async fn successor_inner<'a>(
         .await?;
     }
     Ok(SourceSuccessor {
-        request,
+        _request: request,
         management,
         enrollment,
         prior_state,
@@ -1983,8 +1976,7 @@ mod successor_tests {
             &key,
             &key_value,
             "owner",
-            &at,
-            &root,
+            (&at, &root),
             &mut s,
         )
         .unwrap();
@@ -2066,7 +2058,7 @@ mod successor_tests {
 /// No SQL projection, asserted prior-state locator or later body can provide
 /// the permanent-key/head facts checked here.
 pub(super) enum FoldedSource {
-    Publication(RecompiledPublication),
+    Publication((Box<RecompiledPublication>, ExternalBufferLease)),
     InitialSource(
         Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
     ),
@@ -2093,7 +2085,10 @@ pub(super) async fn fold(
         let program_owner = super::publication::fold(tx, origin, inventory, setup, s).await?;
         // Original ancestor selection retains the appropriate owning PUB in
         // its enclosing traversal, without a current compiler fallback.
-        return Ok(FoldedSource::Publication(program_owner));
+        return Ok(FoldedSource::Publication(super::retained_box(
+            program_owner,
+            s,
+        )?));
     }
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;

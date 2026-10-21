@@ -14,8 +14,10 @@ use tokio::{
     time::Instant,
 };
 
+type Rollback = Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>>;
+
 pub(crate) struct Drain {
-    rollback: Option<Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send>>>,
+    rollback: Option<Rollback>,
     slot: Option<OwnedSemaphorePermit>,
     physical_lane: Option<OwnedRwLockWriteGuard<()>>,
     lease: Option<ExternalBufferLease>,

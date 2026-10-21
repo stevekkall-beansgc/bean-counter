@@ -251,8 +251,7 @@ fn frame_inner(
         sequence_bytes.bytes(),
         &manifest_ref,
         b"\"administrative\"",
-        results.bytes(),
-        evidence.value(),
+        (results.bytes(), evidence.value()),
         session,
     )?;
     Ok(PartyJournalData {

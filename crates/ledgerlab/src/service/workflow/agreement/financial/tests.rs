@@ -1,6 +1,7 @@
 //! Disabled-shell checks. No financial acceptance, fake receipt or raw append.
 use super::*;
 use crate::{billing::BillingLedger, store::errors::CommitError};
+use crate::{service::workflow::local::deadline, store::ports::AcceptanceStore};
 
 async fn installation(store: &str) -> (tempfile::TempDir, LocalWorkflowLedger, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -744,7 +745,7 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 let n = u32::from_le_bytes(links.bytes()[..4].try_into().unwrap()) as usize;
                 let middle = 8 + 8 * n;
                 let mut values: Vec<u32> = links.bytes()[8..middle]
-                    .chunks_exact(8)
+                    .as_chunks::<8>().0.iter()
                     .flat_map(|b| {
                         let word = u32::from_le_bytes(b[..4].try_into().unwrap());
                         let mask = u32::from_le_bytes(b[4..8].try_into().unwrap());
@@ -755,7 +756,7 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                     .collect();
                 values.extend(
                     links.bytes()[middle..]
-                        .chunks_exact(256)
+                        .as_chunks::<256>().0.iter()
                         .map(|b| u32::from_le_bytes(b[228..232].try_into().unwrap())),
                 );
                 assert!(

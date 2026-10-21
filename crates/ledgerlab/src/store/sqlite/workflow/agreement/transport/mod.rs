@@ -5,7 +5,6 @@ use super::{
     SqliteTx, StoreError,
 };
 use sqlx::Row;
-use tokio::time::timeout_at;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Upload {
     pub upload_id: String,

@@ -427,7 +427,7 @@ impl ResolvedMembers {
 /// History rows retain exact owner/field/target; they are not ordinary I edges.
 pub(in super::super) struct ResolvedEconomicInputs {
     pub(in super::super) members: ResolvedMembers,
-    pub(in super::super) history_rows: AuditedBytes,
+    _history_rows: AuditedBytes,
     _storage: ExternalBufferLease,
 }
 impl ResolvedEconomicInputs {
@@ -522,7 +522,7 @@ impl ResolvedEconomicInputs {
                 .map_err(core_error)?;
             Ok(Self {
                 members,
-                history_rows,
+                _history_rows: history_rows,
                 _storage: storage,
             })
         })();
@@ -628,10 +628,11 @@ impl LocatedAppAcceptance {
 /// Only the selected immediate operand set is retained for the child. This is
 /// bounded by existing M/M-bytes, not a resident collection of history bodies.
 pub(in super::super) struct RetainedEconomicBodies {
-    bodies: Vec<AuditedBytes>,
-    selected: ResolvedEconomicInputs,
+    _bodies: Vec<AuditedBytes>,
+    _selected: ResolvedEconomicInputs,
     _storage: ExternalBufferLease,
 }
+#[cfg(test)]
 pub(in super::super) struct EconomicInputViews<'a> {
     pub(in super::super) rows:
         Vec<ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'a>>,
@@ -686,8 +687,8 @@ impl FoldedInventory {
                 bodies.push(body);
             }
             Ok(RetainedEconomicBodies {
-                bodies,
-                selected,
+                _bodies: bodies,
+                _selected: selected,
                 _storage: storage,
             })
         })();
@@ -697,9 +698,10 @@ impl FoldedInventory {
         result
     }
 }
+#[cfg(test)]
 impl RetainedEconomicBodies {
     pub(in super::super) fn selected(&self) -> &ResolvedEconomicInputs {
-        &self.selected
+        &self._selected
     }
     pub(in super::super) fn views<'a>(
         &'a self,
@@ -707,10 +709,10 @@ impl RetainedEconomicBodies {
     ) -> Result<EconomicInputViews<'a>> {
         use ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView;
         require(
-            compare(self.bodies.len(), self.selected.members.entries.len(), s)?.is_eq(),
+            compare(self._bodies.len(), self._selected.members.entries.len(), s)?.is_eq(),
             "INTEGRITY_FAILURE",
         )?;
-        let count = self.bodies.len();
+        let count = self._bodies.len();
         let bytes = arithmetic(
             count,
             mem::size_of::<EconomicRecordView<'_>>(),
@@ -723,7 +725,7 @@ impl RetainedEconomicBodies {
         let mut rows = Vec::new();
         rows.try_reserve_exact(count)
             .map_err(|_| ServiceError::Unavailable)?;
-        for (body, member) in self.bodies.iter().zip(&self.selected.members.entries) {
+        for (body, member) in self._bodies.iter().zip(&self._selected.members.entries) {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;

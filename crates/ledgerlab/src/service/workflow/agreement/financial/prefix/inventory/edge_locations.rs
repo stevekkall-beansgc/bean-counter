@@ -4,14 +4,14 @@ use super::*;
 use std::mem;
 #[derive(Clone, Copy)]
 pub(super) struct EdgeLocation {
-    pub(super) offset: u64,
-    pub(super) ordinary: u32,
-    pub(super) roots: u32,
-    pub(super) digest: [u8; 32],
+    pub(super) _offset: u64,
+    pub(super) _ordinary: u32,
+    pub(super) _roots: u32,
+    pub(super) _digest: [u8; 32],
     // Cumulative normative WB/body counts at this completed original cutoff.
     // These are private append-derived DATA, not serialized budget assertions.
-    pub(super) documents: u64,
-    pub(super) charged_bytes: u64,
+    pub(super) _documents: u64,
+    pub(super) _charged_bytes: u64,
 }
 pub(super) struct EdgeLocations {
     rows: Vec<EdgeLocation>,
@@ -65,7 +65,7 @@ impl EdgeLocations {
                 s,
             )?;
             copied(moved as usize, s)?;
-            replacement.extend(self.rows.drain(..));
+            replacement.append(&mut self.rows);
             let old = mem::replace(&mut self.rows, replacement);
             drop(old);
             self._ownership = Some(owner);
@@ -74,6 +74,7 @@ impl EdgeLocations {
         self.rows.push(row);
         Ok(())
     }
+    #[cfg(test)]
     pub(super) fn get(&self, ordinal: usize, s: &mut OriginalAuditSession) -> Result<EdgeLocation> {
         s.semantic_work()
             .visit(Visit::RefLookup)

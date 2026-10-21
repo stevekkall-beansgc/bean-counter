@@ -200,44 +200,6 @@ impl SqliteTx {
         self.read_financial_head_projection(LENGTHS, VALUES, key.parts(), session)
             .await
     }
-    /// Called only after the new operation and exact proposed member have been
-    /// appended in this SAME held writer. Failure poisons the whole transaction.
-    pub(crate) async fn workflow_party_advance(
-        &mut self,
-        identity: &[u8],
-        effect: &PartyHeadEffect<'_>,
-        session: &mut OriginalAuditSession,
-    ) -> Result<(), FinancialReadError> {
-        if self.failed
-            || self
-                .workflow_proof_failed
-                .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(StoreError::Integrity("poisoned party transition").into());
-        }
-        self.failed = true;
-        let result = crate::store::sqlite::workflow::until(
-            self.workflow_deadline(),
-            self.party_advance_inner(identity, effect, session),
-        )
-        .await
-        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
-        if result.is_ok() {
-            session.semantic_work().visit(ValidationVisit::Constraint)?;
-            session.check_cancelled()?;
-            if self
-                .workflow_proof_failed
-                .load(std::sync::atomic::Ordering::Acquire)
-                || self.financial_io.is_some()
-            {
-                return Err(
-                    StoreError::Integrity("party transition retained failed worker").into(),
-                );
-            }
-            self.failed = false;
-        }
-        result
-    }
     async fn party_advance_inner(
         &mut self,
         identity: &[u8],

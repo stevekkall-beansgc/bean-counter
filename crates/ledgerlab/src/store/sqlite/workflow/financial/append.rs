@@ -446,11 +446,11 @@ impl SqliteTx {
         self.financial_reserve_io(session, payload)?;
         sqlx::query(INSERT_OPERATION)
             .bind(o.identity)
-            .bind(&key.logical_store_id)
+            .bind(key.logical_store_id)
             .bind(&key.scope[0])
             .bind(&key.scope[1])
-            .bind(&key.source)
-            .bind(&key.operation_id)
+            .bind(key.source)
+            .bind(key.operation_id)
             .bind(&o.operation_ref.id)
             .bind(&o.operation_ref.digest)
             .bind(o.operation_bytes)
@@ -496,7 +496,7 @@ impl SqliteTx {
                     let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
                     self.financial_reserve_io(session, payload)?;
                     let original:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_record_id=? AND operation_digest=? AND commit_sequence<?)")
-                        .bind(&key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1])
+                        .bind(key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1])
                         .bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
                     self.financial_finish_io(session).await?;
                     if !original {

@@ -258,8 +258,7 @@ fn frame_agreement(
             sequence.bytes(),
             &manifest_ref,
             b"\"administrative\"",
-            results.bytes(),
-            evidence.value(),
+            (results.bytes(), evidence.value()),
             s,
         )?;
         Ok(AgreementJournalData {

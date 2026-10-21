@@ -2,7 +2,6 @@
 //! Indexed rows never certify assent, grants, schedule selection or origin.
 use super::{JournalAppend, RecordRef, SqliteTx, StoreError};
 use sqlx::Row;
-use tokio::time::timeout_at;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HeadKind {

@@ -20,9 +20,6 @@ pub(super) struct ManagementObservation {
     _control: ExternalBufferLease,
 }
 impl ManagementObservation {
-    pub(super) fn fingerprint_bytes(&self) -> &[u8] {
-        self.fingerprint.bytes()
-    }
     pub(super) async fn capture(
         ledger: &LocalWorkflowLedger,
         tx: &mut SqliteTx,
@@ -308,4 +305,11 @@ fn fingerprint(
         ],
         s,
     )
+}
+
+#[cfg(test)]
+impl ManagementObservation {
+    pub(super) fn fingerprint_bytes(&self) -> &[u8] {
+        self.fingerprint.bytes()
+    }
 }

@@ -71,12 +71,6 @@ impl RecompiledPublication {
         }
         Ok(())
     }
-    pub(super) fn plan(&self) -> (&ExactRef, &[u8]) {
-        (&self.plan.reference, self.plan.stored.body.bytes())
-    }
-    pub(super) fn additional_origin_refs(&self) -> [&ExactRef; 2] {
-        [&self.build.reference, &self.authority.reference]
-    }
     pub(in crate::service::workflow::agreement::financial) fn source_refs(
         &self,
     ) -> impl ExactSizeIterator<Item = &ExactRef> {

@@ -7,7 +7,6 @@ use ledgerlab_core::validation_work::{
 };
 use sqlx::SqliteConnection;
 
-pub(crate) const PROFILE: &str = "workflow-dual-legacy-capacity/1";
 const ROWS: i64 = 100000;
 const BYTES: i64 = 268435456;
 #[derive(Debug, PartialEq, Eq)]
@@ -280,20 +279,6 @@ fn equal_fields(
     Ok(true)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn profile_b_preserves_legacy_compositions_and_charges_both_pools() {
-        assert!(check_values(60000, 50000, 0, 0, 0, 0, 1, 1).is_ok());
-        assert!(check_values(0, 100000, 0, 0, 0, 0, 1, 1).is_err());
-        assert!(check_values(99999, 0, 0, 0, 1, 1, 1, 1).is_err());
-        assert!(check_values(0, 99999, 0, 0, 1, 1, 1, 1).is_err());
-        assert!(check_values(0, 0, 0, BYTES, 0, 0, 1, 1).is_err());
-        assert!(check_values(99999, 99999, BYTES - 1, BYTES - 1, 1, 1, 0, 0).is_ok());
-    }
-}
-
 pub(crate) async fn check_with_limits(
     conn: &mut SqliteConnection,
     operations: i64,
@@ -306,4 +291,18 @@ pub(crate) async fn check_with_limits(
             FinancialReadError::Store(e) => e,
             FinancialReadError::Resource(_) => StoreError::ReadBudgetExhausted,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn profile_b_preserves_legacy_compositions_and_charges_both_pools() {
+        assert!(check_values(60000, 50000, 0, 0, 0, 0, 1, 1).is_ok());
+        assert!(check_values(0, 100000, 0, 0, 0, 0, 1, 1).is_err());
+        assert!(check_values(99999, 0, 0, 0, 1, 1, 1, 1).is_err());
+        assert!(check_values(0, 99999, 0, 0, 1, 1, 1, 1).is_err());
+        assert!(check_values(0, 0, 0, BYTES, 0, 0, 1, 1).is_err());
+        assert!(check_values(99999, 99999, BYTES - 1, BYTES - 1, 1, 1, 0, 0).is_ok());
+    }
 }

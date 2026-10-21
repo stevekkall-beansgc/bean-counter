@@ -333,7 +333,7 @@ impl local::LocalWorkflowLedger {
                 let _ = fs::remove_file(&temp);
                 return Err(e);
             }
-            if let Err(_) = fs::rename(&temp, &snap.path) {
+            if fs::rename(&temp, &snap.path).is_err() {
                 let _ = fs::remove_file(&temp);
                 return Err(ServiceError::Unavailable);
             }
@@ -373,6 +373,18 @@ pub(crate) fn diagnostic(error: &ledgerlab_core::Error) -> Option<ServiceError> 
         limit,
         observed,
     })
+}
+
+/// Shared strict extension accepted by ordinary billing opens and workflow.
+pub(crate) fn installation_shape(v: &Value) -> bool {
+    v.as_object().is_some_and(|o| {
+        o.len() == 3 + usize::from(o.contains_key("resources"))
+            && ["schema", "store_id", "scope"]
+                .iter()
+                .all(|k| o.contains_key(*k))
+    }) && v["schema"] == "ledger-billing-installation/1"
+        && v.get("resources")
+            .is_none_or(|r| Settings::parse(r).is_ok())
 }
 
 #[cfg(test)]
@@ -492,16 +504,4 @@ mod tests {
         );
         reopened.close().await;
     }
-}
-
-/// Shared strict extension accepted by ordinary billing opens and workflow.
-pub(crate) fn installation_shape(v: &Value) -> bool {
-    v.as_object().is_some_and(|o| {
-        o.len() == 3 + usize::from(o.contains_key("resources"))
-            && ["schema", "store_id", "scope"]
-                .iter()
-                .all(|k| o.contains_key(*k))
-    }) && v["schema"] == "ledger-billing-installation/1"
-        && v.get("resources")
-            .is_none_or(|r| Settings::parse(r).is_ok())
 }

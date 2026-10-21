@@ -16,7 +16,9 @@ struct Entry {
 }
 enum CompletedKey {
     Program(Box<SelectedExecutionReloadKey>),
-    InitialSource(Box<InitialSourceCorrespondence>),
+    InitialSource {
+        _correspondence: Box<InitialSourceCorrespondence>,
+    },
 }
 pub(super) struct CompletedPrograms {
     entries: Vec<Entry>,
@@ -65,7 +67,9 @@ impl CompletedPrograms {
             .map_err(core_error)?;
         self.entries.push(Entry {
             sequence,
-            key: CompletedKey::InitialSource(key),
+            key: CompletedKey::InitialSource {
+                _correspondence: key,
+            },
         });
         Ok(())
     }
@@ -138,7 +142,7 @@ impl CompletedPrograms {
                 .ok_or(ServiceError::Unavailable)?;
             s.semantic_work().scan_bytes(moved).map_err(core_error)?;
             s.semantic_work().write_bytes(moved).map_err(core_error)?;
-            next.extend(self.entries.drain(..));
+            next.append(&mut self.entries);
             let old = mem::replace(&mut self.entries, next);
             drop(old);
             self._control = Some(owner);
@@ -156,21 +160,7 @@ impl CompletedPrograms {
             .map_err(core_error)?;
         match &entry.key {
             CompletedKey::Program(key) => Ok(key),
-            CompletedKey::InitialSource(_) => Err(ServiceError::IntegrityFailure),
-        }
-    }
-    pub(super) fn initial_source(
-        &self,
-        sequence: i64,
-        s: &mut OriginalAuditSession,
-    ) -> Result<&InitialSourceCorrespondence> {
-        let entry = self.entry(sequence, s)?;
-        s.semantic_work()
-            .visit(Visit::Constraint)
-            .map_err(core_error)?;
-        match &entry.key {
-            CompletedKey::InitialSource(key) => Ok(key),
-            CompletedKey::Program(_) => Err(ServiceError::IntegrityFailure),
+            CompletedKey::InitialSource { .. } => Err(ServiceError::IntegrityFailure),
         }
     }
     fn entry(&self, sequence: i64, s: &mut OriginalAuditSession) -> Result<&Entry> {
@@ -209,6 +199,26 @@ impl CompletedPrograms {
                     low = middle + 1;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+impl CompletedPrograms {
+    pub(super) fn initial_source(
+        &self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&InitialSourceCorrespondence> {
+        let entry = self.entry(sequence, s)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        match &entry.key {
+            CompletedKey::InitialSource {
+                _correspondence: key,
+            } => Ok(key),
+            CompletedKey::Program(_) => Err(ServiceError::IntegrityFailure),
         }
     }
 }

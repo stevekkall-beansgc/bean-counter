@@ -7,7 +7,6 @@ use ledgerlab_core::{
     validation_work::{ArithmeticOperation, BigInt, OriginalAuditSession, ValidationVisit},
 };
 use sqlx::Row;
-use tokio::time::timeout_at;
 mod chronology;
 mod management;
 pub(crate) use management::{ManagementInstallation, ManagementRow, ManagementTable};
@@ -25,7 +24,6 @@ mod party;
 pub(crate) use app::AppClaimLocator;
 pub(crate) use party::{PartyAppend, PartyHeadEffect, PartyHeadKey};
 mod supplier;
-pub(crate) use chronology::OriginalLocator;
 pub(crate) use document::RetainedDocument;
 pub(crate) use heads::{HeadKey, HeadLocator};
 mod agreement;
@@ -71,8 +69,8 @@ pub(crate) struct OriginalFrame {
     pub sequence: i64,
     pub accepted_at_us: i64,
     pub member_count: i64,
-    pub publication_id: Option<AuditedBytes>,
-    pub plan_id: Option<AuditedBytes>,
+    _publication_id: Option<AuditedBytes>,
+    _plan_id: Option<AuditedBytes>,
 }
 fn resource_compare(
     session: &mut OriginalAuditSession,
@@ -210,7 +208,7 @@ impl SqliteTx {
             let operation=self.financial_blob(identity,store,scope,0,ob,session).await?;
             let manifest=self.financial_blob(identity,store,scope,1,mb,session).await?;
             let receipt=self.financial_blob(identity,store,scope,2,rb,session).await?;
-            Ok(Some(OriginalFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count,publication_id,plan_id}))
+            Ok(Some(OriginalFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count,_publication_id:publication_id,_plan_id:plan_id}))
         }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         self.financial_finish_io(session).await?;
         if result.is_ok() {

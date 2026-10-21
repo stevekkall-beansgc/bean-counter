@@ -16,6 +16,7 @@ const ENTRY_BYTES: usize = 256;
 const KEY_BYTES: usize = 216;
 // One sequential graph reader is live throughout each consumer walk. Includes
 // its SHA state, raw/root row, numeric copies, location and both digests.
+#[cfg(test)]
 pub(in super::super) const REQUIRED_EDGE_READER_PAYLOAD: usize =
     std::mem::size_of::<Sha256>() + ENTRY_BYTES + 16 + 64 + std::mem::size_of::<EdgeLocation>();
 const ORDINAL_BITS: [u32; 32] = {
@@ -271,18 +272,6 @@ impl Page {
         entry.0.copy_from_slice(&self.bytes[start..end]);
         Ok(entry)
     }
-    fn child(&self, index: usize, session: &mut OriginalAuditSession) -> Result<u64> {
-        require(
-            !compare(index as u64, self.count() as u64, session)?.is_gt(),
-            "INTEGRITY_FAILURE",
-        )?;
-        let start = Self::child_offset(index, session)?;
-        let end = add(start as u64, 8, session)? as usize;
-        session.semantic_work().scan_bytes(8).map_err(core_error)?;
-        let mut encoded = [0; 8];
-        encoded.copy_from_slice(&self.bytes[start..end]);
-        Ok(u64::from_le_bytes(encoded))
-    }
     fn set_child(
         &mut self,
         index: usize,
@@ -426,74 +415,6 @@ impl Page {
         )?;
         self.bytes.copy_within(start..end, destination);
         self.set_child(index, page, session)
-    }
-}
-
-// The shared-path request stack contains only page/range locators. It never
-// retains a transitive document graph or an authenticated/completed flag.
-#[derive(Clone, Copy)]
-struct DemandRange {
-    page: u64,
-    first: usize,
-    end: usize,
-    remaining: u64,
-}
-struct DemandStack {
-    ranges: Vec<DemandRange>,
-    maximum: usize,
-    _lease: ExternalBufferLease,
-}
-impl DemandStack {
-    fn new(maximum: usize, session: &mut OriginalAuditSession) -> Result<Self> {
-        let payload = multiply(
-            maximum as u64,
-            std::mem::size_of::<DemandRange>() as u64,
-            session,
-        )?;
-        let bytes = add(
-            payload,
-            std::mem::size_of::<Vec<DemandRange>>() as u64,
-            session,
-        )?;
-        let lease = session
-            .reserve_external_payload(bytes as usize)
-            .map_err(core_error)?;
-        let mut ranges = Vec::new();
-        ranges
-            .try_reserve_exact(maximum)
-            .map_err(|_| ServiceError::Unavailable)?;
-        Ok(Self {
-            ranges,
-            maximum,
-            _lease: lease,
-        })
-    }
-    fn push(&mut self, range: DemandRange, session: &mut OriginalAuditSession) -> Result<()> {
-        require(
-            compare(self.ranges.len() as u64, self.maximum as u64, session)?.is_lt(),
-            "INTEGRITY_FAILURE",
-        )?;
-        session
-            .semantic_work()
-            .visit(Visit::Edge)
-            .map_err(core_error)?;
-        session
-            .semantic_work()
-            .write_bytes(std::mem::size_of::<DemandRange>())
-            .map_err(core_error)?;
-        self.ranges.push(range);
-        Ok(())
-    }
-    fn pop(&mut self, session: &mut OriginalAuditSession) -> Result<Option<DemandRange>> {
-        session
-            .semantic_work()
-            .visit(Visit::Element)
-            .map_err(core_error)?;
-        session
-            .semantic_work()
-            .scan_bytes(std::mem::size_of::<DemandRange>())
-            .map_err(core_error)?;
-        Ok(self.ranges.pop())
     }
 }
 
@@ -641,143 +562,6 @@ impl IntroductionIndex {
             page = child;
             remaining = subtract(remaining, 1, session)?;
         }
-    }
-    /// Resolve a sorted manifest/recipe demand set by its shared tree paths.
-    /// Each visited page is read once for this batch, rather than once for
-    /// every member. Results identify the original demand POSITION; callback
-    /// order is intentionally unspecified. Neither a hit nor the callback
-    /// proves an origin. Only the driver may consume an already-completed
-    /// introduction and every absent entry still needs actual local semantics.
-    fn find_sorted(
-        &mut self,
-        keys: &[Locator],
-        session: &mut OriginalAuditSession,
-        mut consume: impl FnMut(usize, Option<Entry>, &mut OriginalAuditSession) -> Result<()>,
-    ) -> Result<()> {
-        let result = self.find_sorted_inner(keys, session, &mut consume);
-        if result.is_err() {
-            self.invalid = true;
-            session.invalidate();
-        }
-        result
-    }
-    fn find_sorted_inner(
-        &mut self,
-        keys: &[Locator],
-        session: &mut OriginalAuditSession,
-        consume: &mut impl FnMut(usize, Option<Entry>, &mut OriginalAuditSession) -> Result<()>,
-    ) -> Result<()> {
-        require(!self.invalid, "INTEGRITY_FAILURE")?;
-        // Sorted-demand validation executes key comparisons as well. Reserve
-        // them in the SAME aggregate index ledger before executing them;
-        // the per-level binary-search allowance below covers searches only.
-        let adjacent = if compare(keys.len() as u64, 0, session)?.is_gt() {
-            subtract(keys.len() as u64, 1, session)?
-        } else {
-            0
-        };
-        self.reserve_comparisons(adjacent, 1, session)?;
-        for adjacent in keys.windows(2) {
-            session
-                .semantic_work()
-                .visit(Visit::MemberCompare)
-                .map_err(core_error)?;
-            session
-                .semantic_work()
-                .scan_bytes(KEY_BYTES)
-                .map_err(core_error)?;
-            session
-                .semantic_work()
-                .scan_bytes(KEY_BYTES)
-                .map_err(core_error)?;
-            require(adjacent[0].key() < adjacent[1].key(), "INTEGRITY_FAILURE")?;
-        }
-        if keys.is_empty() {
-            return Ok(());
-        }
-        // Same aggregate comparison ledger as point reads, with no refund or
-        // extra S allowance. Executing comparisons below still pay actual S.
-        self.reserve_comparisons(
-            multiply(self.height, keys.len() as u64, session)?,
-            4,
-            session,
-        )?;
-        // At most15 pending siblings per active tree level, and no more
-        // nonempty ranges than input demands. No arbitrary semantic depth cap.
-        let path_max = add(multiply(self.height, MAX_KEYS as u64, session)?, 1, session)?;
-        let maximum = if compare(path_max, keys.len() as u64, session)?.is_lt() {
-            path_max as usize
-        } else {
-            keys.len()
-        };
-        let mut pending = DemandStack::new(maximum, session)?;
-        pending.push(
-            DemandRange {
-                page: self.root,
-                first: 0,
-                end: keys.len(),
-                remaining: self.height,
-            },
-            session,
-        )?;
-        while let Some(range) = pending.pop(session)? {
-            require(
-                compare(range.remaining, 0, session)?.is_gt(),
-                "INTEGRITY_FAILURE",
-            )?;
-            self.read(range.page, 0, session)?;
-            let remaining = subtract(range.remaining, 1, session)?;
-            let mut child_group: Option<(usize, usize, u64)> = None;
-            let mut last_end = range.first;
-            for (relative, key) in keys[range.first..range.end].iter().enumerate() {
-                session
-                    .semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                let index = add(range.first as u64, relative as u64, session)? as usize;
-                let (position, found, child) = self.buffers[0].position(key, session)?;
-                let leaf = self.buffers[0].leaf();
-                let new_group = match child_group {
-                    Some((old_position, _, _)) => {
-                        !compare(old_position as u64, position as u64, session)?.is_eq() || found
-                    }
-                    None => false,
-                };
-                if new_group {
-                    let (_, first, old_child) = child_group.take().expect("present range");
-                    pending.push(
-                        DemandRange {
-                            page: old_child,
-                            first,
-                            end: index,
-                            remaining,
-                        },
-                        session,
-                    )?;
-                }
-                if found {
-                    let entry = self.buffers[0].entry(position, session)?;
-                    consume(index, Some(entry), session)?;
-                } else if leaf {
-                    consume(index, None, session)?;
-                } else if child_group.is_none() {
-                    child_group = Some((position, index, child));
-                }
-                last_end = add(index as u64, 1, session)? as usize;
-            }
-            if let Some((_, first, child)) = child_group {
-                pending.push(
-                    DemandRange {
-                        page: child,
-                        first,
-                        end: last_end,
-                        remaining,
-                    },
-                    session,
-                )?;
-            }
-        }
-        Ok(())
     }
     fn insert(&mut self, key: &Entry, session: &mut OriginalAuditSession) -> Result<Option<Entry>> {
         let result = self.insert_inner(key, session);
@@ -1022,93 +806,6 @@ impl ScratchSpace {
         self.peak = peak;
         Ok(())
     }
-    fn release(&mut self, bytes: u64, session: &mut OriginalAuditSession) -> Result<()> {
-        self.live = subtract(self.live, bytes, session)?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ledgerlab_core::canonical::audit_arena::AuditArena;
-
-    fn session(arena: &AuditArena) -> OriginalAuditSession {
-        OriginalAuditSession::for_resource_profile_v2(arena).unwrap()
-    }
-    fn entry(n: u32, sequence: u32, work: &mut OriginalAuditSession) -> Entry {
-        Entry::from_ref(
-            "workflow-evidence",
-            &format!("evidence-{n:064x}"),
-            &format!("sha256:{n:064x}"),
-            n as u64,
-            120,
-            sequence,
-            work,
-        )
-        .unwrap()
-    }
-    #[test]
-    fn paged_split_lookup_first_introduction_and_terminal_failure() {
-        let arena = AuditArena::new().unwrap();
-        let before = arena.usage().unwrap().live_bytes;
-        let mut work = session(&arena);
-        let mut index =
-            IntroductionIndex::new(tempfile::tempfile().unwrap(), 1000, 1_000_000, &mut work)
-                .unwrap();
-        // A coprime permutation forces both left/right splits and internal
-        // descent. Each small group is a distinct original operation, not a
-        // maintenance session funded outside that operation's allowance.
-        for group in 0..16 {
-            let mut work = session(&arena);
-            for ordinal in group * 16..((group + 1) * 16).min(251) {
-                let n = (ordinal * 37) % 251;
-                let value = entry(n, n + 1, &mut work);
-                assert!(index.insert(&value, &mut work).unwrap().is_none());
-            }
-        }
-        assert!(index.height >= 3);
-        assert_eq!(index.entries, 251);
-        for group in 0..16 {
-            let mut work = session(&arena);
-            for n in group * 16..((group + 1) * 16).min(251) {
-                let value = entry(n, 999, &mut work);
-                let locator = Locator::from_ref(
-                    "workflow-evidence",
-                    &format!("evidence-{n:064x}"),
-                    &format!("sha256:{n:064x}"),
-                    &mut work,
-                )
-                .unwrap();
-                let found = index.find(&locator, &mut work).unwrap().unwrap();
-                assert_eq!(found.0, entry(n, n + 1, &mut work).0);
-                let repeated = index.insert(&value, &mut work).unwrap().unwrap();
-                assert_eq!(repeated.0, found.0);
-            }
-        }
-        assert_eq!(index.entries, 251);
-        let mut work = session(&arena);
-        let absent = Locator::from_ref(
-            "workflow-evidence",
-            &format!("evidence-{:064x}", 1000),
-            &format!("sha256:{:064x}", 1000),
-            &mut work,
-        )
-        .unwrap();
-        assert!(index.find(&absent, &mut work).unwrap().is_none());
-        let file_length = index.file.metadata().unwrap().len();
-        assert_eq!(file_length, index.pages * PAGE_BYTES as u64);
-        assert_eq!(index.scratch.live, file_length);
-        // A failed operation cannot be caught and followed by trusted use of
-        // this partially updated index under another origin's fresh allowance.
-        index.scratch.comparison_limit = index.comparisons_reserved;
-        assert!(index.find(&absent, &mut work).is_err());
-        let mut later = session(&arena);
-        assert!(index.find(&absent, &mut later).is_err());
-        assert_eq!(index.file.metadata().unwrap().len(), file_length);
-        drop(index);
-        assert_eq!(arena.usage().unwrap().live_bytes, before);
-    }
 }
 
 /// Existing paged index plus raw canonical-body spool for one real held audit.
@@ -1138,7 +835,9 @@ struct OriginLinks {
 pub(in super::super) struct StateKey(Locator);
 /// Exact configured Ref DATA, prepared once per witness. This does not
 /// authenticate a root body or turn any other local snapshot into a cut.
+#[cfg(test)]
 pub(in super::super) struct ConfiguredRoot(Locator);
+#[cfg(test)]
 impl ConfiguredRoot {
     pub(super) fn same(&self, other: &Self, s: &mut OriginalAuditSession) -> Result<bool> {
         s.semantic_work()
@@ -1265,7 +964,7 @@ impl Inventory {
         s: &mut OriginalAuditSession,
     ) -> Result<bool> {
         let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
-        let Some(entry) = self.tree.find(&key, s)? else {
+        let Some(_entry) = self.tree.find(&key, s)? else {
             return Ok(false);
         };
         Ok(true)
@@ -1669,31 +1368,7 @@ impl Inventory {
         s.check_cancelled().map_err(core_error)?;
         Ok((offset, body.len()))
     }
-    /// Read into the caller's already admitted bounded block buffer. Location
-    /// is DATA retained with the same attempt's intrinsic pointer; the core
-    /// still compares the exact raw digest before accepting its membership.
-    pub(super) fn read_pointer_at(
-        &mut self,
-        offset: u64,
-        output: &mut [u8],
-        s: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        // The only caller supplies a slice of its fixed5355-byte pointer row
-        // and the intrinsic location returned by this SAME Inventory append.
-        // Original append checked offset/length; no new numeric selection or
-        // a second per-pointer builder is performed here. Core subsequently
-        // rebinds these exact raw bytes to the intrinsic canonical digest.
-        s.check_cancelled().map_err(core_error)?;
-        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
-        s.semantic_work()
-            .scan_bytes(output.len())
-            .map_err(core_error)?;
-        s.semantic_work()
-            .write_bytes(output.len())
-            .map_err(core_error)?;
-        self.bodies.read_exact(output).map_err(io)?;
-        s.check_cancelled().map_err(core_error)
-    }
+    #[cfg(test)]
     pub(in super::super) fn origin_pointer(
         &mut self,
         sequence: i64,
@@ -2015,16 +1690,17 @@ impl Inventory {
         self.edge_locations.append(
             expected,
             EdgeLocation {
-                offset: data_offset,
-                ordinary: ordinary_count,
-                roots: root_count,
-                digest,
-                documents: self.documents,
-                charged_bytes: self.payload_bytes,
+                _offset: data_offset,
+                _ordinary: ordinary_count,
+                _roots: root_count,
+                _digest: digest,
+                _documents: self.documents,
+                _charged_bytes: self.payload_bytes,
             },
             s,
         )
     }
+    #[cfg(test)]
     pub(in super::super) fn origin_links(
         &mut self,
         sequence: i64,
@@ -2040,6 +1716,7 @@ impl Inventory {
         self.head_body(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)
     }
+    #[cfg(test)]
     pub(in super::super) fn seed_origin(
         &mut self,
         reference: &Value,
@@ -2049,6 +1726,7 @@ impl Inventory {
         self.seed_position(reference, root, s)
             .map(|p| p.map(|p| i64::from(p.sequence)))
     }
+    #[cfg(test)]
     pub(super) fn seed_position(
         &mut self,
         reference: &Value,
@@ -2085,6 +1763,7 @@ impl Inventory {
     /// keys/wrappers are charged once in their owning original. This is not the
     /// whole witness total: a configured root outside the selected origins
     /// must still be included once from its separately authenticated body.
+    #[cfg(test)]
     pub(in super::super) fn introduced_accounting(
         &self,
         start: usize,
@@ -2102,15 +1781,16 @@ impl Inventory {
         } else {
             let prior = subtract(start as u64, 1, s)? as usize;
             let prior = self.edge_locations.get(prior, s)?;
-            (prior.documents, prior.charged_bytes)
+            (prior._documents, prior._charged_bytes)
         };
         Ok((
-            subtract(end.documents, documents, s)?,
-            subtract(end.charged_bytes, bytes, s)?,
+            subtract(end._documents, documents, s)?,
+            subtract(end._charged_bytes, bytes, s)?,
         ))
     }
     /// A root lookup is accounting DATA only. It must not create a required
     /// edge merely because a header emitter reads its already-held root body.
+    #[cfg(test)]
     pub(in super::super) fn root_position(
         &mut self,
         root: &ConfiguredRoot,
@@ -2125,6 +1805,7 @@ impl Inventory {
     /// producer. Counts and data bounds are retained in the private table; the
     /// raw edge payload is rebound to its producer digest before return. This
     /// avoids rebuilding StateKeys, probing the tree or allocating a body owner.
+    #[cfg(test)]
     pub(in super::super) fn required_word_masks_at(
         &mut self,
         ordinal: usize,
@@ -2138,9 +1819,9 @@ impl Inventory {
         let mut hash = Sha256::new();
         s.check_cancelled().map_err(core_error)?;
         self.bodies
-            .seek(SeekFrom::Start(location.offset))
+            .seek(SeekFrom::Start(location._offset))
             .map_err(io)?;
-        for _ in 0..location.ordinary {
+        for _ in 0..location._ordinary {
             s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
             let mut raw = [0; 8];
             s.semantic_work().write_bytes(8).map_err(core_error)?;
@@ -2160,7 +1841,7 @@ impl Inventory {
             )?;
             s.check_cancelled().map_err(core_error)?;
         }
-        for _ in 0..location.roots {
+        for _ in 0..location._roots {
             s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
             let mut entry = Entry([0; ENTRY_BYTES]);
             s.semantic_work()
@@ -2196,6 +1877,89 @@ impl Inventory {
             .visit(Visit::MemberCompare)
             .map_err(core_error)?;
         s.semantic_work().scan_bytes(64).map_err(core_error)?;
-        require(actual == location.digest, "INTEGRITY_FAILURE")
+        require(actual == location._digest, "INTEGRITY_FAILURE")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ledgerlab_core::canonical::audit_arena::AuditArena;
+
+    fn session(arena: &AuditArena) -> OriginalAuditSession {
+        OriginalAuditSession::for_resource_profile_v2(arena).unwrap()
+    }
+    fn entry(n: u32, sequence: u32, work: &mut OriginalAuditSession) -> Entry {
+        Entry::from_ref(
+            "workflow-evidence",
+            &format!("evidence-{n:064x}"),
+            &format!("sha256:{n:064x}"),
+            n as u64,
+            120,
+            sequence,
+            work,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn paged_split_lookup_first_introduction_and_terminal_failure() {
+        let arena = AuditArena::new().unwrap();
+        let before = arena.usage().unwrap().live_bytes;
+        let mut work = session(&arena);
+        let mut index =
+            IntroductionIndex::new(tempfile::tempfile().unwrap(), 1000, 1_000_000, &mut work)
+                .unwrap();
+        // A coprime permutation forces both left/right splits and internal
+        // descent. Each small group is a distinct original operation, not a
+        // maintenance session funded outside that operation's allowance.
+        for group in 0..16 {
+            let mut work = session(&arena);
+            for ordinal in group * 16..((group + 1) * 16).min(251) {
+                let n = (ordinal * 37) % 251;
+                let value = entry(n, n + 1, &mut work);
+                assert!(index.insert(&value, &mut work).unwrap().is_none());
+            }
+        }
+        assert!(index.height >= 3);
+        assert_eq!(index.entries, 251);
+        for group in 0..16 {
+            let mut work = session(&arena);
+            for n in group * 16..((group + 1) * 16).min(251) {
+                let value = entry(n, 999, &mut work);
+                let locator = Locator::from_ref(
+                    "workflow-evidence",
+                    &format!("evidence-{n:064x}"),
+                    &format!("sha256:{n:064x}"),
+                    &mut work,
+                )
+                .unwrap();
+                let found = index.find(&locator, &mut work).unwrap().unwrap();
+                assert_eq!(found.0, entry(n, n + 1, &mut work).0);
+                let repeated = index.insert(&value, &mut work).unwrap().unwrap();
+                assert_eq!(repeated.0, found.0);
+            }
+        }
+        assert_eq!(index.entries, 251);
+        let mut work = session(&arena);
+        let absent = Locator::from_ref(
+            "workflow-evidence",
+            &format!("evidence-{:064x}", 1000),
+            &format!("sha256:{:064x}", 1000),
+            &mut work,
+        )
+        .unwrap();
+        assert!(index.find(&absent, &mut work).unwrap().is_none());
+        let file_length = index.file.metadata().unwrap().len();
+        assert_eq!(file_length, index.pages * PAGE_BYTES as u64);
+        assert_eq!(index.scratch.live, file_length);
+        // A failed operation cannot be caught and followed by trusted use of
+        // this partially updated index under another origin's fresh allowance.
+        index.scratch.comparison_limit = index.comparisons_reserved;
+        assert!(index.find(&absent, &mut work).is_err());
+        let mut later = session(&arena);
+        assert!(index.find(&absent, &mut later).is_err());
+        assert_eq!(index.file.metadata().unwrap().len(), file_length);
+        drop(index);
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
     }
 }

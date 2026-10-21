@@ -187,9 +187,6 @@ impl LocalInputs {
         }
         Ok(())
     }
-    pub(super) fn references(&self) -> impl Iterator<Item = &ExactRef> {
-        self.rows.iter().map(|r| &r.reference)
-    }
     pub(super) fn body(&self, r: &ExactRef) -> Result<&[u8]> {
         self.rows
             .iter()

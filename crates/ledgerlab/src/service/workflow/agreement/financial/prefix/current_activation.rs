@@ -148,8 +148,7 @@ impl LocatedAppAcceptance {
                 self.acceptance.binding.reference(),
                 binding,
                 at,
-                before,
-                true,
+                (before, true),
                 s,
             )
             .await;
@@ -220,10 +219,10 @@ async fn local_current_activation(
     binding_ref: &ExactRef,
     binding: &Value,
     at: &Timestamp,
-    before: i64,
-    current: bool,
+    context: (i64, bool),
     s: &mut OriginalAuditSession,
 ) -> Result<CompletedInitialActivation> {
+    let (before, current) = context;
     let customer = request_wrapper::text(binding, "customer", s)?;
     let agreement = request_wrapper::text(binding, "agreement_id", s)?;
     let rows = tx
@@ -393,8 +392,7 @@ impl LocatedAppAcceptance {
             self.acceptance.binding.reference(),
             binding,
             at,
-            before,
-            false,
+            (before, false),
             s,
         )
         .await

@@ -65,8 +65,7 @@ pub(super) fn validate(
         input,
         publication,
         binding,
-        accepted_at,
-        false,
+        (accepted_at, false),
         s,
     )
 }
@@ -86,8 +85,7 @@ pub(super) fn validate_local_admission(
         input,
         publication,
         binding,
-        accepted_at,
-        true,
+        (accepted_at, true),
         s,
     )
 }
@@ -98,10 +96,10 @@ fn validate_selected(
     input: &AppAcceptanceInput,
     publication: &prefix::RecompiledPublication,
     binding: &Value,
-    accepted_at: &str,
-    local_admission: bool,
+    context: (&str, bool),
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
+    let (accepted_at, local_admission) = context;
     size(sources.len(), 1, 32, s)?;
     let projected = request_wrapper::field(input.terms.canonical_value(), "binding_inputs", s)?;
     let bindings = request_wrapper::field(projected, "bindings", s)?

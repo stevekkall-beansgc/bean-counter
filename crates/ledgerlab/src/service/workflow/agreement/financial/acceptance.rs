@@ -293,11 +293,10 @@ impl AppAcceptanceInput {
         key: &OperationKey,
         enrollment: &current::source::SourceRecord,
         assent: &Value,
-        actor: &str,
-        at: &Timestamp,
-        before: i64,
+        context: (&str, &Timestamp, i64),
         session: &mut OriginalAuditSession,
     ) -> Result<ObservedCustomerConsent> {
+        let (actor, at, before) = context;
         let result = async {
             let registration = current::source::customer_record(
                 tx,
@@ -334,12 +333,10 @@ impl AppAcceptanceInput {
         key: &OperationKey,
         enrollment: &current::source::SourceRecord,
         registration: current::source::SourceRecord,
-        assent: &Value,
-        actor: &str,
-        at: &Timestamp,
-        before: i64,
+        context: (&Value, &str, &Timestamp, i64),
         session: &mut OriginalAuditSession,
     ) -> Result<ObservedCustomerConsent> {
+        let (assent, actor, at, before) = context;
         let result = async {
             let observed = customer::observe(
                 tx,
@@ -366,10 +363,10 @@ impl AppAcceptanceInput {
         key: &OperationKey,
         resource_leg: &str,
         assent: &Value,
-        at: &Timestamp,
-        before: i64,
+        context: (&Timestamp, i64),
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::OriginalPlatformConsent> {
+        let (at, before) = context;
         let result = async {
             request_wrapper::same_text(
                 request_wrapper::text(assent, "schema", session)?,
@@ -382,8 +379,7 @@ impl AppAcceptanceInput {
                 &self.terms,
                 resource_leg,
                 assent,
-                at,
-                before,
+                (at, before),
                 session,
             )
             .await?;
@@ -441,10 +437,10 @@ impl AppAcceptanceInput {
         key: &OperationKey,
         resource_leg: &str,
         assent: &Value,
-        at: &Timestamp,
-        before: i64,
+        context: (&Timestamp, i64),
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::ObservedPlatformConsent> {
+        let (at, before) = context;
         let result = async {
             request_wrapper::same_text(
                 request_wrapper::text(assent, "schema", session)?,
@@ -457,8 +453,7 @@ impl AppAcceptanceInput {
                 &self.terms,
                 resource_leg,
                 assent,
-                at,
-                before,
+                (at, before),
                 session,
             )
             .await?;
@@ -964,13 +959,13 @@ pub(super) struct PendingAppAcceptance {
     pub(super) publication: prefix::RecompiledPublication,
     pub(super) at: Timestamp,
     pub(super) before: i64,
-    pub(super) sources: Vec<current::source::ObservedSource>,
-    admission_source: usize,
+    _observed_sources: Vec<current::source::ObservedSource>,
+    _admission_source: usize,
     consents: consent::Coverage,
     authority: wire::SourceRecord,
-    pub(super) private_documents: private::InlineDocuments,
+    private_documents: private::InlineDocuments,
     pub(super) head_records: emit::AcceptanceHeadRecords,
-    pub(super) normalized: request::NormalizedAcceptance,
+    normalized: request::NormalizedAcceptance,
     _prefix: Option<prefix::FoldedInventory>,
     local_members: Option<prefix::ResolvedMembers>,
     _sources_storage: ExternalBufferLease,
@@ -1246,11 +1241,7 @@ async fn prepare_selected(
             &input,
             &publication,
             &private_documents,
-            source,
-            &local_root,
-            &setup.operator,
-            &at,
-            before,
+            (source, &local_root, &setup.operator, &at, before),
             session,
         )
         .await?;
@@ -1263,9 +1254,7 @@ async fn prepare_selected(
             &consents,
             &local_root,
             incoming.key(),
-            &setup.operator,
-            &at,
-            "agreement.accept",
+            (&setup.operator, &at, "agreement.accept"),
             session,
         )?;
         let binding_body = binding_value.value();
@@ -1343,8 +1332,8 @@ async fn prepare_selected(
             publication,
             at,
             before,
-            sources,
-            admission_source,
+            _observed_sources: sources,
+            _admission_source: admission_source,
             consents,
             authority,
             private_documents,

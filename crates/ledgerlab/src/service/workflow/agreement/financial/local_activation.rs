@@ -198,7 +198,7 @@ pub(super) async fn selected(
     snapshot: &crate::service::workflow::resources::Snapshot,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    use crate::store::ports::{AcceptanceStore, AcceptanceTx};
+    use crate::store::ports::AcceptanceTx;
     let req = super::super::request::Request::parse_agreement(raw)?;
     if req.kind() != "agreement.activate" {
         return Ok(false);

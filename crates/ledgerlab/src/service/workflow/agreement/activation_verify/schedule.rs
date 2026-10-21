@@ -182,33 +182,6 @@ pub(in crate::service::workflow::agreement) fn boundary_at<'a>(
         })
         .max_by_key(|t| (t.effective.micros(), t.sequence)))
 }
-/// Evaluate only an already certified schedule prefix. Expiry/revoke yields no
-/// selection, never a fallback to a previously valid binding.
-pub(in crate::service::workflow::agreement) fn selected_binding(
-    history: &[Transition],
-    at: &Timestamp,
-) -> Result<Option<RecordRef>> {
-    let Some(t) = boundary_at(history, at)? else {
-        return Ok(None);
-    };
-    if t.action == ActivationAction::Revoke {
-        return Ok(None);
-    }
-    let b = canonical_body(&t.binding)?;
-    let starts =
-        Timestamp::parse(text(&b, "starts_at")?).map_err(|_| ServiceError::IntegrityFailure)?;
-    let ends = b
-        .get("ends_at")
-        .map(|v| {
-            Timestamp::parse(v.as_str().ok_or(ServiceError::IntegrityFailure)?)
-                .map_err(|_| ServiceError::IntegrityFailure)
-        })
-        .transpose()?;
-    if at.micros() < starts.micros() || ends.is_some_and(|end| at.micros() >= end.micros()) {
-        return Ok(None);
-    }
-    Ok(Some(t.binding.reference.clone()))
-}
 /// Validate the unambiguous activate/replace portion and the whole contiguous
 /// identity/time lineage. Revoke selection is finalized by the approved stop
 /// verifier; this routine does not invent a pending-cancellation rule.
@@ -387,6 +360,35 @@ pub(in crate::service::workflow::agreement) async fn history_before(
         }
     }
     Ok(history)
+}
+
+#[cfg(test)]
+/// Evaluate only an already certified schedule prefix. Expiry/revoke yields no
+/// selection, never a fallback to a previously valid binding.
+pub(in crate::service::workflow::agreement) fn selected_binding(
+    history: &[Transition],
+    at: &Timestamp,
+) -> Result<Option<RecordRef>> {
+    let Some(t) = boundary_at(history, at)? else {
+        return Ok(None);
+    };
+    if t.action == ActivationAction::Revoke {
+        return Ok(None);
+    }
+    let b = canonical_body(&t.binding)?;
+    let starts =
+        Timestamp::parse(text(&b, "starts_at")?).map_err(|_| ServiceError::IntegrityFailure)?;
+    let ends = b
+        .get("ends_at")
+        .map(|v| {
+            Timestamp::parse(v.as_str().ok_or(ServiceError::IntegrityFailure)?)
+                .map_err(|_| ServiceError::IntegrityFailure)
+        })
+        .transpose()?;
+    if at.micros() < starts.micros() || ends.is_some_and(|end| at.micros() >= end.micros()) {
+        return Ok(None);
+    }
+    Ok(Some(t.binding.reference.clone()))
 }
 
 #[cfg(test)]

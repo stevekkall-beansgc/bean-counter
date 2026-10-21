@@ -1722,19 +1722,6 @@ async fn indexed_sets(
     }
     Ok(())
 }
-pub(super) async fn load(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    identity: &[u8],
-    session: &mut OriginalAuditSession,
-) -> Result<OriginalWrappers> {
-    let frame = tx
-        .workflow_original_frame(identity, &key.logical_store_id, &key.scope, session)
-        .await
-        .map_err(resource)?
-        .ok_or(ServiceError::IntegrityFailure)?;
-    validate_frame(tx, key, identity, frame, session).await
-}
 
 /// Consume the exact chronological frame without loading a second copy or
 /// selecting it through another hint. This remains unresolved mechanical DATA.

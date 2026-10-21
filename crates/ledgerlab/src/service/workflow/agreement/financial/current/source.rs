@@ -28,7 +28,7 @@ pub(in super::super) struct ObservedSource {
     enrollment: SourceRecord,
     state: SourceRecord,
     grant: Option<SourceRecord>,
-    head: SourceHeadLocator,
+    _head: SourceHeadLocator,
 }
 impl ObservedSource {
     pub(in super::super) fn enrollment_record(&self) -> &SourceRecord {
@@ -72,9 +72,6 @@ impl ObservedSource {
                 reference: &r.reference,
                 canonical_body: r.stored.body.bytes(),
             })
-    }
-    pub(in super::super) fn head(&self) -> &SourceHeadLocator {
-        &self.head
     }
 }
 fn raw_text<'a>(b: &'a [u8], s: &mut OriginalAuditSession) -> Result<&'a str> {
@@ -267,34 +264,6 @@ fn same_ref(value: &Value, reference: &ExactRef, s: &mut OriginalAuditSession) -
         .map_err(core_error)?;
     let b = super::super::wire::reference(reference, s)?;
     same(a.bytes(), b.bytes(), s)
-}
-pub(in super::super) async fn observe(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    original: &RecordRef,
-    before: i64,
-    s: &mut OriginalAuditSession,
-) -> Result<ObservedSource> {
-    let result = observe_inner(tx, key, original, before, s).await;
-    if result.is_err() {
-        s.invalidate();
-        tx.workflow_proof_failure_handle()
-            .store(true, std::sync::atomic::Ordering::Release);
-    }
-    result
-}
-async fn observe_inner(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    original: &RecordRef,
-    before: i64,
-    s: &mut OriginalAuditSession,
-) -> Result<ObservedSource> {
-    use super::super::request_wrapper as check;
-    check::same_text(&original.kind, "workflow-source-grant", s)?;
-    let (r, l) = own(&original.kind, &original.id, &original.digest, s)?;
-    let original = load(tx, key, r, l, "ledger-workflow-source-grant/1", before, s).await?;
-    observe_original(tx, key, original, before, s).await
 }
 /// Same current-source observer from an owning request's exact Ref value. No
 /// DTO clone/Noop parser or new meaning is introduced for acceptance callers.
@@ -534,7 +503,7 @@ async fn observe_original_at(
         enrollment,
         state,
         grant,
-        head,
+        _head: head,
     })
 }
 

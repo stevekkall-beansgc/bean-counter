@@ -224,8 +224,7 @@ pub(in super::super) async fn reconstruct_initial(
             publication,
             binding.value(),
             origin.key(),
-            actor,
-            &at,
+            (actor, &at),
             s,
         )?;
         s.semantic_work()

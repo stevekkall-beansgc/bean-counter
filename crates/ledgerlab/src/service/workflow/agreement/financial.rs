@@ -4,11 +4,8 @@
 use super::*;
 use crate::service::workflow::core_error;
 use crate::{
-    service::workflow::{
-        local::{deadline, LocalWorkflowLedger},
-        request::OperationKey,
-    },
-    store::ports::{AcceptanceStore, AcceptanceTx},
+    service::workflow::{local::LocalWorkflowLedger, request::OperationKey},
+    store::ports::AcceptanceTx,
 };
 mod acceptance;
 mod activation;
@@ -34,10 +31,7 @@ pub use response::WorkflowReply;
 mod request_wrapper;
 mod wire;
 mod wrappers;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::atomic::Ordering;
 
 /// Released R1 dependencies may select a root retained by the adopted local
 /// recipe. Verify its actual scoped committed frame and membership using that
@@ -302,7 +296,7 @@ pub(in crate::service::workflow) async fn local_management_status(
     key: &OperationKey,
     raw_key: &[u8],
 ) -> Result<Option<Value>> {
-    use ledgerlab_core::validation_work::{OriginalAuditSession, RepresentationKind};
+    use ledgerlab_core::validation_work::RepresentationKind;
     let mut s = take_read_session(tx)?;
     let result = async {
         let parsed = s
@@ -360,7 +354,6 @@ async fn original_query(
     key: &OperationKey,
     input: OriginalQuery<'_>,
 ) -> Result<Value> {
-    use ledgerlab_core::validation_work::OriginalAuditSession;
     let snapshot = ledger.resource_snapshot()?;
     snapshot.bind(tx).await?;
     let mut session = take_read_session(tx)?;
@@ -462,11 +455,11 @@ impl LocalWorkflowLedger {
                 ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport,
             > + Send,
     {
-        use ledgerlab_core::validation_work::OriginalAuditSession;
         let resource_snapshot = self.resource_snapshot()?;
         let arena = resource_snapshot.arena()?;
         let mut session =
-            OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+            ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                .map_err(core_error)?;
         let req = ingress::IncomingRequest::parse_publication(raw, &mut session)?;
         let mut tx = resource_snapshot.begin(&self.store, &mut session).await?;
         let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
@@ -505,7 +498,7 @@ impl LocalWorkflowLedger {
     pub async fn financial_owned_reply(&self, raw: &[u8]) -> Result<WorkflowReply> {
         let resource_snapshot = self.resource_snapshot()?;
         let arena = resource_snapshot.arena()?;
-        let mut session =
+        let session =
             ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
                 .map_err(core_error)?;
         self.financial_owned_reply_in(raw, resource_snapshot, session)

@@ -11,9 +11,36 @@ pub(super) mod inventory;
 mod members;
 mod programs;
 mod publication;
+#[cfg(test)]
+impl OriginInput {
+    pub(super) fn key(&self) -> &OperationKey {
+        &self.key.key
+    }
+}
+
+#[cfg(test)]
+impl FoldedInventory {
+    /// Exact full enrollment Ref -> validated earliest introduction -> live
+    /// opaque output correspondence. No hash/sequence or scratch row alone
+    /// can manufacture this key; core still rebinds all selected output bytes.
+    pub(super) fn initial_source_correspondence(
+        &mut self,
+        enrollment: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<
+        &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence,
+    > {
+        super::acceptance::validate_reference(enrollment, "workflow-source-enrollment", s)?;
+        let sequence = self._inventory.introduction_sequence(enrollment, s)?;
+        self.programs.initial_source(sequence, s)
+    }
+}
+
+#[cfg(test)]
 mod witness;
-pub(super) use members::{ResolvedEconomicInputs, ResolvedMembers, RetainedEconomicBodies};
-pub(super) use witness::ObservationHeader;
+#[cfg(test)]
+pub(super) use members::ResolvedEconomicInputs;
+pub(super) use members::{ResolvedMembers, RetainedEconomicBodies};
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
@@ -38,9 +65,6 @@ pub(super) struct OriginInput {
     pub(super) frame: OriginalFrame,
 }
 impl OriginInput {
-    pub(super) fn key(&self) -> &OperationKey {
-        &self.key.key
-    }
     /// The selected recipe can consume this exact acquired frame. Neither
     /// this dispatch nor the mechanical wrapper result credits provenance.
     pub(super) async fn checked_wrappers(
@@ -171,18 +195,6 @@ impl LocatedWrappers {
             session.invalidate();
         }
         result
-    }
-
-    /// SAME AppAccept8 normalization against the original compiled program.
-    /// Every earlier introduction/assent/head remains the chronological driver's
-    /// obligation; this result has no completed-origin or receipt capability.
-    pub(super) async fn reconstruct_app_acceptance(
-        &self,
-        tx: &mut SqliteTx,
-        publication: &RecompiledPublication,
-        session: &mut OriginalAuditSession,
-    ) -> Result<super::acceptance::ReconstructedAcceptance> {
-        super::acceptance::reconstruct(tx, self, publication, session).await
     }
 
     /// Actual saved source/compiler replay only. This DATA result still needs
@@ -454,23 +466,43 @@ pub(super) async fn publication_for(
 /// Actual original binding/PUB operands acquired from the held scoped journal.
 /// No current compiler/acceptance or ID-only latest lookup is substituted.
 /// This remains DATA until the chronological owner completes every origin.
+fn retained_box<T>(
+    value: T,
+    s: &mut OriginalAuditSession,
+) -> Result<(Box<T>, ExternalBufferLease)> {
+    let bytes = std::mem::size_of::<T>();
+    let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    // Tuple drop order frees the boxed payload before its allocation lease.
+    Ok((Box::new(value), storage))
+}
 pub(super) enum AcceptanceMaterial {
-    Audited(super::acceptance::ReplayedAcceptance),
-    Local(super::acceptance::TargetedAcceptance),
+    Audited(
+        (
+            Box<super::acceptance::ReplayedAcceptance>,
+            ExternalBufferLease,
+        ),
+    ),
+    Local(
+        (
+            Box<super::acceptance::TargetedAcceptance>,
+            ExternalBufferLease,
+        ),
+    ),
 }
 impl std::ops::Deref for AcceptanceMaterial {
     type Target = super::acceptance::ReconstructedAcceptance;
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Audited(a) => a,
-            Self::Local(a) => a,
+            Self::Audited((a, _)) => a,
+            Self::Local((a, _)) => a,
         }
     }
 }
 impl AcceptanceMaterial {
     fn audited(&self) -> Result<&super::acceptance::ReplayedAcceptance> {
         match self {
-            Self::Audited(a) => Ok(a),
+            Self::Audited((a, _)) => Ok(a),
             _ => Err(ServiceError::Unavailable),
         }
     }
@@ -478,8 +510,8 @@ impl AcceptanceMaterial {
         &self,
     ) -> &ledgerlab_core::policy::workflow::transition_constructor::ExactRef {
         match self {
-            Self::Audited(a) => a.accepted_reference(),
-            Self::Local(a) => a.accepted_reference(),
+            Self::Audited((a, _)) => a.accepted_reference(),
+            Self::Local((a, _)) => a.accepted_reference(),
         }
     }
     pub(super) fn work_locator_records(
@@ -488,8 +520,8 @@ impl AcceptanceMaterial {
         Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
     > {
         let (a, b) = match self {
-            Self::Audited(a) => (Some(a), None),
-            Self::Local(b) => (None, Some(b)),
+            Self::Audited((a, _)) => (Some(a), None),
+            Self::Local((b, _)) => (None, Some(b)),
         };
         a.into_iter()
             .flat_map(|a| a.work_locator_records())
@@ -504,7 +536,7 @@ impl AcceptanceMaterial {
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         match self {
-            Self::Local(a) => {
+            Self::Local((a, _)) => {
                 a.require_local_admission_sources(sources, publication, binding, at, s)
             }
             Self::Audited(_) => Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
@@ -516,16 +548,16 @@ impl AcceptanceMaterial {
         publication: &RecompiledPublication,
         binding: &Value,
         key: &OperationKey,
-        actor: &str,
-        at: &Timestamp,
+        context: (&str, &Timestamp),
         s: &mut OriginalAuditSession,
     ) -> Result<usize> {
+        let (actor, at) = context;
         match self {
-            Self::Audited(a) => {
-                a.current_activation_source(sources, publication, binding, key, actor, at, s)
+            Self::Audited((a, _)) => {
+                a.current_activation_source(sources, publication, binding, key, (actor, at), s)
             }
-            Self::Local(a) => {
-                a.current_activation_source(sources, publication, binding, key, actor, at, s)
+            Self::Local((a, _)) => {
+                a.current_activation_source(sources, publication, binding, key, (actor, at), s)
             }
         }
     }
@@ -539,101 +571,19 @@ impl AcceptanceMaterial {
         s: &mut OriginalAuditSession,
     ) -> Result<wire::SourceRecord> {
         match self {
-            Self::Audited(a) => a.activation_authority(source, root, key, actor, at, s),
-            Self::Local(a) => a.activation_authority(source, root, key, actor, at, s),
+            Self::Audited((a, _)) => a.activation_authority(source, root, key, actor, at, s),
+            Self::Local((a, _)) => a.activation_authority(source, root, key, actor, at, s),
         }
     }
 }
 pub(super) struct LocatedAppAcceptance {
-    pub(super) origin: LocatedWrappers,
+    _origin: LocatedWrappers,
     pub(super) publication: RecompiledPublication,
     pub(super) acceptance: AcceptanceMaterial,
     _prefix: Option<FoldedInventory>,
     through: i64,
 }
 impl LocatedAppAcceptance {
-    /// Reuse only the exact output-construction fact associated after the
-    /// actual enrollment origin completed. This does not replace source
-    /// context/current/evidence checks in the one independent economic child.
-    pub(super) fn construct_root_work(
-        &mut self,
-        context: &ledgerlab_core::policy::workflow::transition_constructor::DraftContextData,
-        raw_payload: &[u8],
-        inputs: &[ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<
-            '_,
-        >],
-        state: &ledgerlab_core::policy::workflow::transition_constructor::EconomicStateData<'_>,
-        s: &mut OriginalAuditSession,
-    ) -> Result<ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate> {
-        use ledgerlab_core::policy::workflow::transition_constructor::{
-            construct_economic_candidate, EconomicStateData, InitialSourceCorrespondence,
-        };
-        let result = (|| {
-            s.semantic_work()
-                .arithmetic(
-                    Op::Compare,
-                    &[&context.authorities.len().into(), &1usize.into()],
-                )
-                .map_err(core_error)?;
-            // root_work_context currently captures the genuine root source.
-            // Independently sourced dependent/correction frames have their
-            // separate enclosing driver; do not substitute this root for them.
-            require(context.authorities.len() == 1, "INTEGRITY_FAILURE")?;
-            let _control = s
-                .reserve_external_payload(
-                    std::mem::size_of::<EconomicStateData<'_>>()
-                        + std::mem::size_of::<[&InitialSourceCorrespondence; 1]>(),
-                )
-                .map_err(core_error)?;
-            s.semantic_work()
-                .visit(Visit::RefLookup)
-                .map_err(core_error)?;
-            let authority = context
-                .authorities
-                .first()
-                .ok_or(ServiceError::IntegrityFailure)?;
-            let enrollment = wire::reference(&authority.enrollment_ref, s)?;
-            let enrollment = s
-                .parse_representation(enrollment.bytes(), RepresentationKind::Record)
-                .map_err(core_error)?;
-            let correspondence = self
-                ._prefix
-                .as_mut()
-                .ok_or(ServiceError::Unavailable)?
-                .initial_source_correspondence(enrollment.value(), s)?;
-            s.semantic_work()
-                .write_bytes(std::mem::size_of::<[&InitialSourceCorrespondence; 1]>())
-                .map_err(core_error)?;
-            let correspondence = [correspondence];
-            s.semantic_work()
-                .write_bytes(std::mem::size_of::<EconomicStateData<'_>>())
-                .map_err(core_error)?;
-            let state = EconomicStateData {
-                retained_assertion: state.retained_assertion,
-                financial: state.financial,
-                capacity_heads: state.capacity_heads,
-                supplier: state.supplier,
-                app: state.app,
-                current_party_authorizations: state.current_party_authorizations,
-                observation: state.observation,
-                audit: state.audit,
-                initial_source_correspondences: &correspondence,
-            };
-            construct_economic_candidate(
-                self.publication.program(),
-                context,
-                raw_payload,
-                inputs,
-                &state,
-                s,
-            )
-            .map_err(core_error)
-        })();
-        if result.is_err() {
-            s.invalidate();
-        }
-        result
-    }
     /// Extend the SAME already-completed acceptance prefix to today's held
     /// cutoff. Each later original executes once on its own existing owner;
     /// the saved acceptance is not reconstructed a second time.
@@ -872,9 +822,9 @@ pub(super) async fn acceptance_for(
                 request_wrapper::same_text(a, b, session)?;
             }
             return Ok(LocatedAppAcceptance {
-                origin,
+                _origin: origin,
                 publication,
-                acceptance: AcceptanceMaterial::Local(acceptance),
+                acceptance: AcceptanceMaterial::Local(retained_box(acceptance, session)?),
                 _prefix: None,
                 through: sequence,
             });
@@ -910,9 +860,9 @@ pub(super) async fn acceptance_for(
         acceptance.fold_original(&origin, &mut prefix, session)?;
         finish_origin(&origin, &mut prefix, session)?;
         Ok(LocatedAppAcceptance {
-            origin,
+            _origin: origin,
             publication,
-            acceptance: AcceptanceMaterial::Audited(acceptance),
+            acceptance: AcceptanceMaterial::Audited(retained_box(acceptance, session)?),
             _prefix: Some(prefix),
             through: sequence,
         })
@@ -967,59 +917,6 @@ async fn target_inner(
         identity,
         frame,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ledgerlab_core::canonical::{audit_arena::AuditArena, CanonicalBytes};
-    fn scope() -> OperationKey {
-        OperationKey {
-            logical_store_id: "local".into(),
-            scope: ["tenant".into(), "test".into()],
-            source: "source".into(),
-            operation_id: "origin".into(),
-        }
-    }
-    #[test]
-    fn original_key_preserves_ingress_unicode_and_owns_all_copies() {
-        let arena = AuditArena::new().unwrap();
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let baseline = arena.usage().unwrap().live_bytes;
-        let mut input = scope();
-        input.source = "urn:source:é".into();
-        input.operation_id = "作品".into();
-        let raw = CanonicalBytes::from_value(&input).unwrap();
-        let parsed = origin_key(raw.as_slice(), &scope(), &mut session).unwrap();
-        assert_eq!(parsed.key, OperationKey::parse(raw.as_slice()).unwrap());
-        assert!(arena.usage().unwrap().live_bytes > baseline);
-        drop(parsed);
-        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
-    }
-    #[test]
-    fn original_key_refuses_foreign_scope_control_and_noncanonical_identity() {
-        for (name, mut input) in [
-            ("scope", scope()),
-            ("control", scope()),
-            ("canonical", scope()),
-        ] {
-            let arena = AuditArena::new().unwrap();
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            if name == "scope" {
-                input.scope[0] = "foreign".into();
-            }
-            if name == "control" {
-                input.operation_id = "bad\nkey".into();
-            }
-            let mut raw = CanonicalBytes::from_value(&input).unwrap().into_vec();
-            if name == "canonical" {
-                raw.push(b' ');
-            }
-            let baseline = arena.usage().unwrap().live_bytes;
-            assert!(origin_key(&raw, &scope(), &mut session).is_err(), "{name}");
-            assert_eq!(arena.usage().unwrap().live_bytes, baseline);
-        }
-    }
 }
 
 /// Owning transient DATA after the supported chronological recipes have run.
@@ -1126,7 +1023,7 @@ pub(super) async fn fold_original_prefix(
         )
         .await?;
         parent.check_cancelled().map_err(core_error)?;
-        Ok(inventory.ok_or(ServiceError::IntegrityFailure)?)
+        inventory.ok_or(ServiceError::IntegrityFailure)
     }
     .await;
     if result.is_ok() {
@@ -1156,19 +1053,6 @@ pub(super) async fn publication_before(
         publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
     ))
 }
-/// Complete actual earlier recipes under their own owners before a fresh
-/// administrative party result may consume them. This retains DATA only;
-/// private resource/currentness and atomic preparation remain required.
-pub(super) async fn party_before(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    before: i64,
-    parent: &mut OriginalAuditSession,
-) -> Result<Option<FoldedInventory>> {
-    let (inventory, _) = before_inputs(ledger, tx, key, None, before, None, parent).await?;
-    Ok(inventory)
-}
 /// The existing workflow sequence domain is 1..=100000. Under the held writer,
 /// this exclusive bound visits every actual operation, including a full store;
 /// it does not allocate a prospective sequence or introduce an origin.
@@ -1183,6 +1067,7 @@ pub(super) async fn authenticate_migration_prefix(
 }
 /// The actual fresh party caller already owns this normalized current setup.
 /// Historical recipes still execute independently under their own origin owner.
+#[cfg(test)]
 pub(super) async fn party_before_observed(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -1268,7 +1153,7 @@ async fn before_inputs(
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
-                &setup,
+                setup,
                 publication.as_ref(),
                 &mut session,
             )
@@ -1328,20 +1213,6 @@ async fn before_inputs(
 }
 
 impl FoldedInventory {
-    /// Exact full enrollment Ref -> validated earliest introduction -> live
-    /// opaque output correspondence. No hash/sequence or scratch row alone
-    /// can manufacture this key; core still rebinds all selected output bytes.
-    pub(super) fn initial_source_correspondence(
-        &mut self,
-        enrollment: &Value,
-        s: &mut OriginalAuditSession,
-    ) -> Result<
-        &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence,
-    > {
-        super::acceptance::validate_reference(enrollment, "workflow-source-enrollment", s)?;
-        let sequence = self._inventory.introduction_sequence(enrollment, s)?;
-        self.programs.initial_source(sequence, s)
-    }
     pub(super) fn require_record(
         &mut self,
         r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
@@ -1689,13 +1560,13 @@ async fn fold_origin(
         None
     } else {
         match source::fold(tx, origin, &mut prefix._inventory, setup, s).await? {
-            source::FoldedSource::Publication(program) => {
+            source::FoldedSource::Publication((program, _box_storage)) => {
                 // source::fold has finished original semantic/member/custody
                 // checks and staged this exact PUB before live-key association.
                 prefix
                     .programs
                     .register(origin.wrappers().sequence(), program.program(), s)?;
-                Some(program)
+                Some(*program)
             }
             source::FoldedSource::InitialSource(key) => {
                 initial_source = Some(key);
@@ -1754,7 +1625,7 @@ impl LocatedAppAcceptance {
         before: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<super::acceptance::CurrentPlatformConsents> {
-        if let AcceptanceMaterial::Local(a) = &self.acceptance {
+        if let AcceptanceMaterial::Local((a, _)) = &self.acceptance {
             return a.current_platforms(tx, key, binding, at, before, s).await;
         }
         let result = async {
@@ -1808,8 +1679,7 @@ impl LocatedAppAcceptance {
             &self.publication,
             binding,
             key,
-            actor,
-            at,
+            (actor, at),
             s,
         )
     }
@@ -1929,5 +1799,58 @@ impl FoldedInventory {
         self._inventory
             .set_head(&boundary, records.activation.reference(), s)?;
         self._inventory.set_head(&head, records.head.reference(), s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ledgerlab_core::canonical::{audit_arena::AuditArena, CanonicalBytes};
+    fn scope() -> OperationKey {
+        OperationKey {
+            logical_store_id: "local".into(),
+            scope: ["tenant".into(), "test".into()],
+            source: "source".into(),
+            operation_id: "origin".into(),
+        }
+    }
+    #[test]
+    fn original_key_preserves_ingress_unicode_and_owns_all_copies() {
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let mut input = scope();
+        input.source = "urn:source:é".into();
+        input.operation_id = "作品".into();
+        let raw = CanonicalBytes::from_value(&input).unwrap();
+        let parsed = origin_key(raw.as_slice(), &scope(), &mut session).unwrap();
+        assert_eq!(parsed.key, OperationKey::parse(raw.as_slice()).unwrap());
+        assert!(arena.usage().unwrap().live_bytes > baseline);
+        drop(parsed);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    }
+    #[test]
+    fn original_key_refuses_foreign_scope_control_and_noncanonical_identity() {
+        for (name, mut input) in [
+            ("scope", scope()),
+            ("control", scope()),
+            ("canonical", scope()),
+        ] {
+            let arena = AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            if name == "scope" {
+                input.scope[0] = "foreign".into();
+            }
+            if name == "control" {
+                input.operation_id = "bad\nkey".into();
+            }
+            let mut raw = CanonicalBytes::from_value(&input).unwrap().into_vec();
+            if name == "canonical" {
+                raw.push(b' ');
+            }
+            let baseline = arena.usage().unwrap().live_bytes;
+            assert!(origin_key(&raw, &scope(), &mut session).is_err(), "{name}");
+            assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+        }
     }
 }
