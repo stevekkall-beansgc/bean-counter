@@ -56,6 +56,12 @@ async fn add_reference(
     if sequence >= parent.sequence {
         return Err(ServiceError::IntegrityFailure);
     }
+    // A released prerequisite can retain a root born under the local recipe.
+    // Prove that exact scoped member with its own wrapper validator rather
+    // than scheduling its newer request through the released R1 parser.
+    if financial::local_selected_origin(tx, key, r, sequence).await? {
+        return Ok(());
+    }
     let demand = demands.entry(identity.clone()).or_insert(OriginDemand {
         references: Vec::new(),
         identity,

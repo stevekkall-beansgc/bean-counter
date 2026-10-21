@@ -179,3 +179,66 @@ async fn local10_committed_reply_loss_reopens_and_identity_retries_once() {
     );
     assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
 }
+
+#[tokio::test]
+#[ignore = "requires captured build and explicit quiescent maintained synthetic fixture"]
+async fn local_root_dependency_allows_monotone_source_restriction_and_exact_retry() {
+    let (_temporary, path, _, key, config) = fixture("restriction");
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let original: Value =
+        serde_json::from_slice(&fs::read(root.join("source-enroll.request.json")).unwrap())
+            .unwrap();
+    let enrollment: Value =
+        serde_json::from_slice(&fs::read(root.join("source-enroll.committed.json")).unwrap())
+            .unwrap();
+    let enrollment_ref = enrollment["receipt"]["result_refs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "workflow-source-enrollment")
+        .unwrap();
+    let mut ceiling = original["payload"]["ceiling"].clone();
+    ceiling["permissions"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|v| v != "correct");
+    ceiling["operations"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|v| v != "cost.correct");
+    let mut restricted_key = key.clone();
+    restricted_key.operation_id = "local-root-restriction-regression".into();
+    let mut request = json!({"schema":"ledger-operation/1","contract":"workflow/1",
+        "kind":"authority.change","key":restricted_key,
+        "payload":{"schema":"ledger-workflow-source-restrict/1","action":"source.restrict",
+        "enrollment_ref":enrollment_ref,"expected_revision":"1","replacement_ceiling":ceiling}});
+    let raw = records::bytes(&request).unwrap();
+    let before = snapshot(&path).await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    let committed = ledger.prerequisite(&raw).await.unwrap();
+    assert_eq!(committed["receipt"]["result_kind"], "administrative");
+    ledger.close().await;
+    let after = snapshot(&path).await;
+    assert_eq!(operations(&after), operations(&before) + 1);
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    let retry = reopened.prerequisite(&raw).await.unwrap();
+    assert_eq!(retry["duplicate_kind"], "identity");
+    assert_eq!(retry["receipt"], committed["receipt"]);
+    assert_eq!(
+        reopened
+            .status(&restricted_key.bytes().unwrap())
+            .await
+            .unwrap()["receipt"],
+        committed["receipt"]
+    );
+    request["key"]["operation_id"] = json!("local-root-cannot-restore-original-rights");
+    request["payload"]["expected_revision"] = json!("2");
+    request["payload"]["replacement_ceiling"] = original["payload"]["ceiling"].clone();
+    assert!(reopened
+        .prerequisite(&records::bytes(&request).unwrap())
+        .await
+        .is_err());
+    reopened.close().await;
+    assert_eq!(snapshot(&path).await, after);
+    assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
+}

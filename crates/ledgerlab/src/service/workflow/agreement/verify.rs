@@ -889,6 +889,9 @@ async fn retained_in_scope(
             if sequence >= operation.sequence {
                 return Err(ServiceError::IntegrityFailure);
             }
+            if financial::local_selected_origin(tx, key, &document.reference, sequence).await? {
+                continue;
+            }
             if kind == "policy.publish" {
                 verify_publication_origin(tx, key, &identity, sequence).await?;
             } else {
