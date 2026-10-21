@@ -393,7 +393,7 @@ struct Mapping {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InstantiationDto {
+struct SlotInstanceDto {
     schema: String,
     agreement_id: String,
     customer: String,
@@ -416,14 +416,14 @@ impl SlotInstantiation {
         raw: &[u8],
         session: &mut crate::validation_work::OriginalAuditSession,
     ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
-        private::normalize(raw, private::Family::Instantiation, session)
+        private::normalize(raw, private::Family::SlotInstance, session)
     }
 
     /// Initial exact symbolic mapping only, with no assent/binding authority.
     pub fn parse(raw: &[u8], template: &SlotTemplate, catalog: &SlotCatalog) -> Result<Self> {
         let value = canonical::parse(raw)?;
         reject_null(&value)?;
-        let mut dto: InstantiationDto = canonical::dto(value)?;
+        let mut dto: SlotInstanceDto = canonical::dto(value)?;
         if dto.schema != "ledger-workflow-slot-instantiation/1" {
             return Err(fail(
                 "UNSUPPORTED_SCHEMA_PROFILE",

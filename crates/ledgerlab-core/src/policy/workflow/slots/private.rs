@@ -12,7 +12,7 @@ use crate::{
 use std::mem;
 pub(super) enum Family {
     Catalog,
-    Instantiation,
+    SlotInstance,
 }
 fn field<'a>(v: &'a Value, name: &str, work: &mut dyn ValidationWork) -> Result<&'a Value> {
     work.visit(Visit::Constraint)?;
@@ -171,7 +171,7 @@ pub(super) fn normalize(
                     "families",
                 ][..],
             ),
-            Family::Instantiation => (
+            Family::SlotInstance => (
                 "ledger-workflow-slot-instantiation/1",
                 &[
                     "schema",
@@ -207,7 +207,7 @@ pub(super) fn normalize(
                 reorder(&mut tree, "components", "slot_id", true, 1, 128, s)?;
                 reorder(&mut tree, "families", "slot_id", true, 0, 64, s)?;
             }
-            Family::Instantiation => {
+            Family::SlotInstance => {
                 reorder(&mut tree, "component_map", "template_key", false, 0, 128, s)?;
                 reorder(&mut tree, "family_map", "template_key", false, 0, 64, s)?;
             }
