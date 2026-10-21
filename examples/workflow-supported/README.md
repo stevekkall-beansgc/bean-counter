@@ -7,7 +7,7 @@ Use the repository's pinned Rust toolchain. From this checkout, capture a normal
 ```sh
 python3 scripts/build_workflow.py --local-execution --operator-resources --output "$BUILD"
 CARGO_TARGET_DIR="$BUILD/target" cargo build --manifest-path "$BUILD/source/Cargo.toml" \
-  -p ledgerlab-core --example prepare_local_publication --example prepare_local_terms \
+  -p ledgerlab --example prepare_local_publication --example prepare_local_terms \
   --release --target aarch64-apple-darwin --locked --offline
 ```
 

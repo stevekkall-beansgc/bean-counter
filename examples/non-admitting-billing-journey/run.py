@@ -94,7 +94,7 @@ def build(args):
             saved.write(raw)
         path.chmod(0o444)
     write_json(output / "inventory.json", inventory)
-    command = [str(tools["cargo"]), "build", "--locked", "--offline", "--package", "ledgerlab-core",
+    command = [str(tools["cargo"]), "build", "--locked", "--offline", "--package", "ledgerlab",
                "--example", EXAMPLE, "--target", target, "--target-dir", str(output / "target"), "--message-format=json"]
     result = infra.run_owned(command, source, env, output / "build.log", infra.Policy(wall_seconds=240, rss_bytes=None))
     write_json(output / "build-result.json", result)
