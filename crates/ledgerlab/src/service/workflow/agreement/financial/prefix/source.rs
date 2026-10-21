@@ -1174,8 +1174,16 @@ fn produce_birth_records(
         source: copy(&key.source, s)?,
         operation_id: copy(&key.operation_id, s)?,
     };
-    produce_initial_source_records(&key, p, ceiling, "real_local", actor, at.as_str(), root, s)
-        .map_err(core_error)
+    produce_initial_source_records(
+        (&key, p),
+        ceiling,
+        "real_local",
+        actor,
+        at.as_str(),
+        root,
+        s,
+    )
+    .map_err(core_error)
 }
 fn wrap_birth_records(
     produced: ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecords,
