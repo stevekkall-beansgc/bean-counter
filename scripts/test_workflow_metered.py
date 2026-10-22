@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).with_name("e2e")))
 import workflow_metered as metered
+import workflow_attested as attested
 import workflow_supported as supported
 
 
@@ -94,6 +95,51 @@ class MeteredDriverTests(unittest.TestCase):
             self.assertEqual([call[4] for call in calls], ["submit", "status"])
             self.assertEqual(journey.meta["failed_original_status"], absent)
             self.assertFalse((journey.root / "quantity.committed.json").exists())
+
+
+class AttestedDriverTests(unittest.TestCase):
+    def test_original_and_replacement_proofs_keep_same_business_subject(self):
+        journey = attested.AttestedJourney.__new__(attested.AttestedJourney)
+        journey.store, journey.scope, journey.source = "synthetic", ["example", "local"], "urn:example:work"
+        journey.customer, journey.product_ref, journey.binding_ref = "customer-B", ref("product"), ref("binding")
+        journey.fact_refs = {"support:work-facts": ref("schema")}
+        journey.meta, journey.save = {}, lambda: None
+        requests = []
+        def submit(name, kind, payload):
+            requests.append((kind, payload))
+            return {"receipt": {"result_refs": [ref(name, "workflow-fact-attestation"),
+                                                ref(name + "-verification", "workflow-evidence-verification")]}}
+        journey.submit = submit
+        original = journey.quantity_proof("main", "original", "3")
+        replacement = journey.quantity_proof("main", "replacement", "2")
+        self.assertEqual(requests[0][1]["attestation"]["subject"], requests[1][1]["attestation"]["subject"])
+        subject = requests[0][1]["attestation"]["subject"]
+        self.assertEqual(subject["business_operation_id"], "main-service")
+        self.assertNotIn("work_ref", subject)
+        self.assertEqual([p[1]["attestation"]["claims"] for p in requests],
+                         [[{"field": "support:quantity", "value": "3"}],
+                          [{"field": "support:quantity", "value": "2"}]])
+        self.assertEqual(set(original), {"field", "attestation_ref"})
+        self.assertEqual(set(replacement), {"field", "attestation_ref"})
+        self.assertNotEqual(original["attestation_ref"], replacement["attestation_ref"])
+
+    def test_correction_names_only_replacement_proof_and_retains_closure(self):
+        journey = attested.AttestedJourney.__new__(attested.AttestedJourney)
+        closure = {"work_ref": ref("work"), "expected_revision": "1",
+                   "dependent_reversals": [{"decision_ref": ref("child")}],
+                   "family_closures": [{"family_state_ref": ref("family")}], "evidence_refs": []}
+        journey.closure_inputs = lambda work: closure
+        requested = []
+        def proof(prefix, label, value):
+            requested.append((prefix, label, value))
+            return {"field": "support:quantity", "attestation_ref": ref("replacement", "workflow-fact-attestation")}
+        journey.quantity_proof = proof
+        payload = journey.quantity_payload({"prefix": "main"})
+        self.assertEqual(requested, [("main", "main-quantity-replacement-proof", "2")])
+        self.assertEqual(payload["dependent_reversals"], closure["dependent_reversals"])
+        self.assertEqual(payload["family_closures"], closure["family_closures"])
+        self.assertEqual(len(payload["fact_proofs"]), 1)
+        self.assertNotIn("unit", payload)
 
 
 if __name__ == "__main__":

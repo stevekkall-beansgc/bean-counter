@@ -34,6 +34,9 @@ pub(in super::super) struct ObservedAppBinding {
     _parsed_binding: AuditedValue,
     _source_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
+    // Declaration Refs live in work_state; drop their retained payload leases
+    // after that state and keep the lease-vector allocation owned as well.
+    _verification_storage: Option<(Vec<ExternalBufferLease>, ExternalBufferLease)>,
 }
 /// Newly emitted management DATA; neither row establishes admission.
 pub(in super::super) struct ActivationAdmissionRecords {
@@ -47,6 +50,57 @@ pub(in super::super) struct ObservedAppActivation {
     _admission_source: Option<usize>,
     pub(in super::super) admission_records: Option<ActivationAdmissionRecords>,
     _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
+}
+fn verification_storage(
+    references: &mut Vec<ExactRef>,
+    count: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<(Vec<ExternalBufferLease>, ExternalBufferLease)> {
+    let stride = std::mem::size_of::<ExactRef>() + std::mem::size_of::<ExternalBufferLease>();
+    session
+        .semantic_work()
+        .arithmetic(Op::Multiply, &[&count.into(), &stride.into()])
+        .map_err(core_error)?;
+    let bytes = count.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
+    let control = std::mem::size_of::<Vec<ExternalBufferLease>>();
+    session
+        .semantic_work()
+        .arithmetic(Op::Add, &[&bytes.into(), &control.into()])
+        .map_err(core_error)?;
+    let bytes = bytes
+        .checked_add(control)
+        .ok_or(ServiceError::Unavailable)?;
+    let storage = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(bytes)
+        .map_err(core_error)?;
+    let mut owners = Vec::new();
+    owners
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    references
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    Ok((owners, storage))
+}
+fn contains_reference<'a>(
+    references: impl IntoIterator<Item = &'a ExactRef>,
+    reference: &ExactRef,
+    session: &mut OriginalAuditSession,
+) -> Result<bool> {
+    for old in references {
+        session
+            .semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        if work_capture::same_reference(old, reference, session)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 pub(in super::super) async fn observe(
     ledger: &LocalWorkflowLedger,
@@ -99,7 +153,7 @@ pub(in super::super) async fn observe(
             session,
         )
         .await?;
-        let state = observed_heads.typed_state(
+        let mut state = observed_heads.typed_state(
             &heads,
             observed.parties.as_ref().ok_or(ServiceError::Unavailable)?,
             session,
@@ -152,6 +206,48 @@ pub(in super::super) async fn observe(
                 pool.add(active.activation.reference(), session)?;
             }
             pool.payload_refs(payload, session)?;
+            let proofs = check::field(payload, "fact_proofs", session)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            if !proofs.is_empty() {
+                observed._verification_storage = Some(verification_storage(
+                    &mut state.financial.evidence_verifications,
+                    proofs.len(),
+                    session,
+                )?);
+                for proof in proofs {
+                    session
+                        .semantic_work()
+                        .visit(ValidationVisit::Element)
+                        .map_err(core_error)?;
+                    let attestation = source::from_value_local(
+                        check::field(proof, "attestation_ref", session)?,
+                        session,
+                    )?;
+                    let retained = nonwork::retained_verification(
+                        tx,
+                        key,
+                        observed.before,
+                        &attestation.0,
+                        session,
+                    )
+                    .await?;
+                    pool.add(&retained.0, session)?;
+                    if !contains_reference(
+                        &state.financial.evidence_verifications,
+                        &retained.0,
+                        session,
+                    )? {
+                        observed
+                            ._verification_storage
+                            .as_mut()
+                            .ok_or(ServiceError::IntegrityFailure)?
+                            .0
+                            .push(retained.1);
+                        state.financial.evidence_verifications.push(retained.0);
+                    }
+                }
+            }
             pool.complete(tx, key, observed.before, session).await?;
             observed.local_input_bodies = Some(pool);
         } else {
@@ -525,6 +621,7 @@ async fn observe_binding(
             _parsed_binding: binding,
             _source_storage: source_storage,
             _time_storage: time_storage,
+            _verification_storage: None,
         })
     }
     .await;

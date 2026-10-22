@@ -1,0 +1,229 @@
+{
+  "classification": "Synthetic example; no live customer, provider invoice or payment authorization",
+  "scope": [
+    "example-company",
+    "local"
+  ],
+  "operator": "example-operator",
+  "source": "urn:example:work",
+  "customer": "customer-B",
+  "agreement": "B-support",
+  "platform": "platform-P",
+  "source_ceiling": {
+    "principal_id": "example-operator",
+    "source": "urn:example:work",
+    "canonical_economic_namespace": "urn:example:work",
+    "customer_scope": [
+      "customer-B"
+    ],
+    "operations": [
+      "agreement.accept",
+      "agreement.activate",
+      "agreement.revoke",
+      "authority.change",
+      "cost.correct",
+      "cost.finalize",
+      "evidence.retain",
+      "outcome.close",
+      "outcome.correct",
+      "outcome.submit",
+      "quantity.correct",
+      "work.accept",
+      "work.reverse"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:assess",
+          "support:complete"
+        ]
+      }
+    ],
+    "link_selectors": [],
+    "source_slots": [
+      "support:assessor",
+      "support:corrector",
+      "support:cost-source",
+      "support:worker"
+    ],
+    "permissions": [
+      "admin",
+      "close",
+      "correct",
+      "read",
+      "submit"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "role": {
+    "schema": "ledger-workflow-role-assignment/1",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "agreement_id": "B-support",
+    "customer": "customer-B",
+    "role_slot": "support:retail-role",
+    "provider": "platform-P",
+    "cost_originator": "platform-P",
+    "bearer": "customer-B",
+    "payer": "customer-B",
+    "beneficiary": "customer-B",
+    "recipient": "customer-B"
+  },
+  "catalog": {
+    "schema": "ledger-workflow-slot-catalog/1",
+    "agreement_id": "B-support",
+    "customer": "customer-B",
+    "revision": "1",
+    "components": [
+      {
+        "book": "retail",
+        "role_slot": "support:retail-role",
+        "root_slot": "support:model-retail",
+        "slot_id": "support:model-retail"
+      },
+      {
+        "book": "retail",
+        "role_slot": "support:retail-role",
+        "root_slot": "support:service",
+        "slot_id": "support:service"
+      }
+    ],
+    "families": [
+      {
+        "role_slot": "support:retail-role",
+        "slot_id": "support:quality",
+        "target_component_slot": "support:service"
+      }
+    ]
+  },
+  "terms": {
+    "schema": "ledger-workflow-slot-binding-terms/7",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "agreement_id": "B-support",
+    "customer": "customer-B",
+    "slot": "support:retail",
+    "book": "retail",
+    "role_slot": "support:retail-role",
+    "allowed_activities": [
+      "support:assess",
+      "support:complete"
+    ],
+    "funding_leg": "support:customer",
+    "correction_source_slot": "support:corrector",
+    "quantity_ceilings": [
+      {
+        "activity": "support:complete",
+        "field": "support:quantity",
+        "maximum": "3",
+        "unit": "support:request"
+      }
+    ],
+    "exposure_ceiling": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "7000000000000000000"
+    },
+    "exposure_scope": "original_work",
+    "causal_reversal_clauses": [
+      {
+        "root_component_slot": "support:service",
+        "family_slot": "support:quality",
+        "correction_source_slot": "support:assessor",
+        "mode": "exact_inverse_and_permanent_close",
+        "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+      }
+    ]
+  },
+  "binding": {
+    "agreement_id": "B-support",
+    "customer": "customer-B",
+    "version": "1",
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "source_namespace": "urn:example:work",
+    "funding_legs": [
+      {
+        "name": "support:customer",
+        "mode": "customer_local",
+        "payer": "customer-B",
+        "resource_owner": "customer-B",
+        "evidence_refs": []
+      },
+      {
+        "name": "support:model",
+        "mode": "platform",
+        "payer": "platform-P",
+        "resource_owner": "platform-P",
+        "evidence_refs": []
+      }
+    ],
+    "source_slots": [
+      {
+        "name": "support:assessor",
+        "sources": [
+          "urn:example:work"
+        ],
+        "evidence_kinds": [
+          "occurrence",
+          "outcome"
+        ]
+      },
+      {
+        "name": "support:corrector",
+        "sources": [
+          "urn:example:work"
+        ],
+        "evidence_kinds": []
+      },
+      {
+        "name": "support:cost-source",
+        "sources": [
+          "urn:example:work"
+        ],
+        "evidence_kinds": [
+          "app_final_cost"
+        ]
+      },
+      {
+        "name": "support:worker",
+        "sources": [
+          "urn:example:work"
+        ],
+        "evidence_kinds": [
+          "app_usage",
+          "meter_quantity"
+        ]
+      }
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "support:complete",
+        "field": "support:quantity",
+        "maximum": "3",
+        "unit": "support:request"
+      }
+    ],
+    "exposure_ceilings": [
+      {
+        "binding_slot": "support:retail",
+        "maximum": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "7000000000000000000"
+        }
+      }
+    ]
+  }
+}

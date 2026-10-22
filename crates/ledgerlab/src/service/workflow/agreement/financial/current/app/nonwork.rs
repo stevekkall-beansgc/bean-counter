@@ -291,22 +291,70 @@ pub(in super::super::super) async fn observe(
             state.financial.links.push(r);
         }
     }
-    let mut assertions = Vec::new();
-    // Only app correction and causal root changes consume the original app
-    // proof pairs. Outcome declarations must contain their named facts only.
-    if matches!(
+    let proof_payload = if payload_schema == "ledger-workflow-outcome-correction/1" {
+        check::field(payload, "replacement", s)?
+    } else {
+        payload
+    };
+    let original_app_proofs = matches!(
         payload_schema,
         "ledger-workflow-cost-correct/2"
             | "ledger-workflow-work-reverse/2"
             | "ledger-workflow-quantity-correction/2"
-    ) {
+    );
+    let app_count = if original_app_proofs {
+        s.semantic_work()
+            .arithmetic(
+                Op::Add,
+                &[&extra.claims.len().into(), &extra.costs.len().into()],
+            )
+            .map_err(core_error)?;
+        extra
+            .claims
+            .len()
+            .checked_add(extra.costs.len())
+            .ok_or(ServiceError::Unavailable)?
+    } else {
+        0
+    };
+    let proof_count = proof_payload
+        .get("fact_proofs")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    s.semantic_work()
+        .arithmetic(Op::Add, &[&app_count.into(), &proof_count.into()])
+        .map_err(core_error)?;
+    let count = app_count
+        .checked_add(proof_count)
+        .ok_or(ServiceError::Unavailable)?;
+    let stride = std::mem::size_of::<(ExactRef, ExternalBufferLease)>();
+    s.semantic_work()
+        .arithmetic(Op::Multiply, &[&count.into(), &stride.into()])
+        .map_err(core_error)?;
+    let bytes = count.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
+    let control = std::mem::size_of::<Vec<(ExactRef, ExternalBufferLease)>>();
+    s.semantic_work()
+        .arithmetic(Op::Add, &[&bytes.into(), &control.into()])
+        .map_err(core_error)?;
+    let bytes = bytes
+        .checked_add(control)
+        .ok_or(ServiceError::Unavailable)?;
+    let assertion_storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let mut assertions = Vec::new();
+    assertions
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    // Only app correction and causal root changes consume the original app
+    // proof pairs. Outcome declarations must contain their named facts only.
+    if original_app_proofs {
         for claim in &extra.claims {
             let body = s
                 .parse_representation(pool.body(claim)?, RepresentationKind::Record)
                 .map_err(core_error)?;
-            let (reference, _) =
+            let reference =
                 source::from_value_local(check::field(body.value(), "observation_ref", s)?, s)?;
-            if !assertions.contains(&reference) {
+            if !super::contains_reference(assertions.iter().map(|(r, _)| r), &reference.0, s)? {
                 assertions.push(reference);
             }
         }
@@ -314,38 +362,48 @@ pub(in super::super::super) async fn observe(
             let body = s
                 .parse_representation(pool.body(&head.reference)?, RepresentationKind::Record)
                 .map_err(core_error)?;
-            let (reference, _) = source::from_value_local(
+            let reference = source::from_value_local(
                 check::field(body.value(), "current_evidence_ref", s)?,
                 s,
             )?;
-            if !assertions.contains(&reference) {
+            if !super::contains_reference(assertions.iter().map(|(r, _)| r), &reference.0, s)? {
                 assertions.push(reference);
             }
         }
     }
     // Named replacement facts use the same committed receipt association as
     // initial outcome facts. Explicit None carries no new assertions.
-    let proof_payload = if payload_schema == "ledger-workflow-outcome-correction/1" {
-        check::field(payload, "replacement", s)?
-    } else {
-        payload
-    };
     if let Some(proofs) = proof_payload.get("fact_proofs").and_then(Value::as_array) {
         for proof in proofs {
-            let (reference, _) =
+            let reference =
                 source::from_value_local(check::field(proof, "attestation_ref", s)?, s)?;
-            if !assertions.contains(&reference) {
+            if !super::contains_reference(assertions.iter().map(|(r, _)| r), &reference.0, s)? {
                 assertions.push(reference);
             }
         }
     }
+    o._verification_storage = if assertions.is_empty() {
+        None
+    } else {
+        Some(super::verification_storage(
+            &mut state.financial.evidence_verifications,
+            assertions.len(),
+            s,
+        )?)
+    };
     for assertion in assertions {
-        let reference = retained_verification(tx, key, o.before, &assertion, s).await?;
-        pool.add(&reference, s)?;
-        if !state.financial.evidence_verifications.contains(&reference) {
-            state.financial.evidence_verifications.push(reference);
+        let retained = retained_verification(tx, key, o.before, &assertion.0, s).await?;
+        pool.add(&retained.0, s)?;
+        if !super::contains_reference(&state.financial.evidence_verifications, &retained.0, s)? {
+            o._verification_storage
+                .as_mut()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .0
+                .push(retained.1);
+            state.financial.evidence_verifications.push(retained.0);
         }
     }
+    drop(assertion_storage);
     pool.complete(tx, key, o.before, s).await?;
     o.work_state = Some(state);
     o.local_input_bodies = Some(pool);
@@ -358,13 +416,13 @@ pub(in super::super::super) async fn observe(
 
 /// Resolve one named assertion's verification only from its checked original
 /// retention receipt; downstream evidence consumers still verify every join.
-async fn retained_verification(
+pub(super) async fn retained_verification(
     tx: &mut SqliteTx,
     key: &OperationKey,
     before: i64,
     att_ref: &ExactRef,
     s: &mut OriginalAuditSession,
-) -> Result<ExactRef> {
+) -> Result<(ExactRef, ExternalBufferLease)> {
     require(
         att_ref.kind == "workflow-fact-attestation",
         "INTEGRITY_FAILURE",
@@ -393,9 +451,9 @@ async fn retained_verification(
         if check::text(r, "kind", s)? != "workflow-evidence-verification" {
             continue;
         }
-        let (reference, _) = source::from_value_local(r, s)?;
+        let retained = source::from_value_local(r, s)?;
         let record = tx
-            .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+            .workflow_financial_document(&retained.0, &key.logical_store_id, &key.scope, before, s)
             .await
             .map_err(prefix::read_error)?
             .ok_or(ServiceError::IntegrityFailure)?;
@@ -412,7 +470,7 @@ async fn retained_verification(
             .canonical_representation(a, RepresentationKind::Record)
             .map_err(core_error)?;
         if a.bytes() == expected.bytes() {
-            require(selected.replace(reference).is_none(), "INTEGRITY_FAILURE")?;
+            require(selected.replace(retained).is_none(), "INTEGRITY_FAILURE")?;
         }
     }
     selected.ok_or(ServiceError::IntegrityFailure)
