@@ -175,7 +175,10 @@ fn selected_fixed_unit_and_named_additive_discount_execute_the_actual_pricing_pa
         let result = pricing::work(
             &program,
             "fixture.measure:measured",
-            &json!({"fixture.measure:quantity":quantity.to_string()}),
+            (
+                &json!({"fixture.measure:quantity":quantity.to_string()}),
+                &json!({}),
+            ),
             &mut meter,
         )
         .unwrap();
@@ -194,7 +197,10 @@ fn selected_fixed_unit_and_named_additive_discount_execute_the_actual_pricing_pa
         pricing::work(
             &program,
             "fixture.measure:measured",
-            &json!({"fixture.measure:quantity":quantity.to_string()}),
+            (
+                &json!({"fixture.measure:quantity":quantity.to_string()}),
+                &json!({}),
+            ),
             &mut exact,
         )
         .unwrap();
@@ -204,7 +210,10 @@ fn selected_fixed_unit_and_named_additive_discount_execute_the_actual_pricing_pa
             pricing::work(
                 &program,
                 "fixture.measure:measured",
-                &json!({"fixture.measure:quantity":quantity.to_string()}),
+                (
+                    &json!({"fixture.measure:quantity":quantity.to_string()}),
+                    &json!({})
+                ),
                 &mut less
             )
             .unwrap_err()
@@ -214,7 +223,14 @@ fn selected_fixed_unit_and_named_additive_discount_execute_the_actual_pricing_pa
     }
     let mut meter = CoreMeter::new(65536).unwrap();
     assert_eq!(
-        pricing::work(&program, "fixture.measure:setup", &json!({}), &mut meter).unwrap()[0].atoms,
+        pricing::work(
+            &program,
+            "fixture.measure:setup",
+            (&json!({}), &json!({})),
+            &mut meter
+        )
+        .unwrap()[0]
+            .atoms,
         410_000_000_000_000_000
     );
 }
@@ -346,3 +362,6 @@ fn capped_output_checks_body_and_remaining_new_bytes_without_count_walk() {
         "INVALID_SHAPE"
     );
 }
+
+#[path = "conditional_tests.rs"]
+mod conditional;

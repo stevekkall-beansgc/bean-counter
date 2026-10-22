@@ -260,7 +260,15 @@ pub(super) fn derive_financial_data(
                 } else if shape::same_text(m, kind, "supplier_final_cost")? {
                     delayed_count = add(m, delayed_count, 1)?;
                 } else if !shape::same_text(m, kind, "final_cost")? {
-                    roots = add(m, roots, 1)?;
+                    let key = shape::text(m, &instruction["rule"], "component_key")?;
+                    if program.root_is_selected(
+                        m,
+                        &payload["activity"],
+                        key,
+                        &terms.binding["accepted_context"],
+                    )? {
+                        roots = add(m, roots, 1)?;
+                    }
                 }
             }
         } else if shape::same_text(m, opcode, "evaluate_family")? {
@@ -269,7 +277,15 @@ pub(super) fn derive_financial_data(
                 &instruction["family"]["selector"]["target_activity"],
                 &payload["activity"],
             )? {
-                family_count = add(m, family_count, 1)?;
+                let key = shape::text(m, &instruction["family"]["selector"], "component_key")?;
+                if program.root_is_selected(
+                    m,
+                    &payload["activity"],
+                    key,
+                    &terms.binding["accepted_context"],
+                )? {
+                    family_count = add(m, family_count, 1)?;
+                }
             }
         } else {
             return Err(shape::fail("unknown compiled capacity opcode"));

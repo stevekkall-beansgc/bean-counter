@@ -195,8 +195,17 @@ pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
     let bindings = array(m, &a, &bindings)?;
     let mut rules = vector(m, &a, p.rules.len())?;
     for r in &p.rules {
-        let predicate = match r.when {
+        let predicate = match &r.when {
             Predicate::True => object(m, &a, &[("op", "true")], &[])?,
+            Predicate::Eq { field, value } => {
+                let field = object(m, &a, &[("binding_fact", &field.binding_fact)], &[])?;
+                object(
+                    m,
+                    &a,
+                    &[("op", "eq"), ("value", value)],
+                    &[("field", field.value())],
+                )?
+            }
         };
         let formula = formula(m, &a, &r.formula)?;
         rules.push(object(

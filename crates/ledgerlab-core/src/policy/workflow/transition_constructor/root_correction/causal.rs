@@ -331,6 +331,15 @@ pub(super) fn prepare(
             continue;
         }
         let root_key = text(m, &family["selector"], "component_key")?;
+        if !program.root_is_selected(
+            m,
+            &plan.payload["activity"],
+            root_key,
+            &plan.operands.binding["accepted_context"],
+        )? {
+            continue;
+        }
+
         if !is_affected(m, plan, root_key)? {
             continue;
         }
@@ -466,7 +475,15 @@ pub(super) fn prepare(
             family,
         )?;
         let activity = text(m, &plan.payload, "activity")?;
-        let original_prices = pricing::work(program, activity, &plan.payload["facts"], m)?;
+        let original_prices = pricing::work(
+            program,
+            activity,
+            (
+                &plan.payload["facts"],
+                &plan.operands.binding["accepted_context"],
+            ),
+            m,
+        )?;
         let mut net = BigInt::from(0);
         for price in &original_prices {
             if shape::same_text(m, &price.root_key, root_key)? {

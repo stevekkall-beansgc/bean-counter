@@ -455,11 +455,12 @@ impl WorkHeadLocators {
 type HeadRowVisitor<'a> = dyn FnMut(&str, Option<&str>, &mut CoreMeter) -> Result<()> + 'a;
 pub(super) fn head_rows(
     program: &SelectedProgram,
-    p: &Value,
+    inputs: (&Value, &Value),
     inst: &Value,
     m: &mut CoreMeter,
     f: &mut HeadRowVisitor<'_>,
 ) -> Result<()> {
+    let (p, context) = inputs;
     let activity = shape::field(m, p, "activity")?;
     for instruction in shape::array(
         m,
@@ -476,6 +477,9 @@ pub(super) fn head_rows(
                 continue;
             }
             let component = shape::text(m, selector, "component_key")?;
+            if !program.root_is_selected(m, activity, component, context)? {
+                continue;
+            }
             let mappings = shape::array(m, inst, "component_map")?;
             let mapping = shape::named(m, mappings, "template_key", component)?;
             let root_slot = shape::text(m, mapping, "slot_id")?;
@@ -598,17 +602,23 @@ pub(super) fn derive_work_head_locators(
         bytes = w::usize_add(m, bytes, text.len())?;
     }
     let (mut families, mut apps) = (0usize, 0usize);
-    head_rows(program, p, inst, m, &mut |_, family, m| {
-        if let Some(slot) = family {
-            families = w::usize_add(m, families, 1)?;
-            bytes = w::usize_add(m, bytes, mem::size_of::<WorkFamilyHeadLocator>() + 2 * 128)?;
-            bytes = w::usize_add(m, bytes, slot.len())?;
-        } else {
-            apps = w::usize_add(m, apps, 1)?;
-            bytes = w::usize_add(m, bytes, mem::size_of::<String>() + 128)?;
-        }
-        Ok(())
-    })?;
+    head_rows(
+        program,
+        (p, &binding["accepted_context"]),
+        inst,
+        m,
+        &mut |_, family, m| {
+            if let Some(slot) = family {
+                families = w::usize_add(m, families, 1)?;
+                bytes = w::usize_add(m, bytes, mem::size_of::<WorkFamilyHeadLocator>() + 2 * 128)?;
+                bytes = w::usize_add(m, bytes, slot.len())?;
+            } else {
+                apps = w::usize_add(m, apps, 1)?;
+                bytes = w::usize_add(m, bytes, mem::size_of::<String>() + 128)?;
+            }
+            Ok(())
+        },
+    )?;
     let ownership = arena.reserve_external_payload(bytes, m)?;
     m.write_bytes(bytes)?;
     let mut family_keys = Vec::new();
@@ -624,25 +634,31 @@ pub(super) fn derive_work_head_locators(
     let root_decision_id = super::work_keys::decision(m, &claim_id)?;
     let scope = super::work_keys::scope(m, key)?;
     let agreement = shape::field(m, binding, "agreement_id")?;
-    head_rows(program, p, inst, m, &mut |slot, family, m| {
-        if let Some(family) = family {
-            let target_id = super::work_keys::target(m, key, agreement, &claim_id, slot)?;
-            let decision_id = super::targets::prospective_decision(m, &target_id, family)?;
-            family_keys.push(WorkFamilyHeadLocator {
-                target_id,
-                family_slot: head_copy(m, family)?,
-                decision_id,
-            });
-        } else {
-            app_decisions.push(super::work_keys::app_decision(
-                m,
-                scope.value(),
-                &event_id,
-                slot,
-            )?);
-        }
-        Ok(())
-    })?;
+    head_rows(
+        program,
+        (p, &binding["accepted_context"]),
+        inst,
+        m,
+        &mut |slot, family, m| {
+            if let Some(family) = family {
+                let target_id = super::work_keys::target(m, key, agreement, &claim_id, slot)?;
+                let decision_id = super::targets::prospective_decision(m, &target_id, family)?;
+                family_keys.push(WorkFamilyHeadLocator {
+                    target_id,
+                    family_slot: head_copy(m, family)?,
+                    decision_id,
+                });
+            } else {
+                app_decisions.push(super::work_keys::app_decision(
+                    m,
+                    scope.value(),
+                    &event_id,
+                    slot,
+                )?);
+            }
+            Ok(())
+        },
+    )?;
     let claim = super::candidate::PermanentClaimKey::Work {
         logical_store_id: head_copy(m, &key.logical_store_id)?,
         scope: [head_copy(m, &key.scope[0])?, head_copy(m, &key.scope[1])?],

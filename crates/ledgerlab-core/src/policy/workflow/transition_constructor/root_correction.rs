@@ -541,7 +541,12 @@ fn prepare(
     let current_facts = normalized.canonical_value();
     let mut replacement_facts = super::working_value::WorkingValue::copy(m, current_facts)?;
     let activity_name = text(m, &payload, "activity")?;
-    let old_prices = pricing::work(program, activity_name, current_facts, m)?;
+    let old_prices = pricing::work(
+        program,
+        activity_name,
+        (current_facts, &evaluation["context"]),
+        m,
+    )?;
     let mut affected_roots: Vec<String> = vec![];
     if metadata.is_some() {
         affected_roots
@@ -756,6 +761,39 @@ fn prepare(
         &evaluation["context"],
         &operands.binding["accepted_context"],
     )?;
+    let mut nonmatching_current = false;
+    if program.uses_conditional_work_recipe() {
+        for price in &old_prices {
+            m.visit("root.current_predicate")?;
+            nonmatching_current |= !price.predicate;
+        }
+    }
+    if nonmatching_current {
+        let current_evaluation = outcome::conditional_work_evaluation(
+            m,
+            r,
+            c,
+            program,
+            &operands.terms,
+            (&work_ref, &payload, current_facts, &current),
+        )?;
+        let old_key = super::working_value::WorkingKey::parse(m, &work["key"])?;
+        let decision_id = text(m, &current, "decision_id")?;
+        outcome::verify_original_owned_postings(
+            m,
+            r,
+            c,
+            &old_key,
+            &operands.terms,
+            &claim_ref,
+            (
+                decision_id,
+                &old_prices,
+                &current,
+                Some(&current_evaluation),
+            ),
+        )?;
+    }
     outcome::verify_original_actions(
         m,
         r,
@@ -777,7 +815,12 @@ fn prepare(
     let new_prices = if reverse {
         pricing::PricedInstructions::empty()
     } else {
-        pricing::work(program, activity_name, &replacement_facts, m)?
+        pricing::work(
+            program,
+            activity_name,
+            (&replacement_facts, &operands.binding["accepted_context"]),
+            m,
+        )?
     };
     let next = meter::add(m, &old_revision, &1.into())?;
     let next_revision = if let Some(arena) = m.representation_arena() {
@@ -1298,7 +1341,7 @@ fn monetary_effects(
         let basis = body::ref_set(m, basis)?;
         let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
         let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
-        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":"true","basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":if nonzero{"posted"}else{"zero"}});
+        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":if price.predicate {"true"} else {"false"},"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":if !price.predicate {"predicate_not_true"} else if nonzero{"posted"}else{"zero"}});
         if nonzero {
             let effect = body::semantic_id(
                 m,

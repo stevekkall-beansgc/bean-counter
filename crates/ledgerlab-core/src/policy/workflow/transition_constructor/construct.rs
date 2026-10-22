@@ -642,7 +642,12 @@ fn execute_parsed<'inv, 'raw>(
             &json!([claim_id, "work"]),
         )?
     };
-    let prices = pricing::work(program, activity_name, &p["facts"], m)?;
+    let prices = pricing::work(
+        program,
+        activity_name,
+        (&p["facts"], &a.binding["accepted_context"]),
+        m,
+    )?;
     super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, activity_name, &p["facts"])?;
     let mut total = num_bigint::BigInt::from(0);
     for price in &prices {
@@ -832,8 +837,14 @@ fn execute_parsed<'inv, 'raw>(
         )?;
         let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
         let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
-        let disposition = if nonzero { "posted" } else { "zero" };
-        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":"true","basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":disposition});
+        let disposition = if !price.predicate {
+            "predicate_not_true"
+        } else if nonzero {
+            "posted"
+        } else {
+            "zero"
+        };
+        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":if price.predicate {"true"} else {"false"},"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":disposition});
         if nonzero {
             let action = body::record(
                 m,

@@ -399,6 +399,15 @@ pub(super) fn build(
             return Err(unsupported("selected target basis"));
         }
         let root_key = call!(shape::text, m, selector, "component_key")?;
+        if !program.root_is_selected(
+            m,
+            &payload["activity"],
+            root_key,
+            &operands.binding["accepted_context"],
+        )? {
+            continue;
+        }
+
         let mapped = call!(
             shape::named,
             m,

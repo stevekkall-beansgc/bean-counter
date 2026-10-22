@@ -187,7 +187,13 @@ pub(super) fn original_cost_posting_key(
     if !supplied_basis && !w::compare(m, price.basis_components.len(), 0usize)?.is_eq() {
         return Err(shape::fail("cost formula unexpected action basis"));
     }
-    let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","posted":"posted","zero":"zero"}"#,RepresentationKind::SourceDefinition)?;
+    let constants_raw: &[u8] = if price.predicate {
+        br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","posted":"posted","zero":"zero"}"#
+    } else {
+        br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","false":"false","predicate_not_true":"predicate_not_true","posted":"posted","zero":"zero"}"#
+    };
+    let constants =
+        m.parse_owned_representation(&arena, constants_raw, RepresentationKind::SourceDefinition)?;
     let revision = scalar(m, &arena, original.revision)?;
     let decision = arena.string_value(original.decision_id, m)?;
     let operation = operation_key_value(m, &arena, key)?;
@@ -248,14 +254,19 @@ pub(super) fn original_cost_posting_key(
     let step_fields = [
         ("instruction", instruction.value()),
         ("component_slot", original.component_slot),
-        ("predicate", &constants.value()["true"]),
+        (
+            "predicate",
+            &constants.value()[if price.predicate { "true" } else { "false" }],
+        ),
         ("basis_refs", basis),
         ("rational_numerator", numerator.value()),
         ("rational_denominator", denominator.value()),
         ("rounded", rounded.value()),
         (
             "disposition",
-            if nonzero {
+            if !price.predicate {
+                &constants.value()["predicate_not_true"]
+            } else if nonzero {
                 &constants.value()["posted"]
             } else {
                 &constants.value()["zero"]
@@ -552,6 +563,7 @@ mod tests {
         let maximum = arithmetic::integer(m, "999999999999999999999999999999", false).unwrap();
         let atoms = arithmetic::rounded(m, &rational, &maximum).unwrap();
         pricing::PricedInstruction {
+            predicate: true,
             ordinal: "2".into(),
             component_key: "model:cost".into(),
             root_key: "model:cost".into(),
@@ -833,6 +845,20 @@ mod tests {
                 );
             }
         }
+        // The SAME step producer distinguishes a nonmatch from matched zero.
+        let mut nonmatch_price = price(&mut m, 0);
+        nonmatch_price.predicate = false;
+        let nonmatch =
+            original_cost_posting(&mut m, &c, selection!(&1.into(), false), &nonmatch_price)
+                .unwrap();
+        assert!(nonmatch.action.is_none());
+        assert_eq!(nonmatch.step.value()["predicate"], "false");
+        assert_eq!(nonmatch.step.value()["rational_numerator"], "0");
+        assert_eq!(nonmatch.step.value()["rational_denominator"], "1");
+        assert_eq!(nonmatch.step.value()["disposition"], "predicate_not_true");
+        assert_eq!(zero.step.value()["predicate"], "true");
+        assert_eq!(zero.step.value()["disposition"], "zero");
+        drop(nonmatch);
         session.meter_mut().finish_original_economic(m).unwrap();
         // No invocation, supplier claim/owner/allocation/consumption or supplier
         // action was constructed. This is the common posting DATA unit only;

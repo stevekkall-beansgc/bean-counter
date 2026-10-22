@@ -301,6 +301,15 @@ fn rehydrate_inner(
     let policy_owner = arena.reserve_external_payload(bound, m)?;
     let value = normalizer_projection(m, root_body, &mut projection_ownership, 0)?;
     let (mut policy, policy_owner) = super::super::policy_decode::decode(m, value, policy_owner)?;
+    if !matches!(key.recipe, SelectedRecipe::LocalConditional1) {
+        for rule in &policy.rules {
+            m.visit("reload.original_predicate_capability")?;
+            if !matches!(rule.when, super::super::model::Predicate::True) {
+                return Err(fail("original predicate capability"));
+            }
+        }
+    }
+
     super::super::normalize::policy(m, &mut policy)?;
     let normalized = super::super::owning_policy::build(m, &policy)?;
     if !shape::same(m, normalized.value(), root_body)? {
@@ -365,12 +374,14 @@ fn rehydrate_inner(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
             SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ),
         execution_registry: key.registry,
         _policy_decode_ownership: Some(policy_owner),
@@ -398,6 +409,12 @@ pub fn load_local_selected_execution(
         for raw in &input.documents {
             m.visit("local.reload_exact_compiler_selection")?;
             let selected = if super::super::support::same_bytes(
+                m,
+                raw,
+                super::super::local::CONDITIONAL_DESCRIPTOR,
+            )? {
+                Some(SelectedRecipe::LocalConditional1)
+            } else if super::super::support::same_bytes(
                 m,
                 raw,
                 super::super::local::OPERATOR_DESCRIPTOR,
@@ -440,7 +457,9 @@ pub fn load_local_selected_execution(
         // Exact saved6/7 DATA loading is also used for original receipt/intent
         // comparison. It executes no economic child and grants no new admission;
         // the configured fresh financial factory separately requires exact8.
-        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalOperator1) {
+        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalConditional1) {
+            super::super::local::CONDITIONAL_DESCRIPTOR
+        } else if matches!(recipe, SelectedRecipe::LocalOperator1) {
             super::super::local::OPERATOR_DESCRIPTOR
         } else if matches!(recipe, SelectedRecipe::LocalParentBudget1) {
             super::super::local::PARENT_DESCRIPTOR

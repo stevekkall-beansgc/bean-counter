@@ -526,22 +526,39 @@ fn select_mode<'p>(
     }
     let role_ref = shape::reference(m, &terms["role_ref"])?;
     let slot_copy = copy(m, component_slot)?;
+    let original_terms = authority::Terms {
+        binding,
+        accepted,
+        _activation: activation,
+        catalog,
+        instantiation,
+        slot_terms: terms,
+        slot_terms_ref: terms_ref,
+        role_ref,
+    };
+    if program.uses_conditional_work_recipe() {
+        outcome::verify_original_actions(
+            m,
+            r,
+            c,
+            program,
+            &original_terms,
+            work_ref,
+            (
+                &work,
+                &claim_ref,
+                &original_decision_ref,
+                &original_decision,
+            ),
+        )?;
+    }
     Ok(OriginalApp {
         work_ref: reference(m, work_ref)?,
         work,
         claim_ref,
         _claim: claim,
         binding_ref,
-        terms: authority::Terms {
-            binding,
-            accepted,
-            _activation: activation,
-            catalog,
-            instantiation,
-            slot_terms: terms,
-            slot_terms_ref: terms_ref,
-            role_ref,
-        },
+        terms: original_terms,
         declaration,
         _instruction: instruction,
         component_slot: slot_copy,

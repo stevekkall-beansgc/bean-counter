@@ -527,7 +527,7 @@ pub fn select_local_operation_locators(
             )?;
             super::input_selection::head_rows(
                 program,
-                &original["payload"],
+                (&original["payload"], &bound["accepted_context"]),
                 &inst,
                 m,
                 &mut |slot, family, m| {

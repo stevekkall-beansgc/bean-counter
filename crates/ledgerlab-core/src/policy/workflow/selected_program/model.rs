@@ -51,7 +51,17 @@ pub(super) struct Rule {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Predicate {
     True,
+    Eq {
+        field: BindingOperand,
+        value: String,
+    },
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BindingOperand {
+    pub binding_fact: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Formula {

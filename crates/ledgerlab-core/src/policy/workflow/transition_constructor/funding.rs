@@ -617,9 +617,14 @@ pub(super) fn derive_per_work_bound(
         m.write_bytes(slot.len())?;
     }
     let binding_slot = slot.to_owned();
-    let original = pricing::work(p, activity, &payload["facts"], m)?;
+    let original = pricing::work(
+        p,
+        activity,
+        (&payload["facts"], &t.binding["accepted_context"]),
+        m,
+    )?;
     let maximum = maximum_facts(m, p, payload, t)?;
-    let corrected = pricing::work(p, activity, &maximum, m)?;
+    let corrected = pricing::work(p, activity, (&maximum, &t.binding["accepted_context"]), m)?;
     let mut roots: Vec<RootExposureBound> = vec![];
     if metadata.is_some() {
         roots
@@ -695,7 +700,14 @@ pub(super) fn derive_per_work_bound(
             }
             let raw = shape::text(m, &declaration["maximum_final_amount"], "atoms")?;
             let maximum = arithmetic::integer(m, raw, false)?;
-            let prices = pricing::app_final_cost(p, activity, key, &payload["facts"], &maximum, m)?;
+            let prices = pricing::app_final_cost(
+                p,
+                activity,
+                key,
+                (&payload["facts"], &t.binding["accepted_context"]),
+                &maximum,
+                m,
+            )?;
             if !crate::validation_work::compare(m, prices.len(), 1usize)?.is_eq() {
                 return Err(fail("app prospective producer cardinality"));
             }

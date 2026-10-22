@@ -18,6 +18,7 @@ pub(super) struct PricedInstruction {
     pub basis_components: Vec<String>,
     pub rational: Ratio,
     pub atoms: i128,
+    pub predicate: bool,
     // Row payload survives pop/iteration independently of the vector owner.
     pub(super) _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
@@ -168,9 +169,13 @@ fn fail(s: &str) -> Error {
 pub(super) fn work(
     program: &SelectedProgram,
     activity: &str,
-    normalized_facts: &Value,
+    inputs: (&Value, &Value),
     m: &mut CoreMeter,
 ) -> Result<PricedInstructions> {
+    let (normalized_facts, context) = inputs;
+    let condition = program
+        .uses_conditional_work_recipe()
+        .then_some((program, context));
     let instructions = program.compiled_plan().canonical_value()["typed_instructions"]
         .as_array()
         .ok_or_else(|| fail("compiled instructions"))?;
@@ -184,7 +189,7 @@ pub(super) fn work(
             activity,
             normalized_facts,
             m,
-            Some(CostSelection::AppDeferred),
+            (Some(CostSelection::AppDeferred), condition),
         )
     } else if program.uses_owner_local_cost_recipe() {
         price_instructions_selected(
@@ -193,12 +198,20 @@ pub(super) fn work(
             activity,
             normalized_facts,
             m,
-            Some(CostSelection::Deferred),
+            (Some(CostSelection::Deferred), condition),
         )
     } else {
-        price_instructions(instructions, components, activity, normalized_facts, m)
+        price_instructions_selected(
+            instructions,
+            components,
+            activity,
+            normalized_facts,
+            m,
+            (None, condition),
+        )
     }
 }
+#[cfg(test)]
 pub(super) fn price_instructions(
     instructions: &[Value],
     components: &[Value],
@@ -212,7 +225,7 @@ pub(super) fn price_instructions(
         activity,
         normalized_facts,
         m,
-        None,
+        (None, None),
     )
 }
 enum CostSelection<'a> {
@@ -237,7 +250,7 @@ pub(super) fn app_final_cost(
     program: &SelectedProgram,
     activity: &str,
     component_key: &str,
-    original_facts: &Value,
+    original_inputs: (&Value, &Value),
     eligible_atoms: &BigInt,
     m: &mut CoreMeter,
 ) -> Result<PricedInstructions> {
@@ -247,6 +260,10 @@ pub(super) fn app_final_cost(
             "original app cost compiler recipe",
         ));
     }
+    let (original_facts, context) = original_inputs;
+    let condition = program
+        .uses_conditional_work_recipe()
+        .then_some((program, context));
     let instructions = shape::array(
         m,
         program.compiled_plan().canonical_value(),
@@ -269,10 +286,13 @@ pub(super) fn app_final_cost(
         activity,
         original_facts,
         m,
-        Some(CostSelection::AppFinal {
-            component_key,
-            eligible_atoms,
-        }),
+        (
+            Some(CostSelection::AppFinal {
+                component_key,
+                eligible_atoms,
+            }),
+            condition,
+        ),
     )
 }
 fn price_instructions_selected(
@@ -281,8 +301,12 @@ fn price_instructions_selected(
     activity: &str,
     normalized_facts: &Value,
     m: &mut CoreMeter,
-    selection: Option<CostSelection<'_>>,
+    selections: (
+        Option<CostSelection<'_>>,
+        Option<(&SelectedProgram, &Value)>,
+    ),
 ) -> Result<PricedInstructions> {
+    let (selection, condition) = selections;
     m.phase(Phase::Pricing);
     let scale = arithmetic::integer(m, "1000000000000000000", false)?;
     let atom_limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
@@ -380,133 +404,146 @@ fn price_instructions_selected(
         let row_ownership = row_owner(m, instruction, rule, component)?;
         let mut basis_components = Vec::new();
         m.visit("pricing.formula_variant")?;
-        let rational = match formula["kind"]
-            .as_str()
-            .ok_or_else(|| fail("formula kind"))?
-        {
-            "fixed" => {
-                let amount = arithmetic::decimal(
-                    m,
-                    formula["amount"]
-                        .as_str()
-                        .ok_or_else(|| fail("fixed amount"))?,
-                )?;
-                arithmetic::multiply(m, &amount, &scale)?
+        let predicate = match condition {
+            Some((program, context)) => {
+                program.evaluate_work_condition(m, &rule["when"], context)?
             }
-            "unit" => {
-                let field = formula["quantity_field"]
-                    .as_str()
-                    .ok_or_else(|| fail("quantity field"))?;
-                m.visit("pricing.fact_lookup")?;
-                let quantity = arithmetic::integer(
-                    m,
-                    normalized_facts[field]
-                        .as_str()
-                        .ok_or_else(|| fail("normalized integer fact"))?,
-                    true,
-                )?;
-                let rate = arithmetic::decimal(
-                    m,
-                    formula["rate"].as_str().ok_or_else(|| fail("unit rate"))?,
-                )?;
-                let quantity = Ratio {
-                    numerator: quantity,
-                    denominator: BigInt::one(),
-                };
-                let amount = arithmetic::multiply(m, &quantity, &rate)?;
-                arithmetic::multiply(m, &amount, &scale)?
+            None => true,
+        };
+        let rational = if !predicate {
+            Ratio {
+                numerator: BigInt::from(0),
+                denominator: BigInt::one(),
             }
-            "discount" => {
-                let base = formula["basis"]["component_key"]
-                    .as_str()
-                    .ok_or_else(|| fail("basis key"))?;
-                let binding_slot = rule["binding_slot"]
-                    .as_str()
-                    .ok_or_else(|| fail("binding slot"))?;
-                let mut prior = None;
-                for candidate in &output {
-                    if shape::same_text(m, &candidate.component_key, base)?
-                        && shape::same_text(m, &candidate.binding_slot, binding_slot)?
-                    {
-                        prior = Some(candidate);
-                        break;
-                    }
+        } else {
+            match formula["kind"]
+                .as_str()
+                .ok_or_else(|| fail("formula kind"))?
+            {
+                "fixed" => {
+                    let amount = arithmetic::decimal(
+                        m,
+                        formula["amount"]
+                            .as_str()
+                            .ok_or_else(|| fail("fixed amount"))?,
+                    )?;
+                    arithmetic::multiply(m, &amount, &scale)?
                 }
-                let prior = prior.ok_or_else(|| fail("same work named basis missing"))?;
-                if row_ownership.is_some() {
-                    basis_components
-                        .try_reserve_exact(1)
-                        .map_err(|_| fail("pricing basis allocation"))?;
-                }
-                basis_components.push(copied(m, base)?);
-                let percentage = arithmetic::decimal(
-                    m,
-                    formula["amount"]["percent"]
+                "unit" => {
+                    let field = formula["quantity_field"]
                         .as_str()
-                        .ok_or_else(|| fail("percentage"))?,
-                )?;
-                let denominator = meter::mul(m, &percentage.denominator, &BigInt::from(100))?;
-                let negative = meter::neg(m, &percentage.numerator)?;
-                let percent = arithmetic::rational(m, negative, denominator)?;
-                arithmetic::multiply(
-                    m,
-                    &Ratio {
-                        numerator: BigInt::from(prior.atoms),
+                        .ok_or_else(|| fail("quantity field"))?;
+                    m.visit("pricing.fact_lookup")?;
+                    let quantity = arithmetic::integer(
+                        m,
+                        normalized_facts[field]
+                            .as_str()
+                            .ok_or_else(|| fail("normalized integer fact"))?,
+                        true,
+                    )?;
+                    let rate = arithmetic::decimal(
+                        m,
+                        formula["rate"].as_str().ok_or_else(|| fail("unit rate"))?,
+                    )?;
+                    let quantity = Ratio {
+                        numerator: quantity,
                         denominator: BigInt::one(),
-                    },
-                    &percent,
-                )?
-            }
-            "app_final_cost" => {
-                let atoms = match &selection {
-                    Some(CostSelection::AppFinal { eligible_atoms, .. }) => *eligible_atoms,
-                    _ => {
-                        return Err(Error::new(
-                            "WAITING_FINAL_COST",
-                            "actual authenticated app final amount required",
-                        ))
-                    }
-                };
-                let eligible = Ratio {
-                    numerator: atoms.clone(),
-                    denominator: BigInt::one(),
-                };
-                customer_final_cost_rational(m, formula, &eligible, &scale)?
-            }
-            #[cfg(not(test))]
-            "supplier_final_cost" | "final_cost" => {
-                return Err(Error::new(
-                    "WAITING_FINAL_COST",
-                    "exact final supplier evidence required",
-                ))
-            }
-            #[cfg(test)]
-            "supplier_final_cost" | "final_cost" => {
-                let atoms = match &selection {
-                    #[cfg(test)]
-                    Some(CostSelection::Final { eligible_atoms, .. }) => *eligible_atoms,
-                    _ => {
-                        return Err(Error::new(
-                            "WAITING_FINAL_COST",
-                            "exact final supplier evidence required",
-                        ))
-                    }
-                };
-                let supplier = Ratio {
-                    numerator: atoms.clone(),
-                    denominator: BigInt::one(),
-                };
-                if shape::same_text(
-                    m,
-                    formula["kind"].as_str().unwrap_or(""),
-                    "supplier_final_cost",
-                )? {
-                    supplier
-                } else {
-                    customer_final_cost_rational(m, formula, &supplier, &scale)?
+                    };
+                    let amount = arithmetic::multiply(m, &quantity, &rate)?;
+                    arithmetic::multiply(m, &amount, &scale)?
                 }
+                "discount" => {
+                    let base = formula["basis"]["component_key"]
+                        .as_str()
+                        .ok_or_else(|| fail("basis key"))?;
+                    let binding_slot = rule["binding_slot"]
+                        .as_str()
+                        .ok_or_else(|| fail("binding slot"))?;
+                    let mut prior = None;
+                    for candidate in &output {
+                        if shape::same_text(m, &candidate.component_key, base)?
+                            && shape::same_text(m, &candidate.binding_slot, binding_slot)?
+                        {
+                            prior = Some(candidate);
+                            break;
+                        }
+                    }
+                    let prior = prior.ok_or_else(|| fail("same work named basis missing"))?;
+                    if row_ownership.is_some() {
+                        basis_components
+                            .try_reserve_exact(1)
+                            .map_err(|_| fail("pricing basis allocation"))?;
+                    }
+                    basis_components.push(copied(m, base)?);
+                    let percentage = arithmetic::decimal(
+                        m,
+                        formula["amount"]["percent"]
+                            .as_str()
+                            .ok_or_else(|| fail("percentage"))?,
+                    )?;
+                    let denominator = meter::mul(m, &percentage.denominator, &BigInt::from(100))?;
+                    let negative = meter::neg(m, &percentage.numerator)?;
+                    let percent = arithmetic::rational(m, negative, denominator)?;
+                    arithmetic::multiply(
+                        m,
+                        &Ratio {
+                            numerator: BigInt::from(prior.atoms),
+                            denominator: BigInt::one(),
+                        },
+                        &percent,
+                    )?
+                }
+                "app_final_cost" => {
+                    let atoms = match &selection {
+                        Some(CostSelection::AppFinal { eligible_atoms, .. }) => *eligible_atoms,
+                        _ => {
+                            return Err(Error::new(
+                                "WAITING_FINAL_COST",
+                                "actual authenticated app final amount required",
+                            ))
+                        }
+                    };
+                    let eligible = Ratio {
+                        numerator: atoms.clone(),
+                        denominator: BigInt::one(),
+                    };
+                    customer_final_cost_rational(m, formula, &eligible, &scale)?
+                }
+                #[cfg(not(test))]
+                "supplier_final_cost" | "final_cost" => {
+                    return Err(Error::new(
+                        "WAITING_FINAL_COST",
+                        "exact final supplier evidence required",
+                    ))
+                }
+                #[cfg(test)]
+                "supplier_final_cost" | "final_cost" => {
+                    let atoms = match &selection {
+                        #[cfg(test)]
+                        Some(CostSelection::Final { eligible_atoms, .. }) => *eligible_atoms,
+                        _ => {
+                            return Err(Error::new(
+                                "WAITING_FINAL_COST",
+                                "exact final supplier evidence required",
+                            ))
+                        }
+                    };
+                    let supplier = Ratio {
+                        numerator: atoms.clone(),
+                        denominator: BigInt::one(),
+                    };
+                    if shape::same_text(
+                        m,
+                        formula["kind"].as_str().unwrap_or(""),
+                        "supplier_final_cost",
+                    )? {
+                        supplier
+                    } else {
+                        customer_final_cost_rational(m, formula, &supplier, &scale)?
+                    }
+                }
+                _ => return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "selected formula")),
             }
-            _ => return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "selected formula")),
         };
         let atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
         let final_selection = matches!(selection, Some(CostSelection::AppFinal { .. }));
@@ -531,6 +568,7 @@ fn price_instructions_selected(
             }
         }
         output.push(PricedInstruction {
+            predicate,
             ordinal: copied(
                 m,
                 instruction["ordinal"]
@@ -865,7 +903,7 @@ mod outcome_tests {
             "support:complete",
             &serde_json::json!({}),
             &mut m,
-            Some(CostSelection::Deferred),
+            (Some(CostSelection::Deferred), None),
         )
         .unwrap();
         assert_eq!(deferred.len(), 1);
@@ -877,11 +915,14 @@ mod outcome_tests {
             "support:complete",
             &Value::Null,
             &mut m,
-            Some(CostSelection::Final {
-                supplier_slot: "support:supplier",
-                supplier_component: None,
-                eligible_atoms: &eligible,
-            }),
+            (
+                Some(CostSelection::Final {
+                    supplier_slot: "support:supplier",
+                    supplier_component: None,
+                    eligible_atoms: &eligible,
+                }),
+                None,
+            ),
         )
         .unwrap();
         assert_eq!(finalized.len(), 2);
@@ -903,11 +944,14 @@ mod outcome_tests {
             "support:complete",
             &Value::Null,
             &mut m,
-            Some(CostSelection::Final {
-                supplier_slot: "support:supplier",
-                supplier_component: None,
-                eligible_atoms: &eligible,
-            }),
+            (
+                Some(CostSelection::Final {
+                    supplier_slot: "support:supplier",
+                    supplier_component: None,
+                    eligible_atoms: &eligible,
+                }),
+                None,
+            ),
         )
         .unwrap();
         let retail = next
@@ -928,11 +972,14 @@ mod outcome_tests {
                 "support:complete",
                 &Value::Null,
                 &mut m,
-                Some(CostSelection::Final {
-                    supplier_slot: "support:supplier",
-                    supplier_component: None,
-                    eligible_atoms: &eligible
-                })
+                (
+                    Some(CostSelection::Final {
+                        supplier_slot: "support:supplier",
+                        supplier_component: None,
+                        eligible_atoms: &eligible
+                    }),
+                    None
+                )
             )
             .err()
             .unwrap()

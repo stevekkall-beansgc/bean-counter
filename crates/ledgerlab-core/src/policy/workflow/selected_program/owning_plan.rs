@@ -401,6 +401,20 @@ pub(super) fn build(
             }
         }
         let indices = a.array_from_values(&indices, m)?;
+        let binding_indices = if let super::model::Predicate::Eq { field, .. } = &rule.when {
+            let mut indices = vector(m, &a, 1)?;
+            let context = reference(m, &a, &p.context_schema_ref)?;
+            for slot in &slots {
+                if field_same(m, slot.value(), "schema_ref", context.value())?
+                    && text_same(m, &slot.value()["field"], "name", &field.binding_fact)?
+                {
+                    indices.push(shape::field(m, slot.value(), "index")?);
+                }
+            }
+            Some(a.array_from_values(&indices, m)?)
+        } else {
+            None
+        };
         let bases = array(m, &a, &basis)?;
         let typed_rules = shape::array(m, policy, "rules")?;
         let rule_body = typed_rules
@@ -413,7 +427,12 @@ pub(super) fn build(
                 ("policy_ref", root_value.value()),
                 ("rule", rule_body),
                 ("fact_slots", indices.value()),
-                ("binding_fact_slots", empty.value()),
+                (
+                    "binding_fact_slots",
+                    binding_indices
+                        .as_ref()
+                        .map_or(empty.value(), |v| v.value()),
+                ),
                 ("basis_instructions", bases.value()),
             ],
             m,

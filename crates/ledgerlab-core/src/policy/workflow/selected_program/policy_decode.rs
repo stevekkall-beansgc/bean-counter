@@ -55,7 +55,7 @@ type Content = serde::__private229::de::Content<'static>;
 // superset bounds serde's single failure message, including an escaped input
 // field/string (at most six bytes per UTF8 input byte). No input is formatted
 // into an error unless this storage has already been admitted.
-const EXPECTED: &str = stringify!(schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
+const EXPECTED: &str = stringify!(schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true eq field binding_fact value kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
 fn dimensions(m: &mut CoreMeter, v: &Value, depth: usize) -> Result<(usize, usize)> {
     m.visit("compile.policy_decode_storage_node")?;
     if w::compare(m, depth, 64)?.is_gt() {
@@ -349,8 +349,22 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
             m,
         )?;
         let predicate = child(rule, "when", m)?;
-        object(predicate, &["op"], m)?;
-        tag(predicate, "op", &["true"], m)?;
+        let op = predicate
+            .get("op")
+            .and_then(Value::as_str)
+            .ok_or_else(fail)?;
+        match op {
+            "true" => {
+                object(predicate, &["op"], m)?;
+                tag(predicate, "op", &["true"], m)?;
+            }
+            "eq" => {
+                object(predicate, &["op", "field", "value"], m)?;
+                object(child(predicate, "field", m)?, &["binding_fact"], m)?;
+                tag(predicate, "op", &["eq"], m)?;
+            }
+            _ => return Err(fail()),
+        }
         let formula = child(rule, "formula", m)?;
         // TaggedContentVisitor identifies kind and buffers other keys; the derived
         // variant visitor then dispatches the same fields. Prepay both passes.

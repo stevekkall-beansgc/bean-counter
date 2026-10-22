@@ -53,7 +53,10 @@ pub(super) fn price(
         program,
         activity,
         component,
-        &original.work["payload"]["facts"],
+        (
+            &original.work["payload"]["facts"],
+            &original.terms.binding["accepted_context"],
+        ),
         eligible,
         m,
     )?;

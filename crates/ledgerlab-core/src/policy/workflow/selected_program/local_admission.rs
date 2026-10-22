@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::{
     compiler::{same_literal, SelectedDocument},
-    model::{Formula, Policy},
+    model::{Formula, Policy, Predicate},
 };
 use crate::{validation_work as w, Error, Result};
 use serde_json::Value;
@@ -114,6 +114,19 @@ pub(super) fn check(
     }
     let base = base.ok_or_else(|| unsupported("supported local service producer missing"))?;
     let app = app.ok_or_else(|| unsupported("supported local app producer missing"))?;
+    require!(
+        m,
+        matches!(app.when, Predicate::True),
+        "supported independent app predicate"
+    )?;
+    if matches!(base.when, Predicate::Eq { .. }) {
+        require!(
+            m,
+            matches!(base.formula, Formula::Unit { .. }),
+            "conditional service requires Unit"
+        )?;
+    }
+
     require!(
         m,
         same_literal(m, &base.activity, &app.activity)?,

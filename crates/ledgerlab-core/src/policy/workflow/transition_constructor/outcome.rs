@@ -98,6 +98,21 @@ pub(super) fn local_ordinary_head_count(
     let scope = super::work_keys::scope(m, &c.key)?;
     let work = super::working_value::owning_reference(m, &arena, work_ref)?;
     let binding = super::working_value::owning_reference(m, &arena, binding_ref)?;
+    let conditional_binding = if program.uses_conditional_work_recipe() {
+        Some(r.get(
+            m,
+            &c.key,
+            binding_ref,
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?)
+    } else {
+        None
+    };
+    let empty_context = Value::Null;
+    let context = conditional_binding
+        .as_ref()
+        .map_or(&empty_context, |v| &v["accepted_context"]);
     let mut ordinary = 0usize;
     for (i, head) in heads.iter().enumerate() {
         m.visit("outcome.local_ordinary_head")?;
@@ -113,7 +128,7 @@ pub(super) fn local_ordinary_head_count(
         let mut sibling = false;
         super::input_selection::head_rows(
             program,
-            work_payload,
+            (work_payload, context),
             instantiation,
             m,
             &mut |slot, family, m| {
@@ -1818,8 +1833,28 @@ pub(super) fn verify_original_actions(
             true,
         )?;
     }
-    let prices = pricing::work(program, activity, facts.canonical_value(), m)?;
+    let prices = pricing::work(
+        program,
+        activity,
+        (
+            facts.canonical_value(),
+            &operands.binding["accepted_context"],
+        ),
+        m,
+    )?;
     if m.representation_arena().is_some() {
+        let conditional_evaluation = if program.uses_conditional_work_recipe() {
+            Some(conditional_work_evaluation(
+                m,
+                r,
+                c,
+                program,
+                operands,
+                (work_ref, p, facts.canonical_value(), decision),
+            )?)
+        } else {
+            None
+        };
         return verify_original_owned_postings(
             m,
             r,
@@ -1827,7 +1862,12 @@ pub(super) fn verify_original_actions(
             &old_key,
             operands,
             claim_ref,
-            (&stable, &prices, decision),
+            (
+                &stable,
+                &prices,
+                decision,
+                conditional_evaluation.as_deref(),
+            ),
         );
     }
     let mut expected_actions = vec![];
@@ -1988,21 +2028,81 @@ pub(super) fn verify_original_actions(
     Ok(())
 }
 
+/// Compare the actual immutable evaluation's subject/source/context/facts;
+/// the exact step producer comparison is performed alongside action checks.
+pub(super) fn conditional_work_evaluation(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    terms: &authority::Terms,
+    operands: (&ExactRef, &Value, &Value, &Value),
+) -> Result<RecordBody> {
+    let (work, payload, facts, decision) = operands;
+    let reference = shape::reference(m, &decision["evaluation_ref"])?;
+    let value = r.get(
+        m,
+        &c.key,
+        &reference,
+        "workflow-evaluation",
+        "ledger-workflow-evaluation-proof/1",
+    )?;
+    shape::closed(
+        m,
+        &value,
+        &[
+            "schema",
+            "subject_ref",
+            "policy_ref",
+            "compiled_plan_ref",
+            "compiler_ref",
+            "binding_ref",
+            "fact_schema_ref",
+            "facts",
+            "context",
+            "steps",
+        ],
+        &[],
+    )?;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning conditional Work evaluation"))?;
+    let subject = super::working_value::owning_reference(m, &arena, work)?;
+    let plan =
+        super::working_value::owning_definition(m, &arena, program.compiled_plan().reference())?;
+    for (name, expected) in [
+        ("subject_ref", subject.value()),
+        ("policy_ref", &payload["policy_ref"]),
+        ("compiled_plan_ref", plan.value()),
+        (
+            "compiler_ref",
+            &program.compiled_plan().canonical_value()["compiler_ref"],
+        ),
+        ("binding_ref", &payload["binding_ref"]),
+        ("fact_schema_ref", &payload["fact_schema_ref"]),
+        ("facts", facts),
+        ("context", &terms.binding["accepted_context"]),
+    ] {
+        equal(m, &value[name], expected)?;
+    }
+    Ok(value)
+}
+
 /// Named proof transport is normalized only after every field is consumed and
 /// duplicates rejected. Order is the canonical field-name order, not Ref order.
 /// Reconstruct with the SAME original action producer used by initial work.
 /// Current authority/origin checks above remain mandatory; this compares exact
 /// original captured-key bytes and never substitutes the correcting source.
-fn verify_original_owned_postings(
+pub(super) fn verify_original_owned_postings(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     key: &OperationKey,
     terms: &authority::Terms,
     claim: &ExactRef,
-    selected_operands: (&str, &pricing::PricedInstructions, &Value),
+    selected_operands: (&str, &pricing::PricedInstructions, &Value, Option<&Value>),
 ) -> Result<()> {
-    let (decision_id, prices, decision) = selected_operands;
+    let (decision_id, prices, decision, conditional_evaluation) = selected_operands;
     use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
     let arena = m
         .representation_arena()
@@ -2025,6 +2125,25 @@ fn verify_original_owned_postings(
     expected
         .try_reserve_exact(n)
         .map_err(|_| shape::fail("original posting comparison allocation"))?;
+    let _step_owner = if conditional_evaluation.is_some() {
+        let per = std::mem::size_of::<crate::canonical::audit_arena::AuditedValue>();
+        ValidationWork::arithmetic(m, ArithmeticOperation::Multiply, &[&n.into(), &per.into()])?;
+        let bytes = n
+            .checked_mul(per)
+            .ok_or_else(|| shape::fail("conditional original step dimensions"))?;
+        let bytes = w::usize_add(m, bytes, std::mem::size_of::<Vec<Value>>())?;
+        let owner = arena.reserve_external_payload(bytes, m)?;
+        m.write_bytes(bytes)?;
+        Some(owner)
+    } else {
+        None
+    };
+    let mut expected_steps = Vec::new();
+    if conditional_evaluation.is_some() {
+        expected_steps
+            .try_reserve_exact(n)
+            .map_err(|_| shape::fail("conditional original steps"))?;
+    }
     let original = shape::array(m, decision, "active_action_refs")?;
     for price in prices {
         m.visit("outcome.reconstruct_original_posting")?;
@@ -2044,7 +2163,9 @@ fn verify_original_owned_postings(
             &price.root_key
         )?;
         let root = shape::text(m, root_mapping, "slot_id")?;
-        if meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq() {
+        if meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq()
+            && conditional_evaluation.is_none()
+        {
             continue;
         }
         let count = price.basis_components.len();
@@ -2097,10 +2218,15 @@ fn verify_original_owned_postings(
             },
             price,
         )?;
+        if conditional_evaluation.is_some() {
+            expected_steps.push(posting.step);
+        }
         m.visit("outcome.reconstructed_original_action_presence")?;
-        let expected_action = posting
-            .action
-            .ok_or_else(|| shape::fail("nonzero original price lacks action"))?;
+        let expected_action = match posting.action {
+            Some(action) => action,
+            None if conditional_evaluation.is_some() => continue,
+            None => return Err(shape::fail("nonzero original price lacks action")),
+        };
         let mut selected = None;
         for item in original {
             let reference = shape::reference(m, item)?;
@@ -2149,7 +2275,17 @@ fn verify_original_owned_postings(
         refs.push(reference);
     }
     let set = super::app_cost::reference_set(m, &arena, &refs)?;
-    equal(m, set.value(), &decision["active_action_refs"])
+    equal(m, set.value(), &decision["active_action_refs"])?;
+    if let Some(evaluation) = conditional_evaluation {
+        let actual = shape::array(m, evaluation, "steps")?;
+        if !w::compare(m, actual.len(), expected_steps.len())?.is_eq() {
+            return Err(shape::fail("conditional Work step completeness"));
+        }
+        for (actual, expected) in actual.iter().zip(&expected_steps) {
+            equal(m, actual, expected.value())?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn normalize_proofs(m: &mut CoreMeter, p: &mut Value) -> Result<()> {

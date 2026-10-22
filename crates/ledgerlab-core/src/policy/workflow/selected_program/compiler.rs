@@ -221,11 +221,83 @@ impl SelectedProgram {
         self.uses_local_execution_recipe()
             && matches!(
                 self.recipe,
-                SelectedRecipe::LocalParentBudget1 | SelectedRecipe::LocalOperator1
+                SelectedRecipe::LocalParentBudget1
+                    | SelectedRecipe::LocalOperator1
+                    | SelectedRecipe::LocalConditional1
             )
     }
     pub(in crate::policy::workflow) fn uses_local_operator_resource_recipe(&self) -> bool {
-        self.uses_local_execution_recipe() && matches!(self.recipe, SelectedRecipe::LocalOperator1)
+        self.uses_local_execution_recipe()
+            && matches!(
+                self.recipe,
+                SelectedRecipe::LocalOperator1 | SelectedRecipe::LocalConditional1
+            )
+    }
+    pub(in crate::policy::workflow) fn uses_conditional_work_recipe(&self) -> bool {
+        matches!(self.recipe, SelectedRecipe::LocalConditional1)
+    }
+    /// Only the new exact code-owned descriptor admits this pretyped enum
+    /// equality. The accepted immutable context is supplied by each consumer.
+    pub(in crate::policy::workflow) fn evaluate_work_condition(
+        &self,
+        m: &mut CoreMeter,
+        condition: &Value,
+        context: &Value,
+    ) -> Result<bool> {
+        let op = crate::policy::workflow::transition_constructor::shape::text(m, condition, "op")?;
+        if same_literal(m, op, "true")? {
+            return Ok(true);
+        }
+        if !self.uses_conditional_work_recipe() || !same_literal(m, op, "eq")? {
+            return Err(err("unsupported original predicate recipe"));
+        }
+        use crate::policy::workflow::transition_constructor::shape;
+        shape::closed(m, condition, &["op", "field", "value"], &[])?;
+        let operand = shape::field(m, condition, "field")?;
+        shape::closed(m, operand, &["binding_fact"], &[])?;
+        let name = shape::text(m, operand, "binding_fact")?;
+        let actual = shape::text(m, context, name)?;
+        let expected = shape::text(m, condition, "value")?;
+        same_literal(m, actual, expected)
+    }
+    /// Source-only selection reused by target/capacity/locator consumers. It
+    /// never derives selection from a posted amount (matched zero is selected).
+    pub(in crate::policy::workflow) fn root_is_selected(
+        &self,
+        m: &mut CoreMeter,
+        activity: &Value,
+        component: &str,
+        context: &Value,
+    ) -> Result<bool> {
+        if !self.uses_conditional_work_recipe() {
+            return Ok(true);
+        }
+        use crate::policy::workflow::transition_constructor::shape;
+        let rows = shape::array(
+            m,
+            self.compiled_plan().canonical_value(),
+            "typed_instructions",
+        )?;
+        let mut selected = None;
+        for row in rows {
+            let opcode = shape::text(m, row, "opcode")?;
+            if !same_literal(m, opcode, "evaluate_rule")? {
+                continue;
+            }
+            let rule = &row["rule"];
+            if !shape::same(m, &rule["activity"], activity)? {
+                continue;
+            }
+            let key = shape::text(m, rule, "component_key")?;
+            if !same_literal(m, key, component)? {
+                continue;
+            }
+            if selected.is_some() {
+                return Err(err("ambiguous original root condition"));
+            }
+            selected = Some(self.evaluate_work_condition(m, &rule["when"], context)?);
+        }
+        selected.ok_or_else(|| err("missing original root condition"))
     }
     pub(in crate::policy::workflow) fn require_attempt_owner(
         &self,
@@ -532,14 +604,16 @@ enum SelectedRecipe {
     AppCostCausal1,
     LocalParentBudget1,
     LocalOperator1,
+    LocalConditional1,
 }
 impl SelectedRecipe {
     fn policy_schema(self) -> &'static str {
         match self {
             Self::RetailDraft1 => "ledger-workflow-policy/1",
-            Self::AppCostCausal1 | Self::LocalParentBudget1 | Self::LocalOperator1 => {
-                "ledger-workflow-policy/4"
-            }
+            Self::AppCostCausal1
+            | Self::LocalParentBudget1
+            | Self::LocalOperator1
+            | Self::LocalConditional1 => "ledger-workflow-policy/4",
             Self::AppOwnedCost1 => "ledger-workflow-policy/3",
             Self::FamilyClose1 | Self::OwnerLocalCost1 | Self::SupplierScopedConsent1 => {
                 "ledger-workflow-policy/2"
@@ -551,7 +625,7 @@ impl SelectedRecipe {
             Self::RetailDraft1 => "ledger-workflow-compiled-plan/1",
             Self::FamilyClose1 => "ledger-workflow-compiled-plan/2",
             Self::OwnerLocalCost1 => "ledger-workflow-compiled-plan/3",
-            Self::LocalOperator1 => "ledger-workflow-compiled-plan/8",
+            Self::LocalOperator1 | Self::LocalConditional1 => "ledger-workflow-compiled-plan/8",
             Self::LocalParentBudget1 => "ledger-workflow-compiled-plan/7",
             Self::AppCostCausal1 => "ledger-workflow-compiled-plan/6",
             Self::AppOwnedCost1 => "ledger-workflow-compiled-plan/5",
@@ -563,9 +637,10 @@ impl SelectedRecipe {
             Self::RetailDraft1 => "ledger-policy-compiler/1",
             Self::FamilyClose1 => "ledger-policy-compiler/family-close-1",
             Self::OwnerLocalCost1 => "ledger-policy-compiler/owner-local-cost-1",
-            Self::AppCostCausal1 | Self::LocalParentBudget1 | Self::LocalOperator1 => {
-                "ledger-policy-compiler/app-cost-causal-1"
-            }
+            Self::AppCostCausal1
+            | Self::LocalParentBudget1
+            | Self::LocalOperator1
+            | Self::LocalConditional1 => "ledger-policy-compiler/app-cost-causal-1",
             Self::AppOwnedCost1 => "ledger-policy-compiler/app-owned-cost-1",
             Self::SupplierScopedConsent1 => "ledger-policy-compiler/supplier-scoped-consent-1",
         }
@@ -594,6 +669,16 @@ fn require_selected_recipe(
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
 ) -> Result<SelectedRecipe> {
+    if super::support::same_bytes(
+        m,
+        support.canonical_bytes(),
+        super::local::CONDITIONAL_DESCRIPTOR,
+    )? {
+        if support.execution_registry() != Some(super::local::REGISTRY) {
+            return Err(err("conditional compiler registry"));
+        }
+        return Ok(SelectedRecipe::LocalConditional1);
+    }
     if support.canonical_value()["schema"] == "ledger-workflow-compiler-descriptor/8" {
         m.visit("compile.local_operator_resource_recipe_dispatch")?;
         if support.execution_registry() != Some(super::local::REGISTRY)
@@ -937,6 +1022,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
+                        | SelectedRecipe::LocalConditional1
                 ) && body.get("app_delayed_costs").is_some()
                 {
                     return Err(err("old policy dictionary has no app declarations"));
@@ -947,6 +1033,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
+                        | SelectedRecipe::LocalConditional1
                 ) {
                     for declaration in body["app_delayed_costs"]
                         .as_array()
@@ -1057,6 +1144,9 @@ fn compile_selected_recipe(
         let predicate = rule["when"]
             .as_object()
             .ok_or_else(|| err("predicate object"))?;
+        if matches!(recipe, SelectedRecipe::LocalConditional1) {
+            continue;
+        }
         if !m.check("predicate.unit_keys", || {
             predicate.len() == 1 && predicate.contains_key("op")
         })? {
@@ -1098,6 +1188,44 @@ fn compile_selected_recipe(
             serde_json::from_value(body).map_err(|_| err("closed selected policy"))?;
         (policy, None)
     };
+    for rule in &policy.rules {
+        if let super::model::Predicate::Eq { field, value } = &rule.when {
+            if !matches!(recipe, SelectedRecipe::LocalConditional1) {
+                return Err(err("predicate capability"));
+            }
+            let mut context = None;
+            for schema in &schemas {
+                let digest = schema.content_digest_with_work(m)?;
+                if same_literal(m, &digest, policy.context_schema_ref.digest())? {
+                    context = Some(schema);
+                    break;
+                }
+            }
+            let context = context.ok_or_else(|| err("conditional context schema"))?;
+            use crate::policy::workflow::transition_constructor::shape;
+            let fields = shape::array(m, context.canonical_value(), "fields")?;
+            let definition = shape::named(m, fields, "name", &field.binding_fact)?;
+            let kind = shape::text(m, &definition["type"], "kind")?;
+            let provenance = shape::text(m, &definition["provenance"], "kind")?;
+            if !same_literal(m, kind, "enum")?
+                || !same_literal(m, provenance, "caller")?
+                || !shape::same(m, &definition["required"], &Value::Bool(true))?
+            {
+                return Err(err("conditional required caller enum"));
+            }
+            let values = shape::array(m, &definition["type"], "values")?;
+            let mut reachable = false;
+            for allowed in values {
+                let allowed = allowed
+                    .as_str()
+                    .ok_or_else(|| err("conditional enum literal"))?;
+                reachable |= same_literal(m, allowed, value)?;
+            }
+            if !reachable {
+                return Err(err("unreachable conditional literal"));
+            }
+        }
+    }
     if !m.check("policy.profile", || {
         policy.schema == recipe.policy_schema()
             && policy.currency == "USD"
@@ -1112,6 +1240,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::AppCostCausal1
                     | SelectedRecipe::LocalParentBudget1
                     | SelectedRecipe::LocalOperator1
+                    | SelectedRecipe::LocalConditional1
             ) {
                 policy
                     .app_delayed_costs
@@ -1263,6 +1392,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
+                        | SelectedRecipe::LocalConditional1
                 ) {
                     return Err(err("app cost compiler recipe"));
                 }
@@ -1627,8 +1757,18 @@ fn compile_selected_recipe(
                 })
                 .map(|s| s["index"].clone())
                 .collect();
+            let mut binding_indices = Vec::new();
+            if let super::model::Predicate::Eq { field, .. } = &rule.when {
+                for slot in &slots {
+                    if slot["schema_ref"] == json!(policy.context_schema_ref)
+                        && slot["field"]["name"] == field.binding_fact
+                    {
+                        binding_indices.push(slot["index"].clone());
+                    }
+                }
+            }
             let body = serde_json::to_value(rule).map_err(|_| err("rule encoding"))?;
-            instructions.push(json!({"opcode":"evaluate_rule","ordinal":ordinal,"policy_ref":root,"rule":body,"fact_slots":indices,"binding_fact_slots":[],"basis_instructions":basis}));
+            instructions.push(json!({"opcode":"evaluate_rule","ordinal":ordinal,"policy_ref":root,"rule":body,"fact_slots":indices,"binding_fact_slots":binding_indices,"basis_instructions":basis}));
             for b in basis {
                 edges.push(json!({"producer":b,"consumer":ordinal}));
             }
@@ -1674,7 +1814,9 @@ fn compile_selected_recipe(
         let mut plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
         if matches!(
             recipe,
-            SelectedRecipe::LocalParentBudget1 | SelectedRecipe::LocalOperator1
+            SelectedRecipe::LocalParentBudget1
+                | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ) {
             plan["limits_profile"] = json!("workflow-local-limits/1");
             plan["worst_case"]
@@ -1682,7 +1824,10 @@ fn compile_selected_recipe(
                 .expect("closed plan")
                 .remove("runtime_work");
         }
-        if matches!(recipe, SelectedRecipe::LocalOperator1) {
+        if matches!(
+            recipe,
+            SelectedRecipe::LocalOperator1 | SelectedRecipe::LocalConditional1
+        ) {
             plan["limits_profile"] = json!("workflow-local-operator-limits/1");
             for field in ["compile_work", "loaded_refs", "bytes"] {
                 plan["worst_case"]
@@ -1778,12 +1923,14 @@ fn compile_selected_recipe(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
             SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ),
         app_owned_cost_recipe: matches!(
             recipe,
@@ -1791,6 +1938,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
         ),
         supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
         owner_local_cost_recipe: matches!(
