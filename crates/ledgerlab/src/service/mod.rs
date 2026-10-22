@@ -6,8 +6,27 @@ mod tests;
 use crate::{store::errors::StoreError, ServiceError};
 // Temporary, opt-in synthetic Linux CI diagnosis; no payloads are emitted.
 pub(crate) fn workflow_ci_diagnostic(label: &'static str) {
-    if std::env::var_os("LEDGER_WORKFLOW_CI_DIAGNOSTIC").as_deref()
-        == Some(std::ffi::OsStr::new("mapping-only"))
+    let mode = std::env::var_os("LEDGER_WORKFLOW_CI_DIAGNOSTIC");
+    let positive_phase = matches!(
+        label,
+        "operator.begin.complete"
+            | "local.observe.begin"
+            | "local.observe.complete"
+            | "local.construct.begin"
+            | "local.construct.complete"
+            | "core.construct.begin"
+            | "core.construct.complete"
+            | "core.evidence.complete"
+            | "local.frame.begin"
+            | "local.frame.complete"
+            | "local.recheck.complete"
+            | "local.append.complete"
+            | "finish.transaction.begin"
+            | "finish.transaction.commit.begin"
+            | "finish.transaction.commit.complete"
+    );
+    if mode.as_deref() == Some(std::ffi::OsStr::new("mapping-only"))
+        || (mode.as_deref() == Some(std::ffi::OsStr::new("error-only")) && !positive_phase)
     {
         eprintln!("WORKFLOW-CI-DIAG {label}");
     }
