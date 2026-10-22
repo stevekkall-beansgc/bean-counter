@@ -14,12 +14,16 @@ mod assets;
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
 mod parent_assets;
+#[path = "local_conditional_assets.rs"]
+mod conditional_assets;
 pub(super) const REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
 pub(super) const DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler6-data.json");
 pub(super) const PARENT_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler7-data.json");
 pub(super) const OPERATOR_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json");
 const OPERATOR_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile3.json");
+pub(super) const CONDITIONAL_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-compiler8-data.json");
+const CONDITIONAL_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-contract-profile.json");
 #[cfg(test)]
 const MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile.json");
 const PARENT_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile2.json");
@@ -42,6 +46,13 @@ pub fn local_compiler_descriptor_with_session(
             parent_assets::ARTIFACTS,
         )
     }
+}
+/// Additive binary-owned support. The existing operator descriptor/getter is
+/// unchanged so originals and old fresh callers retain their exact identity.
+pub fn local_conditional_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(s, CONDITIONAL_DESCRIPTOR, CONDITIONAL_MANIFEST, conditional_assets::ARTIFACTS)
 }
 #[cfg(test)]
 pub(super) fn legacy_descriptor_for_test(s: &mut OriginalAuditSession) -> Result<SelectedDocument> {

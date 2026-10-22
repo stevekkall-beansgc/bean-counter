@@ -37,6 +37,17 @@ impl SelectedCompilerSupport {
             execution_registry: Some(super::local::REGISTRY),
         })
     }
+    /// Exact additive conditional support; no caller descriptor grants this
+    /// capability or widens the existing operator factory.
+    pub fn local_conditional_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_conditional_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::REGISTRY),
+        })
+    }
     #[cfg(test)]
     pub(super) fn legacy_local_for_test(
         session: &mut crate::validation_work::OriginalAuditSession,
