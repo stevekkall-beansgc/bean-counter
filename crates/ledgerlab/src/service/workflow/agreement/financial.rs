@@ -312,6 +312,7 @@ pub(in crate::service::workflow) async fn local_management_status(
             && local_publication::verify_original(tx, &original, &mut s)
                 .await?
                 .is_none()
+            && !local_financial_original::verify(tx, &original, None, &mut s).await?
         {
             return Ok(None);
         }
