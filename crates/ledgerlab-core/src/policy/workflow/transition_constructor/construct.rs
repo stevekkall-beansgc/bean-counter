@@ -321,7 +321,12 @@ fn execute_parsed<'inv, 'raw>(
             }
         }
     }
-    for key in ["fact_proofs", "links", "invocation_refs"] {
+    let unsupported_inputs: &[&str] = if program.uses_local_execution_recipe() {
+        &["links", "invocation_refs"]
+    } else {
+        &["fact_proofs", "links", "invocation_refs"]
+    };
+    for key in unsupported_inputs {
         let items = shape::array(m, &p, key)?;
         if !meter::cmp(m, &items.len().into(), &0usize.into())?.is_eq() {
             return Err(unsupported(
@@ -393,6 +398,30 @@ fn execute_parsed<'inv, 'raw>(
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
     }
+    let mut work_proofs = if !program.uses_local_execution_recipe()
+        || normalized.required_proof_fields().is_empty()
+            && shape::array(m, &p, "fact_proofs")?.is_empty()
+    {
+        None
+    } else {
+        let declared_proofs = shape::array(m, &p, "fact_proofs")?;
+        super::work_proofs::resolve(
+            m,
+            &mut r,
+            c,
+            program,
+            &super::work_proofs::WorkProofRequest {
+                payload: &p,
+                facts: normalized.canonical_value(),
+                namespace: &c.canonical_economic_namespace,
+                received_at: &c.received_at,
+                only_field: None,
+                worker_authority: None,
+            },
+            declared_proofs,
+            &state.evidence_verifications,
+        )?
+    };
     let a = authority::work(
         m,
         &mut r,
@@ -400,7 +429,14 @@ fn execute_parsed<'inv, 'raw>(
         &p,
         activity,
         product,
-        (&owner, &times, program),
+        (
+            &owner,
+            &times,
+            program,
+            work_proofs
+                .as_ref()
+                .map_or(&[], |v| v.references.as_slice()),
+        ),
     )?;
     m.visit("draft.original_plan")?;
     if !shape::same(
@@ -1223,7 +1259,7 @@ fn execute_parsed<'inv, 'raw>(
     } else {
         None
     };
-    let envelopes = if let Some(arena) = m.representation_arena() {
+    let mut envelopes = if let Some(arena) = m.representation_arena() {
         use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
         let mut count = w::usize_add(m, 2, a.introduced.len())?;
         count = w::usize_add(m, count, actions.len())?;
@@ -1287,6 +1323,10 @@ fn execute_parsed<'inv, 'raw>(
         envelopes.push(chain);
         envelopes
     };
+    if let Some(proofs) = work_proofs.as_mut() {
+        proofs.attach(m, &mut envelopes)?;
+    }
+    construction_owners[4] = work_proofs.map(super::work_proofs::WorkProofs::into_owner);
     Ok(Construction {
         original_reservations,
         financial_reservations,

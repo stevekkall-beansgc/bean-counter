@@ -469,6 +469,28 @@ fn select_mode<'p>(
         &original_decision["original_terms_ref"],
         &p["binding_ref"],
     )?;
+    if program.uses_local_execution_recipe() {
+        // App observation/finalization has its own original Work selector; it
+        // does not pass through the family's original-action verifier.
+        let namespace = shape::text(m, &work, "source_namespace")?;
+        let received = shape::text(m, &work, "received_at")?;
+        super::super::work_proofs::retained(
+            m,
+            r,
+            c,
+            program,
+            &super::super::work_proofs::WorkProofRequest {
+                payload: p,
+                facts: &p["facts"],
+                namespace,
+                received_at: received,
+                only_field: None,
+                worker_authority: Some(&original_decision["authority_ref"]),
+            },
+            &original_decision["authority_ref"],
+            true,
+        )?;
+    }
     let mut root = None;
     for head in &state.financial.decision_heads {
         m.visit("app.current_original_root")?;

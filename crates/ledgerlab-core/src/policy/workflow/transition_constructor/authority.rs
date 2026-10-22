@@ -552,12 +552,13 @@ pub(super) fn work(
         &InvocationToken,
         &ParsedDraftTimes<'_>,
         &super::super::selected_program::SelectedProgram,
+        &[ExactRef],
     ),
 ) -> Result<Operands> {
-    let (owner, times, program) = selected_operands;
+    let (owner, times, program, verified_facts) = selected_operands;
     if program.uses_app_owned_cost_recipe() {
         let slot = shape::text(m, activity, "source_slot")?;
-        return super::app_cost::work_operands(m, r, c, p, program, slot);
+        return super::app_cost::work_operands(m, r, c, p, program, (slot, verified_facts));
     }
     economic(
         m,
@@ -566,7 +567,7 @@ pub(super) fn work(
         p,
         activity,
         product,
-        (owner, times, program, EconomicMode::Work, &[]),
+        (owner, times, program, EconomicMode::Work, verified_facts),
     )
 }
 pub(super) fn economic(

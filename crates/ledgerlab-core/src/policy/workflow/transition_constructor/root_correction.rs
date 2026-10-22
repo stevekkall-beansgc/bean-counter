@@ -80,6 +80,7 @@ struct RootPlan {
     new_prices: pricing::PricedInstructions,
     operands: authority::ResolvedOperands,
     reverse: bool,
+    proofs: Option<super::work_proofs::WorkProofs>,
     _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
 fn original_schema<'a>(
@@ -511,6 +512,32 @@ fn prepare(
     let normalized =
         super::working_value::NormalizedInput::normalize(m, schema, &evaluation["facts"])?;
     equal(m, normalized.canonical_value(), &evaluation["facts"])?;
+    let proof_namespace = text(m, &work, "source_namespace")?;
+    let mut proofs = if !program.uses_local_execution_recipe()
+        || normalized.required_proof_fields().is_empty()
+    {
+        None
+    } else {
+        // The retained replacement belongs to this current decision's actual
+        // consumption, not the original Work's earlier receipt time.
+        let at = text(m, &current, "accepted_at")?;
+        super::work_proofs::retained(
+            m,
+            r,
+            c,
+            program,
+            &super::work_proofs::WorkProofRequest {
+                payload: &payload,
+                facts: normalized.canonical_value(),
+                namespace: proof_namespace,
+                received_at: at,
+                only_field: None,
+                worker_authority: Some(&original["authority_ref"]),
+            },
+            &current["authority_ref"],
+            false,
+        )?
+    };
     let current_facts = normalized.canonical_value();
     let mut replacement_facts = super::working_value::WorkingValue::copy(m, current_facts)?;
     let activity_name = text(m, &payload, "activity")?;
@@ -577,10 +604,48 @@ fn prepare(
             &replacement_facts[quantity_field.as_str()],
         )?;
         let proof_inputs = shape::array(m, request, "fact_proofs")?;
-        if !meter::cmp(m, &proof_inputs.len().into(), &0.into())?.is_eq()
-            || !normalized.required_proof_fields().is_empty()
-        {
-            return Err(unsupported("attested quantity correction proof executor"));
+        if !program.uses_local_execution_recipe() {
+            if !meter::cmp(m, &proof_inputs.len().into(), &0.into())?.is_eq()
+                || !normalized.required_proof_fields().is_empty()
+            {
+                return Err(unsupported("attested quantity correction proof executor"));
+            }
+        } else if !normalized.required_proof_fields().is_empty() || !proof_inputs.is_empty() {
+            let replacement = super::work_proofs::resolve(
+                m,
+                r,
+                c,
+                program,
+                &super::work_proofs::WorkProofRequest {
+                    payload: &payload,
+                    facts: normalized.canonical_value(),
+                    namespace: proof_namespace,
+                    received_at: &c.received_at,
+                    only_field: Some(&quantity_field),
+                    worker_authority: Some(&original["authority_ref"]),
+                },
+                proof_inputs,
+                &state.evidence_verifications,
+            )?;
+            match (proofs.take(), replacement) {
+                (Some(prior), Some(replacement)) => {
+                    proofs = Some(super::work_proofs::replace(
+                        m,
+                        r,
+                        c,
+                        prior,
+                        replacement,
+                        &quantity_field,
+                    )?);
+                }
+                (Some(prior), None) => {
+                    proofs = Some(prior);
+                }
+                (None, None) => {}
+                (None, Some(_)) => {
+                    return Err(shape::fail("replacement Work original proof missing"))
+                }
+            }
         }
         let instructions = shape::array(
             m,
@@ -661,7 +726,14 @@ fn prepare(
             &authority_payload,
             &current_activity,
             product,
-            (&owner, &times, program, mode, &[], original_namespace),
+            (
+                &owner,
+                &times,
+                program,
+                mode,
+                proofs.as_ref().map_or(&[], |v| v.references.as_slice()),
+                original_namespace,
+            ),
         )?
     } else {
         authority::resolve_economic(
@@ -746,6 +818,7 @@ fn prepare(
         new_prices,
         operands,
         reverse,
+        proofs,
         _ownership: metadata,
     })
 }
@@ -1694,7 +1767,7 @@ fn execute_with_state<'inv, 'raw>(
         request.replace(m, "evidence_refs", &json!(evidence))?;
     }
     let _evidence_owner = evidence_owner;
-    let plan = prepare(program, &local, &mut request, &mut r, state, m)?;
+    let mut plan = prepare(program, &local, &mut request, &mut r, state, m)?;
     let mut financial_reservations = None;
     let original_reservations = if let Some(arena) = m.representation_arena() {
         if program.uses_local_execution_recipe() {
@@ -1962,6 +2035,9 @@ fn execute_with_state<'inv, 'raw>(
     }
     entry::exposure(m, &plan.operands.binding, &plan.operands.slot_terms, &total)?;
     let mut records = introduced;
+    if let Some(proofs) = plan.proofs.as_mut() {
+        proofs.attach(m, &mut records)?;
+    }
     for closed in &closures {
         records.push(closed.authority.clone());
     }
@@ -2432,7 +2508,7 @@ fn execute_with_state<'inv, 'raw>(
             app_heads_owner,
             effects._ownership,
             root_output_owner,
-            None,
+            plan.proofs.map(super::work_proofs::WorkProofs::into_owner),
             None,
         ],
     })

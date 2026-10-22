@@ -340,8 +340,9 @@ pub(in crate::policy::workflow::transition_constructor) fn work(
     c: &DraftContextData,
     payload: &Value,
     program: &SelectedProgram,
-    source_slot: &str,
+    proofs: (&str, &[ExactRef]),
 ) -> Result<authority::Operands> {
+    let (source_slot, verified_facts) = proofs;
     let (binding_ref, terms, source) =
         resolve(m, r, c, payload, program, EconomicMode::Work, source_slot)?;
     super::timing::prework(m, c, program, payload)?;
@@ -363,6 +364,7 @@ pub(in crate::policy::workflow::transition_constructor) fn work(
     let binding = owning_reference(m, &arena, &binding_ref)?;
     let accepted = owning_reference(m, &arena, &frame.accepted_agreement_ref)?;
     let original_refs = super::authority::grant_refs(m, &source.original_grant_refs)?;
+    let facts = super::authority::grant_refs(m, verified_facts)?;
     let value = arena.object_from_fields(
         &[
             (
@@ -389,7 +391,7 @@ pub(in crate::policy::workflow::transition_constructor) fn work(
             ("source_slot", slot.value()),
             ("rights", &constants.value()["rights"]),
             ("evidence_refs", &payload["evidence_refs"]),
-            ("verified_fact_refs", &constants.value()["empty"]),
+            ("verified_fact_refs", facts.value()),
             ("observed_at", at.value()),
             ("causal_closure_checks", &constants.value()["empty"]),
             ("app_observation_refs", &constants.value()["empty"]),

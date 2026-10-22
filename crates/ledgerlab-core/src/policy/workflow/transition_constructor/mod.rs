@@ -68,6 +68,7 @@ mod records;
 mod root_correction;
 pub(in crate::policy::workflow) mod shape;
 mod targets;
+mod work_proofs;
 mod working_value;
 pub use construct::{draft_transition, replay_draft};
 #[cfg(test)]

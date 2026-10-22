@@ -495,8 +495,15 @@ pub fn select_local_input_edges(
             }
             "ledger-workflow-retained-evidence/1" => Some(&["authority_ref"]),
             "ledger-workflow-source-state/1" => Some(&["enrollment_ref", "current_grant_ref"]),
-            "ledger-workflow-economic-authority/8"
-            | "ledger-workflow-app-causal-authority/2"
+            "ledger-workflow-economic-authority/8" => Some(&[
+                "enrollment_ref",
+                "current_grant_ref",
+                "original_binding_ref",
+                "original_accepted_agreement_ref",
+                "original_grant_refs",
+                "verified_fact_refs",
+            ]),
+            "ledger-workflow-app-causal-authority/2"
             | "ledger-workflow-app-pending-causal-authority/2" => Some(&[
                 "enrollment_ref",
                 "current_grant_ref",
@@ -672,6 +679,46 @@ mod local_family_lineage_tests {
     use crate::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
     use serde_json::json;
 
+    #[test]
+    fn local_authority_selects_exact_original_and_effective_verified_fact_edges() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut producer = super::super::CoreMeter::new(65536).unwrap();
+        let key = OperationKey {
+            logical_store_id: "proof-store".into(),
+            scope: ["proof-company".into(), "proof-scope".into()],
+            source: "source".into(),
+            operation_id: "proof-selection".into(),
+        };
+        let first = super::super::body::document(
+            &mut producer,
+            "workflow-verified-fact",
+            json!({"schema":"ledger-workflow-verified-fact/1","field":"quantity","value":"3"}),
+        )
+        .unwrap();
+        let second = super::super::body::document(
+            &mut producer,
+            "workflow-verified-fact",
+            json!({"schema":"ledger-workflow-verified-fact/1","field":"quantity","value":"2"}),
+        )
+        .unwrap();
+        for (operation, proof) in [
+            ("work.accept", &first.reference),
+            ("quantity.correct", &second.reference),
+        ] {
+            let authority=super::super::body::document(&mut producer,"workflow-economic-authority",json!({"schema":"ledger-workflow-economic-authority/8","operation":operation,"verified_fact_refs":[proof]})).unwrap();
+            let selected = select_local_input_edges(
+                &key,
+                EconomicRecordView {
+                    reference: &authority.reference,
+                    canonical_body: &authority.canonical_body,
+                },
+                &mut session,
+            )
+            .unwrap();
+            assert_eq!(selected.direct_refs().collect::<Vec<_>>(), vec![proof]);
+        }
+    }
     #[test]
     fn closed_family_selects_exact_preclosure_operand_without_ordinary_history() {
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();

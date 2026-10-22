@@ -1737,7 +1737,12 @@ pub(super) fn verify_original_actions(
     shape::reference(m, authority_ref)?;
     let evaluation_ref = shape::field(m, decision, "evaluation_ref")?;
     shape::reference(m, evaluation_ref)?;
-    for key in ["fact_proofs", "links", "invocation_refs"] {
+    let unsupported_inputs: &[&str] = if program.uses_local_execution_recipe() {
+        &["links", "invocation_refs"]
+    } else {
+        &["fact_proofs", "links", "invocation_refs"]
+    };
+    for key in unsupported_inputs {
         if !call!(
             meter::cmp,
             m,
@@ -1790,15 +1795,28 @@ pub(super) fn verify_original_actions(
     let schema = schema.ok_or_else(|| shape::fail("original work fact schema"))?;
     let facts = super::working_value::NormalizedInput::normalize(m, schema, &p["facts"])?;
     equal(m, facts.canonical_value(), &p["facts"])?;
-    if !call!(
-        meter::cmp,
-        m,
-        &facts.required_proof_fields().len().into(),
-        &0.into()
-    )?
-    .is_eq()
-    {
-        return Err(unsupported("original attested work facts"));
+    if !facts.required_proof_fields().is_empty() || !shape::array(m, p, "fact_proofs")?.is_empty() {
+        if !program.uses_local_execution_recipe() {
+            return Err(unsupported("original attested work facts"));
+        }
+        let namespace = shape::text(m, work, "source_namespace")?;
+        let at = shape::text(m, work, "received_at")?;
+        super::work_proofs::retained(
+            m,
+            r,
+            c,
+            program,
+            &super::work_proofs::WorkProofRequest {
+                payload: p,
+                facts: facts.canonical_value(),
+                namespace,
+                received_at: at,
+                only_field: None,
+                worker_authority: Some(&decision["authority_ref"]),
+            },
+            &decision["authority_ref"],
+            true,
+        )?;
     }
     let prices = pricing::work(program, activity, facts.canonical_value(), m)?;
     if m.representation_arena().is_some() {

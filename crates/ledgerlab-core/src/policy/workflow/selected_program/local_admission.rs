@@ -171,10 +171,23 @@ pub(super) fn check(
             )?;
             work_seen = true;
             for field in fields {
+                if field_is(m, &field["provenance"], "kind", "caller")? {
+                    continue;
+                }
+                let quantity = match &base.formula {
+                    Formula::Unit { quantity_field, .. } => quantity_field.as_str(),
+                    _ => return Err(unsupported("attested local Work requires Unit quantity")),
+                };
+                let worker = shape::text(m, activity, "source_slot")?;
                 require!(
                     m,
-                    field_is(m, &field["provenance"], "kind", "caller")?,
-                    "supported local work cannot require attested or derived facts"
+                    field_is(m, field, "name", quantity)?
+                        && field_is(m, &field["type"], "kind", "integer")?
+                        && shape::same(m, &field["required"], &Value::Bool(true))?
+                        && field_is(m, &field["provenance"], "kind", "attested")?
+                        && field_is(m, &field["provenance"], "source_slot", worker)?
+                        && field_is(m, &field["provenance"], "evidence_kind", "meter_quantity")?,
+                    "supported attested Work quantity worker provenance"
                 )?;
             }
         } else if same_literal(m, name, &family.trigger_activity)? {
