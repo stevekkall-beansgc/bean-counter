@@ -31,29 +31,29 @@ fn context() -> DraftContextData {
         source_observation_inputs: vec![],
     }
 }
-fn authority(m: &mut CoreMeter, slot: &str) -> ConstructedEnvelope {
-    body::document(m,"workflow-economic-authority",json!({"schema":"ledger-workflow-economic-authority/8","operation":"work.reverse","source_slot":slot})).unwrap()
+fn authority(m: &mut CoreMeter, slot: &str, operation: &str) -> ConstructedEnvelope {
+    body::document(m,"workflow-economic-authority",json!({"schema":"ledger-workflow-economic-authority/8","operation":operation,"source_slot":slot})).unwrap()
 }
 fn decision(
     m: &mut CoreMeter,
     c: &DraftContextData,
     work: &ExactRef,
     auth: &ExactRef,
+    transition: &str,
 ) -> ConstructedEnvelope {
-    body::record(m,&c.key,"workflow-decision",format!("wdrev_{}","3".repeat(64)),json!({"schema":"ledger-workflow-decision-revision/1","kind":"work","transition":"work_reverse","subject_ref":work,"authority_ref":auth,"operation_key":c.key})).unwrap()
+    body::record(m,&c.key,"workflow-decision",format!("wdrev_{}","3".repeat(64)),json!({"schema":"ledger-workflow-decision-revision/1","kind":"work","transition":transition,"subject_ref":work,"authority_ref":auth,"operation_key":c.key})).unwrap()
 }
-#[test]
-fn local_reversal_root_authority_is_selected_by_its_work_decision_not_result_order() {
+fn check_root_authority(operation: &str, transition: &str, schema: &str) {
     let a = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
     let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
     let m = s.meter_mut();
     let c = context();
     let work = reference("1");
-    let root = authority(m, "root:corrector");
-    let dependent = authority(m, "family:corrector");
-    let output = decision(m, &c, &work, &root.reference);
-    let request = json!({"schema":"ledger-workflow-work-reverse/2","work_ref":work});
-    let expected = local_reversal_authority(
+    let root = authority(m, "root:corrector", operation);
+    let dependent = authority(m, "family:corrector", operation);
+    let output = decision(m, &c, &work, &root.reference, transition);
+    let request = json!({"schema":schema,"work_ref":work});
+    let expected = local_root_authority(
         m,
         &c,
         &request,
@@ -61,7 +61,7 @@ fn local_reversal_root_authority_is_selected_by_its_work_decision_not_result_ord
     )
     .unwrap();
     assert_eq!(expected, 1);
-    let reordered = local_reversal_authority(
+    let reordered = local_root_authority(
         m,
         &c,
         &request,
@@ -71,10 +71,8 @@ fn local_reversal_root_authority_is_selected_by_its_work_decision_not_result_ord
     assert_eq!(reordered, 2);
     // Missing or repeated exact root authority cannot silently select a
     // dependent authority sharing its schema and operation.
-    assert!(
-        local_reversal_authority(m, &c, &request, &[dependent.clone(), output.clone()]).is_err()
-    );
-    assert!(local_reversal_authority(
+    assert!(local_root_authority(m, &c, &request, &[dependent.clone(), output.clone()]).is_err());
+    assert!(local_root_authority(
         m,
         &c,
         &request,
@@ -83,13 +81,35 @@ fn local_reversal_root_authority_is_selected_by_its_work_decision_not_result_ord
     .is_err());
     // Duplicate SAME root decisions are ambiguous, never first-result wins.
     assert!(
-        local_reversal_authority(m, &c, &request, &[root.clone(), output.clone(), output]).is_err()
+        local_root_authority(m, &c, &request, &[root.clone(), output.clone(), output]).is_err()
     );
-    let wrong = decision(m, &c, &reference("2"), &dependent.reference);
-    assert!(local_reversal_authority(m, &c, &request, &[root, dependent, wrong]).is_err());
+    let wrong_transition = decision(m, &c, &work, &root.reference, "dependent_reverse");
+    assert!(local_root_authority(m, &c, &request, &[root.clone(), wrong_transition]).is_err());
+    let wrong_operation = authority(m, "root:corrector", "outcome.correct");
+    let wrong_recipe = decision(m, &c, &work, &wrong_operation.reference, transition);
+    assert!(local_root_authority(m, &c, &request, &[wrong_operation, wrong_recipe]).is_err());
+    let wrong = decision(m, &c, &reference("2"), &dependent.reference, transition);
+    assert!(local_root_authority(m, &c, &request, &[root, dependent, wrong]).is_err());
     let mut changed = context();
     changed.key.operation_id = "different".into();
-    let auth = authority(m, "root:corrector");
-    let wrong_key = decision(m, &changed, &work, &auth.reference);
-    assert!(local_reversal_authority(m, &c, &request, &[auth, wrong_key]).is_err());
+    let auth = authority(m, "root:corrector", operation);
+    let wrong_key = decision(m, &changed, &work, &auth.reference, transition);
+    assert!(local_root_authority(m, &c, &request, &[auth, wrong_key]).is_err());
+}
+
+#[test]
+fn local_reversal_root_authority_is_selected_by_its_work_decision_not_result_order() {
+    check_root_authority(
+        "work.reverse",
+        "work_reverse",
+        "ledger-workflow-work-reverse/2",
+    );
+}
+#[test]
+fn local_quantity_root_authority_is_selected_by_its_work_decision_not_result_order() {
+    check_root_authority(
+        "quantity.correct",
+        "quantity_correct",
+        "ledger-workflow-quantity-correction/2",
+    );
 }

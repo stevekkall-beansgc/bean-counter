@@ -111,15 +111,24 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(
     ))
 }
 
-/// Root reversal emits independent dependent authorities for the SAME operation.
+/// Root correction emits independent dependent authorities for the SAME operation.
 /// Its own newly constructed Work decision names the authoritative root Ref;
 /// emitted order and operation-name equality alone cannot select that identity.
-fn local_reversal_authority(
+fn local_root_authority(
     m: &mut CoreMeter,
     c: &DraftContextData,
     payload: &serde_json::Value,
     outputs: &[super::super::emitted_record::ConstructedEnvelope],
 ) -> Result<usize> {
+    let schema = shape::text(m, payload, "schema")?;
+    let (expected_operation, expected_transition) =
+        if shape::same_text(m, schema, "ledger-workflow-work-reverse/2")? {
+            ("work.reverse", "work_reverse")
+        } else if shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")? {
+            ("quantity.correct", "quantity_correct")
+        } else {
+            return Err(shape::fail("root correction authority payload recipe"));
+        };
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning root authority association"))?;
@@ -145,7 +154,7 @@ fn local_reversal_authority(
             continue;
         }
         let transition = shape::text(m, &value, "transition")?;
-        if !shape::same_text(m, transition, "work_reverse")? {
+        if !shape::same_text(m, transition, expected_transition)? {
             return Err(shape::fail("root reversal decision transition"));
         }
         shape::equal(m, &value["operation_key"], key.value())?;
@@ -175,7 +184,7 @@ fn local_reversal_authority(
         let schema = shape::text(m, &value, "schema")?;
         let operation = shape::text(m, &value, "operation")?;
         if !shape::same_text(m, schema, "ledger-workflow-economic-authority/8")?
-            || !shape::same_text(m, operation, "work.reverse")?
+            || !shape::same_text(m, operation, expected_operation)?
         {
             return Err(shape::fail("root reversal authority recipe"));
         }
@@ -334,8 +343,11 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
         result_refs
             .try_reserve_exact(result_count)
             .map_err(|_| shape::fail("candidate result reference vector"))?;
-        let root_authority = if local && shape::same_text(m, kind, "work.reverse")? {
-            Some(local_reversal_authority(
+        let root_authority = if local
+            && (shape::same_text(m, kind, "work.reverse")?
+                || shape::same_text(m, kind, "quantity.correct")?)
+        {
+            Some(local_root_authority(
                 m,
                 c,
                 payload.value(),

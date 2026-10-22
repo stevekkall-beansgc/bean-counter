@@ -314,6 +314,42 @@ mod tests {
             reloaded.compiled_plan().canonical_bytes(),
             program.compiled_plan().canonical_bytes()
         );
+        for field in ["quantity_field", "unit"] {
+            let mut bad_documents = program
+                .source_documents()
+                .iter()
+                .map(|d| d.canonical_value().clone())
+                .collect::<Vec<_>>();
+            let bad_policy = bad_documents
+                .iter_mut()
+                .find(|v| v["schema"] == "ledger-workflow-policy/4")
+                .unwrap();
+            bad_policy["rules"][0]["formula"][field] = serde_json::json!("other:missing");
+            let digest = document_digest("ledger-workflow-policy/4", bad_policy).unwrap();
+            let bad_root = DefinitionRef::new(
+                "workflow-policy",
+                &format!("wdoc_{}", &digest[7..]),
+                &digest,
+            )
+            .unwrap();
+            let bad_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+            let mut bad_session =
+                OriginalAuditSession::for_resource_profile_v2(&bad_arena).unwrap();
+            let bad_support =
+                SelectedCompilerSupport::local_execution_with_session(&mut bad_session).unwrap();
+            assert!(compile_selected_publication(
+                SelectedSourceInput {
+                    documents: bad_documents
+                        .iter()
+                        .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                        .collect(),
+                    root_policy_ref: bad_root,
+                },
+                &bad_support,
+                &mut bad_session
+            )
+            .is_err());
+        }
         let mut m = CoreMeter::for_compile(1048576).unwrap();
         let mut unit_only = program.policy().clone();
         unit_only.rules.remove(1);
