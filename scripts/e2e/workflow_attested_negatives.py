@@ -36,13 +36,32 @@ def refuse(journey, name, request, code):
     before = journey.snapshot()
     (journey.root / (name + ".before.json")).write_bytes(canonical(before))
     try:
-        response = journey.workflow(name, "submit", journey.write(name + ".request.json", request),
-                                    expected=4 if code == "IDENTITY_CONFLICT" else 3)
-    finally:
-        after = journey.snapshot()
-        (journey.root / (name + ".after.json")).write_bytes(canonical(after))
-    assert after == before, name + " changed retained state"
-    assert response["code"] == code, (name, response, code)
+        try:
+            response = journey.workflow(name, "submit", journey.write(name + ".request.json", request),
+                                        expected=4 if code == "IDENTITY_CONFLICT" else 3)
+        finally:
+            after = journey.snapshot()
+            (journey.root / (name + ".after.json")).write_bytes(canonical(after))
+        assert after == before, name + " changed retained state"
+        assert response["code"] == code, (name, response, code)
+    except Exception:
+        # Resolve the exact failed identity once; no second submit or new key.
+        try:
+            status = journey.workflow(name + "-failure-status", "status",
+                                      journey.write(name + ".failure-key.json", request["key"]))
+            assert status["schema"] == "ledger-operation-status/1"
+            if status["status"] == "not_observed":
+                assert status["key"] == request["key"]
+            else:
+                assert status["status"] == "committed"
+                assert status["receipt"]["key"] == request["key"]
+                assert status["receipt"]["original_request_bytes_sha256"] == sha(canonical(request))
+            journey.meta["failed_original_status"] = status
+        except Exception as error:
+            journey.meta["failed_original_status"] = {"status": "unknown", "error_type": type(error).__name__}
+        journey.meta["status"] = "STOPPED_FIRST_FAILURE"
+        journey.save()
+        raise
     journey.meta["checks"].append({"check": name, "code": code, "no_append": True})
     journey.save()
 
