@@ -95,7 +95,9 @@ pub(super) fn check(
     for rule in &p.rules {
         m.visit("local.admission_rule")?;
         match &rule.formula {
-            Formula::Fixed { .. } => {
+            // Unit field/unit/rate typing is the existing compiler's work.
+            // This gate retains the same app and direct-family obligations.
+            Formula::Fixed { .. } | Formula::Unit { .. } => {
                 require!(m, base.is_none(), "supported local service producer")?;
                 base = Some(rule);
             }
@@ -244,6 +246,90 @@ mod tests {
         validation_work::{OriginalAuditSession, ResourceLimits},
     };
     #[test]
+    fn metered_service_compiles_and_reloads_same_original_unit_plan() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::local_execution_with_session(&mut session).unwrap();
+        let fixture: Value =
+            serde_json::from_slice(include_bytes!("fixtures/local-first-policy-input.json"))
+                .unwrap();
+        let mut documents = fixture["documents"].as_array().unwrap().clone();
+        let policy = documents
+            .iter_mut()
+            .find(|v| v["schema"] == "ledger-workflow-policy/4")
+            .unwrap();
+        policy["compiler_ref"] = serde_json::to_value(support.reference()).unwrap();
+        policy["rules"][0]["formula"] = serde_json::json!({
+            "kind":"unit", "quantity_field":"support:quantity",
+            "unit":"support:request", "rate":"0.37"
+        });
+        let digest = document_digest("ledger-workflow-policy/4", policy).unwrap();
+        let root = DefinitionRef::new(
+            "workflow-policy",
+            &format!("wdoc_{}", &digest[7..]),
+            &digest,
+        )
+        .unwrap();
+        documents.push(support.canonical_value().clone());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents: documents
+                    .iter()
+                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: root,
+            },
+            &support,
+            &mut session,
+        )
+        .unwrap();
+        program
+            .require_local_admission_with_session(&mut session)
+            .unwrap();
+        let instruction = program.compiled_plan().canonical_value()["typed_instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["rule"]["component_key"] == "support:service")
+            .unwrap();
+        assert_eq!(instruction["rule"]["formula"]["kind"], "unit");
+        assert_eq!(instruction["rule"]["formula"]["rate"], "0.37");
+        let read_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut read_session = OriginalAuditSession::for_resource_profile_v2(&read_arena).unwrap();
+        let reloaded = super::super::load_local_selected_execution(
+            SelectedSourceInput {
+                documents: program
+                    .source_documents()
+                    .iter()
+                    .map(|d| d.canonical_bytes().to_vec())
+                    .collect(),
+                root_policy_ref: program.root_policy_ref().clone(),
+            },
+            program.compiled_plan().canonical_bytes(),
+            program.compiled_plan().reference(),
+            &mut read_session,
+        )
+        .unwrap();
+        assert_eq!(
+            reloaded.compiled_plan().canonical_bytes(),
+            program.compiled_plan().canonical_bytes()
+        );
+        let mut m = CoreMeter::for_compile(1048576).unwrap();
+        let mut unit_only = program.policy().clone();
+        unit_only.rules.remove(1);
+        assert_eq!(
+            check(
+                &mut m,
+                &unit_only,
+                program.source_documents(),
+                program.fact_schemas()
+            )
+            .unwrap_err()
+            .code,
+            "UNSUPPORTED_COMPOSITION"
+        );
+    }
+    #[test]
     fn supported_local_recipe_is_structural_and_refuses_unimplemented_promises() {
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
@@ -316,17 +402,13 @@ mod tests {
             unit: "support:request".into(),
             rate: "1".into(),
         };
-        assert_eq!(
-            check(
-                &mut m,
-                &changed,
-                program.source_documents(),
-                program.fact_schemas()
-            )
-            .unwrap_err()
-            .code,
-            "UNSUPPORTED_COMPOSITION"
-        );
+        check(
+            &mut m,
+            &changed,
+            program.source_documents(),
+            program.fact_schemas(),
+        )
+        .unwrap();
         let mut changed = p.clone();
         changed.families[0].no_success_close = None;
         assert_eq!(

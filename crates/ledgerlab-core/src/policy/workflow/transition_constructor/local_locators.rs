@@ -45,7 +45,7 @@ pub struct LocalOperationLocators {
     _ownership: ExternalBufferLease,
 }
 impl LocalOperationLocators {
-    /// Original declaration slots needed by root reversal or close retention.
+    /// Original declaration slots needed by root correction or close retention.
     /// Lookup DATA only: the child independently authenticates every frame and
     /// rejects missing, duplicate and unused nominations.
     pub fn required_authority_slots(&self) -> &[String] {
@@ -85,7 +85,7 @@ impl LocalOperationLocators {
         self.original_outcome_links().next()
     }
     /// Exact original assesses-link point-read DATA, including each actually
-    /// requested claimed family on root reversal. No link presence is asserted.
+    /// requested claimed family on root correction. No link presence is asserted.
     pub fn original_outcome_links(&self) -> impl Iterator<Item = (&ExactRef, &str)> {
         self.outcome_links
             .iter()
@@ -544,12 +544,13 @@ fn authority_slots(
 ) -> Result<Vec<String>> {
     let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
-    let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
+    let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
+        || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
-    if !reverse && !close {
+    if !root && !close {
         return Ok(Vec::new());
     }
-    let count = if reverse {
+    let count = if root {
         let closures = shape::array(m, request, "family_closures")?;
         w::usize_add(m, closures.len(), 1)?
     } else {
@@ -616,7 +617,7 @@ fn authority_slots(
         "ledger-workflow-slot-instantiation/1",
     )?;
     let work_value = super::working_value::owning_reference(m, a, work_ref)?;
-    if reverse {
+    if root {
         let bindings = shape::array(m, &binding, "bindings")?;
         if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
             return Err(shape::fail("selected root binding count"));
@@ -693,11 +694,12 @@ fn outcome_links(
     let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
     let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?;
-    let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
-    if !correct && !reverse {
+    let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
+        || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
+    if !correct && !root {
         return Ok(Vec::new());
     }
-    let count = if reverse {
+    let count = if root {
         shape::array(m, request, "family_closures")?.len()
     } else {
         1
@@ -1426,7 +1428,7 @@ mod correction_lookup_tests {
         let bound=super::super::body::document(&mut producer,"workflow-binding",json!({"schema":"ledger-workflow-binding/2","slot_instantiation_ref":inst.reference,"bindings":[{"binding_ref":terms.reference}]})).unwrap();
         let work=super::super::body::record(&mut producer,&key,"workflow-work",format!("wevent_{}","7".repeat(64)),json!({"schema":"ledger-workflow-work-record/1","payload":{"binding_ref":bound.reference,"activity":"support:complete"}})).unwrap();
         let target=super::super::body::record(&mut producer,&key,"workflow-target",format!("wtarget_{}","3".repeat(64)),json!({"schema":"ledger-workflow-component-target/1","work_ref":work.reference,"binding_ref":bound.reference,"policy_ref":program.root_policy_ref(),"compiled_plan_ref":program.compiled_plan().reference(),"root_component_slot":"actual:service","families":[{"family_key":"support:quality","family_slot":"actual:family"}]})).unwrap();
-        let family=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","8".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3"})).unwrap();
+        let family=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","8".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3","state":"open"})).unwrap();
         let rows = [&terms, &inst, &bound, &work, &target, &family];
         let views = rows
             .iter()
@@ -1449,6 +1451,35 @@ mod correction_lookup_tests {
         )
         .unwrap();
         assert_eq!(slots, ["root:corrector", "support:assessor"]);
+        let mut quantity = reverse.clone();
+        quantity["schema"] = json!("ledger-workflow-quantity-correction/2");
+        let quantity_subject = subject_refs(m, &a, &mut r, &key, &quantity).unwrap();
+        assert_eq!(
+            authority_slots(
+                &program,
+                m,
+                &a,
+                &mut r,
+                &key,
+                &quantity,
+                (&quantity_subject, &mut owners)
+            )
+            .unwrap(),
+            slots
+        );
+        // An unclaimed family supplies its original correction nomination,
+        // without fabricating an original outcome claim/link.
+        assert!(outcome_links(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &quantity,
+            (&quantity_subject, &mut owners)
+        )
+        .unwrap()
+        .is_empty());
         let close = json!({"schema":"ledger-workflow-family-close-attest/1","attestation":{"subject":{"target_ref":target.reference,"family_slot":"actual:family"}}});
         let subject = subject_refs(m, &a, &mut r, &key, &close).unwrap();
         assert_eq!(
@@ -1502,6 +1533,41 @@ mod correction_lookup_tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].0, claim.reference);
         assert_eq!(links[0].1, "support:assesses");
+        quantity["family_closures"][0]["family_state_ref"] = json!(claimed.reference);
+        assert_eq!(
+            outcome_links(
+                &program,
+                m,
+                &a,
+                &mut r,
+                &key,
+                &quantity,
+                (&quantity_subject, &mut owners)
+            )
+            .unwrap(),
+            links
+        );
+        quantity["family_closures"][0]["expected_revision"] = json!("2");
+        assert!(authority_slots(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &quantity,
+            (&quantity_subject, &mut owners)
+        )
+        .is_err());
+        assert!(outcome_links(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &quantity,
+            (&quantity_subject, &mut owners)
+        )
+        .is_err());
         // The exact same immutable original link is selected for standalone
         // outcome correction and for causal reversal of that claimed family.
         let correction = json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
