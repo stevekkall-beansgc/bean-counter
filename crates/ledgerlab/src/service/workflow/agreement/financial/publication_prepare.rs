@@ -536,8 +536,15 @@ mod support_selection_tests {
                 *reference
             );
         }
+        let mut mixed = new_ref.clone();
+        mixed["id"] = old_ref["id"].clone();
+        assert!(matches!(
+            local_support(&mixed, &mut s),
+            Err(ServiceError::Unavailable)
+        ));
         let mut foreign = new_ref;
-        foreign["id"] = old_ref["id"].clone();
+        foreign["id"] = json!(format!("wdoc_{}", "0".repeat(64)));
+        foreign["digest"] = json!(format!("sha256:{}", "0".repeat(64)));
         assert!(
             matches!(local_support(&foreign, &mut s), Err(ServiceError::Rejection(code))
             if code == "UNSUPPORTED_SCHEMA_PROFILE")
