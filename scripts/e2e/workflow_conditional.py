@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 from workflow_attested import AttestedJourney
+from workflow_attested_negatives import refuse
 from workflow_supported import ATOMS, REPO, canonical, sha, unique
 
 FIXTURES = REPO / "examples/workflow-conditional"
@@ -97,18 +98,12 @@ class ConditionalJourney(AttestedJourney):
         self.check_closed(work)
         operations.append("main-quantity-correct")
         if pending:
-            before = self.snapshot()
             request = {"schema": "ledger-operation/1", "contract": "workflow/1", "kind": "cost.finalize",
                 "key": self.key("pending-finalize-after-quantity"), "payload": {
                     "schema": "ledger-workflow-cost-finalize/2", "original_work_ref": work["work_ref"],
                     "component_slot": "support:model-retail", "observation_proof": work["observation"],
                     "final_cost_proof": work["final_evidence"], "evidence_refs": []}}
-            response = self.workflow("pending-finalize-after-quantity", "submit",
-                self.write("pending-finalize.request.json", request), expected=3)
-            after = self.snapshot()
-            self.write("pending-finalize-before.json", before)
-            self.write("pending-finalize-after.json", after)
-            assert response["code"] == "TARGET_CLOSED" and after == before
+            refuse(self, "pending-finalize-after-quantity", request, "TARGET_CLOSED")
             with self.connection() as db:
                 assert db.execute("SELECT COUNT(*) FROM workflow_app_cost_claims").fetchone()[0] == 0
         self.reverse(work, "main-reverse")
