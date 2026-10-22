@@ -113,6 +113,40 @@ fn conditional_binding_slots_and_exact_original_reload_keep_support_identity() {
         .unwrap();
     assert_eq!(slot["schema_ref"], json!(p.context_schema_ref()));
     assert_eq!(slot["field"]["name"], "support:service-eligibility");
+    let explanation = plan["explanation_map"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["ordinal"] == service["ordinal"])
+        .unwrap();
+    assert_eq!(
+        explanation["fields"],
+        json!(["support:quantity", "support:service-eligibility"])
+    );
+    let facts = service["fact_slots"].as_array().unwrap();
+    assert_eq!(facts.len(), 1);
+    let fact = plan["fact_slots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["index"] == facts[0])
+        .unwrap();
+    assert_eq!(fact["field"]["name"], "support:quantity");
+    // Same source-derived plan from the nonowning DATA compiler; not admission.
+    let support =
+        SelectedCompilerSupport::local_conditional_execution_with_session(&mut s).unwrap();
+    let mut plain = super::super::CoreMeter::for_compile(1_048_576).unwrap();
+    let plain_program = super::super::super::selected_program::compile_selected_program(
+        input(&support, |_| {}),
+        &support,
+        &mut plain,
+    )
+    .unwrap();
+    assert_eq!(
+        plain_program.compiled_plan().canonical_bytes(),
+        p.compiled_plan().canonical_bytes()
+    );
+
     let app = plan["typed_instructions"]
         .as_array()
         .unwrap()

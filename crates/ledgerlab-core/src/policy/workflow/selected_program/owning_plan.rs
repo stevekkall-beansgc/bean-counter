@@ -333,7 +333,12 @@ pub(super) fn build(
             }
         }
         let sr = shape::field(m, activity.ok_or_else(|| fail("activity"))?, "fact_schema")?;
-        let mut field_names = vector(m, &a, 1)?;
+        let explanation_capacity = if matches!(rule.when, super::model::Predicate::Eq { .. }) {
+            2
+        } else {
+            1
+        };
+        let mut field_names = vector(m, &a, explanation_capacity)?;
         let mut basis = vector(m, &a, 1)?;
         let primitive = match &rule.formula {
             Formula::Fixed { .. } => "fixed",
@@ -453,7 +458,25 @@ pub(super) fn build(
             ],
             m,
         )?);
-        let names = array(m, &a, &field_names)?;
+        // Activity fact slots above contain formula operands only. The
+        // explanation also names the separately indexed accepted-context operand.
+        let names = if let super::model::Predicate::Eq { field, .. } = &rule.when {
+            let mut already_named = false;
+            for name in &field_names {
+                m.visit("plan.explanation_field_dedup")?;
+                let name = name
+                    .value()
+                    .as_str()
+                    .ok_or_else(|| fail("explanation field name"))?;
+                already_named |= shape::same_text(m, name, &field.binding_fact)?;
+            }
+            if !already_named {
+                field_names.push(a.string_value(&field.binding_fact, m)?);
+            }
+            set(m, &a, &mut field_names)?
+        } else {
+            array(m, &a, &field_names)?
+        };
         let primitive = a.string_value(primitive, m)?;
         explanations.push(a.object_from_fields(
             &[

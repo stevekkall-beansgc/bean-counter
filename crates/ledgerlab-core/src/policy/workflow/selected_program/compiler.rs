@@ -1781,6 +1781,25 @@ fn compile_selected_recipe(
                 ordinal.clone(),
             );
             order.push(json!({"policy_ref":root,"rule_id":rule.rule_id}));
+            // Do not mix context names into the activity fact slots above.
+            let fields = if let super::model::Predicate::Eq { field, .. } = &rule.when {
+                let mut names: Vec<Value> = fields.into_iter().map(Value::String).collect();
+                let mut already_named = false;
+                for name in &names {
+                    m.visit("plan.explanation_field_dedup")?;
+                    already_named |= same_literal(
+                        m,
+                        name.as_str().ok_or_else(|| err("explanation field name"))?,
+                        &field.binding_fact,
+                    )?;
+                }
+                if !already_named {
+                    names.push(json!(field.binding_fact));
+                }
+                Value::Array(set(m, names)?)
+            } else {
+                json!(fields)
+            };
             explanations.push(json!({"ordinal":ordinal,"policy_ref":root,"rule_or_family":rule.rule_id,"fields":fields,"primitive":kind}));
         }
         for family in &policy.families {
