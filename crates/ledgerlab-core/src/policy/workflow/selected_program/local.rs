@@ -10,12 +10,12 @@ use sha2::{Digest, Sha256};
 #[cfg(test)]
 #[path = "local_assets.rs"]
 mod assets;
+#[path = "local_conditional_assets.rs"]
+mod conditional_assets;
 #[path = "local_operator_assets.rs"]
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
 mod parent_assets;
-#[path = "local_conditional_assets.rs"]
-mod conditional_assets;
 pub(super) const REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
 pub(super) const DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler6-data.json");
@@ -52,7 +52,12 @@ pub fn local_compiler_descriptor_with_session(
 pub fn local_conditional_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
-    compiler_descriptor(s, CONDITIONAL_DESCRIPTOR, CONDITIONAL_MANIFEST, conditional_assets::ARTIFACTS)
+    compiler_descriptor(
+        s,
+        CONDITIONAL_DESCRIPTOR,
+        CONDITIONAL_MANIFEST,
+        conditional_assets::ARTIFACTS,
+    )
 }
 #[cfg(test)]
 pub(super) fn legacy_descriptor_for_test(s: &mut OriginalAuditSession) -> Result<SelectedDocument> {

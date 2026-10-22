@@ -73,6 +73,9 @@ class Journey:
     def source_documents(self):
         return json.loads((self.fixture_directory / "source.json").read_bytes())["documents"]
 
+    def accepted_context(self):
+        return {"fact_schema_ref": self.fact_refs["support:context"], "facts": {}}
+
     def __init__(self, args):
         self.args = args
         self.root = args.output.resolve()
@@ -394,7 +397,7 @@ class Journey:
         terms = {**self.business["terms"], "source_grant_refs": [self.grant], "role_ref": role_ref,
                  "app_cost_terms": self.policy["app_delayed_costs"]}
         terms_ref = reference("workflow-slot-terms", terms)
-        binding = {**self.business["binding"], "accepted_context": {"fact_schema_ref": self.fact_refs["support:context"], "facts": {}},
+        binding = {**self.business["binding"], "accepted_context": self.accepted_context(),
             "bindings": [{"slot": "support:retail", "binding_ref": terms_ref}], "roles_refs": [role_ref],
             "slot_catalog_ref": catalog_ref, "slot_instantiation_ref": reference("workflow-slot-instantiation", instantiation)}
         raw_terms = {"schema": "ledger-workflow-acceptance-terms/2", "scope": self.scope, "customer": self.customer,

@@ -57,11 +57,7 @@ class MeteredJourney(Journey):
     def closure_inputs(self, work):
         root_id = self.document(work["root_decision_ref"])["decision_id"]
         revision, _ = self.head("decision", root_id)
-        family_revision, family_ref = self.head("family", work["target_ref"]["kind"],
-            work["target_ref"]["id"], work["target_ref"]["digest"], "support:quality")
-        family = self.document(family_ref)
-        closures = [] if family["state"] == "closed_by_root" else [{"family_state_ref": family_ref,
-            "expected_revision": family_revision, "authority_evidence_refs": [self.grant]}]
+        closures = self.family_closures(work)
         dependents = []
         ids = []
         if work.get("outcome_decision_id"):
@@ -78,6 +74,14 @@ class MeteredJourney(Journey):
         return {"work_ref": work["work_ref"], "expected_revision": revision,
                 "dependent_reversals": sorted(dependents, key=canonical), "family_closures": closures,
                 "evidence_refs": []}
+
+    def family_closures(self, work):
+        family_revision, family_ref = self.head("family", work["target_ref"]["kind"],
+            work["target_ref"]["id"], work["target_ref"]["digest"], "support:quality")
+        family = self.document(family_ref)
+        closures = [] if family["state"] == "closed_by_root" else [{"family_state_ref": family_ref,
+            "expected_revision": family_revision, "authority_evidence_refs": [self.grant]}]
+        return closures
 
     def quantity_payload(self, work):
         return {"schema": "ledger-workflow-quantity-correction/2", **self.closure_inputs(work),

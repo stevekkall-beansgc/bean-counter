@@ -30,4 +30,6 @@ pub(in crate::policy::workflow) use compiler::finish_owned_document;
 
 mod local;
 mod local_admission;
-pub use local::{local_compiler_descriptor_with_session, local_conditional_compiler_descriptor_with_session};
+pub use local::{
+    local_compiler_descriptor_with_session, local_conditional_compiler_descriptor_with_session,
+};

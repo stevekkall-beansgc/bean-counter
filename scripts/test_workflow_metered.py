@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).with_name("e2e")))
 import workflow_metered as metered
 import workflow_attested as attested
+import workflow_conditional as conditional
 import workflow_supported as supported
 
 
@@ -140,6 +141,36 @@ class AttestedDriverTests(unittest.TestCase):
         self.assertEqual(payload["family_closures"], closure["family_closures"])
         self.assertEqual(len(payload["fact_proofs"]), 1)
         self.assertNotIn("unit", payload)
+
+
+class ConditionalDriverTests(unittest.TestCase):
+    def test_accepted_enum_is_input_and_old_default_stays_empty(self):
+        old = supported.Journey.__new__(supported.Journey)
+        old.fact_refs = {"support:context": ref("schema")}
+        self.assertEqual(old.accepted_context()["facts"], {})
+        journey = conditional.ConditionalJourney.__new__(conditional.ConditionalJourney)
+        journey.fact_refs = old.fact_refs
+        journey.business = {"conditional_context": {"field": "support:eligibility"}}
+        journey.context_value = "ineligible"
+        self.assertEqual(journey.accepted_context(), {"fact_schema_ref": ref("schema"),
+            "facts": {"support:eligibility": "ineligible"}})
+
+    def test_false_has_no_invented_target_and_keeps_actual_app_dependent(self):
+        journey, work = MeteredDriverTests().closure_journey(False)
+        conditional_journey = conditional.ConditionalJourney.__new__(conditional.ConditionalJourney)
+        conditional_journey.__dict__.update(journey.__dict__)
+        conditional_journey.matches = False
+        del work["target_ref"]
+        del work["outcome_decision_id"]
+        selected = conditional_journey.closure_inputs(work)
+        self.assertEqual(selected["family_closures"], [])
+        self.assertEqual([row["decision_ref"]["id"] for row in selected["dependent_reversals"]], ["app"])
+        result = {"receipt": {"result_refs": [ref("work", "workflow-work"), ref("root", "workflow-decision")]}}
+        selected_work = conditional_journey.work_result("main", result)
+        self.assertNotIn("target_ref", selected_work)
+        result["receipt"]["result_refs"].append(ref("invented", "workflow-target"))
+        with self.assertRaises(AssertionError):
+            conditional_journey.work_result("main", result)
 
 
 if __name__ == "__main__":

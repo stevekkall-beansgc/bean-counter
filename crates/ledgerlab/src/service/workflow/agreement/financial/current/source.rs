@@ -522,6 +522,41 @@ pub(in super::super) async fn retained_record(
     load(tx, key, r, l, schema, before, s).await
 }
 
+/// Read one retained compiler as DATA before the exact binary-owned support
+/// selector runs. Its schema chooses parsing only; it grants no capability.
+pub(in super::super) async fn retained_compiler_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let (reference, lease) = from_value(value, "workflow-compiler-descriptor", s)?;
+    let stored = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    s.semantic_work()
+        .scan_bytes(stored.schema.bytes().len())
+        .map_err(core_error)?;
+    let actual =
+        std::str::from_utf8(stored.schema.bytes()).map_err(|_| ServiceError::IntegrityFailure)?;
+    let mut schema = None;
+    for expected in [
+        "ledger-workflow-compiler-descriptor/6",
+        "ledger-workflow-compiler-descriptor/7",
+        "ledger-workflow-compiler-descriptor/8",
+    ] {
+        if equal_text(actual, expected, s)? {
+            schema = Some(expected);
+            break;
+        }
+    }
+    let schema = schema.ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+    load_stored(key, stored, reference, lease, schema, s)
+}
+
 /// Point-select the existing immutable customer registration under this SAME
 /// writer. Its body/earliest origin and original-enrollment membership still
 /// require the shared acceptance/chronology checks; index presence is DATA only.

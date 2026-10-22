@@ -87,16 +87,87 @@ fn array<'a>(
     out.append(b"]", s.semantic_work()).map_err(core_error)?;
     out.finish(s.semantic_work()).map_err(core_error)
 }
+fn same_support(
+    reference: &Value,
+    support: &SelectedCompilerSupport,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    let expected = support.reference();
+    for (name, text) in [
+        ("kind", expected.kind()),
+        ("id", expected.id()),
+        ("digest", expected.digest()),
+    ] {
+        if !acceptance::same_recipe_text(request_wrapper::text(reference, name, s)?, text, s)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+pub(super) fn local_support(
+    reference: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedCompilerSupport> {
+    acceptance::validate_reference(reference, "workflow-compiler-descriptor", s)?;
+    let old = SelectedCompilerSupport::local_execution_with_session(s).map_err(core_error)?;
+    if same_support(reference, &old, s)? {
+        return Ok(old);
+    }
+    drop(old);
+    let conditional =
+        SelectedCompilerSupport::local_conditional_execution_with_session(s).map_err(core_error)?;
+    require(
+        same_support(reference, &conditional, s)?,
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    Ok(conditional)
+}
+fn support_for_policy<F>(
+    bodies: &[AuditedBytes],
+    factory: F,
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedCompilerSupport>
+where
+    F: FnOnce(&Value, &mut OriginalAuditSession) -> Result<SelectedCompilerSupport>,
+{
+    let mut selected = None;
+    for body in bodies {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let parsed = s
+            .parse_representation(body.bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        if !acceptance::same_recipe_text(
+            request_wrapper::text(parsed.value(), "schema", s)?,
+            "ledger-workflow-policy/4",
+            s,
+        )? {
+            continue;
+        }
+        require(selected.is_none(), "INTEGRITY_FAILURE")?;
+        selected = Some(parsed);
+    }
+    let selected = selected.ok_or(ServiceError::IntegrityFailure)?;
+    factory(
+        request_wrapper::field(selected.value(), "compiler_ref", s)?,
+        s,
+    )
+}
+
 /// Actual SAME compiler body, usable by the public coordinator once the new
 /// truthful support selector exists. It accepts no expected monetary outputs,
 /// saved plan, current-builtin fallback or caller-declared completeness.
-pub(super) async fn compile_request(
+pub(super) async fn compile_request<F>(
     tx: &mut SqliteTx,
     incoming: &ingress::IncomingRequest,
-    support: &SelectedCompilerSupport,
+    fresh_support: F,
     before: i64,
     s: &mut OriginalAuditSession,
-) -> Result<SelectedPublicationData> {
+) -> Result<SelectedPublicationData>
+where
+    F: FnOnce(&Value, &mut OriginalAuditSession) -> Result<SelectedCompilerSupport>,
+{
     let result = async {
         require(
             proof_session::present(tx, incoming.key())?,
@@ -166,45 +237,41 @@ pub(super) async fn compile_request(
                     .map_err(core_error)?
             } else {
                 let kind = request_wrapper::text(candidate, "kind", s)?;
-                let compiler_schema = if acceptance::same_recipe_text(
-                    request_wrapper::text(support.canonical_value(), "schema", s)?,
-                    "ledger-workflow-compiler-descriptor/8",
-                    s,
-                )? {
-                    "ledger-workflow-compiler-descriptor/8"
-                } else if acceptance::same_recipe_text(
-                    request_wrapper::text(support.canonical_value(), "schema", s)?,
-                    "ledger-workflow-compiler-descriptor/7",
-                    s,
-                )? {
-                    "ledger-workflow-compiler-descriptor/7"
-                } else {
-                    "ledger-workflow-compiler-descriptor/6"
-                };
                 let mut schema = None;
                 for (k, v) in [
                     ("workflow-product", "ledger-workflow-product/1"),
                     ("workflow-fact-schema", "ledger-workflow-fact-schema/1"),
                     ("workflow-slot-template", "ledger-workflow-slot-template/1"),
                     ("workflow-policy", "ledger-workflow-policy/4"),
-                    ("workflow-compiler-descriptor", compiler_schema),
                 ] {
                     if acceptance::same_recipe_text(kind, k, s)? {
                         schema = Some(v);
                         break;
                     }
                 }
-                let schema = schema.ok_or_else(|| reject("INVALID_REFERENCE"))?;
-                let record = current::source::retained_record(
-                    tx,
-                    incoming.key(),
-                    candidate,
-                    kind,
-                    schema,
-                    before,
-                    s,
-                )
-                .await?;
+                let record =
+                    if acceptance::same_recipe_text(kind, "workflow-compiler-descriptor", s)? {
+                        current::source::retained_compiler_record(
+                            tx,
+                            incoming.key(),
+                            candidate,
+                            before,
+                            s,
+                        )
+                        .await?
+                    } else {
+                        let schema = schema.ok_or_else(|| reject("INVALID_REFERENCE"))?;
+                        current::source::retained_record(
+                            tx,
+                            incoming.key(),
+                            candidate,
+                            kind,
+                            schema,
+                            before,
+                            s,
+                        )
+                        .await?
+                    };
                 let body = s
                     .copy_representation(record.canonical_body(), Kind::SourceDefinition)
                     .map_err(core_error)?;
@@ -223,6 +290,10 @@ pub(super) async fn compile_request(
         }
         let root = request_wrapper::field(payload, "root_policy_ref", s)?;
         acceptance::validate_reference(root, "workflow-policy", s)?;
+        // The unique acquired policy's compiler Ref is routing DATA only.
+        // Exact normalized root/source/support identity remains the actual
+        // compiler's mandatory check below; no caller descriptor grants support.
+        let support = support_for_policy(&bodies, fresh_support, s)?;
         let mut input_size = add(mul(bodies.len(), mem::size_of::<Vec<u8>>(), s)?, total, s)?;
         input_size = add(input_size, mem::size_of::<SelectedSourceInput>(), s)?;
         for name in ["kind", "id", "digest"] {
@@ -254,7 +325,7 @@ pub(super) async fn compile_request(
                 documents,
                 root_policy_ref: root,
             },
-            support,
+            &support,
             s,
         )
         .map_err(core_error)?;
@@ -373,7 +444,7 @@ pub(super) async fn prepare_new<F>(
     session: &mut OriginalAuditSession,
 ) -> Result<PendingSelectedPublication>
 where
-    F: FnOnce(&mut OriginalAuditSession) -> ledgerlab_core::Result<SelectedCompilerSupport>,
+    F: FnOnce(&Value, &mut OriginalAuditSession) -> Result<SelectedCompilerSupport>,
 {
     let result = async {
         let incoming = ingress::IncomingRequest::parse_publication(raw, session)?;
@@ -414,8 +485,7 @@ where
             .reserve_external_payload(4 * 64 + 27)
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-        let support = fresh_support(session).map_err(core_error)?;
-        let compiled = compile_request(tx, &incoming, &support, before, session).await?;
+        let compiled = compile_request(tx, &incoming, fresh_support, before, session).await?;
         let scope = request_wrapper::field(
             request_wrapper::field(incoming.value(), "key", session)?,
             "scope",
@@ -442,4 +512,35 @@ where
             .store(true, Ordering::Release);
     }
     result
+}
+
+#[cfg(test)]
+mod support_selection_tests {
+    use super::*;
+    use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
+
+    #[test]
+    fn local_support_selects_only_two_exact_binary_owned_descriptors() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let old = SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap();
+        let old_ref = serde_json::to_value(old.reference()).unwrap();
+        let conditional =
+            SelectedCompilerSupport::local_conditional_execution_with_session(&mut s).unwrap();
+        let new_ref = serde_json::to_value(conditional.reference()).unwrap();
+        assert_ne!(old_ref, new_ref);
+        for reference in [&old_ref, &new_ref] {
+            let selected = local_support(reference, &mut s).unwrap();
+            assert_eq!(
+                serde_json::to_value(selected.reference()).unwrap(),
+                *reference
+            );
+        }
+        let mut foreign = new_ref;
+        foreign["id"] = old_ref["id"].clone();
+        assert!(
+            matches!(local_support(&foreign, &mut s), Err(ServiceError::Rejection(code))
+            if code == "UNSUPPORTED_SCHEMA_PROFILE")
+        );
+    }
 }

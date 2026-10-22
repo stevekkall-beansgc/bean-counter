@@ -63,8 +63,10 @@ def main():
     parser.add_argument('--test',action='store_true')
     parser.add_argument('--local-execution',action='store_true',help='bind the adopted code-owned local CompilerDescriptor6')
     parser.add_argument('--operator-resources',action='store_true',help='bind stable operator-resource Compiler8 instead of legacy local7')
+    parser.add_argument('--conditional-work',action='store_true',help='bind exact additive conditional-work Compiler8 support')
     args=parser.parse_args()
     if args.operator_resources and not args.local_execution: raise ValueError('--operator-resources requires --local-execution')
+    if args.conditional_work and not (args.local_execution and args.operator_resources): raise ValueError('--conditional-work requires --local-execution and --operator-resources')
     root=Path(__file__).resolve().parents[1]
     # A declared minimal environment is used for both observed tool versions
     # and the build. Other ambient variables are not effective build inputs.
@@ -98,11 +100,11 @@ def main():
     descriptor={'schema':'ledger-workflow-compiler-descriptor/1','compiler_semantics':'ledger-policy-compiler/1','evaluator':'ledger-workflow-evaluator/1','grammar':'ledger-policy-grammar/1','facts_normalization':'ledger-facts-normalization/1','operation_normalization':'ledger-operation-normalization/2','limits_profile':'workflow-limits/1','primitive_versions':mode['primitives'],'fact_types':mode['fact_types'],'predicate_ops':mode['predicate_ops'],'formula_kinds':mode['formula_kinds'],'plan_schema':'ledger-workflow-compiled-plan/1','limits_digest':'sha256:'+digest(canonical(limits).encode()),'mode_matrix_digest':'sha256:'+digest(canonical(mode).encode()),'contract_manifest_digest':'sha256:'+digest(canonical(contract).encode())}
     if args.local_execution:
         version=8 if args.operator_resources else 7
-        descriptor=json.loads((catalogs/f'local-compiler{version}-data.json').read_bytes())
+        descriptor=json.loads((catalogs/('local-conditional-compiler8-data.json' if args.conditional_work else f'local-compiler{version}-data.json')).read_bytes())
         if descriptor['schema']!=f'ledger-workflow-compiler-descriptor/{version}':
             raise ValueError('local compiler descriptor schema')
-        local_profile=json.loads((root/('contracts/candidates/full-suite-v1/core/local-operator-resources-01/profile.json' if args.operator_resources else 'contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/profile.json')).read_bytes())
-        local_manifest=json.loads((catalogs/('local-contract-profile3.json' if args.operator_resources else 'local-contract-profile2.json')).read_bytes())
+        local_profile=json.loads((catalogs/'local-conditional-mode.json').read_bytes()) if args.conditional_work else json.loads((root/('contracts/candidates/full-suite-v1/core/local-operator-resources-01/profile.json' if args.operator_resources else 'contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/profile.json')).read_bytes())
+        local_manifest=json.loads((catalogs/('local-conditional-contract-profile.json' if args.conditional_work else 'local-contract-profile3.json' if args.operator_resources else 'local-contract-profile2.json')).read_bytes())
         local_limits=json.loads((root/('contracts/candidates/full-suite-v1/core/local-operator-resources-01/limits.json' if args.operator_resources else 'contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/limits.json')).read_bytes())
         if descriptor['limits_digest']!='sha256:'+digest(canonical(local_limits).encode()):
             raise ValueError('local compiler limits identity')

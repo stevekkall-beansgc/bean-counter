@@ -1,0 +1,400 @@
+{
+  "classification": "Public synthetic attested quantity input only; no grant/receipt/authority or financial output",
+  "documents": [
+    {
+      "fields": [
+        {
+          "name": "support:quantity",
+          "provenance": {
+            "kind": "attested",
+            "source_slot": "support:worker",
+            "evidence_kind": "meter_quantity"
+          },
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "max": "3",
+            "min": "1",
+            "unit": "support:request"
+          }
+        }
+      ],
+      "normalization": "ledger-facts-normalization/1",
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:work-facts",
+      "version": "1"
+    },
+    {
+      "fields": [
+        {
+          "name": "support:code",
+          "provenance": {
+            "evidence_kind": "outcome",
+            "kind": "attested",
+            "source_slot": "support:assessor"
+          },
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "support:discount",
+              "support:none",
+              "support:success"
+            ]
+          }
+        },
+        {
+          "name": "support:occurred",
+          "provenance": {
+            "evidence_kind": "occurrence",
+            "kind": "attested",
+            "source_slot": "support:assessor"
+          },
+          "required": true,
+          "type": {
+            "kind": "timestamp",
+            "max": "2099-01-01T00:00:00.000000Z",
+            "min": "2000-01-01T00:00:00.000000Z"
+          }
+        }
+      ],
+      "normalization": "ledger-facts-normalization/1",
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:assessment-facts",
+      "version": "1"
+    },
+    {
+      "fields": [
+        {
+          "name": "support:eligibility",
+          "provenance": {
+            "kind": "caller"
+          },
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "eligible",
+              "ineligible"
+            ]
+          }
+        }
+      ],
+      "normalization": "ledger-facts-normalization/1",
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:context",
+      "version": "1"
+    },
+    {
+      "activities": [
+        {
+          "fact_schema": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4",
+            "digest": "sha256:838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4"
+          },
+          "labels": {
+            "title": "Assessment"
+          },
+          "name": "support:assess",
+          "primitive": "outcome",
+          "source_slot": "support:assessor"
+        },
+        {
+          "fact_schema": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_99c5c3c486fa9df55dc9abcf109491a883c5d09fdade0ca4cc164628f4a1979b",
+            "digest": "sha256:99c5c3c486fa9df55dc9abcf109491a883c5d09fdade0ca4cc164628f4a1979b"
+          },
+          "funding_leg": "support:customer",
+          "labels": {
+            "title": "Completed support"
+          },
+          "name": "support:complete",
+          "primitive": "work",
+          "source_slot": "support:worker"
+        }
+      ],
+      "evaluator": "ledger-workflow-evaluator/1",
+      "fact_schemas": [
+        {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4",
+          "digest": "sha256:838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4"
+        },
+        {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99c5c3c486fa9df55dc9abcf109491a883c5d09fdade0ca4cc164628f4a1979b",
+          "digest": "sha256:99c5c3c486fa9df55dc9abcf109491a883c5d09fdade0ca4cc164628f4a1979b"
+        }
+      ],
+      "grammar": "ledger-policy-grammar/1",
+      "labels": {
+        "title": "App-attributed support service"
+      },
+      "limits_profile": "workflow-limits/1",
+      "links": [
+        {
+          "binding_relation": "same_binding",
+          "child_activity": "support:assess",
+          "child_primitive": "outcome",
+          "max_depth": "1",
+          "maximum": "1",
+          "minimum": "1",
+          "name": "support:assesses",
+          "on_missing": "refuse",
+          "predecessor_activities": [
+            "support:complete"
+          ],
+          "predecessor_primitive": "work"
+        }
+      ],
+      "product_id": "support:product",
+      "profile": "workflow/1",
+      "schema": "ledger-workflow-product/1",
+      "units": [
+        {
+          "dimension": "support:count",
+          "labels": {
+            "title": "Request"
+          },
+          "name": "support:request"
+        }
+      ],
+      "version": "1"
+    },
+    {
+      "components": [
+        {
+          "aliases": [
+            "support:model-retail"
+          ],
+          "book": "retail",
+          "key": "support:model-retail",
+          "role_slot": "support:retail-role",
+          "root_key": "support:model-retail"
+        },
+        {
+          "aliases": [
+            "support:service"
+          ],
+          "book": "retail",
+          "key": "support:service",
+          "role_slot": "support:retail-role",
+          "root_key": "support:service"
+        }
+      ],
+      "families": [
+        {
+          "aliases": [
+            "support:quality"
+          ],
+          "key": "support:quality",
+          "role_slot": "support:retail-role",
+          "target_component_key": "support:service"
+        }
+      ],
+      "schema": "ledger-workflow-slot-template/1",
+      "template_id": "support:template",
+      "version": "1"
+    },
+    {
+      "app_delayed_costs": [
+        {
+          "activity": "support:complete",
+          "allocation": "one_call_one_component",
+          "causal_reversal": {
+            "mode": "exact_inverse_and_permanent_close",
+            "root_relation": "original_work_delayed_cost_dependency",
+            "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+          },
+          "comparable_quantity_rule": "when_present_lte_original_observed",
+          "component_key": "support:model-retail",
+          "correction_anchor": "initial_cost_accepted_at",
+          "correction_source_slot": "support:cost-source",
+          "correction_within_us": "86400000000",
+          "cost_basis": "app_attributed_final_amount",
+          "cost_source_slot": "support:cost-source",
+          "finalize_within_us": "86400000000",
+          "maximum_final_amount": {
+            "atoms": "3000000000000000000",
+            "currency": "USD",
+            "scale": 18
+          },
+          "on_missing": "wait",
+          "resource_funding_leg": "support:model",
+          "usage_field": "support:quantity",
+          "usage_unit": "support:request",
+          "work_source_slot": "support:worker"
+        }
+      ],
+      "binding_slots": [
+        {
+          "allowed_activities": [
+            "support:assess",
+            "support:complete"
+          ],
+          "book": "retail",
+          "correction_source_slot": "support:corrector",
+          "funding_leg": "support:customer",
+          "name": "support:retail"
+        }
+      ],
+      "compiler_ref": {
+        "kind": "workflow-compiler-descriptor",
+        "id": "wdoc_f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e",
+        "digest": "sha256:f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e"
+      },
+      "context_schema_ref": {
+        "kind": "workflow-fact-schema",
+        "id": "wdoc_657d63cefc74b5024e5c2bae7f0210f71ba8cac061cce867f5d5f652f156f92f",
+        "digest": "sha256:657d63cefc74b5024e5c2bae7f0210f71ba8cac061cce867f5d5f652f156f92f"
+      },
+      "currency": "USD",
+      "delayed_costs": [],
+      "families": [
+        {
+          "code_field": "support:code",
+          "codes": [
+            {
+              "code": "support:discount",
+              "effect": {
+                "amount": {
+                  "kind": "percent",
+                  "percent": "20"
+                },
+                "kind": "discount"
+              }
+            },
+            {
+              "code": "support:none",
+              "effect": {
+                "kind": "none"
+              }
+            },
+            {
+              "code": "support:success",
+              "effect": {
+                "amount": {
+                  "kind": "percent",
+                  "percent": "10"
+                },
+                "kind": "premium"
+              }
+            }
+          ],
+          "correction_source_slot": "support:assessor",
+          "family_key": "support:quality",
+          "family_name": "support:quality",
+          "maximum_discount": {
+            "atoms": "600000000000000000",
+            "currency": "USD",
+            "scale": 18
+          },
+          "maximum_premium": {
+            "atoms": "300000000000000000",
+            "currency": "USD",
+            "scale": 18
+          },
+          "no_success_close": {
+            "close_source_slot": "support:assessor"
+          },
+          "selector": {
+            "basis": "booked_original_net",
+            "binding_slot": "support:retail",
+            "component_key": "support:service",
+            "path": [
+              "support:assesses"
+            ],
+            "target_activity": "support:complete"
+          },
+          "source_slot": "support:assessor",
+          "target_link_slot": "support:assesses",
+          "trigger_activity": "support:assess",
+          "window": {
+            "acceptance_grace_us": "60000000",
+            "activation_deadline_us": "0",
+            "anchor": "work_accepted_at",
+            "anchor_path": [],
+            "correction_us": "86400000000",
+            "occurrence_us": "3600000000",
+            "receipt_grace_us": "60000000",
+            "start_offset_us": "0"
+          }
+        }
+      ],
+      "mode": "component_workflow",
+      "policy_id": "metered:service-policy",
+      "product_ref": {
+        "kind": "workflow-product",
+        "id": "wdoc_e4446593e24c8a1b56b27f275860cb7c41bc9f606388b14b6c7b7b3a1b0bf415",
+        "digest": "sha256:e4446593e24c8a1b56b27f275860cb7c41bc9f606388b14b6c7b7b3a1b0bf415"
+      },
+      "rounding": "nearest_ties_away",
+      "rules": [
+        {
+          "activity": "support:complete",
+          "binding_slot": "support:retail",
+          "component_key": "support:service",
+          "component_name": "support:service",
+          "dependency": "on_missing_refuse",
+          "formula": {
+            "kind": "unit",
+            "quantity_field": "support:quantity",
+            "unit": "support:request",
+            "rate": "1"
+          },
+          "phase": "base",
+          "rule_id": "support:service",
+          "when": {
+            "op": "eq",
+            "field": {
+              "binding_fact": "support:eligibility"
+            },
+            "value": "eligible"
+          }
+        },
+        {
+          "activity": "support:complete",
+          "binding_slot": "support:retail",
+          "component_key": "support:model-retail",
+          "component_name": "support:model-retail",
+          "dependency": "on_missing_wait",
+          "formula": {
+            "ceiling": {
+              "atoms": "3000000000000000000",
+              "currency": "USD",
+              "scale": 18
+            },
+            "evidence_slot": "support:cost-source",
+            "kind": "app_final_cost",
+            "markup": "0",
+            "multiplier": {
+              "denominator": "1",
+              "numerator": "1"
+            }
+          },
+          "phase": "cost",
+          "rule_id": "support:model-retail",
+          "when": {
+            "op": "true"
+          }
+        }
+      ],
+      "scale": 18,
+      "schema": "ledger-workflow-policy/4",
+      "slot_template_ref": {
+        "kind": "workflow-slot-template",
+        "id": "wdoc_bae97dfb0297e76cae1749344aec2b4e350bab385dce71416ca2165c200e8757",
+        "digest": "sha256:bae97dfb0297e76cae1749344aec2b4e350bab385dce71416ca2165c200e8757"
+      },
+      "stages": [],
+      "version": "1"
+    }
+  ],
+  "root_policy_ref": {
+    "kind": "workflow-policy",
+    "id": "wdoc_5864d1ae1db46c38ab50d255be38af176bccd6de37818105e4438f3b8ee5d9ae",
+    "digest": "sha256:5864d1ae1db46c38ab50d255be38af176bccd6de37818105e4438f3b8ee5d9ae"
+  }
+}

@@ -15,7 +15,7 @@ pub(super) async fn prepare_append<F>(
     s: &mut OriginalAuditSession,
 ) -> Result<WorkflowReply>
 where
-    F: FnOnce(&mut OriginalAuditSession) -> ledgerlab_core::Result<SelectedCompilerSupport>,
+    F: FnOnce(&Value, &mut OriginalAuditSession) -> Result<SelectedCompilerSupport>,
 {
     let prepared = publication_prepare::prepare_new(ledger, tx, raw, fresh_support, s).await?;
     request_wrapper::same_text(

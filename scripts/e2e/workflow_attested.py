@@ -26,8 +26,8 @@ class AttestedJourney(MeteredJourney):
         Journey.__init__(self, args)
         self.parameters = json.loads((REPO / "examples/workflow-metered/variants.json").read_bytes())["main"]
         self.meta["attested_inputs"] = {
-            "source_sha256": sha((FIXTURES / "source.json").read_bytes()),
-            "business_sha256": sha((FIXTURES / "business.json").read_bytes()),
+            "source_sha256": sha((self.fixture_directory / "source.json").read_bytes()),
+            "business_sha256": sha((self.fixture_directory / "business.json").read_bytes()),
             "field": "support:quantity", "source_slot": "support:worker",
             "evidence_kind": "meter_quantity", "quantity": "3", "replacement": "2"}
         self.save()
@@ -83,6 +83,9 @@ class AttestedJourney(MeteredJourney):
         self.save()
         self.preserve_fixture("pre-work-fixture")
         result = self.submit(prefix + "-work", "work.accept", payload)
+        return self.work_result(prefix, result)
+
+    def work_result(self, prefix, result):
         return {"prefix": prefix, "receipt": result, "work_ref": unique(result, "workflow-work"),
                 "target_ref": unique(result, "workflow-target"),
                 "root_decision_ref": unique(result, "workflow-decision")}

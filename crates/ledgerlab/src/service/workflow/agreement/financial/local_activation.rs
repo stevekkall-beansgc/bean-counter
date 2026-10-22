@@ -224,10 +224,12 @@ pub(super) async fn selected(
   let binding=current::source::retained_record(&mut tx,req.key(),r,"workflow-binding","ledger-workflow-binding/2",before,s).await?;
   let policy_ref=request_wrapper::field(binding.body(),"policy_ref",s)?;
   let policy=current::source::retained_record(&mut tx,req.key(),policy_ref,"workflow-policy","ledger-workflow-policy/4",before,s).await?;
-  let descriptor=ledgerlab_core::policy::workflow::selected_program::local_compiler_descriptor_with_session(s).map_err(core_error)?;
   let actual=request_wrapper::field(policy.body(),"compiler_ref",s)?;
-  let expected=serde_json::to_value(descriptor.reference()).map_err(|_|ServiceError::IntegrityFailure)?;
-  Ok(actual==&expected)
+  match publication_prepare::local_support(actual,s) {
+    Ok(_support)=>Ok(true),
+    Err(ServiceError::Rejection(code)) if code=="UNSUPPORTED_SCHEMA_PROFILE"=>Ok(false),
+    Err(error)=>Err(error),
+  }
  }.await;
     tx.rollback().await.map_err(crate::service::store_error)?;
     result

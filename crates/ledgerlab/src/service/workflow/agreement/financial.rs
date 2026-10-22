@@ -439,8 +439,8 @@ async fn original_query_in(
 
 impl LocalWorkflowLedger {
     pub async fn publish_local_owned(&self, raw: &[u8]) -> Result<WorkflowReply> {
-        self.publish_selected_with(raw,
-            ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport::local_execution_with_session).await
+        self.publish_selected_with(raw, publication_prepare::local_support)
+            .await
     }
     /// Private binary-selected local publication seam. The caller supplies
     /// only the genuine code-owned selector after the original identity check.
@@ -451,8 +451,9 @@ impl LocalWorkflowLedger {
     ) -> Result<WorkflowReply>
     where
         F: FnOnce(
+                &Value,
                 &mut ledgerlab_core::validation_work::OriginalAuditSession,
-            ) -> ledgerlab_core::Result<
+            ) -> Result<
                 ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport,
             > + Send,
     {

@@ -183,8 +183,8 @@ impl AppAcceptanceInput {
         let context = program
             .context_schema_with_work(session.semantic_work())
             .map_err(core_error)?;
-        let terms =
-            OwnedAcceptanceTerms::parse(body.bytes(), context, session).map_err(core_error)?;
+        let terms = OwnedAcceptanceTerms::parse(body.bytes(), context, session)
+            .map_err(context_input_error)?;
         let normalized =
             request_wrapper::field(terms.canonical_value(), "binding_inputs", session)?;
         // Match duplicated exact direct refs AFTER the SAME terms normalizer.
@@ -1494,4 +1494,36 @@ async fn local_prior(
         .map_err(prefix::read_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
     Ok(Some(body.body))
+}
+
+// A required accepted-context member is part of the supplied typed shape.
+// Other diagnostics retain the existing closed public error mapping.
+fn context_input_error(error: ledgerlab_core::Error) -> ServiceError {
+    if error.code == "FACT_REQUIRED" {
+        reject("INVALID_SHAPE")
+    } else {
+        core_error(error)
+    }
+}
+
+#[cfg(test)]
+mod context_input_error_tests {
+    use super::*;
+    #[test]
+    fn missing_context_is_shape_and_other_diagnostics_keep_their_mapping() {
+        for (code, expected) in [
+            ("FACT_REQUIRED", reject("INVALID_SHAPE")),
+            ("FACT_TYPE", reject("INVALID_SCALAR")),
+            ("FACT_RANGE", reject("INVALID_SCALAR")),
+            ("FUTURE_INTERNAL_FAILURE", ServiceError::Unavailable),
+        ] {
+            assert_eq!(
+                context_input_error(ledgerlab_core::Error {
+                    code,
+                    detail: "synthetic required-context fixture".into(),
+                }),
+                expected
+            );
+        }
+    }
 }

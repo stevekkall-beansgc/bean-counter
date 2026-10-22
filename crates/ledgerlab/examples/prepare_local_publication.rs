@@ -27,7 +27,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AuditArena::new()?
     };
     let mut session = OriginalAuditSession::for_resource_profile_v2(&arena)?;
-    let support = SelectedCompilerSupport::local_execution_with_session(&mut session)?;
     let mut documents = Vec::new();
     for name in [
         "context-facts.json",
@@ -43,6 +42,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .find(|d| d["schema"] == "ledger-workflow-policy/4")
         .ok_or("missing policy")?;
+    let old = SelectedCompilerSupport::local_execution_with_session(&mut session)?;
+    let support = if policy["compiler_ref"] == serde_json::to_value(old.reference())? {
+        old
+    } else {
+        drop(old);
+        SelectedCompilerSupport::local_conditional_execution_with_session(&mut session)?
+    };
     if policy["compiler_ref"] != serde_json::to_value(support.reference())? {
         return Err("input compiler_ref differs from actual local compiler".into());
     }
