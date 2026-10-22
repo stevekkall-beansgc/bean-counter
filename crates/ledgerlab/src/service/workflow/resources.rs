@@ -103,8 +103,7 @@ struct FileIdentity {
 }
 fn identity(path: &Path) -> Result<FileIdentity> {
     io::private_existing(path, false).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
-    let m = fs::symlink_metadata(path)
-        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+    let m = fs::symlink_metadata(path).map_err(|_| ServiceError::Unavailable)?;
     #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
     Ok(FileIdentity {
@@ -326,31 +325,21 @@ impl local::LocalWorkflowLedger {
             let parent = snap.path.parent().ok_or(ServiceError::IntegrityFailure)?;
             let nonce = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| {
-                    crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
-                })?
+                .map_err(|_| ServiceError::Unavailable)?
                 .as_nanos();
             let temp = parent.join(format!(".billing-resources-{}-{nonce}", std::process::id()));
-            io::write_new(&temp, bytes.as_slice()).map_err(|_| {
-                crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
-            })?;
+            io::write_new(&temp, bytes.as_slice()).map_err(|_| ServiceError::Unavailable)?;
             if let Err(e) = snap.recheck() {
                 let _ = fs::remove_file(&temp);
                 return Err(e);
             }
             if fs::rename(&temp, &snap.path).is_err() {
                 let _ = fs::remove_file(&temp);
-                return Err(crate::service::workflow_ci_unavailable(concat!(
-                    file!(),
-                    ":",
-                    line!()
-                )));
+                return Err(ServiceError::Unavailable);
             }
             fs::File::open(parent)
                 .and_then(|f| f.sync_all())
-                .map_err(|_| {
-                    crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
-                })?;
+                .map_err(|_| ServiceError::Unavailable)?;
             Ok(())
         }
         .await;

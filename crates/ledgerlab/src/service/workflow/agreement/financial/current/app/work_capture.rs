@@ -28,19 +28,14 @@ fn add(a: usize, b: usize, s: &mut OriginalAuditSession) -> Result<usize> {
     s.semantic_work()
         .arithmetic(Op::Add, &[&a.into(), &b.into()])
         .map_err(core_error)?;
-    a.checked_add(b)
-        .ok_or_else(|| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))
+    a.checked_add(b).ok_or(ServiceError::Unavailable)
 }
 fn storage(n: usize, stride: usize, s: &mut OriginalAuditSession) -> Result<ExternalBufferLease> {
     s.semantic_work()
         .arithmetic(Op::Multiply, &[&n.into(), &stride.into()])
         .map_err(core_error)?;
-    s.reserve_external_payload(
-        n.checked_mul(stride).ok_or_else(|| {
-            crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
-        })?,
-    )
-    .map_err(core_error)
+    s.reserve_external_payload(n.checked_mul(stride).ok_or(ServiceError::Unavailable)?)
+        .map_err(core_error)
 }
 fn copy(v: &str, s: &mut OriginalAuditSession) -> Result<String> {
     s.semantic_work().scan_bytes(v.len()).map_err(core_error)?;
@@ -72,7 +67,7 @@ pub(super) fn with_capture<T>(
     let activation = observed
         .activation
         .as_ref()
-        .ok_or_else(|| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+        .ok_or(ServiceError::Unavailable)?;
     let binding = observed._parsed_binding.value();
     let actor = observed.setup.operator.as_str();
     s.semantic_work()
@@ -110,7 +105,7 @@ pub(super) fn with_capture<T>(
     let mut originals = Vec::new();
     originals
         .try_reserve_exact(observed.sources.len())
-        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+        .map_err(|_| ServiceError::Unavailable)?;
     for other in &observed.sources {
         s.semantic_work()
             .visit(ValidationVisit::Element)
@@ -166,7 +161,7 @@ pub(super) fn with_capture<T>(
     let mut frames = Vec::new();
     frames
         .try_reserve_exact(slots.len())
-        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+        .map_err(|_| ServiceError::Unavailable)?;
     let selected_slot = observed
         .work_source_slot
         .as_ref()
@@ -424,14 +419,11 @@ fn input_pool<'a>(
     o: &'a ObservedAppBinding,
     s: &mut OriginalAuditSession,
 ) -> Result<InputPool<'a>> {
-    let activation = o
-        .activation
-        .as_ref()
-        .ok_or_else(|| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+    let activation = o.activation.as_ref().ok_or(ServiceError::Unavailable)?;
     let birth = o
         .work_source_birth
         .as_ref()
-        .ok_or_else(|| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+        .ok_or(ServiceError::Unavailable)?;
     let controls = s
         .reserve_external_payload(
             mem::size_of::<InputPool<'_>>()
@@ -483,7 +475,7 @@ fn input_pool<'a>(
     let owner = storage(count, mem::size_of::<EconomicRecordView<'_>>(), s)?;
     let mut rows: Vec<EconomicRecordView<'a>> = Vec::new();
     rows.try_reserve_exact(count)
-        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
+        .map_err(|_| ServiceError::Unavailable)?;
     for value in values() {
         s.semantic_work()
             .visit(ValidationVisit::Element)
@@ -647,7 +639,6 @@ pub(super) fn construct_local(
                 audit: None,
                 initial_source_correspondences: &[],
             };
-            crate::service::workflow_ci_diagnostic("core.construct.begin");
             let candidate = construct_local_financial_candidate(
                 observed.original.publication.program(),
                 capture,
@@ -657,7 +648,6 @@ pub(super) fn construct_local(
                 s,
             )
             .map_err(local_construction_error)?;
-            crate::service::workflow_ci_diagnostic("core.construct.complete");
             let evidence = produce_local_financial_request_evidence(
                 observed.original.publication.program(),
                 raw_request,
@@ -667,7 +657,6 @@ pub(super) fn construct_local(
                 s,
             )
             .map_err(core_error)?;
-            crate::service::workflow_ci_diagnostic("core.evidence.complete");
             Ok((candidate, evidence))
         },
     )

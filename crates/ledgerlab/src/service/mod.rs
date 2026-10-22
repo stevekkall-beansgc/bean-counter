@@ -4,73 +4,7 @@ mod project;
 #[cfg(test)]
 mod tests;
 use crate::{store::errors::StoreError, ServiceError};
-// Temporary, opt-in synthetic Linux CI diagnosis; no payloads are emitted.
-pub(crate) fn workflow_ci_diagnostic(label: &'static str) {
-    let mode = std::env::var_os("LEDGER_WORKFLOW_CI_DIAGNOSTIC");
-    let positive_phase = matches!(
-        label,
-        "operator.begin.complete"
-            | "local.observe.begin"
-            | "local.observe.complete"
-            | "local.construct.begin"
-            | "local.construct.complete"
-            | "core.construct.begin"
-            | "core.construct.complete"
-            | "core.evidence.complete"
-            | "local.frame.begin"
-            | "local.frame.complete"
-            | "local.recheck.complete"
-            | "local.append.complete"
-            | "finish.transaction.begin"
-            | "finish.transaction.commit.begin"
-            | "finish.transaction.commit.complete"
-    );
-    if mode.as_deref() == Some(std::ffi::OsStr::new("mapping-only"))
-        || (mode.as_deref() == Some(std::ffi::OsStr::new("error-only")) && !positive_phase)
-    {
-        eprintln!("WORKFLOW-CI-DIAG {label}");
-    }
-}
-pub(crate) fn workflow_ci_unavailable(label: &'static str) -> ServiceError {
-    workflow_ci_diagnostic(label);
-    ServiceError::Unavailable
-}
 pub(crate) fn store_error(e: StoreError) -> ServiceError {
-    workflow_ci_diagnostic(match &e {
-        StoreError::ResourceQuota { .. } => "store.ResourceQuota",
-        StoreError::Io(_) => "store.Io",
-        StoreError::Database(sqlx::Error::PoolTimedOut) => "store.Database.PoolTimedOut",
-        StoreError::Database(sqlx::Error::PoolClosed) => "store.Database.PoolClosed",
-        StoreError::Database(sqlx::Error::Database(error)) => match error
-            .code()
-            .and_then(|code| code.parse::<u32>().ok())
-            .map(|code| code & 255)
-        {
-            Some(5) => "store.Database.SQLiteBusy",
-            Some(6) => "store.Database.SQLiteLocked",
-            Some(10) => "store.Database.SQLiteIo",
-            Some(11) => "store.Database.SQLiteCorrupt",
-            Some(13) => "store.Database.SQLiteFull",
-            _ => "store.Database.DatabaseOther",
-        },
-        StoreError::Database(_) => "store.Database.Other",
-        StoreError::Postgres(_) => "store.Postgres",
-        StoreError::Migration(_) => "store.Migration",
-        StoreError::Owned => "store.Owned",
-        StoreError::Overloaded => "store.Overloaded",
-        StoreError::ReadBudgetExhausted => "store.ReadBudgetExhausted",
-        StoreError::BillingHistoryLimit => "store.BillingHistoryLimit",
-        StoreError::BillingPeriod => "store.BillingPeriod",
-        StoreError::BillingClockNotAdvanced => "store.BillingClockNotAdvanced",
-        StoreError::BillingUpgradeRequired => "store.BillingUpgradeRequired",
-        StoreError::BillingM5SchemaRequired => "store.BillingM5SchemaRequired",
-        StoreError::Deadline => "store.Deadline",
-        StoreError::InvalidStore(_) => "store.InvalidStore",
-        StoreError::Integrity(_) => "store.Integrity",
-        StoreError::WritesDisabled => "store.WritesDisabled",
-        StoreError::ExpectedCurrent => "store.ExpectedCurrent",
-        StoreError::DeliveryConflict => "store.DeliveryConflict",
-    });
     if let StoreError::ResourceQuota {
         setting,
         limit,

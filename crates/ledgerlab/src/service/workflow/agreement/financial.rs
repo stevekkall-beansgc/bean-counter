@@ -238,10 +238,8 @@ async fn finish_transaction(
     mut session: ledgerlab_core::validation_work::OriginalAuditSession,
     resources: Option<&crate::service::workflow::resources::Snapshot>,
 ) -> Result<WorkflowReply> {
-    crate::service::workflow_ci_diagnostic("finish.transaction.begin");
     match attempted {
         Err(error) => {
-            crate::service::workflow_ci_diagnostic("finish.transaction.attempt_error");
             tx.rollback().await.map_err(crate::service::store_error)?;
             Err(configured_error(error, resources))
         }
@@ -255,7 +253,6 @@ async fn finish_transaction(
             response
         }
         Ok(TransactionResult::Appended(response)) => {
-            crate::service::workflow_ci_diagnostic("finish.transaction.commit.begin");
             if let Some(snapshot) = resources {
                 if let Err(e) = snapshot.recheck() {
                     tx.rollback().await.map_err(crate::service::store_error)?;
@@ -281,7 +278,6 @@ async fn finish_transaction(
                         }
                     },
                 })?;
-            crate::service::workflow_ci_diagnostic("finish.transaction.commit.complete");
             #[cfg(test)]
             {
                 let mut selected = LOST_REPLY_KEY.lock().unwrap();

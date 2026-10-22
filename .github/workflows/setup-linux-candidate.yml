@@ -133,6 +133,7 @@ jobs:
             RUST_MIN_STACK="$stack_bytes" LEDGER_WORKFLOW_TEST_FIXTURE="$PWD/work/workflow-linux/main" "$test_binary" --exact "service::workflow::agreement::financial::local10_durability_tests::$test" --ignored --test-threads=1 > "$evidence/$test.log" 2>&1
           done
           for test in \
+            store::sqlite::billing::tests::management_readers_use_effective_workflow_deadline \
             store::sqlite::workflow::tests::exact_fixture_commit_identity_and_cache_free_database_reopen \
             store::sqlite::workflow::tests::every_insert_failure_rolls_back_all_records_indexes_and_feed \
             store::sqlite::workflow_integration_tests::explicit_upgrade_preserves_legacy_bytes_and_reopens_with_legacy_writer \
