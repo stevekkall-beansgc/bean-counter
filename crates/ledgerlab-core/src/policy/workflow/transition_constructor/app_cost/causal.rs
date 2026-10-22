@@ -41,6 +41,33 @@ fn literal(m: &mut CoreMeter, value: &Value, key: &str, wanted: &str) -> Result<
     }
     Ok(())
 }
+// This is a missing required semantic operand, matching the family closure
+// selector's refusal. Duplicate/malformed nominations remain integrity errors;
+// expected revision and authority validation still follow the exact match.
+fn current_reversal_nomination(
+    m: &mut CoreMeter,
+    reversals: &[Value],
+    decision: &ExactRef,
+) -> Result<usize> {
+    let mut nomination = None;
+    for (index, item) in reversals.iter().enumerate() {
+        m.visit("app.causal_current_nomination")?;
+        let reference = shape::reference(m, &item["decision_ref"])?;
+        if shape::same_ref(m, &reference, decision)? {
+            if nomination.is_some() {
+                return Err(shape::fail("duplicate app reversal nomination"));
+            }
+            nomination = Some(index);
+        }
+    }
+    nomination.ok_or_else(|| {
+        crate::Error::new(
+            "REVERSAL_DEPENDENTS_REQUIRED",
+            "required finalized app reversal missing",
+        )
+    })
+}
+
 /// Only validated original root identity and exact per-kind operands determine
 /// the retained edge. No future digest, caller bound or saved expected output.
 fn dependency(
@@ -1069,19 +1096,7 @@ pub(in crate::policy::workflow::transition_constructor) fn prepare(
             literal(m, &revision, "status", "active")?;
             let reversals = shape::array(m, request, "dependent_reversals")?;
             let decision = shape::reference(m, &revision["current_decision_ref"])?;
-            let mut nomination = None;
-            for (index, item) in reversals.iter().enumerate() {
-                m.visit("app.causal_current_nomination")?;
-                let reference = shape::reference(m, &item["decision_ref"])?;
-                if shape::same_ref(m, &reference, &decision)? {
-                    if nomination.is_some() {
-                        return Err(shape::fail("duplicate app reversal nomination"));
-                    }
-                    nomination = Some(index);
-                }
-            }
-            let index =
-                nomination.ok_or_else(|| shape::fail("required finalized app reversal missing"))?;
+            let index = current_reversal_nomination(m, reversals, &decision)?;
             let expected = shape::text(m, &reversals[index], "expected_revision")?;
             let current = super::plan::current(m, r, c, claim.value(), expected, state)?;
             let selected = WorkingValue::copy(m, &reversals[index])?;
@@ -1421,5 +1436,48 @@ impl FinalizedClosure {
             proposed,
             revision,
         })
+    }
+}
+
+#[cfg(test)]
+mod nomination_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn finalized_app_requires_exact_dependent_without_reclassifying_integrity() {
+        let mut m = CoreMeter::new(65_536).unwrap();
+        let decision = ExactRef {
+            kind: "workflow-decision".into(),
+            id: format!("wdrev_{}", "1".repeat(64)),
+            digest: format!("sha256:{}", "2".repeat(64)),
+        };
+        let missing = current_reversal_nomination(&mut m, &[], &decision).unwrap_err();
+        assert_eq!(missing.code, "REVERSAL_DEPENDENTS_REQUIRED");
+        let mut other = decision.clone();
+        other.id = format!("wdrev_{}", "3".repeat(64));
+        let unrelated =
+            json!({"decision_ref":other,"expected_revision":"1","authority_evidence_refs":[]});
+        let missing =
+            current_reversal_nomination(&mut m, std::slice::from_ref(&unrelated), &decision)
+                .unwrap_err();
+        assert_eq!(missing.code, "REVERSAL_DEPENDENTS_REQUIRED");
+        let selected =
+            json!({"decision_ref":decision,"expected_revision":"1","authority_evidence_refs":[]});
+        assert_eq!(
+            current_reversal_nomination(&mut m, &[unrelated, selected.clone()], &decision).unwrap(),
+            1
+        );
+        let duplicate =
+            current_reversal_nomination(&mut m, &[selected.clone(), selected.clone()], &decision)
+                .unwrap_err();
+        assert_eq!(duplicate.code, "INTEGRITY_FAILURE");
+        assert_eq!(duplicate.detail, "duplicate app reversal nomination");
+        // A malformed row still refuses even after a matching row; the search
+        // retains its original traversal and does not return early on a hit.
+        let malformed = json!({"decision_ref":null});
+        let invalid =
+            current_reversal_nomination(&mut m, &[selected, malformed], &decision).unwrap_err();
+        assert_eq!(invalid.code, "INTEGRITY_FAILURE");
     }
 }
