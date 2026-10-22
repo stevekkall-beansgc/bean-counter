@@ -257,3 +257,63 @@ async fn local_root_dependency_allows_monotone_source_restriction_and_exact_retr
     assert_eq!(snapshot(&path).await, after);
     assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
 }
+
+/// Original evidence is an economic local10 frame even though its operation
+/// kind also names legacy administrative evidence. Status must select its
+/// authenticated original recipe, exactly as the retry path already does.
+#[tokio::test]
+#[ignore = "requires captured build and explicit completed attested synthetic fixture"]
+async fn local10_attested_administrative_originals_reopen_status_and_retry() {
+    assert!(crate::build_identity::embedded_inputs().is_ok());
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("installation"), &path);
+    let config = fs::read(path.join("billing.json")).unwrap();
+    let before = snapshot(&path).await;
+    for operation in [
+        "main-quantity-proof",
+        "main-proof-source-narrow",
+        "main-quantity-replacement-proof",
+    ] {
+        let raw = fs::read(root.join(format!("{operation}.request.json"))).unwrap();
+        let request: Value = serde_json::from_slice(&raw).unwrap();
+        let saved: Value = serde_json::from_slice(
+            &fs::read(root.join(format!("{operation}.committed.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["status"], "committed");
+        assert_eq!(saved["receipt"]["key"], request["key"]);
+        let key = records::bytes(&request["key"]).unwrap();
+        let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+        let status = ledger.status(&key).await.unwrap();
+        assert_eq!(status["status"], "committed");
+        assert_eq!(status["receipt"], saved["receipt"]);
+        ledger.close().await;
+        let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+        let retry = if request["kind"] == "authority.change" {
+            reopened.prerequisite(&raw).await.unwrap()
+        } else {
+            assert_eq!(
+                request["payload"]["schema"],
+                "ledger-workflow-fact-attest/1"
+            );
+            reopened.financial(&raw).await.unwrap()
+        };
+        assert_eq!(retry["duplicate_kind"], "identity");
+        assert_eq!(retry["receipt"], saved["receipt"]);
+        reopened.close().await;
+        assert_eq!(snapshot(&path).await, before);
+        assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
+    }
+}
