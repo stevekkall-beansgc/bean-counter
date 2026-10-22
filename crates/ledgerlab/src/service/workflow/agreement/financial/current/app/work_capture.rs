@@ -721,7 +721,10 @@ mod local_error_tests {
             .as_array()
             .unwrap()
             .contains(&json!("STALE_REVISION")));
-        let error = || ledgerlab_core::Error::new("REVISION_CONFLICT", "root expected revision");
+        let error = || ledgerlab_core::Error {
+            code: "REVISION_CONFLICT",
+            detail: "root expected revision".into(),
+        };
         assert_eq!(local_construction_error(error()), reject("STALE_REVISION"));
         assert_eq!(core_error(error()), ServiceError::Unavailable);
     }
