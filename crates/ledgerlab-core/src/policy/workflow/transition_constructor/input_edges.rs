@@ -538,6 +538,15 @@ pub fn select_local_input_edges(
             "ledger-workflow-app-final-cost/1" => Some(&["subject"]),
             _ => None,
         };
+        // A causally closed family retains the exact preclosure state used by
+        // root_correction::causal::closed_lineage. Select that one semantic
+        // operand, without following ordinary family predecessor history.
+        let closed_family_lineage = if schema == "ledger-workflow-family-state/2" {
+            let state = shape::text(m, &v, "state")?;
+            shape::same_text(m, state, "closed_by_root")?
+        } else {
+            false
+        };
         let mut count = 0usize;
         let walk = |emit: &mut Emit<'_>, m: &mut CoreMeter| -> Result<()> {
             if let Some(fields) = fields {
@@ -546,6 +555,9 @@ pub fn select_local_input_edges(
                     if let Some(value) = v.get(*field) {
                         generic(value, 1, m, emit)?;
                     }
+                }
+                if closed_family_lineage {
+                    generic(shape::field(m, &v, "prior_ref")?, 1, m, emit)?;
                 }
                 Ok(())
             } else {
@@ -652,4 +664,80 @@ pub fn validate_local_record_reference(
         s.invalidate();
     }
     result
+}
+
+#[cfg(test)]
+mod local_family_lineage_tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
+    use serde_json::json;
+
+    #[test]
+    fn closed_family_selects_exact_preclosure_operand_without_ordinary_history() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut producer = super::super::CoreMeter::new(65536).unwrap();
+        let key = OperationKey {
+            logical_store_id: "lineage-store".into(),
+            scope: ["lineage-company".into(), "lineage-scope".into()],
+            source: "urn:example:lineage".into(),
+            operation_id: "first-closing-operation".into(),
+        };
+        // Locator DATA bodies exercise the actual canonical selector, not a
+        // completed original authority or financial replay fixture.
+        let old_decision = super::super::body::record(
+            &mut producer,
+            &key,
+            "workflow-decision",
+            format!("wdrev_{}", "1".repeat(64)),
+            json!({"schema":"ledger-workflow-decision-revision/1"}),
+        )
+        .unwrap();
+        let before = super::super::body::record(
+            &mut producer, &key, "workflow-family-state", format!("wfamily_{}", "2".repeat(64)),
+            json!({"schema":"ledger-workflow-family-state/1","state":"claimed","decision_ref":old_decision.reference}),
+        ).unwrap();
+        let mut current = json!({"schema":"ledger-workflow-family-state/2","state":"closed_by_root","prior_ref":before.reference});
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut selected = |body: &Value| {
+            let record = super::super::body::record(
+                &mut producer,
+                &key,
+                "workflow-family-state",
+                format!("wfamily_{}", "3".repeat(64)),
+                body.clone(),
+            )
+            .unwrap();
+            select_local_input_edges(
+                &key,
+                EconomicRecordView {
+                    reference: &record.reference,
+                    canonical_body: &record.canonical_body,
+                },
+                &mut session,
+            )
+            .unwrap()
+            .direct_refs()
+            .cloned()
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(selected(&current), vec![before.reference.clone()]);
+        current["state"] = json!("claimed");
+        assert!(selected(&current).is_empty());
+        current["schema"] = json!("ledger-workflow-family-state/1");
+        current["state"] = json!("closed_by_root");
+        assert!(selected(&current).is_empty());
+        let edges = select_local_input_edges(
+            &key,
+            EconomicRecordView {
+                reference: &before.reference,
+                canonical_body: &before.canonical_body,
+            },
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(
+            edges.direct_refs().collect::<Vec<_>>(),
+            vec![&old_decision.reference]
+        );
+    }
 }
