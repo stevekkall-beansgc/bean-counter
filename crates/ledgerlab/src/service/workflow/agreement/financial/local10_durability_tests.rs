@@ -54,19 +54,34 @@ fn fixture(case: &str) -> (tempfile::TempDir, PathBuf, Vec<u8>, OperationKey, Ve
         .join("installation");
     copy_private_tree(&root.join("installation"), &path);
     let config = fs::read(path.join("billing.json")).unwrap();
+    let operation =
+        std::env::var("LEDGER_WORKFLOW_TEST_OPERATION").unwrap_or_else(|_| "main-work".into());
+    assert!(matches!(
+        operation.as_str(),
+        "main-work" | "main-quantity-correct"
+    ));
     let mut request: Value =
-        serde_json::from_slice(&fs::read(root.join("main-work.request.json")).unwrap()).unwrap();
-    assert_eq!(request["kind"], "work.accept");
-    assert_eq!(request["payload"]["schema"], "ledger-workflow-work/1");
+        serde_json::from_slice(&fs::read(root.join(format!("{operation}.request.json"))).unwrap())
+            .unwrap();
     let tag = format!(
         "local10-{case}-{}",
         temporary.path().file_name().unwrap().to_str().unwrap()
     );
-    for field in ["external_event_id", "business_operation_id", "chain"] {
-        request["payload"][field] = json!(tag);
+    if operation == "main-work" {
+        assert_eq!(request["kind"], "work.accept");
+        assert_eq!(request["payload"]["schema"], "ledger-workflow-work/1");
+        for field in ["external_event_id", "business_operation_id", "chain"] {
+            request["payload"][field] = json!(tag);
+        }
+        request["payload"]["occurred_at"] = json!(crate::local::now().unwrap().as_str());
+    } else {
+        assert_eq!(request["kind"], "quantity.correct");
+        assert_eq!(
+            request["payload"]["schema"],
+            "ledger-workflow-quantity-correction/2"
+        );
     }
     request["key"]["operation_id"] = json!(tag);
-    request["payload"]["occurred_at"] = json!(crate::local::now().unwrap().as_str());
     let key = OperationKey::parse(&records::bytes(&request["key"]).unwrap()).unwrap();
     (
         temporary,

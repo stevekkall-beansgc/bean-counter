@@ -67,6 +67,12 @@ def material(text):
             "content_sha256": sha(raw)}
 
 class Journey:
+    fixture_directory = FIXTURES
+    quantity = "20"
+
+    def source_documents(self):
+        return json.loads((self.fixture_directory / "source.json").read_bytes())["documents"]
+
     def __init__(self, args):
         self.args = args
         self.root = args.output.resolve()
@@ -76,7 +82,7 @@ class Journey:
         self.installation = self.root / "installation"
         self.inputs = self.root / "inputs"
         self.inputs.mkdir(exist_ok=True)
-        self.business = json.loads((FIXTURES / "business.json").read_bytes())
+        self.business = json.loads((self.fixture_directory / "business.json").read_bytes())
         self.operator, self.source = self.business["operator"], self.business["source"]
         self.customer, self.agreement = self.business["customer"], self.business["agreement"]
         self.scope = self.business["scope"]
@@ -99,7 +105,7 @@ class Journey:
         build = self.binary.parents[3] if len(self.binary.parents) > 3 else self.binary.parent
         execution = {"path": str(self.binary), "sha256": sha(self.binary.read_bytes()),
                      "runner_commit": source_commit(),
-                     "fixtures": {name: sha((FIXTURES / name).read_bytes()) for name in ["source.json", "business.json"]}}
+                     "fixtures": {name: sha((self.fixture_directory / name).read_bytes()) for name in ["source.json", "business.json"]}}
         package_info = self.binary.parent / "BUILD-INFO.txt"
         if package_info.is_file():
             fields = dict(line.split("=", 1) for line in package_info.read_text().splitlines() if "=" in line)
@@ -352,7 +358,7 @@ class Journey:
                             {"purpose": "party_operator_attestation", "statement": "operator_verified_party_acceptor_authority", "target_evidence_ref": ev})
         auth = unique(self.submit("platform-authorize", "authority.change", {"schema": "ledger-workflow-party-authorize/1",
             "expected_revision": "0", "authorization": authorization, "evidence_ref": ev, "operator_attestation_ref": att}), "workflow-authority")
-        documents = json.loads((FIXTURES / "source.json").read_bytes())["documents"]
+        documents = self.source_documents()
         for d in documents:
             if d["schema"] == "ledger-workflow-policy/4" and self.args.deadline_seconds:
                 d["families"][0]["window"].update({"occurrence_us": str(self.args.deadline_seconds * 1_000_000),
@@ -436,7 +442,7 @@ class Journey:
             "business_operation_id": prefix + "-service", "customer": self.customer, "chain": prefix + "-app-chain",
             "activity": "support:complete", "product_ref": self.product_ref, "policy_ref": self.policy_ref,
             "fact_schema_ref": self.fact_refs["support:work-facts"], "binding_ref": self.binding_ref, "status": "succeeded",
-            "facts": {"support:quantity": "20"}, "fact_proofs": [], "links": [], "evidence_refs": [], "invocation_refs": [], "occurred_at": now()})
+            "facts": {"support:quantity": self.quantity}, "fact_proofs": [], "links": [], "evidence_refs": [], "invocation_refs": [], "occurred_at": now()})
         return {"prefix": prefix, "receipt": result, "work_ref": unique(result, "workflow-work"),
                 "target_ref": unique(result, "workflow-target"), "root_decision_ref": unique(result, "workflow-decision")}
 
@@ -450,7 +456,7 @@ class Journey:
         prefix = w["prefix"]
         observation = self.submit(prefix + "-observation", "evidence.retain", {"schema": "ledger-workflow-app-observe/1",
             "attestation": {"schema": "ledger-workflow-app-observation/1", "attestation_id": prefix + "-observation", "source": self.source,
-                "evidence_kind": "app_usage", "subject": self.app_subject(w), "usage_field": "support:quantity", "quantity": "20",
+                "evidence_kind": "app_usage", "subject": self.app_subject(w), "usage_field": "support:quantity", "quantity": self.quantity,
                 "unit": "support:request", "observed_at": self.document(w["work_ref"])["payload"]["occurred_at"],
                 "provider_key": {"provider": "synthetic-provider", "account": "synthetic-account", "request_id": prefix + "-provider-call"},
                 "material": material("Synthetic same-call usage")}})
@@ -476,7 +482,7 @@ class Journey:
             "source": self.source, "evidence_kind": "app_final_cost", "subject": self.app_subject(w),
             "observation_ref": w["observation"]["attestation_ref"], "cost_revision": str(revision),
             "finality": "final_attributable_amount", "amount": {"currency": "USD", "scale": 18, "atoms": str(atoms)},
-            "quantity_comparison": {"kind": "comparable", "quantity": "20", "unit": "support:request"},
+            "quantity_comparison": {"kind": "comparable", "quantity": self.quantity, "unit": "support:request"},
             "issued_at": now(), "material": material("Synthetic exact same-call attributable final cost")}
         if revision > 1:
             attestation["prior_final_evidence_ref"] = w["final_evidence"]["attestation_ref"]

@@ -693,6 +693,9 @@ const LOCAL_CONSTRUCTION_ERRORS: &[&str] = &[
     "WAITING_FINAL_COST",
 ];
 fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
+    if error.code == "REVISION_CONFLICT" {
+        return ServiceError::Rejection("STALE_REVISION".into());
+    }
     if error.code == "EXPOSURE_CEILING_EXCEEDED" {
         return ServiceError::Rejection("EXPOSURE_EXCEEDED".into());
     }
@@ -707,6 +710,21 @@ fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
 #[cfg(test)]
 mod local_error_tests {
     use super::*;
+
+    #[test]
+    fn local_revision_conflict_uses_declared_stale_revision() {
+        let registry: Value = serde_json::from_str(include_str!(
+            "../../../../../../../../../contracts/candidates/full-suite-v1/core/local-execution-01/registry.json"
+        ))
+        .unwrap();
+        assert!(registry["errors"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("STALE_REVISION")));
+        let error = || ledgerlab_core::Error::new("REVISION_CONFLICT", "root expected revision");
+        assert_eq!(local_construction_error(error()), reject("STALE_REVISION"));
+        assert_eq!(core_error(error()), ServiceError::Unavailable);
+    }
 
     #[test]
     fn local_construction_errors_are_declared_without_widening_legacy_mapping() {

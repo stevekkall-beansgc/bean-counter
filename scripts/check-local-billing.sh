@@ -17,3 +17,4 @@ sh scripts/check-contracts.sh
 sh scripts/check-m5-contracts.sh
 python3 scripts/contract_checks/check_reservation_freeze.py
 sh scripts/check-reservation-settlement.sh
+python3 scripts/test_workflow_metered.py
