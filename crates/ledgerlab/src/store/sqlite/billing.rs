@@ -397,7 +397,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management guards").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = super::workflow::until(self.workflow_deadline(), async {
             self.financial_reserve_io(s, 262144)?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
             s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
@@ -419,7 +419,7 @@ impl SqliteTx {
             Ok(())
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self
@@ -440,7 +440,7 @@ impl SqliteTx {
     pub(crate) async fn billing_meta(&mut self) -> Result<BillingSnapshot, StoreError> {
         let failed = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = super::workflow::until(self.workflow_deadline(), async {
             self.require_m5_billing_schema().await?;
             let setup: Vec<u8> =
                 sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1")
@@ -471,7 +471,7 @@ impl SqliteTx {
             })
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = failed;
         }
@@ -1271,6 +1271,67 @@ mod tests {
     };
     const SETUP: &[u8] = include_bytes!("../../../../../examples/billing/setup.json");
     const EVENT: &[u8] = include_bytes!("../../../../../examples/billing/event.json");
+    #[tokio::test]
+    async fn management_readers_use_effective_workflow_deadline() {
+        use ledgerlab_core::canonical::audit_arena::AuditArena;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(&path, SETUP).await.unwrap();
+        let store = SqliteStore::open(&path.join(".ledger")).await.unwrap();
+        for paid in [false, true] {
+            for mode in ["unlimited", "finite", "legacy", "poisoned", "cancelled"] {
+                let arena = AuditArena::new().unwrap();
+                let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let mut tx = store
+                    .begin(Instant::now() + Duration::from_secs(300))
+                    .await
+                    .unwrap();
+                let expired = Instant::now() - Duration::from_secs(1);
+                tx.deadline = expired;
+                if mode != "legacy" {
+                    tx.workflow_bind_resources(None, None, (mode == "finite").then_some(expired));
+                }
+                if mode == "poisoned" {
+                    tx.workflow_proof_failed
+                        .store(true, std::sync::atomic::Ordering::Release);
+                }
+                if mode == "cancelled" {
+                    arena.cancellation_handle().cancel();
+                }
+                if paid {
+                    let result = tx.billing_management_guards(&mut session).await;
+                    match mode {
+                        "unlimited" => {
+                            result.unwrap();
+                            assert!(!tx.failed);
+                            assert!(tx.financial_io.is_none());
+                        }
+                        "finite" | "legacy" => {
+                            assert!(matches!(
+                                result,
+                                Err(FinancialReadError::Store(StoreError::Deadline))
+                            ));
+                            assert!(tx.failed);
+                        }
+                        _ => assert!(result.is_err()),
+                    }
+                } else if mode == "unlimited" || mode == "finite" || mode == "legacy" {
+                    let result = tx.billing_meta().await;
+                    if mode == "unlimited" {
+                        result.unwrap();
+                        assert!(!tx.failed);
+                    } else {
+                        assert!(matches!(result, Err(StoreError::Deadline)));
+                        assert!(tx.failed);
+                    }
+                }
+                tx.rollback().await.unwrap();
+            }
+        }
+        store.close().await;
+    }
+
     /// The production two-phase shape: a metadata snapshot, the exact retained
     /// lookups, then the service decision.
     async fn plan(store: &SqliteStore) -> (SqliteTx, service::ValidatedEntry) {
