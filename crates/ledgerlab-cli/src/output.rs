@@ -86,6 +86,19 @@ pub fn preview(result: PreviewResult) -> (Value, u8) {
     (v, c)
 }
 pub fn local_error(e: LocalError) -> (Value, u8) {
+    if std::env::var_os("LEDGER_WORKFLOW_CI_DIAGNOSTIC").as_deref()
+        == Some(std::ffi::OsStr::new("mapping-only"))
+    {
+        match &e {
+            LocalError::Service(ServiceError::Retryable) => {
+                eprintln!("WORKFLOW-CI-DIAG cli.Retryable")
+            }
+            LocalError::Service(ServiceError::Unavailable) => {
+                eprintln!("WORKFLOW-CI-DIAG cli.Unavailable")
+            }
+            _ => {}
+        }
+    }
     match e {
         LocalError::Service(ServiceError::OutcomeUnknown {
             scope,

@@ -153,7 +153,7 @@ impl<'a> RefSet<'a> {
             .map_err(core_error)?;
         let mut refs: Vec<&ExactRef> = Vec::new();
         refs.try_reserve_exact(count)
-            .map_err(|_| ServiceError::Unavailable)?;
+            .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
         for reference in input {
             session
                 .semantic_work()
@@ -208,7 +208,7 @@ impl<'a> RefSet<'a> {
             .map_err(core_error)?;
         let mut refs = Vec::new();
         refs.try_reserve_exact(count)
-            .map_err(|_| ServiceError::Unavailable)?;
+            .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
         for reference in input {
             require(
                 compare(refs.len(), count, session)?.is_lt(),
@@ -534,7 +534,7 @@ fn owned_reference(
         .map_err(core_error)?;
     let mut id = String::new();
     id.try_reserve_exact(id_length)
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     session
         .semantic_work()
         .write_bytes(prefix.len() + 64 + 71 + kind.len())
@@ -575,7 +575,7 @@ pub(super) fn string(text: &str, session: &mut OriginalAuditSession) -> Result<A
         .map_err(core_error)?;
     let mut copy = String::new();
     copy.try_reserve_exact(text.len())
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     copy.push_str(text);
     let value = Value::String(copy);
     session
@@ -1116,7 +1116,7 @@ fn frame_inner<'a>(
     let mut documents = Vec::new();
     documents
         .try_reserve_exact(count)
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     for record in candidate.introduced() {
         session
             .semantic_work()

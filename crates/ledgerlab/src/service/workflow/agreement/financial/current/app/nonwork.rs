@@ -47,7 +47,8 @@ pub(in super::super::super) async fn observe(
     payload: &Value,
     s: &mut OriginalAuditSession,
 ) -> Result<ObservedAppBinding> {
-    let received = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+    let received = crate::local::now()
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     let before = tx
         .workflow_sequence()
         .await

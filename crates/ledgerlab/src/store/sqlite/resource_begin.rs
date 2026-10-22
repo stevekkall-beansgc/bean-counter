@@ -169,7 +169,14 @@ impl SqliteStore {
     ) -> Result<SqliteTx, FinancialReadError> {
         // Only native acquisition/CLEAR use this fallback, never the request itself.
         let acquisition = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(2));
-        let mut tx = self.begin_with_resource_session(acquisition, s).await?;
+        let mut tx = self
+            .begin_with_resource_session(acquisition, s)
+            .await
+            .map_err(|error| {
+                crate::service::workflow_ci_diagnostic("operator.begin.error");
+                error
+            })?;
+        crate::service::workflow_ci_diagnostic("operator.begin.complete");
         tx.workflow_bind_resources(None, None, deadline);
         Ok(tx)
     }

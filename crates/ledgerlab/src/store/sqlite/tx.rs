@@ -28,13 +28,27 @@ macro_rules! checked_read {
             $read,
         )
         .await
-        .map_err(|_| $this.workflow_timeout_error())?;
+        .map_err(|_| {
+            crate::service::workflow_ci_diagnostic(concat!(
+                "checked_read.timeout:",
+                file!(),
+                ":",
+                line!()
+            ));
+            $this.workflow_timeout_error()
+        })?;
         match result {
             Ok(value) => {
                 $this.failed = failed;
                 Ok(value)
             }
             Err(error) => {
+                crate::service::workflow_ci_diagnostic(concat!(
+                    "checked_read.error:",
+                    file!(),
+                    ":",
+                    line!()
+                ));
                 if error.disables_writes() {
                     $this.store.disabled.store(true, Ordering::Release);
                 }

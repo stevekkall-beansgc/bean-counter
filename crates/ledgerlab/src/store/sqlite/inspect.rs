@@ -22,10 +22,17 @@ impl SqliteStore {
                 None
             };
             self.require_published()?;
-            read::installation(&mut *self.inner.readers.acquire().await?).await
+            read::installation(&mut *self.inner.readers.acquire().await.map_err(|error| {
+                crate::service::workflow_ci_diagnostic("local_installation.reader_acquire.error");
+                error
+            })?)
+            .await
         })
         .await
-        .map_err(|_| StoreError::Deadline)?
+        .map_err(|_| {
+            crate::service::workflow_ci_diagnostic("local_installation.timeout");
+            StoreError::Deadline
+        })?
     }
     pub(crate) async fn inspect(
         &self,

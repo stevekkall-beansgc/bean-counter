@@ -491,7 +491,9 @@ impl LocalWorkflowLedger {
                 } else {
                     None
                 };
-                let at = local_io::now().map_err(|_| ServiceError::Unavailable)?;
+                let at = local_io::now().map_err(|_| {
+                    crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
+                })?;
                 let append = publication::assemble(
                     &req,
                     &prepared,
@@ -733,9 +735,9 @@ impl LocalOwnerAdmin {
                     &[&key_bytes.into(), &text.len().into()],
                 )
                 .map_err(core_error)?;
-            key_bytes = key_bytes
-                .checked_add(text.len())
-                .ok_or(ServiceError::Unavailable)?;
+            key_bytes = key_bytes.checked_add(text.len()).ok_or_else(|| {
+                crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!()))
+            })?;
             s.semantic_work()
                 .scan_bytes(text.len())
                 .map_err(core_error)?;
@@ -804,19 +806,31 @@ impl LocalOwnerAdmin {
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         if !open {
-            return Err(ServiceError::Unavailable);
+            return Err(crate::service::workflow_ci_unavailable(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         s.semantic_work()
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         if !state.dispatch_hold {
-            return Err(ServiceError::Unavailable);
+            return Err(crate::service::workflow_ci_unavailable(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         s.semantic_work()
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         if state.dispatch_enabled {
-            return Err(ServiceError::Unavailable);
+            return Err(crate::service::workflow_ci_unavailable(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok(())
     }
@@ -963,7 +977,11 @@ impl LocalOwnerAdmin {
         // Mutable installation availability is a service boundary, not an
         // invented publication/economic refusal in the closed registry.
         if state.admission != "open" || !state.dispatch_hold || state.dispatch_enabled {
-            return Err(ServiceError::Unavailable);
+            return Err(crate::service::workflow_ci_unavailable(concat!(
+                file!(),
+                ":",
+                line!()
+            )));
         }
         Ok(setup)
     }

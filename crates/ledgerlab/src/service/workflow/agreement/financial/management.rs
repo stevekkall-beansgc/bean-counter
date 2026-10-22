@@ -110,7 +110,8 @@ fn add(a: usize, b: usize, s: &mut OriginalAuditSession) -> Result<usize> {
     s.semantic_work()
         .arithmetic(Op::Add, &[&a.into(), &b.into()])
         .map_err(core_error)?;
-    a.checked_add(b).ok_or(ServiceError::Unavailable)
+    a.checked_add(b)
+        .ok_or_else(|| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))
 }
 /// Only already canonical parts from this fixed private producer enter here.
 /// Punctuation/copies use the same owning builder as the existing wire object.
@@ -185,7 +186,7 @@ fn setup_bytes(
     let mut owned = Vec::new();
     owned
         .try_reserve_exact(19)
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     macro_rules! field {
         ($name:literal,$value:expr) => {{
             s.semantic_work().visit(Visit::Field).map_err(core_error)?;
@@ -236,7 +237,7 @@ fn setup_bytes(
     let mut fields = Vec::new();
     fields
         .try_reserve_exact(19)
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| crate::service::workflow_ci_unavailable(concat!(file!(), ":", line!())))?;
     for (name, value) in &owned {
         s.semantic_work().visit(Visit::Field).map_err(core_error)?;
         fields.push((*name, value.bytes()));
