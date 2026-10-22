@@ -69,6 +69,140 @@ impl LocalOperationLocators {
     pub fn work_heads(&self) -> Option<&WorkHeadLocators> {
         self.work.as_ref()
     }
+    /// Add original link locators from the actual held closed-family heads.
+    /// Permanent closure does not remove immutable links from the chain root.
+    /// This is acquisition DATA only; the child still validates each link and
+    /// the complete current link-set root under the held snapshot.
+    pub fn retain_current_family_outcome_links(
+        &mut self,
+        program: &SelectedProgram,
+        key: &OperationKey,
+        family_heads: &[FamilyHead],
+        inputs: &[EconomicRecordView<'_>],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let result = (|| {
+            s.check_cancelled()?;
+            program.require_attempt_owner(s.meter_mut())?;
+            if !program.uses_local_execution_recipe() {
+                return Err(shape::fail("exact local retained link recipe required"));
+            }
+            let a = s.arena().shared_handle();
+            let m = s.meter_mut();
+            a.require_external_owner(&self._ownership, m)?;
+            let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+            let work_ref = self
+                .subject
+                .original_work_ref()
+                .ok_or_else(|| shape::fail("retained link original work"))?;
+            let work = r.get(
+                m,
+                key,
+                work_ref,
+                "workflow-work",
+                "ledger-workflow-work-record/1",
+            )?;
+            let expected_work = super::working_value::owning_reference(m, &a, work_ref)?;
+            let binding_ref = self.subject.original_binding_ref();
+            let binding = r.get(
+                m,
+                key,
+                binding_ref,
+                "workflow-binding",
+                "ledger-workflow-binding/2",
+            )?;
+            let expected_binding = super::working_value::owning_reference(m, &a, binding_ref)?;
+            shape::equal(m, &work["payload"]["binding_ref"], expected_binding.value())?;
+            let (_, inst) = load_ref(
+                m,
+                &a,
+                &mut r,
+                key,
+                &binding["slot_instantiation_ref"],
+                "workflow-slot-instantiation",
+                "ledger-workflow-slot-instantiation/1",
+            )?;
+            let count = w::usize_add(m, self.outcome_links.len(), family_heads.len())?;
+            let mut out = reserve_outcome_links(m, &a, &mut self._copies, count)?;
+            for (child, slot) in &self.outcome_links {
+                let value = super::working_value::owning_reference(m, &a, child)?;
+                out.push((
+                    rf(m, &a, &mut self._copies, value.value())?,
+                    cp(m, &a, &mut self._copies, slot)?,
+                ));
+            }
+            for head in family_heads {
+                m.visit("local.closed_family_original_outcome_link")?;
+                let state = r.get_schemas(
+                    m,
+                    key,
+                    &head.reference,
+                    "workflow-family-state",
+                    &[
+                        "ledger-workflow-family-state/1",
+                        "ledger-workflow-family-state/2",
+                    ],
+                )?;
+                let target_ref = super::working_value::owning_reference(m, &a, &head.target_ref)?;
+                shape::equal(m, &state["target_ref"], target_ref.value())?;
+                let slot = txt(m, &state, "family_slot")?;
+                if !shape::same_text(m, slot, &head.family_slot)? {
+                    return Err(shape::fail("retained family head slot"));
+                }
+                let revision = txt(m, &state, "revision")?;
+                if !shape::same_text(m, revision, &head.revision)? {
+                    return Err(shape::fail("retained family head revision"));
+                }
+                let status = txt(m, &state, "state")?;
+                if !shape::same_text(m, status, "closed_by_root")? {
+                    continue;
+                }
+                let schema = txt(m, &state, "schema")?;
+                if !shape::same_text(m, schema, "ledger-workflow-family-state/2")? {
+                    return Err(shape::fail("retained closed family schema"));
+                }
+                let target = r.get(
+                    m,
+                    key,
+                    &head.target_ref,
+                    "workflow-target",
+                    "ledger-workflow-component-target/1",
+                )?;
+                shape::equal(m, &target["work_ref"], expected_work.value())?;
+                shape::equal(m, &target["binding_ref"], expected_binding.value())?;
+                let _family = locator_family(program, m, &target, &work, &inst, &head.family_slot)?;
+                let Some(claim_value) = state.get("claim_ref") else {
+                    continue;
+                };
+                let (claim_ref, claim) = load_ref(
+                    m,
+                    &a,
+                    &mut r,
+                    key,
+                    claim_value,
+                    "workflow-outcome-claim",
+                    "ledger-workflow-outcome-claim/1",
+                )?;
+                shape::equal(m, &claim["target_ref"], &state["target_ref"])?;
+                shape::equal(m, &claim["family_slot"], &state["family_slot"])?;
+                push_outcome_link(
+                    program,
+                    m,
+                    &a,
+                    &mut self._copies,
+                    &mut out,
+                    claim_ref.reference(),
+                    (&claim, &inst, &self.subject),
+                )?;
+            }
+            self.outcome_links = out;
+            Ok(())
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
     /// Revision-1/T0 and dependency lookup identities, queried within the same
     /// store/scope. A prospective decision may genuinely be absent; a held
     /// current head determines which retained row is mandatory. No digest or
@@ -682,28 +816,12 @@ fn authority_slots(
     Ok(out)
 }
 
-fn outcome_links(
-    program: &SelectedProgram,
+fn reserve_outcome_links(
     m: &mut CoreMeter,
     a: &AuditArena,
-    r: &mut Records,
-    key: &OperationKey,
-    request: &Value,
-    selected_operands: (&LocalSubjectBinding, &mut Vec<ExternalBufferLease>),
+    owners: &mut Vec<ExternalBufferLease>,
+    count: usize,
 ) -> Result<Vec<(ExactRef, String)>> {
-    let (subject, owners) = selected_operands;
-    let schema = txt(m, request, "schema")?;
-    let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?;
-    let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
-        || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
-    if !correct && !root {
-        return Ok(Vec::new());
-    }
-    let count = if root {
-        shape::array(m, request, "family_closures")?.len()
-    } else {
-        1
-    };
     // Retain exact Ref/string outputs and the old/new owner-vector allocation
     // overlap before producing any controls or copied locator payloads.
     crate::validation_work::ValidationWork::arithmetic(
@@ -745,6 +863,32 @@ fn outcome_links(
     let mut out = Vec::new();
     out.try_reserve_exact(count)
         .map_err(|_| shape::fail("outcome link allocation"))?;
+    Ok(out)
+}
+
+fn outcome_links(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    r: &mut Records,
+    key: &OperationKey,
+    request: &Value,
+    selected_operands: (&LocalSubjectBinding, &mut Vec<ExternalBufferLease>),
+) -> Result<Vec<(ExactRef, String)>> {
+    let (subject, owners) = selected_operands;
+    let schema = txt(m, request, "schema")?;
+    let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?;
+    let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
+        || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
+    if !correct && !root {
+        return Ok(Vec::new());
+    }
+    let count = if root {
+        shape::array(m, request, "family_closures")?.len()
+    } else {
+        1
+    };
+    let mut out = reserve_outcome_links(m, a, owners, count)?;
     let bound = r.get(
         m,
         key,
@@ -1595,5 +1739,86 @@ mod correction_lookup_tests {
             (&subject, &mut owners)
         )
         .is_err());
+
+        // A later root reversal has no requested family closures, but the
+        // already closed family's original link remains in the chain root.
+        // This exercises the same owning locator DATA seam after current-head
+        // acquisition; it is not a complete financial replay fixture.
+        let closed = super::super::body::record(
+            &mut producer, &key, "workflow-family-state", format!("wfamily_{}", "b".repeat(64)),
+            json!({"schema":"ledger-workflow-family-state/2","target_ref":target.reference,"family_slot":"actual:family","revision":"4","state":"closed_by_root","claim_ref":claim.reference,"prior_ref":claimed.reference}),
+        ).unwrap();
+        let rows = [
+            &terms, &inst, &bound, &work, &target, &claim, &claimed, &closed,
+        ];
+        let views = rows
+            .iter()
+            .map(|x| EconomicRecordView {
+                reference: &x.reference,
+                canonical_body: &x.canonical_body,
+            })
+            .collect::<Vec<_>>();
+        let mut r = Records::borrowed_parent_app(m, &a, &key, &views).unwrap();
+        let empty_reverse = json!({"schema":"ledger-workflow-work-reverse/2","work_ref":work.reference,"family_closures":[]});
+        let subject = subject_refs(m, &a, &mut r, &key, &empty_reverse).unwrap();
+        assert!(outcome_links(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &empty_reverse,
+            (&subject, &mut owners)
+        )
+        .unwrap()
+        .is_empty());
+        let ownership = a
+            .reserve_external_payload(mem::size_of::<LocalOperationLocators>(), m)
+            .unwrap();
+        let mut locators = LocalOperationLocators {
+            subject,
+            work: None,
+            records: Vec::new(),
+            claims: Vec::new(),
+            outcome_links: Vec::new(),
+            required_slots: Vec::new(),
+            _copies: owners,
+            _ownership: ownership,
+        };
+        let mut head = FamilyHead {
+            target_ref: target.reference.clone(),
+            family_slot: "actual:family".into(),
+            revision: "4".into(),
+            reference: closed.reference.clone(),
+        };
+        locators
+            .retain_current_family_outcome_links(
+                &program,
+                &key,
+                std::slice::from_ref(&head),
+                &views,
+                &mut selection,
+            )
+            .unwrap();
+        assert_eq!(
+            locators.original_outcome_links().collect::<Vec<_>>(),
+            vec![(&claim.reference, "support:assesses")]
+        );
+        // Repeated acquisition keeps a unique exact tuple and the old owner
+        // live while the replacement vector and copied payloads are reserved.
+        locators
+            .retain_current_family_outcome_links(
+                &program,
+                &key,
+                std::slice::from_ref(&head),
+                &views,
+                &mut selection,
+            )
+            .unwrap();
+        assert_eq!(locators.original_outcome_links().count(), 1);
+        head.revision = "3".into();
+        assert!(locators
+            .retain_current_family_outcome_links(&program, &key, &[head], &views, &mut selection)
+            .is_err());
     }
 }
