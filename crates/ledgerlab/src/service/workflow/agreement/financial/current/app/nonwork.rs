@@ -96,7 +96,7 @@ pub(in super::super::super) async fn observe(
     o.work_source_birth = Some(birth);
     let root = work_capture::retained_root(&mut o, tx, key, index, s).await?;
     o.work_root = Some(root);
-    let locators = work_capture::with_capture(
+    let mut locators = work_capture::with_capture(
         &o,
         key,
         payload,
@@ -209,24 +209,6 @@ pub(in super::super::super) async fn observe(
             }
         }
     }
-    // Outcome correction and causal root reversal consume the original
-    // immutable claim's fixed link for each actually selected family.
-    // The exact held projection is only a locator; pool.complete below verifies
-    // its committed body, and the child repeats every semantic association.
-    for (child, slot) in locators.original_outcome_links() {
-        if let Some(row) = tx
-            .workflow_local_outcome_link(&key.logical_store_id, &key.scope, child, slot, s)
-            .await
-            .map_err(prefix::read_error)?
-        {
-            let r = claim_ref(&row, s)?;
-            pool.add(&r, s)?;
-            s.semantic_work()
-                .write_bytes(std::mem::size_of::<ExactRef>())
-                .map_err(core_error)?;
-            state.financial.links.push(r);
-        }
-    }
     for r in &extra.claims {
         if let Some(h) = tx
             .workflow_financial_head(&key.logical_store_id, &key.scope, HeadKey::AppCost(r), s)
@@ -277,6 +259,38 @@ pub(in super::super::super) async fn observe(
     // their original retention-proof operands. No current/latest substitute.
     pool.complete(tx, key, o.before, s).await?;
     let payload_schema = check::text(payload, "schema", s)?;
+    if matches!(
+        payload_schema,
+        "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2"
+    ) {
+        locators
+            .retain_current_family_outcome_links(
+                o.original.publication.program(),
+                &ck,
+                &state.financial.family_heads,
+                &pool.views(),
+                s,
+            )
+            .map_err(core_error)?;
+    }
+    // Outcome correction and causal root reversal consume the original
+    // immutable claim's fixed link for each actually selected family.
+    // The exact held projection is only a locator; pool.complete below verifies
+    // its committed body, and the child repeats every semantic association.
+    for (child, slot) in locators.original_outcome_links() {
+        if let Some(row) = tx
+            .workflow_local_outcome_link(&key.logical_store_id, &key.scope, child, slot, s)
+            .await
+            .map_err(prefix::read_error)?
+        {
+            let r = claim_ref(&row, s)?;
+            pool.add(&r, s)?;
+            s.semantic_work()
+                .write_bytes(std::mem::size_of::<ExactRef>())
+                .map_err(core_error)?;
+            state.financial.links.push(r);
+        }
+    }
     let mut assertions = Vec::new();
     // Only app correction and causal root changes consume the original app
     // proof pairs. Outcome declarations must contain their named facts only.
