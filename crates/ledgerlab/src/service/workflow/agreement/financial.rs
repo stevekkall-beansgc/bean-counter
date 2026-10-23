@@ -384,6 +384,160 @@ fn original_retry<'a>(
     })
 }
 
+// This function item supplies only the concrete fresh Future type. No actual
+// management owner or Future is constructed or consumed while measuring it.
+fn fresh_future_bytes<A, B, C, D, E, F: std::future::Future>(
+    _: impl FnOnce(A, B, C, D, E) -> F,
+) -> usize {
+    std::mem::size_of::<F>()
+}
+fn fresh_reply<'a>(
+    ledger: &'a LocalWorkflowLedger,
+    tx: &'a mut SqliteTx,
+    req: &'a ingress::IncomingRequest,
+    held_management: crate::service::workflow::local::OwnedLocalManagement,
+    session: &'a mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<impl std::future::Future<Output = Result<TransactionResult>> + Send + 'a> {
+    let bytes = fresh_future_bytes(fresh_reply_in);
+    let storage = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(bytes)
+        .map_err(core_error)?;
+    // Only identity absence reaches this factory. Fresh constructor temporaries
+    // cannot inflate the original certificate's polling frame.
+    let future = Box::pin(fresh_reply_in(ledger, tx, req, held_management, session));
+    let held = (future, storage);
+    Ok(async move {
+        let mut held = held;
+        let result = held.0.as_mut().await;
+        drop(held);
+        result
+    })
+}
+async fn fresh_reply_in(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &ingress::IncomingRequest,
+    held_management: crate::service::workflow::local::OwnedLocalManagement,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<TransactionResult> {
+    let key = req.key();
+    let key_body = request_wrapper::field(req.value(), "key", session)?;
+    let management =
+        ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session)
+            .await?;
+    management.recheck(ledger, tx, key, session).await?;
+    if req.kind() == "agreement.accept" {
+        if request_wrapper::text(req.payload(session)?, "schema", session)?
+            == "ledger-workflow-agreement-accept/9"
+        {
+            let reply =
+                local_acceptance::prepare_append(ledger, tx, req, &management, session).await?;
+            return Ok(TransactionResult::Appended(reply));
+        }
+        // AppAccept8 reaches the actual saved publication and SAME
+        // terms/binding assembly. Its DATA owners do not bypass
+        // complete chronology, consent/private graph or preparation.
+        let mut pending = acceptance::prepare(ledger, tx, req, session).await?;
+        let evidence = evidence::acceptance(req, &pending, session)?;
+        let members = pending.resolve_members(session)?;
+        let journal = wire::frame_acceptance(
+            req,
+            pending.normalized_payload(),
+            pending.authority(),
+            &pending.at,
+            pending.before,
+            pending.results(),
+            &evidence,
+            members,
+            session,
+        )?;
+        let write_data =
+            acceptance::AcceptanceWriteData::new(&pending, req, &journal, &evidence, session)?;
+        let _write_operands = write_data.append_view(session)?;
+        // The real atomic writer now has exact borrowed operands;
+        // full original/current/resource private preparation still
+        // precedes any call to workflow_app_acceptance_append.
+    }
+    if req.kind() == "agreement.activate"
+        && request_wrapper::text(req.payload(session)?, "schema", session)?
+            == "ledger-workflow-activation/1"
+    {
+        let reply = local_activation::prepare_append(ledger, tx, req, &management, session).await?;
+        return Ok(TransactionResult::Appended(reply));
+    }
+    if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
+        let payload = req.payload(session)?;
+        let mut observed =
+            current::app::observe_activation(ledger, tx, req, payload, session).await?;
+        if req.kind() == "agreement.activate" {
+            let evidence = evidence::activation_material(
+                req,
+                observed.normalized_payload.bytes(),
+                observed.publication(),
+                session,
+            )?;
+            let members = observed.resolve_members(session)?;
+            let _journal = wire::frame_activation(
+                req,
+                observed.normalized_payload.bytes(),
+                observed.authority()?,
+                observed.at(),
+                observed.before(),
+                observed.result_refs(),
+                &evidence,
+                members,
+                session,
+            )?;
+        }
+        // Exact captured head and generated records remain DATA.
+        // Whole historical schedule, original/current consent and
+        // activation rights must finish before private preparation.
+    }
+
+    if matches!(req.kind(), "evidence.retain" | "authority.change") {
+        let payload = req.payload(session)?;
+        let schema = request_wrapper::text(payload, "schema", session)?;
+        if matches!(
+            schema,
+            "ledger-workflow-party-evidence-retain/1"
+                | "ledger-workflow-party-evidence-retain/2"
+                | "ledger-workflow-party-authorize/1"
+                | "ledger-workflow-party-revoke/1"
+        ) {
+            let reply = local_party::prepare_append(ledger, tx, req, &management, session).await?;
+            return Ok(TransactionResult::Appended(reply));
+        }
+    }
+
+    if matches!(
+        request_wrapper::text(req.payload(session)?, "schema", session)?,
+        "ledger-workflow-work/1"
+            | "ledger-workflow-fact-attest/1"
+            | "ledger-workflow-family-close-attest/1"
+            | "ledger-workflow-app-observe/1"
+            | "ledger-workflow-app-cost-attest/1"
+            | "ledger-workflow-cost-finalize/2"
+            | "ledger-workflow-cost-correct/2"
+            | "ledger-workflow-outcome/1"
+            | "ledger-workflow-outcome-correction/1"
+            | "ledger-workflow-outcome-close/2"
+            | "ledger-workflow-quantity-correction/2"
+            | "ledger-workflow-work-reverse/2"
+    ) {
+        let reply =
+            local_financial::prepare_work_append(ledger, tx, req, &management, session).await?;
+        return Ok(TransactionResult::Appended(reply));
+    }
+
+    // Other recognized historical schemas have no local prepared
+    // executor here; registry recognition alone is not support.
+    Err(ServiceError::Unavailable)
+}
+
 /// Never returns saved success without full original financial semantics. The
 /// incoming request selects only the global identity; saved evidence supplies
 /// the ORIGINAL literal request. No current compiler/grant/time is consulted.
@@ -579,145 +733,7 @@ impl LocalWorkflowLedger {
                         .await
                         .map(TransactionResult::Original);
                 }
-                let key_body = request_wrapper::field(req.value(), "key", &mut session)?;
-                let management = ManagementObservation::capture_owned(
-                    self,
-                    tx,
-                    key,
-                    key_body,
-                    held_management,
-                    &mut session,
-                )
-                .await?;
-                management.recheck(self, tx, key, &mut session).await?;
-                if req.kind() == "agreement.accept" {
-                    if request_wrapper::text(req.payload(&mut session)?, "schema", &mut session)?
-                        == "ledger-workflow-agreement-accept/9"
-                    {
-                        let reply = local_acceptance::prepare_append(
-                            self,
-                            tx,
-                            &req,
-                            &management,
-                            &mut session,
-                        )
-                        .await?;
-                        return Ok(TransactionResult::Appended(reply));
-                    }
-                    // AppAccept8 reaches the actual saved publication and SAME
-                    // terms/binding assembly. Its DATA owners do not bypass
-                    // complete chronology, consent/private graph or preparation.
-                    let mut pending = acceptance::prepare(self, tx, &req, &mut session).await?;
-                    let evidence = evidence::acceptance(&req, &pending, &mut session)?;
-                    let members = pending.resolve_members(&mut session)?;
-                    let journal = wire::frame_acceptance(
-                        &req,
-                        pending.normalized_payload(),
-                        pending.authority(),
-                        &pending.at,
-                        pending.before,
-                        pending.results(),
-                        &evidence,
-                        members,
-                        &mut session,
-                    )?;
-                    let write_data = acceptance::AcceptanceWriteData::new(
-                        &pending,
-                        &req,
-                        &journal,
-                        &evidence,
-                        &mut session,
-                    )?;
-                    let _write_operands = write_data.append_view(&mut session)?;
-                    // The real atomic writer now has exact borrowed operands;
-                    // full original/current/resource private preparation still
-                    // precedes any call to workflow_app_acceptance_append.
-                }
-                if req.kind() == "agreement.activate"
-                    && request_wrapper::text(req.payload(&mut session)?, "schema", &mut session)?
-                        == "ledger-workflow-activation/1"
-                {
-                    let reply =
-                        local_activation::prepare_append(self, tx, &req, &management, &mut session)
-                            .await?;
-                    return Ok(TransactionResult::Appended(reply));
-                }
-                if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
-                    let payload = req.payload(&mut session)?;
-                    let mut observed =
-                        current::app::observe_activation(self, tx, &req, payload, &mut session)
-                            .await?;
-                    if req.kind() == "agreement.activate" {
-                        let evidence = evidence::activation_material(
-                            &req,
-                            observed.normalized_payload.bytes(),
-                            observed.publication(),
-                            &mut session,
-                        )?;
-                        let members = observed.resolve_members(&mut session)?;
-                        let _journal = wire::frame_activation(
-                            &req,
-                            observed.normalized_payload.bytes(),
-                            observed.authority()?,
-                            observed.at(),
-                            observed.before(),
-                            observed.result_refs(),
-                            &evidence,
-                            members,
-                            &mut session,
-                        )?;
-                    }
-                    // Exact captured head and generated records remain DATA.
-                    // Whole historical schedule, original/current consent and
-                    // activation rights must finish before private preparation.
-                }
-
-                if matches!(req.kind(), "evidence.retain" | "authority.change") {
-                    let payload = req.payload(&mut session)?;
-                    let schema = request_wrapper::text(payload, "schema", &mut session)?;
-                    if matches!(
-                        schema,
-                        "ledger-workflow-party-evidence-retain/1"
-                            | "ledger-workflow-party-evidence-retain/2"
-                            | "ledger-workflow-party-authorize/1"
-                            | "ledger-workflow-party-revoke/1"
-                    ) {
-                        let reply =
-                            local_party::prepare_append(self, tx, &req, &management, &mut session)
-                                .await?;
-                        return Ok(TransactionResult::Appended(reply));
-                    }
-                }
-
-                if matches!(
-                    request_wrapper::text(req.payload(&mut session)?, "schema", &mut session)?,
-                    "ledger-workflow-work/1"
-                        | "ledger-workflow-fact-attest/1"
-                        | "ledger-workflow-family-close-attest/1"
-                        | "ledger-workflow-app-observe/1"
-                        | "ledger-workflow-app-cost-attest/1"
-                        | "ledger-workflow-cost-finalize/2"
-                        | "ledger-workflow-cost-correct/2"
-                        | "ledger-workflow-outcome/1"
-                        | "ledger-workflow-outcome-correction/1"
-                        | "ledger-workflow-outcome-close/2"
-                        | "ledger-workflow-quantity-correction/2"
-                        | "ledger-workflow-work-reverse/2"
-                ) {
-                    let reply = local_financial::prepare_work_append(
-                        self,
-                        tx,
-                        &req,
-                        &management,
-                        &mut session,
-                    )
-                    .await?;
-                    return Ok(TransactionResult::Appended(reply));
-                }
-
-                // Other recognized historical schemas have no local prepared
-                // executor here; registry recognition alone is not support.
-                Err(ServiceError::Unavailable)
+                fresh_reply(self, tx, &req, held_management, &mut session)?.await
             })
         })
         .await;
