@@ -475,6 +475,8 @@ impl SqliteTx {
 }
 
 #[cfg(test)]
+mod billing_deadline_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 #[derive(Clone, Copy)]
@@ -488,6 +490,11 @@ pub(crate) async fn until<D: Into<Option<tokio::time::Instant>>, F: std::future:
     future: F,
 ) -> Result<F::Output, tokio::time::error::Elapsed> {
     match deadline.into() {
+        // timeout_at accepts an immediately ready future even after its deadline.
+        // Do not poll storage work once the caller's finite boundary has expired.
+        Some(d) if d <= tokio::time::Instant::now() => {
+            tokio::time::timeout_at(d, std::future::pending::<F::Output>()).await
+        }
         Some(d) => tokio::time::timeout_at(d, future).await,
         None => Ok(future.await),
     }
