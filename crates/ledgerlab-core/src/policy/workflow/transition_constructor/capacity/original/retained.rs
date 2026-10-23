@@ -151,6 +151,18 @@ fn derive_retained_with<T>(
             &instruction["family"]["selector"]["target_activity"],
             &payload["activity"],
         )? {
+            if program.uses_conditional_work_recipe() {
+                let component =
+                    shape::text(m, &instruction["family"]["selector"], "component_key")?;
+                if !program.root_is_selected(
+                    m,
+                    &payload["activity"],
+                    component,
+                    &terms.binding["accepted_context"],
+                )? {
+                    continue;
+                }
+            }
             maximum = add(m, maximum, 1)?;
         }
     }
@@ -194,6 +206,14 @@ fn derive_retained_with<T>(
             return Err(shape::fail("retained original target basis"));
         }
         let component = shape::text(m, selector, "component_key")?;
+        if !program.root_is_selected(
+            m,
+            &payload["activity"],
+            component,
+            &terms.binding["accepted_context"],
+        )? {
+            continue;
+        }
         let mappings = shape::array(m, &terms.instantiation, "component_map")?;
         let mapping = shape::named(m, mappings, "template_key", component)?;
         let slot = shape::text(m, mapping, "slot_id")?;

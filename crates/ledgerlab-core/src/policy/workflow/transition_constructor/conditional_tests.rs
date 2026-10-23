@@ -296,3 +296,123 @@ fn conditional_actual_pricing_distinguishes_nonmatch_from_matched_zero_and_prese
         .root_is_selected(m, &json!("support:complete"), "support:service", &context)
         .unwrap());
 }
+
+#[test]
+fn conditional_retained_capacity_uses_selected_targets_and_keeps_independent_app() {
+    use super::super::{
+        authority, body, capacity, data::*, record_body::RecordBody, records::Records, work_keys,
+    };
+    // Retained-capacity DATA fixture. Earlier authority/PUB/proof validation is
+    // a caller obligation; this exercises the actual financial suffix consumer.
+    for (literal, zero_rate) in [
+        ("support:included", false),
+        ("support:billable", false),
+        ("support:billable", true),
+    ] {
+        let (_compiled_arena, mut s) = session();
+        let p = program(&mut s, |docs| {
+            if zero_rate {
+                docs[5]["rules"][0]["formula"]["rate"] = json!("0");
+            }
+        })
+        .unwrap();
+        let (arena, mut consumer) = session();
+        let m = consumer.meter_mut();
+        let key = OperationKey {
+            logical_store_id: "retained-capacity".into(),
+            scope: ["company".into(), "local".into()],
+            source: "urn:example:work".into(),
+            operation_id: "work".into(),
+        };
+        let c = DraftContextData {
+            key,
+            actor: "worker".into(),
+            canonical_economic_namespace: "urn:example:work".into(),
+            installation_mode: "isolated_synthetic".into(),
+            received_at: "2026-10-23T00:00:00.000000Z".into(),
+            accepted_at: "2026-10-23T00:00:00.000000Z".into(),
+            authorities: vec![],
+            source_observation_inputs: vec![],
+        };
+        let binding = body::document(m,"workflow-binding",json!({"schema":"ledger-workflow-binding/2","agreement_id":"agreement","accepted_context":{"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":literal}}})).unwrap();
+        let binding_value = binding.decoded(m, 4194304).unwrap();
+        let facts_ref = p
+            .source_documents()
+            .iter()
+            .find(|d| d.canonical_value()["schema_id"] == "support:work-facts")
+            .unwrap()
+            .reference();
+        let payload = json!({"customer":"customer","chain":"chain","status":"succeeded","activity":"support:complete","product_ref":p.product_ref(),"policy_ref":p.root_policy_ref(),"fact_schema_ref":facts_ref,"facts":{"support:quantity":"3"},"links":[],"binding_ref":binding.reference,"invocation_refs":[],"evidence_refs":[],"business_operation_id":"service","external_event_id":"delivery"});
+        let claim_id =
+            work_keys::claim(m, &c.key, &c.canonical_economic_namespace, &payload).unwrap();
+        let event = work_keys::event(m, &c.key, &payload).unwrap();
+        let work = body::record(m,&c.key,"workflow-work",event,json!({"schema":"ledger-workflow-work-record/1","key":c.key,"payload":payload,"claim_id":claim_id,"received_at":c.received_at,"accepted_at":c.accepted_at,"source_namespace":c.canonical_economic_namespace})).unwrap();
+        let tuple = json!([
+            payload["customer"],
+            payload["chain"],
+            payload["status"],
+            payload["activity"],
+            payload["product_ref"],
+            payload["policy_ref"],
+            payload["fact_schema_ref"],
+            payload["facts"],
+            payload["links"],
+            payload["binding_ref"],
+            payload["invocation_refs"],
+            payload["evidence_refs"]
+        ]);
+        let digest = super::super::records::hash(m, "workflow-claim-facts", &tuple).unwrap();
+        let claim = body::record(m,&c.key,"workflow-work-claim",claim_id.clone(),json!({"schema":"ledger-workflow-work-claim/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"source_namespace":c.canonical_economic_namespace,"business_operation_id":"service","completion":"completion","work_ref":work.reference,"facts_digest":digest})).unwrap();
+        let decision_id = work_keys::decision(m, &claim_id).unwrap();
+        let revision_id = body::semantic_id(
+            m,
+            "wdrev_",
+            "workflow-decision-revision",
+            &json!([decision_id, "1"]),
+        )
+        .unwrap();
+        let decision = body::record(m,&c.key,"workflow-decision",revision_id,json!({"schema":"ledger-workflow-decision-revision/1","decision_id":decision_id,"revision":"1","kind":"work","transition":"initial","subject_ref":work.reference})).unwrap();
+        let terms = authority::Terms {
+            binding: binding_value,
+            accepted: RecordBody::Legacy(json!({})),
+            _activation: RecordBody::Legacy(json!({})),
+            catalog: RecordBody::Legacy(
+                json!({"components":[{"slot_id":"service","root_slot":"service","book":"retail"},{"slot_id":"app","root_slot":"app","book":"retail"}]}),
+            ),
+            instantiation: RecordBody::Legacy(
+                json!({"component_map":[{"template_key":"support:service","slot_id":"service"},{"template_key":"support:model-retail","slot_id":"app"}]}),
+            ),
+            slot_terms: RecordBody::Legacy(json!({})),
+            slot_terms_ref: binding.reference.clone(),
+            role_ref: binding.reference.clone(),
+        };
+        let rows = [work, claim, decision];
+        let views: Vec<_> = rows
+            .iter()
+            .map(|row| EconomicRecordView {
+                reference: &row.reference,
+                canonical_body: &row.canonical_body,
+            })
+            .collect();
+        let mut r = Records::borrowed_parent_app(m, &arena, &c.key, &views).unwrap();
+        let work_body = rows[0].decoded(m, 4194304).unwrap();
+        let result = capacity::original::derive_financial_for_work(
+            &arena, m, &mut r, &c, &p, &work_body, &terms,
+        );
+        if literal == "support:included" {
+            let reservation = result.unwrap();
+            assert_eq!(reservation.root_decision_id, decision_id);
+            assert_eq!(reservation.root_rule_count, 0);
+            assert_eq!(reservation.maximum_root_actions, 0);
+            assert!(reservation.families.is_empty());
+            assert_eq!(reservation.app_costs.len(), 1);
+            assert_eq!(reservation.app_costs[0].target_ref, rows[0].reference);
+            assert_eq!(reservation.app_costs[0].maximum_inverse_actions, 1);
+        } else {
+            // True, including exact-zero Unit, still needs its actual Target.
+            let error = result.err().unwrap();
+            assert_eq!(error.code, "INTEGRITY_FAILURE");
+            assert_eq!(error.detail, "missing birth identity");
+        }
+    }
+}
