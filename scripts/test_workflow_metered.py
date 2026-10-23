@@ -178,6 +178,22 @@ class ConditionalDriverTests(unittest.TestCase):
             self.assertEqual(result["receipt"]["original_request_bytes_sha256"], supported.sha(request))
             self.assertEqual(payload, saved_payload)
 
+    def test_acceptance_capture_does_not_rewrite_existing_saved_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journey = conditional.ConditionalJourney.__new__(conditional.ConditionalJourney)
+            journey.root = Path(directory)
+            journey.store, journey.scope, journey.source = "synthetic", ["example", "local"], "worker"
+            payload = {"schema": "ledger-workflow-agreement-accept/9"}
+            raw = json.dumps({"schema": "ledger-operation/1", "contract": "workflow/1",
+                "kind": "agreement.accept", "key": journey.key("acceptance"), "payload": payload}, indent=2).encode() + b"\n"
+            path = journey.root / "acceptance.request.json"
+            path.write_bytes(raw)
+            journey.save = lambda: None
+            journey.preserve_fixture = lambda name: self.assertEqual(path.read_bytes(), raw)
+            with patch.object(attested.AttestedJourney, "submit", return_value={"saved": True}):
+                self.assertEqual(journey.submit("acceptance", "agreement.accept", payload), {"saved": True})
+            self.assertEqual(path.read_bytes(), raw)
+
     def test_accepted_enum_is_input_and_old_default_stays_empty(self):
         old = supported.Journey.__new__(supported.Journey)
         old.fact_refs = {"support:context": ref("schema")}
