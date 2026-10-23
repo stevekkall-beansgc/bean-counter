@@ -48,9 +48,36 @@ class ConditionalJourney(AttestedJourney):
         if self.matches:
             return super().work_result(prefix, result)
         kinds = [r["kind"] for r in result["receipt"]["result_refs"]]
-        assert "workflow-target" not in kinds and "workflow-family-state" not in kinds
-        return {"prefix": prefix, "receipt": result, "work_ref": unique(result, "workflow-work"),
-                "root_decision_ref": unique(result, "workflow-decision")}
+        assert not {"workflow-action", "workflow-target", "workflow-family-state"}.intersection(kinds)
+        work_ref, decision_ref = unique(result, "workflow-work"), unique(result, "workflow-decision")
+        work, decision = self.document(work_ref), self.document(decision_ref)
+        key = result["receipt"]["key"]
+        assert work["schema"] == "ledger-workflow-work-record/1" and work["key"] == key
+        assert work["payload"]["binding_ref"] == self.binding_ref
+        assert decision["subject_ref"] == work_ref and decision["original_terms_ref"] == self.binding_ref
+        assert decision["operation_key"] == key and decision["kind"] == "work" and decision["transition"] == "initial"
+        assert decision["revision"] == "1" and decision["status"] == "active"
+        assert decision["actions_appended"] == decision["active_action_refs"] == []
+        claim = self.document(unique(result, "workflow-work-claim"))
+        assert claim["work_ref"] == work_ref and claim["scope"] == key["scope"]
+        assert claim["logical_store_id"] == key["logical_store_id"]
+        verified = self.document(unique(result, "workflow-verified-fact"))
+        assert verified["binding_or_invocation_ref"] == self.binding_ref
+        assert verified["subject"]["binding_ref"] == self.binding_ref
+        assert verified["subject"]["business_operation_id"] == work["payload"]["business_operation_id"]
+        dependency_ref = unique(result, "workflow-dependency")
+        dependency = self.document(dependency_ref)
+        assert dependency["kind"] == "delayed_cost" and dependency["target_ref"] == work_ref
+        assert dependency["ancestor_decision_id"] == decision["decision_id"]
+        assert dependency["original_terms_ref"] == self.binding_ref and dependency["operation_key"] == key
+        capacity = self.document(unique(result, "workflow-correction-capacity"))
+        assert capacity["root_ref"] == decision_ref and capacity["reserved_dependency_refs"] == [dependency_ref]
+        chain = self.document(unique(result, "workflow-chain-state"))
+        assert chain["binding_ref"] == self.binding_ref and chain["operation_key"] == key
+        self.meta["checks"].append({"check": "committed_false_work_structure", "work_ref": work_ref,
+                                    "decision_ref": decision_ref, "app_dependency_ref": dependency_ref})
+        self.save()
+        return {"prefix": prefix, "receipt": result, "work_ref": work_ref, "root_decision_ref": decision_ref}
 
     def family_closures(self, work):
         if self.matches:

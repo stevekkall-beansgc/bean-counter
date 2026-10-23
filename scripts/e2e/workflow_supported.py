@@ -265,6 +265,7 @@ class Journey:
             assert row and json.loads(row[0]) == receipt, "original Work receipt association"
             decisions = [json.loads(b) for b, in db.execute("SELECT canonical_bytes FROM workflow_documents WHERE kind='workflow-decision' ORDER BY id")]
         selected = {}
+        selected_decisions = 0
         for decision in decisions:
             subject = decision["subject_ref"]
             if subject["kind"] == "workflow-work":
@@ -290,6 +291,7 @@ class Journey:
             if subject_work != work:
                 continue
             assert decision["original_terms_ref"] == binding and same_scope(decision["operation_key"])
+            selected_decisions += 1
             for ref in decision["actions_appended"]:
                 assert ref["kind"] == "workflow-action"
                 action = self.document(ref)
@@ -299,7 +301,9 @@ class Journey:
                 assert identity not in selected, "action appended by multiple decisions"
                 selected[identity] = action
         actions = list(selected.values())
-        assert actions and all(v["book"] == "retail" and v["amount"]["currency"] == "USD" and v["amount"]["scale"] == 18 for v in actions)
+        assert selected_decisions, "missing same-Work Decision"
+        assert actions or expected == 0, "missing actions for nonzero total"
+        assert all(v["book"] == "retail" and v["amount"]["currency"] == "USD" and v["amount"]["scale"] == 18 for v in actions)
         for action in actions:
             if "inverse_of" in action:
                 original = selected[canonical(action["inverse_of"]).decode()]

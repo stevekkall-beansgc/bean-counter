@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Focused observer/driver regressions; these do not qualify a financial bill."""
 import json
+import copy
+import sqlite3
 from pathlib import Path
 import subprocess
 import sys
@@ -165,12 +167,96 @@ class ConditionalDriverTests(unittest.TestCase):
         selected = conditional_journey.closure_inputs(work)
         self.assertEqual(selected["family_closures"], [])
         self.assertEqual([row["decision_ref"]["id"] for row in selected["dependent_reversals"]], ["app"])
-        result = {"receipt": {"result_refs": [ref("work", "workflow-work"), ref("root", "workflow-decision")]}}
+        key = {"logical_store_id": "synthetic", "scope": ["example", "local"], "source": "worker", "operation_id": "main-work"}
+        binding = ref("binding", "workflow-binding")
+        work_ref, root_ref = ref("work", "workflow-work"), ref("root", "workflow-decision")
+        entries = {
+            "work": ("workflow-work", {"schema": "ledger-workflow-work-record/1", "key": key,
+                "payload": {"binding_ref": binding, "business_operation_id": "business"}}),
+            "root": ("workflow-decision", {"subject_ref": work_ref, "original_terms_ref": binding,
+                "operation_key": key, "kind": "work", "transition": "initial", "revision": "1", "status": "active",
+                "actions_appended": [], "active_action_refs": [], "decision_id": "root-id"}),
+            "claim": ("workflow-work-claim", {"work_ref": work_ref, "scope": key["scope"], "logical_store_id": "synthetic"}),
+            "verified": ("workflow-verified-fact", {"binding_or_invocation_ref": binding,
+                "subject": {"binding_ref": binding, "business_operation_id": "business"}}),
+            "dependency": ("workflow-dependency", {"kind": "delayed_cost", "target_ref": work_ref,
+                "ancestor_decision_id": "root-id", "original_terms_ref": binding, "operation_key": key}),
+            "capacity": ("workflow-correction-capacity", {"root_ref": root_ref,
+                "reserved_dependency_refs": [ref("dependency", "workflow-dependency")]}),
+            "chain": ("workflow-chain-state", {"binding_ref": binding, "operation_key": key}),
+        }
+        conditional_journey.document = lambda r: entries[r["id"]][1]
+        conditional_journey.binding_ref, conditional_journey.meta, conditional_journey.save = binding, {"checks": []}, lambda: None
+        result = {"receipt": {"key": key, "result_refs": [ref(name, kind) for name, (kind, _) in entries.items()]}}
         selected_work = conditional_journey.work_result("main", result)
         self.assertNotIn("target_ref", selected_work)
+        entries["root"][1]["subject_ref"] = ref("foreign-work", "workflow-work")
+        with self.assertRaises(AssertionError):
+            conditional_journey.work_result("main", result)
+        entries["root"][1]["subject_ref"] = work_ref
         result["receipt"]["result_refs"].append(ref("invented", "workflow-target"))
         with self.assertRaises(AssertionError):
             conditional_journey.work_result("main", result)
+
+
+class TotalObserverTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        (self.root / ".ledger").mkdir()
+        self.journey = supported.Journey.__new__(supported.Journey)
+        self.journey.root = self.journey.installation = self.root
+        self.journey.log, self.journey.meta = self.root / "RUN.json", {"checks": []}
+        self.key = {"logical_store_id": "synthetic", "scope": ["example", "local"],
+                    "source": "worker", "operation_id": "main-work"}
+        self.work, self.binding = ref("work", "workflow-work"), ref("binding", "workflow-binding")
+        raw = supported.canonical({"key": self.key, "payload": {"binding_ref": self.binding}})
+        (self.root / "main-work.request.json").write_bytes(raw)
+        self.receipt = {"key": self.key, "original_request_bytes_sha256": supported.sha(raw), "result_refs": [self.work]}
+        (self.root / "main-work.committed.json").write_bytes(supported.canonical({"receipt": self.receipt}))
+        self.decision = {"subject_ref": self.work, "original_terms_ref": self.binding,
+                         "operation_key": self.key, "decision_id": "root", "revision": "1", "actions_appended": []}
+        with sqlite3.connect(self.root / ".ledger/local.db") as db:
+            db.execute("CREATE TABLE workflow_operations(logical_store_id,tenant,environment,source,operation_id,receipt_bytes)")
+            db.execute("CREATE TABLE workflow_documents(kind,id,digest,canonical_bytes)")
+            db.execute("INSERT INTO workflow_operations VALUES(?,?,?,?,?,?)", (*[self.key[k] for k in ["logical_store_id"]],
+                *self.key["scope"], self.key["source"], self.key["operation_id"], supported.canonical(self.receipt)))
+        self.put(ref("root"), self.decision)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def put(self, reference, value):
+        with sqlite3.connect(self.root / ".ledger/local.db") as db:
+            db.execute("DELETE FROM workflow_documents WHERE id=?", (reference["id"],))
+            db.execute("INSERT INTO workflow_documents VALUES(?,?,?,?)", (reference["kind"], reference["id"], reference["digest"], supported.canonical(value)))
+
+    def test_empty_actions_require_zero_and_actual_same_work_decision(self):
+        self.journey.total("main", 0)
+        with self.assertRaises(AssertionError):
+            self.journey.total("main", 1)
+        with sqlite3.connect(self.root / ".ledger/local.db") as db:
+            db.execute("DELETE FROM workflow_documents")
+        with self.assertRaises(AssertionError):
+            self.journey.total("main", 0)
+
+    def test_real_action_keeps_sum_namespace_currency_and_scale_checks(self):
+        action_ref = ref("action", "workflow-action")
+        action = {"decision_id": "root", "revision": "1", "operation_key": copy.deepcopy(self.key),
+                  "book": "retail", "amount": {"currency": "USD", "scale": 18, "atoms": "2"}}
+        self.decision["actions_appended"] = [action_ref]
+        self.put(ref("root"), self.decision)
+        self.put(action_ref, action)
+        self.journey.total("main", 2)
+        with self.assertRaises(AssertionError):
+            self.journey.total("main", 0)
+        for changed in [dict(action, operation_key=dict(self.key, logical_store_id="foreign")),
+                        dict(action, book="supplier"),
+                        dict(action, amount={"currency": "EUR", "scale": 18, "atoms": "2"}),
+                        dict(action, amount={"currency": "USD", "scale": 2, "atoms": "2"})]:
+            self.put(action_ref, changed)
+            with self.assertRaises(AssertionError):
+                self.journey.total("main", 2)
 
 
 if __name__ == "__main__":
