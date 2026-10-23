@@ -208,7 +208,7 @@ fn conditional_actual_pricing_distinguishes_nonmatch_from_matched_zero_and_prese
         ("support:billable", 3_000_000_000_000_000_000i128),
         ("support:included", 0),
     ] {
-        let context = json!({"support:service-eligibility":literal});
+        let context = json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":literal}});
         let prices = pricing::work(&p, "support:complete", (&facts, &context), m).unwrap();
         assert_eq!(prices.len(), 1);
         assert_eq!(prices[0].atoms, expected);
@@ -245,6 +245,42 @@ fn conditional_actual_pricing_distinguishes_nonmatch_from_matched_zero_and_prese
         .unwrap();
         assert_eq!(family, usize::from(expected != 0));
         assert_eq!(app_heads, 1);
+        // Actual parent DATA producer repeats the same selection in its paid
+        // count and emit passes; this is not authority or financial proof.
+        let key = super::super::OperationKey {
+            logical_store_id: "conditional-store".into(),
+            scope: ["conditional-company".into(), "local".into()],
+            source: "urn:example:conditional".into(),
+            operation_id: "conditional-work".into(),
+        };
+        let request = json!({"activity":"support:complete","customer":"customer","chain":"chain","business_operation_id":"service","external_event_id":"delivery"});
+        let binding = json!({"agreement_id":"agreement","accepted_context":context});
+        let locators = input_selection::derive_work_head_locators(
+            &p,
+            &key,
+            &key.source,
+            &request,
+            &binding,
+            &inst,
+            m,
+        )
+        .unwrap();
+        assert_eq!(locators.family_keys().len(), usize::from(expected != 0));
+        assert_eq!(locators.app_decision_ids().len(), 1);
+    }
+    let condition = &p.original_policy_value()["rules"][0]["when"];
+    for malformed in [
+        json!({"support:service-eligibility":"support:billable"}),
+        json!({"fact_schema_ref":p.context_schema_ref()}),
+        json!({"fact_schema_ref":p.context_schema_ref(),"facts":{}}),
+        json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":true}}),
+    ] {
+        assert_eq!(
+            p.evaluate_work_condition(m, condition, &malformed)
+                .unwrap_err()
+                .code,
+            "INTEGRITY_FAILURE"
+        );
     }
     let (_zero_arena, mut z) = session();
     let zero = program(&mut z, |docs| {
@@ -252,7 +288,7 @@ fn conditional_actual_pricing_distinguishes_nonmatch_from_matched_zero_and_prese
     })
     .unwrap();
     let m = z.meter_mut();
-    let context = json!({"support:service-eligibility":"support:billable"});
+    let context = json!({"fact_schema_ref":zero.context_schema_ref(),"facts":{"support:service-eligibility":"support:billable"}});
     let prices = pricing::work(&zero, "support:complete", (&facts, &context), m).unwrap();
     assert!(prices[0].predicate);
     assert_eq!(prices[0].atoms, 0);

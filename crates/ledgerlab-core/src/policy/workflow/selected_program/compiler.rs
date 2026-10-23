@@ -256,7 +256,10 @@ impl SelectedProgram {
         let operand = shape::field(m, condition, "field")?;
         shape::closed(m, operand, &["binding_fact"], &[])?;
         let name = shape::text(m, operand, "binding_fact")?;
-        let actual = shape::text(m, context, name)?;
+        // Keep the whole original wrapper at every caller for schema/custody
+        // and Evaluation identity; only the operand reads its normalized facts.
+        let facts = shape::field(m, context, "facts")?;
+        let actual = shape::text(m, facts, name)?;
         let expected = shape::text(m, condition, "value")?;
         same_literal(m, actual, expected)
     }
