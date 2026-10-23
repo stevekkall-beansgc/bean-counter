@@ -156,6 +156,9 @@ pub(in super::super) async fn reconstruct(
                 .map_err(core_error)?;
             sources.push(source);
         }
+        // Historical original-time grant/slot coverage is validated here.
+        // NEW-promise source-shape/one-family/required-clause admission must
+        // not retroactively tighten a saved acceptance's original recipe.
         nominations::validate(
             &sources,
             &private_documents,
@@ -290,19 +293,54 @@ pub(in super::super) async fn reconstruct(
             .canonical_representation(asserted_evidence, Kind::Record)
             .map_err(core_error)?;
         same_bytes(evidence.bytes(), asserted_evidence.bytes(), s)?;
-        let members = resolve_records(
-            prefix,
-            &local_root,
-            &authority,
-            &original.binding,
-            &terms_record,
-            &head_records,
-            &normalized,
-            &private_documents,
-            &consents,
-            publication,
-            s,
-        )?;
+        let members = if input.local {
+            // Reproduce the actual LOCAL producer's selected union, not the
+            // generic recursive member closure. Every borrowed historical
+            // source/consent/private/prior-head operand remains validated above.
+            prefix::ResolvedMembers::local_selected(
+                tx,
+                origin.key(),
+                origin.wrappers().sequence(),
+                [
+                    &local_root,
+                    &authority,
+                    &original.binding,
+                    &terms_record,
+                    &head_records.accepted,
+                    &head_records.head,
+                    &normalized.intent,
+                ]
+                .into_iter()
+                .chain(private_documents.inline_records())
+                .chain(consents.generated_records()),
+                publication
+                    .required_refs()
+                    .chain(private_documents.retained_refs())
+                    .chain(
+                        sources
+                            .iter()
+                            .flat_map(current::source::ObservedSource::record_refs),
+                    )
+                    .chain(consents.selected_refs())
+                    .chain(head_records.prior_ref()),
+                s,
+            )
+            .await?
+        } else {
+            resolve_records(
+                prefix,
+                &local_root,
+                &authority,
+                &original.binding,
+                &terms_record,
+                &head_records,
+                &normalized,
+                &private_documents,
+                &consents,
+                publication,
+                s,
+            )?
+        };
         let journal = wire::frame_acceptance(
             &incoming,
             normalized.payload.bytes(),

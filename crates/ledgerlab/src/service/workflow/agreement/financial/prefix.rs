@@ -768,7 +768,7 @@ pub(super) async fn acceptance_for(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<LocatedAppAcceptance> {
-    acceptance_for_mode(ledger, tx, key, reference, before, false, session).await
+    acceptance_for_mode(ledger, tx, key, reference, (before, false), session).await
 }
 /// Original delivery/status requires the existing complete historical
 /// acceptance certificate, not the targeted input loader alone.
@@ -780,18 +780,17 @@ pub(super) async fn acceptance_for_original(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<LocatedAppAcceptance> {
-    acceptance_for_mode(ledger, tx, key, reference, before, true, session).await
+    acceptance_for_mode(ledger, tx, key, reference, (before, true), session).await
 }
-#[allow(clippy::too_many_arguments)]
 async fn acceptance_for_mode(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     reference: &Value,
-    before: i64,
-    certify_original: bool,
+    cutoff: (i64, bool),
     session: &mut OriginalAuditSession,
 ) -> Result<LocatedAppAcceptance> {
+    let (before, certify_original) = cutoff;
     let mut attempt = InputAttempt {
         failure: tx.workflow_proof_failure_handle(),
         finished: false,
@@ -1536,7 +1535,6 @@ async fn folded_publication(
 ) -> Result<RecompiledPublication> {
     super::acceptance::validate_reference(wanted, "workflow-publication", s)?;
     let sequence = prefix._inventory.introduction_sequence(wanted, s)?;
-    let compiled = prefix.programs.key(sequence, s)?;
     s.semantic_work()
         .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
         .map_err(core_error)?;
@@ -1548,7 +1546,21 @@ async fn folded_publication(
         .ok_or(ServiceError::IntegrityFailure)?
         .checked_wrappers(tx, s)
         .await?;
-    let loaded = publication::reload(tx, &original, compiled, s).await?;
+    let evidence = request_wrapper::field(original.wrappers().operation(), "request_evidence", s)?;
+    let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
+    let loaded = if acceptance::same_recipe_text(
+        request_wrapper::text(resolution, "registry_digest", s)?,
+        wrappers::LOCAL_REGISTRY,
+        s,
+    )? {
+        // LOCAL has no second compiler or compilation key. The exact original
+        // wrapper/source/plan loader remains DATA until completed-prefix input
+        // equality below; it never remints a key from Reloaded provenance.
+        original.recompile_publication(tx, s).await?
+    } else {
+        let compiled = prefix.programs.key(sequence, s)?;
+        publication::reload(tx, &original, compiled, s).await?
+    };
     let actual = wire::reference(loaded.publication().0, s)?;
     let expected = s
         .canonical_representation(wanted, RepresentationKind::Record)
@@ -1609,9 +1621,11 @@ async fn fold_origin(
             source::FoldedSource::Publication((program, _box_storage)) => {
                 // source::fold has finished original semantic/member/custody
                 // checks and staged this exact PUB before live-key association.
-                prefix
-                    .programs
-                    .register(origin.wrappers().sequence(), program.program(), s)?;
+                if !program.program().uses_local_execution_recipe() {
+                    prefix
+                        .programs
+                        .register(origin.wrappers().sequence(), program.program(), s)?;
+                }
                 Some(*program)
             }
             source::FoldedSource::InitialSource(key) => {
