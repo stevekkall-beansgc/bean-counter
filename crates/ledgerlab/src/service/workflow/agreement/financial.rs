@@ -332,20 +332,56 @@ pub(in crate::service::workflow) async fn original_status(
 ) -> Result<Value> {
     original_query(ledger, tx, key, OriginalQuery::Status(raw_key)).await
 }
-async fn original_retry(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    incoming: &ingress::IncomingRequest,
-    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
-) -> Result<Value> {
-    original_query_in(
+// The factory is never invoked: it supplies only the actual opaque Future
+// payload type, so allocation is admitted before borrowing the session into it.
+fn original_query_future_bytes<F: std::future::Future>(_: impl FnOnce() -> F) -> usize {
+    std::mem::size_of::<F>()
+}
+fn original_retry<'a>(
+    ledger: &'a LocalWorkflowLedger,
+    tx: &'a mut SqliteTx,
+    incoming: &'a ingress::IncomingRequest,
+    session: &'a mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<impl std::future::Future<Output = Result<Value>> + Send + 'a> {
+    let bytes = {
+        let tx = &mut *tx;
+        let session = &mut *session;
+        original_query_future_bytes(move || {
+            original_query_in(
+                ledger,
+                tx,
+                incoming.key(),
+                OriginalQuery::Retry(incoming),
+                session,
+            )
+        })
+    };
+    let storage = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(bytes)
+        .map_err(core_error)?;
+    // Build/box in this non-async frame BEFORE polling the historical query.
+    // Its construction temporaries therefore do not share the query's native
+    // poll stack. The same tx/session and every original certificate check stay.
+    let future = Box::pin(original_query_in(
         ledger,
         tx,
         incoming.key(),
         OriginalQuery::Retry(incoming),
         session,
-    )
-    .await
+    ));
+    // Tuple field order drops the Future payload before its allocation lease
+    // even if this returned Future is cancelled before its first poll.
+    let held = (future, storage);
+    Ok(async move {
+        let mut held = held;
+        let result = held.0.as_mut().await;
+        drop(held);
+        result
+    })
 }
 
 /// Never returns saved success without full original financial semantics. The
@@ -480,7 +516,7 @@ impl LocalWorkflowLedger {
                     .await
                     .map_err(prefix::read_error)?
                 {
-                    return original_retry(self, tx, &req, &mut session)
+                    return original_retry(self, tx, &req, &mut session)?
                         .await
                         .map(TransactionResult::Original);
                 }
@@ -539,7 +575,7 @@ impl LocalWorkflowLedger {
                     if let Some(reply) = local_party::retry(tx, &req, &mut session).await? {
                         return Ok(TransactionResult::OriginalOwned(reply));
                     }
-                    return original_retry(self, tx, &req, &mut session)
+                    return original_retry(self, tx, &req, &mut session)?
                         .await
                         .map(TransactionResult::Original);
                 }
