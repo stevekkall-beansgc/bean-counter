@@ -584,6 +584,27 @@ pub(super) struct LocatedAppAcceptance {
     through: i64,
 }
 impl LocatedAppAcceptance {
+    pub(super) fn require_original_sequence(
+        &self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&self.through.into(), &sequence.into()])
+            .map_err(core_error)?;
+        require(self.through == sequence, "INTEGRITY_FAILURE")
+    }
+    pub(super) async fn compare_original_retry(
+        &self,
+        tx: &mut SqliteTx,
+        incoming: &ingress::IncomingRequest,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.acceptance
+            .audited()?
+            .compare_retry(tx, &self._origin, &self.publication, incoming, s)
+            .await
+    }
     /// Extend the SAME already-completed acceptance prefix to today's held
     /// cutoff. Each later original executes once on its own existing owner;
     /// the saved acceptance is not reconstructed a second time.
@@ -747,6 +768,30 @@ pub(super) async fn acceptance_for(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<LocatedAppAcceptance> {
+    acceptance_for_mode(ledger, tx, key, reference, before, false, session).await
+}
+/// Original delivery/status requires the existing complete historical
+/// acceptance certificate, not the targeted input loader alone.
+pub(super) async fn acceptance_for_original(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<LocatedAppAcceptance> {
+    acceptance_for_mode(ledger, tx, key, reference, before, true, session).await
+}
+#[allow(clippy::too_many_arguments)]
+async fn acceptance_for_mode(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    before: i64,
+    certify_original: bool,
+    session: &mut OriginalAuditSession,
+) -> Result<LocatedAppAcceptance> {
     let mut attempt = InputAttempt {
         failure: tx.workflow_proof_failure_handle(),
         finished: false,
@@ -799,8 +844,9 @@ pub(super) async fn acceptance_for(
         let evidence =
             request_wrapper::field(origin.wrappers().operation(), "request_evidence", session)?;
         let resolution = request_wrapper::field(evidence, "descriptor_resolution", session)?;
-        if request_wrapper::text(resolution, "registry_digest", session)?
-            == wrappers::LOCAL_REGISTRY
+        if !certify_original
+            && request_wrapper::text(resolution, "registry_digest", session)?
+                == wrappers::LOCAL_REGISTRY
         {
             let publication = publication_for(
                 tx,

@@ -338,6 +338,71 @@ pub(in super::super) async fn reconstruct(
 }
 
 impl ReplayedAcceptance {
+    /// Compare only after the complete saved certificate has succeeded. The
+    /// incoming request uses the ORIGINAL publication and verified consent
+    /// material; it never reauthorizes the saved acceptance under today's grant.
+    pub(in super::super) async fn compare_retry(
+        &self,
+        tx: &mut SqliteTx,
+        origin: &prefix::LocatedWrappers,
+        publication: &prefix::RecompiledPublication,
+        incoming: &ingress::IncomingRequest,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(incoming.kind() == "agreement.accept", "IDENTITY_CONFLICT")?;
+        let input = AppAcceptanceInput::normalize(incoming, publication, s)?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(input.terms().canonical_bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(self.input.terms().canonical_bytes().len())
+            .map_err(core_error)?;
+        require(
+            input.terms().canonical_bytes() == self.input.terms().canonical_bytes(),
+            "IDENTITY_CONFLICT",
+        )?;
+        let documents = private::normalize_inline(incoming, &input, s)?;
+        s.semantic_work()
+            .arithmetic(
+                Op::Add,
+                &[&origin.wrappers().sequence().into(), &1i64.into()],
+            )
+            .map_err(core_error)?;
+        let before = origin
+            .wrappers()
+            .sequence()
+            .checked_add(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let documents =
+            private::resolve_graph(documents, tx, origin.key(), &input, before, s).await?;
+        let binding = s
+            .parse_representation(self.binding.bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        let normalized = request::build(
+            incoming,
+            &input,
+            binding.value(),
+            &documents,
+            &self.consents,
+            s,
+        )?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(normalized.payload.bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(self.normalized.payload.bytes().len())
+            .map_err(core_error)?;
+        require(
+            normalized.payload.bytes() == self.normalized.payload.bytes(),
+            "IDENTITY_CONFLICT",
+        )
+    }
     /// Commit only the invocation-local chronological DATA fold after SAME
     /// original evidence, closure and journal equality above. Persistent heads
     /// and private prepared capabilities are not created by this operation.

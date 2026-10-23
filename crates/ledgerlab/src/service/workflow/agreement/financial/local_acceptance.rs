@@ -72,3 +72,82 @@ pub(super) async fn prepare_append(
         .append(ledger, tx, req, management, s)
         .await
 }
+
+/// Exact local acceptance originals share one complete historical certificate
+/// for both status and identity retry. Other recipes retain their old dispatch.
+pub(super) async fn verify_original(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    origin: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    let w = origin.wrappers();
+    if w.class() != wrappers::WireClass::Agreement
+        || request_wrapper::text(w.operation(), "kind", s)? != "agreement.accept"
+    {
+        return Ok(false);
+    }
+    let evidence = request_wrapper::field(w.operation(), "request_evidence", s)?;
+    let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
+    if request_wrapper::text(resolution, "registry_digest", s)? != wrappers::LOCAL_REGISTRY {
+        return Ok(false);
+    }
+    let saved = ingress::IncomingRequest::parse(w.original_request().raw(), s)?;
+    if request_wrapper::text(saved.payload(s)?, "schema", s)?
+        != "ledger-workflow-agreement-accept/9"
+    {
+        return Ok(false);
+    }
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Add,
+            &[&w.sequence().into(), &1i64.into()],
+        )
+        .map_err(core_error)?;
+    let before = w
+        .sequence()
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let mut accepted = None;
+    for r in request_wrapper::field(w.receipt(), "result_refs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        if request_wrapper::text(r, "kind", s)? == "workflow-accepted-agreement" {
+            require(accepted.replace(r).is_none(), "INTEGRITY_FAILURE")?;
+        }
+    }
+    let reference = accepted.ok_or(ServiceError::IntegrityFailure)?;
+    origin.require_member(reference, s)?;
+    let accepted = current::source::retained_record(
+        tx,
+        origin.key(),
+        reference,
+        "workflow-accepted-agreement",
+        "ledger-workflow-accepted-agreement/1",
+        before,
+        s,
+    )
+    .await?;
+    let complete = prefix::acceptance_for_original(
+        ledger,
+        tx,
+        origin.key(),
+        request_wrapper::field(accepted.body(), "binding_ref", s)?,
+        before,
+        s,
+    )
+    .await?;
+    complete.require_original_sequence(w.sequence(), s)?;
+    if let Some(incoming) = incoming {
+        request_wrapper::key(
+            request_wrapper::field(incoming.value(), "key", s)?,
+            origin.key(),
+            s,
+        )?;
+        complete.compare_original_retry(tx, incoming, s).await?;
+    }
+    s.check_cancelled().map_err(core_error)?;
+    Ok(true)
+}

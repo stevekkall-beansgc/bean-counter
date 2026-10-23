@@ -292,6 +292,7 @@ async fn finish_transaction(
 }
 
 pub(in crate::service::workflow) async fn local_management_status(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     raw_key: &[u8],
@@ -312,6 +313,7 @@ pub(in crate::service::workflow) async fn local_management_status(
             && local_publication::verify_original(tx, &original, &mut s)
                 .await?
                 .is_none()
+            && !local_acceptance::verify_original(ledger, tx, &original, None, &mut s).await?
             && !local_financial_original::verify(tx, &original, None, &mut s).await?
         {
             return Ok(None);
@@ -419,7 +421,9 @@ async fn original_query_in(
         OriginalQuery::Retry(req) => Some(*req),
         _ => None,
     };
-    if local_financial_original::verify(tx, &original, retry, session).await? {
+    if local_acceptance::verify_original(ledger, tx, &original, retry, session).await?
+        || local_financial_original::verify(tx, &original, retry, session).await?
+    {
         let reply = recovery::party_reply(&original, session)?;
         return if retry.is_some() {
             WorkflowReply::original(reply.value(), session).map(WorkflowReply::into_legacy_value)

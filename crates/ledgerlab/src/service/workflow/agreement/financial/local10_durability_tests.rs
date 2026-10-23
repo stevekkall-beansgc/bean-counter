@@ -317,3 +317,65 @@ async fn local10_attested_administrative_originals_reopen_status_and_retry() {
         assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
     }
 }
+
+#[tokio::test]
+#[ignore = "requires a captured synthetic local acceptance-control fixture"]
+async fn local10_local_acceptance_original_status_and_identity_retry() {
+    assert!(crate::build_identity::embedded_inputs().is_ok());
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
+    let raw = fs::read(root.join("acceptance-control.request.json")).unwrap();
+    let request: Value = serde_json::from_slice(&raw).unwrap();
+    let saved: Value =
+        serde_json::from_slice(&fs::read(root.join("acceptance-control.committed.json")).unwrap())
+            .unwrap();
+    let changed =
+        fs::read(root.join("inputs/changed-original-accepted-context.request.json")).unwrap();
+    let changed_request: Value = serde_json::from_slice(&changed).unwrap();
+    assert_eq!(saved["receipt"]["key"], request["key"]);
+    assert_eq!(changed_request["key"], request["key"]);
+    assert_ne!(
+        changed_request["payload"]["binding_inputs"]["accepted_context"],
+        request["payload"]["binding_inputs"]["accepted_context"]
+    );
+    let key = records::bytes(&request["key"]).unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("installation"), &path);
+    let config = fs::read(path.join("billing.json")).unwrap();
+    let before = snapshot(&path).await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    let status = ledger.status(&key).await.unwrap();
+    assert_eq!(status["receipt"], saved["receipt"]);
+    ledger.close().await;
+    assert_eq!(snapshot(&path).await, before);
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    let retry = ledger.financial(&raw).await.unwrap();
+    assert_eq!(retry["duplicate_kind"], "identity");
+    assert_eq!(retry["receipt"], saved["receipt"]);
+    ledger.close().await;
+    assert_eq!(snapshot(&path).await, before);
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert!(
+        matches!(ledger.financial(&changed).await, Err(ServiceError::Rejection(code)) if code == "IDENTITY_CONFLICT")
+    );
+    ledger.close().await;
+    assert_eq!(snapshot(&path).await, before);
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        ledger.status(&key).await.unwrap()["receipt"],
+        saved["receipt"]
+    );
+    ledger.close().await;
+    assert_eq!(snapshot(&path).await, before);
+    assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
+}

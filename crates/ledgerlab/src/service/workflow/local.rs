@@ -214,7 +214,7 @@ impl LocalWorkflowLedger {
                 .map_err(super::super::store_error)?
             {
                 Some(kind) if kind == "policy.publish" => {
-                    if let Some(original)=agreement::financial::local_management_status(tx,&key,raw_key).await? {
+                    if let Some(original)=agreement::financial::local_management_status(self,tx,&key,raw_key).await? {
                         return Ok(original);
                     }
                     let original = tx
@@ -228,7 +228,7 @@ impl LocalWorkflowLedger {
                     agreement::financial::original_status(self, tx, &key, raw_key).await
                 }
                 Some(_) => {
-                    if let Some(original)=agreement::financial::local_management_status(tx,&key,raw_key).await? {
+                    if let Some(original)=agreement::financial::local_management_status(self,tx,&key,raw_key).await? {
                         Ok(original)
                     } else { agreement::status(tx,&key).await }
                 },
