@@ -146,6 +146,38 @@ class AttestedDriverTests(unittest.TestCase):
 
 
 class ConditionalDriverTests(unittest.TestCase):
+    def test_pre_acceptance_capture_keeps_exact_request_before_submit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journey = conditional.ConditionalJourney.__new__(conditional.ConditionalJourney)
+            journey.root = Path(directory)
+            journey.inputs, journey.installation = journey.root / "inputs", journey.root / "installation"
+            journey.inputs.mkdir()
+            journey.installation.mkdir()
+            journey.log = journey.root / "RUN.json"
+            journey.log.write_text("{}")
+            journey.store, journey.scope, journey.source = "synthetic", ["example", "local"], "worker"
+            journey.save = lambda: None
+            payload = {"schema": "ledger-workflow-agreement-accept/9", "agreement_id": "synthetic-agreement",
+                       "binding_inputs": {"accepted_context": {"facts": {"support:eligibility": "support:eligible"}}}}
+            request = supported.canonical({"schema": "ledger-operation/1", "contract": "workflow/1",
+                "kind": "agreement.accept", "key": journey.key("acceptance"), "payload": payload})
+            saved_payload = copy.deepcopy(payload)
+            def submit(_self, name, kind, actual):
+                self.assertEqual((name, kind, actual), ("acceptance", "agreement.accept", payload))
+                # Inspect the real capture at the exact parent-submit boundary.
+                self.assertEqual((journey.root / "acceptance.request.json").read_bytes(), request)
+                fixture = journey.root / "pre-acceptance-fixture"
+                self.assertEqual((fixture / "acceptance.request.json").read_bytes(), request)
+                self.assertEqual(json.loads((fixture / "acceptance.request.json").read_bytes())["key"],
+                                 journey.key("acceptance"))
+                self.assertFalse((fixture / "acceptance.committed.json").exists())
+                return {"receipt": {"key": journey.key("acceptance"),
+                                    "original_request_bytes_sha256": supported.sha(request)}}
+            with patch.object(attested.AttestedJourney, "submit", submit):
+                result = journey.submit("acceptance", "agreement.accept", payload)
+            self.assertEqual(result["receipt"]["original_request_bytes_sha256"], supported.sha(request))
+            self.assertEqual(payload, saved_payload)
+
     def test_accepted_enum_is_input_and_old_default_stays_empty(self):
         old = supported.Journey.__new__(supported.Journey)
         old.fact_refs = {"support:context": ref("schema")}

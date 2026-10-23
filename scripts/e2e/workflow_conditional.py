@@ -34,8 +34,9 @@ class ConditionalJourney(AttestedJourney):
 
     def submit(self, name, kind, payload):
         if name == "acceptance":
-            self.write("acceptance.request.json", {"schema": "ledger-operation/1", "contract": "workflow/1",
-                "kind": kind, "key": self.key(name), "payload": payload})
+            (self.root / "acceptance.request.json").write_bytes(canonical({
+                "schema": "ledger-operation/1", "contract": "workflow/1",
+                "kind": kind, "key": self.key(name), "payload": payload}))
             self.save()
             self.preserve_fixture("pre-acceptance-fixture")
         return super().submit(name, kind, payload)
