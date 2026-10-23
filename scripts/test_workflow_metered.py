@@ -151,9 +151,9 @@ class ConditionalDriverTests(unittest.TestCase):
         journey = conditional.ConditionalJourney.__new__(conditional.ConditionalJourney)
         journey.fact_refs = old.fact_refs
         journey.business = {"conditional_context": {"field": "support:eligibility"}}
-        journey.context_value = "ineligible"
+        journey.context_value = "support:ineligible"
         self.assertEqual(journey.accepted_context(), {"fact_schema_ref": ref("schema"),
-            "facts": {"support:eligibility": "ineligible"}})
+            "facts": {"support:eligibility": "support:ineligible"}})
 
     def test_false_has_no_invented_target_and_keeps_actual_app_dependent(self):
         journey, work = MeteredDriverTests().closure_journey(False)

@@ -49,7 +49,7 @@ def main():
     control = json.loads((journey.root / "acceptance-control.request.json").read_bytes())
     assert result["receipt"]["original_request_bytes_sha256"] == sha(canonical(control))
     changed = copy.deepcopy(control)
-    changed["payload"]["binding_inputs"]["accepted_context"]["facts"][field] = "ineligible"
+    changed["payload"]["binding_inputs"]["accepted_context"]["facts"][field] = journey.business["conditional_context"]["nonmatching_value"]
     refuse(journey, "changed-original-accepted-context", changed, "IDENTITY_CONFLICT")
     journey.reopen_retry(["acceptance-control"])
     journey.meta["status"] = "conditional_context_refusals_complete"

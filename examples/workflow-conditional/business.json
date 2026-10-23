@@ -228,7 +228,7 @@
   },
   "conditional_context": {
     "field": "support:eligibility",
-    "matching_value": "eligible",
-    "nonmatching_value": "ineligible"
+    "matching_value": "support:eligible",
+    "nonmatching_value": "support:ineligible"
   }
 }

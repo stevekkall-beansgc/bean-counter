@@ -74,8 +74,8 @@
           "type": {
             "kind": "enum",
             "values": [
-              "eligible",
-              "ineligible"
+              "support:eligible",
+              "support:ineligible"
             ]
           }
         }
@@ -247,8 +247,8 @@
       },
       "context_schema_ref": {
         "kind": "workflow-fact-schema",
-        "id": "wdoc_657d63cefc74b5024e5c2bae7f0210f71ba8cac061cce867f5d5f652f156f92f",
-        "digest": "sha256:657d63cefc74b5024e5c2bae7f0210f71ba8cac061cce867f5d5f652f156f92f"
+        "id": "wdoc_7dae8bf5e51f82a1e02273821d37317ca219930f88dc82036d74c0af6f2c45bc",
+        "digest": "sha256:7dae8bf5e51f82a1e02273821d37317ca219930f88dc82036d74c0af6f2c45bc"
       },
       "currency": "USD",
       "delayed_costs": [],
@@ -351,7 +351,7 @@
             "field": {
               "binding_fact": "support:eligibility"
             },
-            "value": "eligible"
+            "value": "support:eligible"
           }
         },
         {
@@ -394,7 +394,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_5864d1ae1db46c38ab50d255be38af176bccd6de37818105e4438f3b8ee5d9ae",
-    "digest": "sha256:5864d1ae1db46c38ab50d255be38af176bccd6de37818105e4438f3b8ee5d9ae"
+    "id": "wdoc_61f507b68345512104ab6fd5a3dc2853de1f2776c4861ea68f92ccaacd66733d",
+    "digest": "sha256:61f507b68345512104ab6fd5a3dc2853de1f2776c4861ea68f92ccaacd66733d"
   }
 }
