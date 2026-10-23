@@ -207,30 +207,73 @@ pub(super) async fn selected(
         return Ok(false);
     };
     let mut tx = snapshot.begin(&ledger.store, s).await?;
-    let result=async{
-  ledger.admin.read(&ledger.store,&mut tx,req.key()).await?;
-  let before=tx.workflow_sequence().await.map_err(crate::service::store_error)?;
-  let identity=req.key().bytes()?;
-  if tx.workflow_original_identity_exists(&identity,s).await.map_err(prefix::read_error)? {
-    let owned=s.copy_representation(&identity,RepresentationKind::Record).map_err(core_error)?;
-    let old=prefix::target(&mut tx,req.key(),owned,s).await?.checked_wrappers(&mut tx,s).await?;
-    let e=request_wrapper::field(old.wrappers().operation(),"request_evidence",s)?;
-    let d=request_wrapper::field(e,"descriptor_resolution",s)?;
-    return Ok(request_wrapper::text(d,"registry_digest",s)?==wrappers::LOCAL_REGISTRY);
-  }
-  let(reference,_lease)=current::source::from_value(r,"workflow-binding",s)?;
-  let stored=tx.workflow_financial_document(&reference,&req.key().logical_store_id,&req.key().scope,before,s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-  if stored.schema.bytes()!=b"ledger-workflow-binding/2" {return Ok(false);}
-  let binding=current::source::retained_record(&mut tx,req.key(),r,"workflow-binding","ledger-workflow-binding/2",before,s).await?;
-  let policy_ref=request_wrapper::field(binding.body(),"policy_ref",s)?;
-  let policy=current::source::retained_record(&mut tx,req.key(),policy_ref,"workflow-policy","ledger-workflow-policy/4",before,s).await?;
-  let actual=request_wrapper::field(policy.body(),"compiler_ref",s)?;
-  match publication_prepare::local_support(actual,s) {
-    Ok(_support)=>Ok(true),
-    Err(ServiceError::Rejection(code)) if code=="UNSUPPORTED_SCHEMA_PROFILE"=>Ok(false),
-    Err(error)=>Err(error),
-  }
- }.await;
+    let result = async {
+        ledger.admin.read(&ledger.store, &mut tx, req.key()).await?;
+        let before = tx
+            .workflow_sequence()
+            .await
+            .map_err(crate::service::store_error)?;
+        let identity = req.key().bytes()?;
+        if tx
+            .workflow_original_identity_exists(&identity, s)
+            .await
+            .map_err(prefix::read_error)?
+        {
+            let owned = s
+                .copy_representation(&identity, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let old = prefix::target(&mut tx, req.key(), owned, s)
+                .await?
+                .checked_wrappers(&mut tx, s)
+                .await?;
+            let e = request_wrapper::field(old.wrappers().operation(), "request_evidence", s)?;
+            let d = request_wrapper::field(e, "descriptor_resolution", s)?;
+            return Ok(request_wrapper::text(d, "registry_digest", s)? == wrappers::LOCAL_REGISTRY);
+        }
+        let (reference, _lease) = current::source::from_value(r, "workflow-binding", s)?;
+        let stored = tx
+            .workflow_financial_document(
+                &reference,
+                &req.key().logical_store_id,
+                &req.key().scope,
+                before,
+                s,
+            )
+            .await
+            .map_err(prefix::read_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        if stored.schema.bytes() != b"ledger-workflow-binding/2" {
+            return Ok(false);
+        }
+        let binding = current::source::retained_record(
+            &mut tx,
+            req.key(),
+            r,
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+            before,
+            s,
+        )
+        .await?;
+        let policy_ref = request_wrapper::field(binding.body(), "policy_ref", s)?;
+        let policy = current::source::retained_record(
+            &mut tx,
+            req.key(),
+            policy_ref,
+            "workflow-policy",
+            "ledger-workflow-policy/4",
+            before,
+            s,
+        )
+        .await?;
+        let actual = request_wrapper::field(policy.body(), "compiler_ref", s)?;
+        match publication_prepare::local_support(actual, s) {
+            Ok(_support) => Ok(true),
+            Err(ServiceError::Rejection(code)) if code == "UNSUPPORTED_SCHEMA_PROFILE" => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+    .await;
     tx.rollback().await.map_err(crate::service::store_error)?;
     result
 }
