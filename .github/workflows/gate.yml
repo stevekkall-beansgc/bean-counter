@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   compliance:
-    uses: stevekkall-beansgc/gate-kit/.github/workflows/compliance.yml@v0.7.5
+    uses: stevekkall-beansgc/gate-kit/.github/workflows/compliance.yml@v0.7.7
     with:
       repo: bean-counter
       full: true
