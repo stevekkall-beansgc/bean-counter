@@ -265,7 +265,7 @@ def main():
             build_info.update({
                 "workflow_build_inputs_sha256": hashlib.sha256(workflow_inputs).hexdigest(),
                 "workflow_source_inventory_sha256": hashlib.sha256(workflow_inventory).hexdigest(),
-                "workflow_capture_command": "python3 scripts/build_workflow.py --local-execution --operator-resources --output <CAPTURE>",
+                "workflow_capture_command": "python3 scripts/build_workflow.py --local-execution --operator-resources --conditional-work --output <CAPTURE>",
                 "cargo_build_command": f"cargo build --locked --offline --package ledgerlab-cli --target {target} --target-dir <CAPTURE>/target --release (cwd <CAPTURE>/source)",
                 "workflow_helper_build_command": f"LEDGER_WORKFLOW_BUILD_INPUTS_JSON=<CAPTURE>/build-inputs.json CARGO_TARGET_DIR=<CAPTURE>/target cargo build --manifest-path <CAPTURE>/source/Cargo.toml --package ledgerlab --example prepare_local_publication --example prepare_local_terms --target {target} --release --locked --offline",
                 "workflow_path_notation": "<CAPTURE> denotes the declared build capture; private absolute paths are omitted",
