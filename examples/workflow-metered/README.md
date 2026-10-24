@@ -1,5 +1,7 @@
 # Metered-work development journey
 
+> Historical/source-profile fixture: the v0.11.0 native conditional capture uses a distinct exact compiler contentRef. For current packaged fresh work use [the conditional walkthrough](../workflow-conditional/README.md); old saved requests remain original-recovery inputs. The source-profile build commands below retain their own profile meaning.
+
 This synthetic candidate extends the released fixed-service example with one
 integer Unit-priced service. It is not a new release or a full Wave 2b claim.
 Use a reviewed captured local/operator-resource CLI and its two matching

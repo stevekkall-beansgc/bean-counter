@@ -130,21 +130,25 @@ def check_workflow_build_identity(directory):
                  "entries": [{"path": "synthetic.rs", "bytes": "4", "sha256": digest(b"test")}]}
     canonical = module.build_workflow.canonical
     inventory_digest = "sha256:" + digest(b"bean-counter/build-source-inventory/1\0" + canonical(inventory).encode())
-    descriptor = json.loads((VERIFY.parent.parent / "contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json").read_bytes())
+    descriptor = json.loads((VERIFY.parent.parent / "contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-compiler8-data.json").read_bytes())
     compiler_digest = "sha256:" + digest(b"bean-counter/workflow-document/1\0" + canonical([descriptor["schema"], descriptor]).encode())
     inputs = {"source": {"base_commit": COMMIT, "state": "clean_commit", "inventory_digest": inventory_digest},
-              "recipe": {"package_name": "ledgerlab-cli", "package_version": "0.10.0", "build_profile": "release",
+              "recipe": {"package_name": "ledgerlab-cli", "package_version": "0.11.0", "build_profile": "release",
                          "target": "x86_64-unknown-linux-gnu", "features": [],
                          "compiler_ref": {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + compiler_digest[7:], "digest": compiler_digest}}}
     path = capture / "build-inputs.json"
     path.write_text(canonical(inputs))
     (capture / "inventory.json").write_text(canonical(inventory))
-    observed = module.workflow_build_evidence(path, COMMIT, "0.10.0", "x86_64-unknown-linux-gnu")
+    observed = module.workflow_build_evidence(path, COMMIT, "0.11.0", "x86_64-unknown-linux-gnu")
     if observed != (path.read_bytes(), (capture / "inventory.json").read_bytes()):
         raise RuntimeError("workflow package changed captured evidence bytes")
+    old_descriptor = json.loads((VERIFY.parent.parent / "contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json").read_bytes())
+    old_digest = "sha256:" + digest(b"bean-counter/workflow-document/1\0" + canonical([old_descriptor["schema"], old_descriptor]).encode())
+    old_ref = {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + old_digest[7:], "digest": old_digest}
     cases = [("source", "base_commit", "c" * 40), ("source", "state", "worktree_snapshot"),
              ("source", "inventory_digest", "sha256:" + "0" * 64),
              ("recipe", "package_version", "0.9.7"), ("recipe", "target", "aarch64-apple-darwin"),
+             ("recipe", "compiler_ref", old_ref),
              ("recipe", "build_profile", "test"), ("recipe", "features", ["unexpected"]),
              ("recipe", "compiler_ref", {"kind": "workflow-compiler-descriptor", "id": "wrong", "digest": "sha256:" + "0" * 64})]
     for section, field, value in cases:
@@ -152,7 +156,7 @@ def check_workflow_build_identity(directory):
         wrong[section][field] = value
         path.write_text(canonical(wrong))
         try:
-            module.workflow_build_evidence(path, COMMIT, "0.10.0", "x86_64-unknown-linux-gnu")
+            module.workflow_build_evidence(path, COMMIT, "0.11.0", "x86_64-unknown-linux-gnu")
         except SystemExit:
             continue
         raise RuntimeError(f"workflow packager accepted mismatched {section}.{field}")

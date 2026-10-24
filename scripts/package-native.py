@@ -34,7 +34,7 @@ def workflow_build_evidence(inputs_path, commit, version, target):
     inventory_digest = "sha256:" + hashlib.sha256(
         b"bean-counter/build-source-inventory/1\0" + build_workflow.canonical(inventory).encode()).hexdigest()
     descriptor = json.loads((Path(__file__).resolve().parents[1] /
-        "contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json").read_bytes())
+        "contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-compiler8-data.json").read_bytes())
     compiler_digest = "sha256:" + hashlib.sha256(b"bean-counter/workflow-document/1\0" +
         build_workflow.canonical([descriptor["schema"], descriptor]).encode()).hexdigest()
     compiler_ref = {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + compiler_digest[7:], "digest": compiler_digest}
@@ -182,7 +182,7 @@ def main():
             (stage / "WORKFLOW-BUILD-INPUTS.json").write_bytes(workflow_inputs)
             (stage / "WORKFLOW-SOURCE-INVENTORY.json").write_bytes(workflow_inventory)
             with (stage / "README.md").open("a", encoding="utf-8") as readme:
-                readme.write("\n## Unreleased supported-workflow candidate\n\nThis optional candidate material is not a release or full-registry capability claim. Read [the supported scope](docs/local-workflow-supported-recipe.md) and [the synthetic walkthrough](examples/workflow-supported/README.md). The two input-only helpers are in `helpers/`.\n")
+                readme.write("\n## Supported checkpoint workflow\n\nPublication and native qualification are established only by the matching release page and QUALIFICATION.json; this is not a full-registry capability claim. Read [the supported scope](docs/local-workflow-supported-recipe.md) and [the synthetic walkthrough](examples/workflow-conditional/README.md). The two input-only helpers are in `helpers/`.\n")
             helpers = stage / "helpers"
             helpers.mkdir(mode=0o700)
             for helper in ("prepare_local_publication", "prepare_local_terms"):
@@ -195,7 +195,7 @@ def main():
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
         if workflow_candidate:
-            shutil.copyfile(repo / "release/notes-v0.10.0.md", stage / "release/notes-v0.10.0.md")
+            shutil.copyfile(repo / "release/notes-v0.11.0.md", stage / "release/notes-v0.11.0.md")
         shutil.copyfile(repo / "START-HERE.md", stage / "START-HERE.md")
         (stage / "AGENTS.md").write_text(
             "# Integrate the installed local billing CLI\n\n"
@@ -207,7 +207,7 @@ def main():
             encoding="utf-8")
         examples = stage / "examples"
         examples.mkdir(mode=0o700)
-        for section in ("billing", "finance", "integration") + (("workflow-supported",) if workflow_candidate else ()):
+        for section in ("billing", "finance", "integration") + (("workflow-supported", "workflow-metered", "workflow-attested", "workflow-conditional") if workflow_candidate else ()):
             copy_committed_examples(repo, commit, section, examples / section)
         scripts = stage / "scripts"
         scripts.mkdir(mode=0o700)
@@ -223,7 +223,10 @@ def main():
         if workflow_candidate:
             e2e = scripts / "e2e"
             e2e.mkdir(mode=0o700)
-            for filename in ("workflow_supported.py", "workflow_supported_negatives.py"):
+            for filename in ("workflow_supported.py", "workflow_supported_negatives.py",
+                             "workflow_metered.py", "workflow_metered_negatives.py",
+                             "workflow_attested.py", "workflow_attested_negatives.py",
+                             "workflow_conditional.py", "workflow_conditional_negatives.py"):
                 shutil.copyfile(repo / "scripts/e2e" / filename, e2e / filename)
                 (e2e / filename).chmod(0o600)
         subprocess.run([sys.executable, str(stage / "scripts/check-package-docs.py"), str(stage)], check=True)

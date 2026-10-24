@@ -1,5 +1,7 @@
 # Supported local workflow candidate
 
+> Historical/source-profile fixture: the v0.11.0 native conditional capture uses a distinct exact compiler contentRef. For current packaged fresh work use [the conditional walkthrough](../workflow-conditional/README.md); old saved requests remain original-recovery inputs. The source-profile build commands below retain their own profile meaning.
+
 These inputs are synthetic. They create no live customer charge, provider payment or invoice. The supported scope and known diagnostic limitation are in [the recipe checklist](../../docs/local-workflow-supported-recipe.md). This is verification of the unpublished 0.10.0 candidate, not release approval. Start with [the tester handoff](../../docs/workflow-candidate-testing.md) for a new private output directory, archive identity checks and expected results.
 
 Use the repository's pinned Rust toolchain. From this checkout, capture a normal operator-resource build, then build the two input-only helpers from that same captured source:

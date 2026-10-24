@@ -1,7 +1,7 @@
 name: gate
 on:
   push:
-    branches: [main, codex/bean-counter-wave2a-candidate-20261021]
+    branches: [main, codex/bean-counter-v0.11.0-release-20261024]
   pull_request:
   workflow_dispatch:
 

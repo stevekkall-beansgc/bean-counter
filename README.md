@@ -1,6 +1,6 @@
 # Bean Counter
 
-> Source/candidate note: this checkout prepares **unpublished 0.10.0**. Published v0.9.7 instructions and assets below keep their original meaning. Candidate testers use the [workflow handoff](docs/workflow-candidate-testing.md); its exact-version helpers must not be mixed with v0.9.7 binaries.
+> This checkout targets v0.11.0. Publication and platform qualification come from the matching release page and QUALIFICATION.json, not version text. The [workflow handoff](docs/workflow-candidate-testing.md) uses the exact conditional capture and matching helpers.
 
 **Give your application a billing history you can explain.**
 
@@ -86,7 +86,7 @@ sh scripts/check-local-billing-e2e.sh
 
 ## Release evidence and history
 
-The current published package is **v0.9.7 Open Beta**, with billing contract v0.3 and SQLite schema 11. Its [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) identify the exact source, archives and actual qualification. A newer documentation checkout does not replace the instructions or evidence shipped in an older package. Earlier releases retain their immutable bytes and matching instructions.
+This checkout targets **v0.11.0**, retaining billing contract v0.3 and adding the bounded metered, attested and conditional workflow recipe. The [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) establish actual publication and exact native artifacts. Historical [v0.10.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.10.0) remains the independently tested fixed-service release; its archives are unchanged.
 
 [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog. The [current requirements](CURRENT-REQUIREMENTS.md) retain version history; [STATUS.md](STATUS.md) distinguishes current support, historical owner acceptance and the historical independent-review waiver. Source and native publication do not publish Rust crates.
 

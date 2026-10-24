@@ -2,7 +2,7 @@ name: m8-native-linux
 
 on:
   push:
-    branches: [main, codex/bean-counter-wave2a-candidate-20261021]
+    branches: [main, codex/bean-counter-v0.11.0-release-20261024]
   pull_request:
   workflow_dispatch:
 
@@ -51,8 +51,8 @@ jobs:
           artifact_dir="$PWD/work/m8-linux/artifacts"
           mkdir -p "$PWD/work/m8-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
-          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
-          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
           cp scripts/verify-native-package.py scripts/install-native-package.py scripts/install-linux-x86_64.sh "$artifact_dir/"
       - name: Check out exact schema-10 legacy source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -71,7 +71,7 @@ jobs:
           set -euo pipefail
           artifact_dir="$PWD/work/m8-linux/artifacts"
           install_dir="$PWD/work/m8-linux/installed"
-          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.10.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
+          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
           file "$install_dir/ledger"
           ldd "$install_dir/ledger"
           python3 "$install_dir/scripts/check-package-docs.py" "$install_dir"
@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/build_workflow.py --test --local-execution --operator-resources --output "$PWD/work/workflow-linux-tests"
+          python3 scripts/build_workflow.py --test --local-execution --operator-resources --conditional-work --output "$PWD/work/workflow-linux-tests"
           test_binary=$(find "$PWD/work/workflow-linux-tests/target/x86_64-unknown-linux-gnu/debug/deps" -maxdepth 1 -type f -name 'ledgerlab-*' -perm -u+x)
           test -n "$test_binary"
           test "$(printf '%s\n' "$test_binary" | wc -l)" -eq 1
@@ -109,13 +109,12 @@ jobs:
           ledger="$install_dir/ledger"
           pub="$out/helper-bin/prepare_local_publication"
           terms="$out/helper-bin/prepare_local_terms"
-          python3 "$install_dir/scripts/e2e/workflow_supported.py" --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/main"
-          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case pending --pending-finalize-check --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/pending"
-          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case no-success --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/no-success"
-          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case deadline --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/deadline"
-          python3 "$install_dir/scripts/e2e/workflow_supported_negatives.py" --ledger "$ledger" --fixture "$out/main/pre-reverse-fixture" --output "$out/negatives" --groups N1 N2 N3 N4 N6 N8 N9
-          python3 "$install_dir/scripts/e2e/workflow_supported_negatives.py" --ledger "$ledger" --fixture "$out/main" --output "$out/terminal-outcome" --groups N7
-          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case restore --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/restored" --restore-from "$out/no-success" --restore-operations no-success-work no-success-close
+          python3 "$install_dir/scripts/e2e/workflow_conditional.py" --context matching --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/main"
+          python3 "$install_dir/scripts/e2e/workflow_conditional.py" --context nonmatching --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/nonmatching-finalized"
+          python3 "$install_dir/scripts/e2e/workflow_conditional.py" --context nonmatching --pending --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/nonmatching-pending"
+          python3 "$install_dir/scripts/e2e/workflow_conditional_negatives.py" --ledger "$ledger" --fixture "$out/main" --output "$out/context-negatives"
+          python3 "$install_dir/scripts/e2e/workflow_attested_negatives.py" --ledger "$ledger" --fixture "$out/main" --output "$out/proof-rights-negatives"
+          python3 "$install_dir/scripts/e2e/workflow_supported.py" --case restore --ledger "$ledger" --publication-helper "$pub" --terms-helper "$terms" --output "$out/restored" --restore-from "$out/main" --restore-operations main-quantity-proof main-proof-source-narrow main-work main-finalize main-success main-quantity-replacement-proof main-quantity-correct main-reverse
       - name: Qualify actual financial interruption and retained migration mechanisms
         shell: bash
         run: |
@@ -130,7 +129,7 @@ jobs:
           stack_bytes=$((stack_kib * 1024))
           printf 'observed_cli_stack_kib=%s\nRUST_MIN_STACK=%s\n' "$stack_kib" "$stack_bytes" > "$evidence/test-stack.txt"
           for test in local10_precommit_cut_leaves_no_partial_financial_append local10_committed_reply_loss_reopens_and_identity_retries_once; do
-            RUST_MIN_STACK="$stack_bytes" LEDGER_WORKFLOW_TEST_FIXTURE="$PWD/work/workflow-linux/main" "$test_binary" --exact "service::workflow::agreement::financial::local10_durability_tests::$test" --ignored --test-threads=1 > "$evidence/$test.log" 2>&1
+            RUST_MIN_STACK="$stack_bytes" LEDGER_WORKFLOW_TEST_FIXTURE="$PWD/work/workflow-linux/main/pre-quantity-fixture" LEDGER_WORKFLOW_TEST_OPERATION=main-quantity-correct "$test_binary" --exact "service::workflow::agreement::financial::local10_durability_tests::$test" --ignored --test-threads=1 > "$evidence/$test.log" 2>&1
           done
           for test in \
             store::sqlite::billing::tests::management_readers_use_effective_workflow_deadline \
@@ -148,7 +147,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bean-counter-v0.10.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          name: bean-counter-v0.11.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             work/m8-linux/artifacts/
             work/workflow-linux/**/RUN.json

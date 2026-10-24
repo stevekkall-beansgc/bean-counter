@@ -16,11 +16,11 @@ if [ -n "$(git -C "$repo" status --porcelain --untracked-files=all)" ]; then
     exit 1
 fi
 cd "$repo"
-# The 0.10.0 candidate advertises the opt-in local workflow. Preserve the
+# The 0.11.0 checkpoint advertises the opt-in local workflow. Preserve the
 # immutable capture beside the requested fresh artifact directory.
 cargo fetch --locked
 capture="$1.workflow-build"
-python3 "$repo/scripts/build_workflow.py" --local-execution --operator-resources --output "$capture"
+python3 "$repo/scripts/build_workflow.py" --local-execution --operator-resources --conditional-work --output "$capture"
 capture=$(CDPATH= cd -- "$capture" && pwd -P)
 export LEDGER_WORKFLOW_BUILD_INPUTS_JSON="$capture/build-inputs.json"
 export CARGO_TARGET_DIR="$capture/target"
