@@ -1,6 +1,6 @@
 # Bean Counter
 
-> This checkout targets v0.11.0. Publication and platform qualification come from the matching release page and QUALIFICATION.json, not version text. The [workflow handoff](docs/workflow-candidate-testing.md) uses the exact conditional capture and matching helpers.
+> Current public default: **[v0.11.0 testing prerelease](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0)**, released from `aba16512fac2f9bf355f09d6634bb3f69c818f13`. Use its matching [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) and [release testing guide](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/RELEASE-TESTING.md). The [workflow handoff](docs/workflow-candidate-testing.md) describes the bounded optional workflow. Start in a fresh private synthetic directory; this is not a production-readiness or existing-installation migration recommendation.
 
 **Give your application a billing history you can explain.**
 
@@ -26,15 +26,15 @@ Your app finishes a report. The agreed price is **$1.00**, so it saves a receipt
 
 Your app supplies the facts and authority. Bean Counter keeps the billing history straight. A failed attempt is not completed work; an assessment error is not a quality verdict. The [live-app recipe](docs/live-app-integration.md) shows how to keep those cases separate.
 
-## Try the open beta
+## Try the testing prerelease
 
-**[Download v0.9.7 and get your first synthetic receipt →](START-HERE.md)**
+**[Download v0.11.0 and get your first synthetic receipt →](START-HERE.md)**
 
 The native kit includes the `ledger` executable, installation and verification tools, documentation, examples, fixtures and a 30-check bounded-cohort checker. You need **Python 3.11+ and curl** for installation and examples. No Rust compiler, Node, hosted account or model API is required.
 
 Qualification covers **Apple-silicon macOS 26.6.2** and **Ubuntu 24.04.5 x86-64/glibc 2.39**. Packages are unsigned and unnotarized; other platforms and unfamiliar-user/clean-account launch remain unverified. Start with synthetic records in a fresh private directory.
 
-[Release and downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) · [What is supported](CURRENT-REQUIREMENTS.md) · [Qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json)
+[Release and downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0) · [What is supported](CURRENT-REQUIREMENTS.md) · [Qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json)
 
 ## What you can do
 
