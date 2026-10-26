@@ -227,6 +227,42 @@ pub(in crate::policy::workflow::transition_constructor) fn quantities(
     #[cfg(not(test))]
     quantities_data(m, b, t, activity, facts)
 }
+/// The policy profile's already-normalized numeric facts may be fractional.
+/// Older recipes keep their integer reader and its exact paid traversal.
+pub(in crate::policy::workflow::transition_constructor) fn quantities_for_program(
+    m: &mut CoreMeter,
+    program: &super::super::super::selected_program::SelectedProgram,
+    b: &Value,
+    t: &Value,
+    activity: &str,
+    facts: &Value,
+) -> Result<()> {
+    if !program.uses_policy_semantics_recipe() {
+        return quantities(m, b, t, activity, facts);
+    }
+    for declarations in [
+        shape::array(m, b, "quantity_ceilings")?,
+        shape::array(m, t, "quantity_ceilings")?,
+    ] {
+        for q in declarations {
+            m.visit("inventory.current_quantity")?;
+            let declared_activity = shape::text(m, q, "activity")?;
+            if !shape::same_text(m, declared_activity, activity)? {
+                continue;
+            }
+            let field = shape::text(m, q, "field")?;
+            let raw = shape::text(m, facts, field)?;
+            let actual = arithmetic::decimal(m, raw)?;
+            let maximum = decimal(m, q, "maximum")?;
+            let left = meter::mul(m, &actual.numerator, &maximum.denominator)?;
+            let right = meter::mul(m, &maximum.numerator, &actual.denominator)?;
+            if meter::cmp(m, &left, &right)?.is_gt() {
+                return Err(shape::fail("accepted quantity ceiling"));
+            }
+        }
+    }
+    Ok(())
+}
 fn quantities_data(
     m: &mut CoreMeter,
     b: &Value,

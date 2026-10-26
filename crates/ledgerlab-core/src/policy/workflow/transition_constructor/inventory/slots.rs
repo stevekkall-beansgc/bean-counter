@@ -454,55 +454,7 @@ fn validate_data(
                 "activity",
                 invoke!(shape::text, m, q, "activity")?
             )?;
-            let mut schema = None;
-            for d in program.source_documents() {
-                if invoke!(
-                    shape::same,
-                    m,
-                    &json!(d.reference()),
-                    &data_field!(m, &activity, "fact_schema_ref")
-                )? {
-                    schema = Some(d.canonical_value());
-                }
-            }
-            let schema = schema.ok_or_else(|| shape::fail("quantity schema"))?;
-            let field = invoke!(
-                shape::named,
-                m,
-                invoke!(shape::array, m, schema, "fields")?,
-                "name",
-                invoke!(shape::text, m, q, "field")?
-            )?;
-            invoke!(
-                eq,
-                m,
-                &data_field!(m, &field, "type"),
-                "kind",
-                &json!("integer")
-            )?;
-            invoke!(copy, m, q, "unit", &data_field!(m, &field, "type"), "unit")?;
-            invoke!(eq, m, field, "required", &json!(true))?;
-            let maximum = invoke!(decimal, m, q, "maximum")?;
-            let max = invoke!(
-                arithmetic::integer,
-                m,
-                invoke!(shape::text, m, &data_field!(m, &field, "type"), "max")?,
-                true
-            )?;
-            let minimum = invoke!(
-                arithmetic::integer,
-                m,
-                invoke!(shape::text, m, data_field!(m, field, "type"), "min")?,
-                true
-            )?;
-            let lower = meter::mul(m, &minimum, &maximum.denominator)?;
-            let upper = meter::mul(m, &max, &maximum.denominator)?;
-            if invoke!(meter::cmp, m, &maximum.numerator, &lower)?.is_lt() {
-                return Err(shape::fail("quantity below original minimum"));
-            }
-            if invoke!(meter::cmp, m, &maximum.numerator, &upper)?.is_gt() {
-                return Err(shape::fail("quantity exceeds original schema"));
-            }
+            quantity_declaration(m, program, activity, q)?;
         }
     }
     invoke!(amount, m, &data_field!(m, &t, "exposure_ceiling"))?;
@@ -766,6 +718,106 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_
         let name = shape::text(m, declaration, "resource_funding_leg")?;
         let leg = shape::named(m, funding, "name", name)?;
         funding_literal(m, leg, "mode", "platform")?;
+    }
+    Ok(())
+}
+
+/// The exact original activity schema types both Binding and SlotTerms bounds.
+/// A ceiling is a bound, not an asserted fact: retain exact range comparisons
+/// without rounding it onto the fact grid or clamping it to the schema maximum.
+pub(in crate::policy::workflow::transition_constructor) fn quantity_declaration(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    activity: &Value,
+    q: &Value,
+) -> Result<()> {
+    let mut schema = None;
+    for d in program.source_documents() {
+        if invoke!(
+            shape::same,
+            m,
+            &json!(d.reference()),
+            &data_field!(m, &activity, "fact_schema_ref")
+        )? {
+            schema = Some(d.canonical_value());
+        }
+    }
+    let schema = schema.ok_or_else(|| shape::fail("quantity schema"))?;
+    let field = invoke!(
+        shape::named,
+        m,
+        invoke!(shape::array, m, schema, "fields")?,
+        "name",
+        invoke!(shape::text, m, q, "field")?
+    )?;
+    if program.uses_policy_semantics_recipe() {
+        let reference = shape::field(m, activity, "fact_schema_ref")?;
+        let mut original = None;
+        for (r, parsed) in program.fact_schemas() {
+            m.visit("inventory.original_quantity_schema")?;
+            let kind = shape::text(m, reference, "kind")?;
+            let id = shape::text(m, reference, "id")?;
+            let digest = shape::text(m, reference, "digest")?;
+            if shape::same_text(m, r.kind(), kind)?
+                && shape::same_text(m, r.id(), id)?
+                && shape::same_text(m, r.digest(), digest)?
+            {
+                original = Some(parsed);
+            }
+        }
+        let original = original.ok_or_else(|| shape::fail("original quantity schema"))?;
+        let name = shape::text(m, q, "field")?;
+        let unit = original.quantity_unit_with_work(name, m)?;
+        let declared_unit = shape::text(m, q, "unit")?;
+        if !shape::same_text(m, unit, declared_unit)? {
+            return Err(shape::fail("original quantity unit"));
+        }
+        let maximum = decimal(m, q, "maximum")?;
+        let kind = shape::field(m, field, "type")?;
+        for (key, below) in [("min", true), ("max", false)] {
+            let bound = decimal(m, kind, key)?;
+            let left = meter::mul(m, &maximum.numerator, &bound.denominator)?;
+            let right = meter::mul(m, &bound.numerator, &maximum.denominator)?;
+            let order = meter::cmp(m, &left, &right)?;
+            if (below && order.is_lt()) || (!below && order.is_gt()) {
+                return Err(shape::fail(if below {
+                    "quantity below original minimum"
+                } else {
+                    "quantity exceeds original schema"
+                }));
+            }
+        }
+        return Ok(());
+    }
+    invoke!(
+        eq,
+        m,
+        &data_field!(m, &field, "type"),
+        "kind",
+        &json!("integer")
+    )?;
+    invoke!(copy, m, q, "unit", &data_field!(m, &field, "type"), "unit")?;
+    invoke!(eq, m, field, "required", &json!(true))?;
+    let maximum = invoke!(decimal, m, q, "maximum")?;
+    let max = invoke!(
+        arithmetic::integer,
+        m,
+        invoke!(shape::text, m, &data_field!(m, &field, "type"), "max")?,
+        true
+    )?;
+    let minimum = invoke!(
+        arithmetic::integer,
+        m,
+        invoke!(shape::text, m, data_field!(m, field, "type"), "min")?,
+        true
+    )?;
+    let lower = meter::mul(m, &minimum, &maximum.denominator)?;
+    let upper = meter::mul(m, &max, &maximum.denominator)?;
+    if invoke!(meter::cmp, m, &maximum.numerator, &lower)?.is_lt() {
+        return Err(shape::fail("quantity below original minimum"));
+    }
+    if invoke!(meter::cmp, m, &maximum.numerator, &upper)?.is_gt() {
+        return Err(shape::fail("quantity exceeds original schema"));
     }
     Ok(())
 }

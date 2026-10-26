@@ -38,7 +38,8 @@ pub use input_selection::{
 };
 mod source_records;
 pub use source_projection::{
-    validate_app_nominated_sources, NominatedSourceFrame, NominatedSourceGrant,
+    validate_app_local_source_shape, validate_app_nominated_sources, NominatedSourceFrame,
+    NominatedSourceGrant,
 };
 pub use source_records::{
     produce_initial_registered_source_records, produce_initial_source_records,

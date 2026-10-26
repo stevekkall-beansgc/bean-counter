@@ -830,8 +830,9 @@ fn prepare(
         (&work, &claim_ref, &original_ref, &original),
     )?;
     if !reverse {
-        entry::quantities(
+        entry::quantities_for_program(
             m,
+            program,
             &operands.binding,
             &operands.slot_terms,
             activity_name,

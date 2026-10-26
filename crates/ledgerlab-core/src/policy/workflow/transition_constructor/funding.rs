@@ -586,8 +586,9 @@ fn maximum_facts(
         }
     }
     let normalized = NormalizedInput::normalize(m, original_schema, &facts)?;
-    entry::quantities(
+    entry::quantities_for_program(
         m,
+        p,
         &t.binding,
         &t.slot_terms,
         activity,

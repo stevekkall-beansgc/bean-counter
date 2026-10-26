@@ -707,7 +707,14 @@ fn execute_parsed<'inv, 'raw>(
         Some((&a.binding, &c.key.source)),
         m,
     )?;
-    super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, activity_name, &p["facts"])?;
+    super::inventory::entry::quantities_for_program(
+        m,
+        program,
+        &a.binding,
+        &a.slot_terms,
+        activity_name,
+        &p["facts"],
+    )?;
     let mut total = num_bigint::BigInt::from(0);
     for price in &prices {
         m.visit("inventory.output_charge")?;

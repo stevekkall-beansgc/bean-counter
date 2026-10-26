@@ -738,3 +738,63 @@ fn conditional_retained_capacity_uses_selected_targets_and_keeps_independent_app
         }
     }
 }
+
+#[test]
+fn policy_decimal_slot_bounds_and_current_quantities_use_original_numeric_schema() {
+    let (_arena, mut s) = session();
+    let support =
+        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s).unwrap();
+    let p = compile_selected_publication(policy_context_input(&support), &support, &mut s).unwrap();
+    let activity = p.compiled_plan().canonical_value()["activity_table"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["activity"] == "support:complete")
+        .unwrap();
+    let q = json!({"activity":"support:complete","field":"support:quantity","unit":"support:second","maximum":"120"});
+    super::super::inventory::slots::quantity_declaration(s.meter_mut(), &p, activity, &q).unwrap();
+    for maximum in ["0", "0.0001", "119.9995", "120"] {
+        let mut q = q.clone();
+        q["maximum"] = json!(maximum);
+        super::super::inventory::slots::quantity_declaration(s.meter_mut(), &p, activity, &q)
+            .unwrap();
+    }
+    for (field, value) in [
+        ("maximum", "120.0001"),
+        ("maximum", "-0.001"),
+        ("unit", "support:minute"),
+        ("field", "support:approved"),
+    ] {
+        let mut bad = q.clone();
+        bad[field] = json!(value);
+        assert!(
+            super::super::inventory::slots::quantity_declaration(s.meter_mut(), &p, activity, &bad)
+                .is_err(),
+            "{field}={value}"
+        );
+    }
+    let binding = json!({"quantity_ceilings":[{"activity":"support:complete","field":"support:quantity","unit":"support:second","maximum":"90.125"}]});
+    let terms = json!({"quantity_ceilings":[{"activity":"support:complete","field":"support:quantity","unit":"support:second","maximum":"90.124"}]});
+    for (quantity, valid) in [("90.123", true), ("90.124", true), ("90.125", false)] {
+        let facts = json!({"support:quantity":quantity});
+        let result = super::super::inventory::entry::quantities_for_program(
+            s.meter_mut(),
+            &p,
+            &binding,
+            &terms,
+            "support:complete",
+            &facts,
+        );
+        assert_eq!(result.is_ok(), valid, "{quantity}: {result:?}");
+    }
+    // The old integer reader remains distinct, including its refusal of a
+    // fractional actual value under an older recipe.
+    assert!(super::super::inventory::entry::quantities(
+        s.meter_mut(),
+        &binding,
+        &terms,
+        "support:complete",
+        &json!({"support:quantity":"90.123"})
+    )
+    .is_err());
+}

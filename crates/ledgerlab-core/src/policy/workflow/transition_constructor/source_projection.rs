@@ -565,3 +565,83 @@ pub fn validate_app_nominated_sources(
     }
     result
 }
+
+/// Local future-promise shape after full nominated-frame validation. Proof-only
+/// issuers retain their separate historical enrollment and retention rights;
+/// every monetary or mixed-use nominee still shares one original financial
+/// source, principal and ceiling. This DATA check supplies no authentication.
+pub fn validate_app_local_source_shape(
+    program: &SelectedProgram,
+    binding: &Value,
+    frames: &[NominatedSourceFrame<'_>],
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
+    let result = (|| {
+        if !program.uses_policy_semantics_recipe() {
+            return Err(shape::fail("policy source shape requires selected recipe"));
+        }
+        let m = session.meter_mut();
+        let mut financial = None;
+        for frame in frames {
+            m.visit("accept.local_financial_frame")?;
+            let first = frame
+                .original_grants
+                .first()
+                .ok_or_else(|| shape::fail("original source grants"))?;
+            let nominee = shape::field(m, first.body, "source")?;
+            if super::work_proofs::source::proof_only_nominee(m, program, binding, nominee)? {
+                continue;
+            }
+            if financial.replace(frame).is_some() {
+                return Err(crate::Error::new(
+                    "UNSUPPORTED_COMPOSITION",
+                    "multiple original financial source frames",
+                ));
+            }
+        }
+        let frame = financial.ok_or_else(|| shape::fail("original financial source frame"))?;
+        let first = frame
+            .original_grants
+            .first()
+            .ok_or_else(|| shape::fail("original source grants"))?;
+        let source = shape::text(m, first.body, "source")?;
+        let principal = shape::text(m, first.body, "principal_id")?;
+        for nomination in shape::array(m, binding, "source_slots")? {
+            m.visit("accept.local_source_nomination")?;
+            let slot = shape::text(m, nomination, "name")?;
+            if super::work_proofs::source::proof_only_slot(m, program, slot)? {
+                continue;
+            }
+            for nominee in shape::array(m, nomination, "sources")? {
+                m.visit("accept.local_financial_nominee")?;
+                let name = nominee
+                    .as_str()
+                    .ok_or_else(|| shape::fail("source nominee"))?;
+                if !shape::same_text(m, name, source)? {
+                    return Err(crate::Error::new(
+                        "UNSUPPORTED_COMPOSITION",
+                        "different original financial source nominee",
+                    ));
+                }
+            }
+        }
+        for grant in frame.original_grants {
+            m.visit("accept.local_financial_original_grant")?;
+            let name = shape::text(m, grant.body, "source")?;
+            let actor = shape::text(m, grant.body, "principal_id")?;
+            if !shape::same_text(m, name, source)? || !shape::same_text(m, actor, principal)? {
+                return Err(crate::Error::new(
+                    "UNSUPPORTED_COMPOSITION",
+                    "different original financial principal",
+                ));
+            }
+            let ceiling = shape::field(m, grant.body, "original_ceiling_ref")?;
+            ref_value(m, ceiling, frame.enrollment_ref)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}

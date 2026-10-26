@@ -1520,4 +1520,76 @@ mod tests {
             assert_eq!(error.code, "INTEGRITY_FAILURE", "{case}: {error:?}");
         }
     }
+    #[test]
+    fn policy_local_source_shape_exempts_only_actual_proof_only_frames() {
+        // A projection test after nominated-frame validation, not an authority
+        // certificate or a grant to enroll/retain/submit as another source.
+        use super::super::source_projection::{
+            validate_app_local_source_shape, NominatedSourceFrame, NominatedSourceGrant,
+        };
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_with_provenance_profile(&mut compile,
+            json!({"kind":"attested","source_slot":"support:issuer","evidence_kind":"meter_quantity"}), true).unwrap();
+        let financial_ref = ExactRef {
+            kind: "workflow-source-enrollment".into(),
+            id: format!("wdoc_{}", "1".repeat(64)),
+            digest: format!("sha256:{}", "1".repeat(64)),
+        };
+        let issuer_ref = ExactRef {
+            id: format!("wdoc_{}", "2".repeat(64)),
+            ..financial_ref.clone()
+        };
+        let financial = json!({"source":"urn:example:worker","principal_id":"operator","original_ceiling_ref":financial_ref});
+        let issuer = json!({"source":"urn:example:issuer","principal_id":"operator","original_ceiling_ref":issuer_ref});
+        for case in [
+            "valid",
+            "financial-issuer",
+            "different-principal",
+            "different-ceiling",
+        ] {
+            let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+            let mut consumer = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut binding = json!({"source_slots":[{"name":"support:worker","sources":["urn:example:worker"]},{"name":"support:issuer","sources":["urn:example:issuer"]}]});
+            let mut second = financial.clone();
+            match case {
+                "financial-issuer" => {
+                    binding["source_slots"][0]["sources"] = json!(["urn:example:issuer"])
+                }
+                "different-principal" => second["principal_id"] = json!("another"),
+                "different-ceiling" => second["original_ceiling_ref"] = json!(issuer_ref),
+                _ => {}
+            }
+            let financial_grants = [
+                NominatedSourceGrant {
+                    reference: &financial_ref,
+                    body: &financial,
+                },
+                NominatedSourceGrant {
+                    reference: &financial_ref,
+                    body: &second,
+                },
+            ];
+            let issuer_grants = [NominatedSourceGrant {
+                reference: &issuer_ref,
+                body: &issuer,
+            }];
+            let frame = |reference, grants| NominatedSourceFrame {
+                enrollment_ref: reference,
+                enrollment: &Value::Null,
+                current_state_ref: reference,
+                current_state: &Value::Null,
+                current_grant_ref: reference,
+                current_grant: &Value::Null,
+                original_grants: grants,
+            };
+            let frames = [
+                frame(&issuer_ref, &issuer_grants),
+                frame(&financial_ref, &financial_grants),
+            ];
+            let result =
+                validate_app_local_source_shape(&program, &binding, &frames, &mut consumer);
+            assert_eq!(result.is_ok(), case == "valid", "{case}: {result:?}");
+        }
+    }
 }
