@@ -208,6 +208,30 @@ pub(in super::super) async fn reconstruct_initial(
             .try_reserve_exact(refs.len())
             .map_err(|_| ServiceError::Unavailable)?;
         for reference in refs {
+            if request_wrapper::text(reference, "kind", s)? == "workflow-authority" {
+                // Same original party-authorization input as the producer and
+                // acceptance replay; this is not a source grant. Historical
+                // platform mapping/consent checks still follow below.
+                let mapping = current::source::retained_record(
+                    tx,
+                    origin.key(),
+                    reference,
+                    "workflow-authority",
+                    "ledger-workflow-party-authorization/1",
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                prefix::verify_selected_association(
+                    tx,
+                    origin.key(),
+                    mapping.reference(),
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                continue;
+            }
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
@@ -297,17 +321,66 @@ pub(in super::super) async fn reconstruct_initial(
         s.semantic_work()
             .write_bytes(std::mem::size_of::<[&wire::SourceRecord; 5]>())
             .map_err(core_error)?;
-        let members = prefix.resolve_members(
-            &[
-                &root,
-                &authority,
-                &records.intent,
-                &records.head,
-                &records.activation,
-            ],
-            std::iter::once(original.accepted_reference()).chain(publication.required_refs()),
-            s,
-        )?;
+        let generated = [
+            &root,
+            &authority,
+            &records.intent,
+            &records.head,
+            &records.activation,
+        ];
+        let members = if publication.program().uses_local_execution_recipe() {
+            // Historical LOCAL receipts keep their exact selected union. Fresh
+            // NEW-promise admission is not reapplied during original recovery.
+            let selected = original
+                .work_locator_records()
+                .map(|r| r.reference)
+                .chain(publication.required_refs())
+                .chain(
+                    sources
+                        .iter()
+                        .flat_map(current::source::ObservedSource::record_refs),
+                )
+                .chain(parties.selected_refs());
+            let mut members = prefix::ResolvedMembers::local_selected(
+                tx,
+                origin.key(),
+                origin.wrappers().sequence(),
+                generated.into_iter(),
+                selected,
+                s,
+            )
+            .await?;
+            let parsed_authority = s
+                .parse_representation(authority.bytes(), RepresentationKind::Authority)
+                .map_err(core_error)?;
+            for value in request_wrapper::field(
+                parsed_authority.value(),
+                "app_consent_verification_refs",
+                s,
+            )?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+            {
+                let (reference, _owner) =
+                    current::source::from_value(value, "workflow-verification", s)?;
+                prefix::verify_selected_association(
+                    tx,
+                    origin.key(),
+                    &reference,
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                members.add_record_ref(&reference, s)?;
+            }
+            members
+        } else {
+            prefix.resolve_members(
+                &generated,
+                std::iter::once(original.accepted_reference()).chain(publication.required_refs()),
+                s,
+            )?
+        };
         let journal = wire::frame_activation(
             &incoming,
             payload.bytes(),

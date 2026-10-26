@@ -190,6 +190,101 @@ pub(super) async fn prepare_append(
     Ok(reply)
 }
 
+/// Exact local initial-activation originals reuse the completed acceptance/PUB
+/// owner and its chronological activation replay, including original journal
+/// equality. Selected activation rows alone are never a certificate.
+pub(super) async fn verify_original(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    origin: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    let original = origin.wrappers();
+    if original.class() != wrappers::WireClass::Agreement
+        || request_wrapper::text(original.operation(), "kind", s)? != "agreement.activate"
+    {
+        return Ok(false);
+    }
+    let evidence = request_wrapper::field(original.operation(), "request_evidence", s)?;
+    let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
+    if !wrappers::is_local_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)? {
+        return Ok(false);
+    }
+    let saved = ingress::IncomingRequest::parse(original.original_request().raw(), s)?;
+    let payload = saved.payload(s)?;
+    if request_wrapper::text(payload, "schema", s)? != "ledger-workflow-activation/1" {
+        return Ok(false);
+    }
+    let mut completed = prefix::acceptance_for_original(
+        ledger,
+        tx,
+        origin.key(),
+        request_wrapper::field(payload, "accepted_binding_ref", s)?,
+        original.sequence(),
+        s,
+    )
+    .await?;
+    let setup = ledger.admin.read(&ledger.store, tx, origin.key()).await?;
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Add,
+            &[&original.sequence().into(), &1i64.into()],
+        )
+        .map_err(core_error)?;
+    let before = original
+        .sequence()
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    completed
+        .current_sources(tx, origin.key(), &setup, &[], before, s)
+        .await?;
+    completed.require_original_sequence(original.sequence(), s)?;
+    if let Some(incoming) = incoming {
+        request_wrapper::key(
+            request_wrapper::field(incoming.value(), "key", s)?,
+            origin.key(),
+            s,
+        )?;
+        require(incoming.kind() == "agreement.activate", "IDENTITY_CONFLICT")?;
+        require(
+            super::acceptance::same_recipe_text(
+                request_wrapper::text(incoming.payload(s)?, "schema", s)?,
+                "ledger-workflow-activation/1",
+                s,
+            )?,
+            "IDENTITY_CONFLICT",
+        )?;
+        let binding = s
+            .parse_representation(
+                completed.acceptance.binding.bytes(),
+                RepresentationKind::Record,
+            )
+            .map_err(core_error)?;
+        let actual = super::activation::normalize_original_retry(
+            incoming.kind(),
+            incoming.payload(s)?,
+            completed.acceptance.binding.reference(),
+            binding.value(),
+            s,
+        )?;
+        let normalized = request_wrapper::field(evidence, "normalized_request", s)?;
+        let expected_payload = request_wrapper::field(normalized, "payload", s)?;
+        let expected = s
+            .canonical_representation(expected_payload, RepresentationKind::OriginalRequest)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(actual.bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(expected.bytes().len())
+            .map_err(core_error)?;
+        require(actual.bytes() == expected.bytes(), "IDENTITY_CONFLICT")?;
+    }
+    s.check_cancelled().map_err(core_error)?;
+    Ok(true)
+}
+
 /// Routing DATA only. The selected writer independently reloads and validates
 /// the exact original agreement before preparation; no decision comes from this read.
 pub(super) async fn selected(

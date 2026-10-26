@@ -16,12 +16,20 @@ fn encode(v: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
         .map_err(core_error)
 }
 fn same(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<()> {
+    same_bound_identity(a, b, "INVALID_REFERENCE", s)
+}
+fn same_bound_identity(
+    a: &[u8],
+    b: &[u8],
+    mismatch: &'static str,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     s.semantic_work()
         .visit(Visit::MemberCompare)
         .map_err(core_error)?;
     s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
     s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
-    require(a == b, "INVALID_REFERENCE")
+    require(a == b, mismatch)
 }
 fn references(
     v: &Value,
@@ -61,7 +69,23 @@ pub(super) fn normalize(
     binding: &Value,
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
-    let result = normalize_inner(kind, payload, binding_ref, binding, s);
+    let result = normalize_inner(kind, payload, binding_ref, binding, "INVALID_REFERENCE", s);
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+/// Original retry keeps identical parsing/canonicalization but classifies a
+/// well-formed different Binding-bound identity as a key conflict. Invalid
+/// shapes/scalars are never blanket-remapped.
+pub(super) fn normalize_original_retry(
+    kind: &str,
+    payload: &Value,
+    binding_ref: &ExactRef,
+    binding: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let result = normalize_inner(kind, payload, binding_ref, binding, "IDENTITY_CONFLICT", s);
     if result.is_err() {
         s.invalidate();
     }
@@ -72,6 +96,7 @@ fn normalize_inner(
     payload: &Value,
     binding_ref: &ExactRef,
     binding: &Value,
+    mismatch: &'static str,
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
     let schema = request_wrapper::text(payload, "schema", s)?;
@@ -85,16 +110,21 @@ fn normalize_inner(
         s,
     )?;
     request_wrapper::same_text(&binding_ref.kind, "workflow-binding", s)?;
-    request_wrapper::same_text(
-        request_wrapper::text(payload, "agreement_id", s)?,
-        request_wrapper::text(binding, "agreement_id", s)?,
-        s,
-    )?;
+    let supplied_agreement = request_wrapper::text(payload, "agreement_id", s)?;
+    let original_agreement = request_wrapper::text(binding, "agreement_id", s)?;
+    if mismatch == "IDENTITY_CONFLICT" {
+        require(
+            acceptance::same_recipe_text(supplied_agreement, original_agreement, s)?,
+            "IDENTITY_CONFLICT",
+        )?;
+    } else {
+        request_wrapper::same_text(supplied_agreement, original_agreement, s)?;
+    }
     let supplied_ref = request_wrapper::field(payload, "accepted_binding_ref", s)?;
     acceptance::validate_reference(supplied_ref, "workflow-binding", s)?;
     let supplied_ref = encode(supplied_ref, s)?;
     let actual_ref = wire::reference(binding_ref, s)?;
-    same(supplied_ref.bytes(), actual_ref.bytes(), s)?;
+    same_bound_identity(supplied_ref.bytes(), actual_ref.bytes(), mismatch, s)?;
     let revoking = acceptance::same_recipe_text(shape.action, "revoke", s)?;
     let replacing = acceptance::same_recipe_text(shape.action, "replace", s)?;
     let evidence = references(
@@ -151,7 +181,7 @@ fn normalize_inner(
             acceptance::validate_reference(supplied, kind, s)?;
             let supplied = encode(supplied, s)?;
             let expected = encode(request_wrapper::field(binding, field, s)?, s)?;
-            same(supplied.bytes(), expected.bytes(), s)?;
+            same_bound_identity(supplied.bytes(), expected.bytes(), mismatch, s)?;
         }
         let normalized = references(
             request_wrapper::field(payload, "fact_schema_refs", s)?,
@@ -160,7 +190,7 @@ fn normalize_inner(
             s,
         )?;
         let expected = encode(request_wrapper::field(binding, "fact_schema_refs", s)?, s)?;
-        same(normalized.bytes(), expected.bytes(), s)?;
+        same_bound_identity(normalized.bytes(), expected.bytes(), mismatch, s)?;
         facts = Some(normalized);
         at = Some(effective(
             request_wrapper::field(payload, "effective", s)?,
@@ -339,7 +369,42 @@ mod tests {
             let actual =
                 normalize("agreement.activate", p, &reference, &app_binding, &mut s).unwrap();
             assert_eq!(actual.bytes(), records::bytes(&expected).unwrap());
+            let original_retry =
+                normalize_original_retry("agreement.activate", p, &reference, &app_binding, &mut s)
+                    .unwrap();
+            assert_eq!(original_retry.bytes(), actual.bytes());
+            drop(original_retry);
             drop(actual);
+            let mut changed = p.clone();
+            changed["accepted_binding_ref"] = json!({"kind":"workflow-binding","id":format!("wdoc_{}", "0".repeat(64)),"digest":format!("sha256:{}", "0".repeat(64))});
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut fresh = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_eq!(
+                normalize(
+                    "agreement.activate",
+                    &changed,
+                    &reference,
+                    &app_binding,
+                    &mut fresh
+                )
+                .err()
+                .unwrap(),
+                reject("INVALID_REFERENCE")
+            );
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut retry = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_eq!(
+                normalize_original_retry(
+                    "agreement.activate",
+                    &changed,
+                    &reference,
+                    &app_binding,
+                    &mut retry
+                )
+                .err()
+                .unwrap(),
+                reject("IDENTITY_CONFLICT")
+            );
             for failure in 0..3 {
                 let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
                 let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();

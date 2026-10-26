@@ -379,3 +379,48 @@ async fn local10_local_acceptance_original_status_and_identity_retry() {
     assert_eq!(snapshot(&path).await, before);
     assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
 }
+
+#[tokio::test]
+#[ignore = "requires explicit quiescent completed linked main synthetic fixture"]
+async fn local10_initial_activation_original_status_after_linked_closure() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
+    let original = fs::read(root.join("activation.request.json")).unwrap();
+    let request: Value = serde_json::from_slice(&original).unwrap();
+    let saved: Value =
+        serde_json::from_slice(&fs::read(root.join("activation.committed.json")).unwrap()).unwrap();
+    assert_eq!(saved["receipt"]["key"], request["key"]);
+    assert_eq!(
+        saved["receipt"]["original_request_bytes_sha256"],
+        records::raw_hash(&original)
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let before = snapshot(&installation).await;
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    // Only STATUS: no activation submit, identity retry, new source or clock.
+    let status = ledger
+        .status(&records::bytes(&request["key"]).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(status["schema"], "ledger-operation-status/1");
+    assert_eq!(status["status"], "committed");
+    assert_eq!(status["receipt"], saved["receipt"]);
+    assert_eq!(status["request_evidence"], saved["request_evidence"]);
+    ledger.close().await;
+    assert_eq!(snapshot(&installation).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+}

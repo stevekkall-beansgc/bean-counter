@@ -316,6 +316,7 @@ pub(in crate::service::workflow) async fn local_management_status(
                 .await?
                 .is_none()
             && !local_acceptance::verify_original(ledger, tx, &original, None, &mut s).await?
+            && !local_activation::verify_original(ledger, tx, &original, None, &mut s).await?
             && !local_financial_original::verify(tx, &original, None, &mut s).await?
         {
             return Ok(None);
@@ -624,6 +625,7 @@ async fn original_query_in(
         _ => None,
     };
     if local_acceptance::verify_original(ledger, tx, &original, retry, session).await?
+        || local_activation::verify_original(ledger, tx, &original, retry, session).await?
         || local_financial_original::verify(tx, &original, retry, session).await?
     {
         let reply = recovery::party_reply(&original, session)?;
