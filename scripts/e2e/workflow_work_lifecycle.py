@@ -64,6 +64,19 @@ class LifecycleJourney(MeteredJourney):
     def accepted_only(self, auth, psub, roles):
         Journey.setup_publication(self, auth, psub, roles)
 
+    def refusal(self, name, request, code):
+        refuse(self, name, request, code)
+        before = self.snapshot()
+        (self.root / (name + ".absence-before.json")).write_bytes(canonical(before))
+        status = self.workflow(name + "-absence-status", "status", self.write(name + ".absence-key.json", request["key"]))
+        assert status["schema"] == "ledger-operation-status/1" and status["status"] == "not_observed"
+        assert status["key"] == request["key"]
+        after = self.snapshot()
+        (self.root / (name + ".absence-after.json")).write_bytes(canonical(after))
+        assert after == before
+        self.meta["checks"].append({"check": name + "-exact-key-absent", "no_append": True})
+        self.save()
+
     def wrong_binding_refusal(self, endpoint):
         other = copy.copy(self)
         other.root = self.root / "other-binding"
@@ -90,7 +103,7 @@ class LifecycleJourney(MeteredJourney):
             "operator_attestation_ref": attestation}), "workflow-authority")
         other.accepted_only(auth, subject, roles)
         payload = other.completion_payload("wrong-binding", "succeeded", "0.1", endpoint)
-        refuse(other, "wrong-binding-work", {"schema": "ledger-operation/1", "contract": "workflow/1", "kind": "work.accept",
+        other.refusal("wrong-binding-work", {"schema": "ledger-operation/1", "contract": "workflow/1", "kind": "work.accept",
             "key": other.key("wrong-binding-work"), "payload": payload}, "INTEGRITY_FAILURE")
         other.meta["status"] = "genuine_wrong_binding_reference_refusal_complete"
         other.save()
@@ -194,7 +207,7 @@ class LifecycleJourney(MeteredJourney):
             "enrollment_ref": self.dependent_enrollment, "expected_revision": "1", "reason": "Finite current dependent authority refusal"})
         request = {"schema": "ledger-operation/1", "contract": "workflow/1", "kind": "work.reverse",
                    "key": copied.key("revoked-dependent-closure"), "payload": payload}
-        refuse(copied, "revoked-dependent-closure", request, "AUTHORITY_REQUIRED")
+        copied.refusal("revoked-dependent-closure", request, "AUTHORITY_REQUIRED")
         copied.meta["status"] = "dependent_current_authority_refusal_complete"
         copied.save()
 
@@ -251,7 +264,7 @@ class LifecycleJourney(MeteredJourney):
         changed = json.loads((self.root / "failed-work.request.json").read_bytes())
         changed["key"] = self.key("failed-as-success")
         changed["payload"]["status"] = "succeeded"
-        refuse(self, "failed-as-success", changed, "IDENTITY_CONFLICT")
+        self.refusal("failed-as-success", changed, "IDENTITY_CONFLICT")
         rounded = self.complete("rounded", "succeeded", "0.1", fixed["work_ref"])
         rounded_root = self.root_state(rounded, 1, "active")
         evaluation = self.document(rounded_root["evaluation_ref"])
