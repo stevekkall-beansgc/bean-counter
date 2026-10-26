@@ -308,11 +308,7 @@ pub(in super::super::super) async fn observe(
             state.financial.links.push(r);
         }
     }
-    let proof_payload = if payload_schema == "ledger-workflow-outcome-correction/1" {
-        check::field(payload, "replacement", s)?
-    } else {
-        payload
-    };
+    let proof_payload = outcome_proof_payload(payload, payload_schema, s)?;
     let original_app_proofs = matches!(
         payload_schema,
         "ledger-workflow-cost-correct/2"
@@ -519,6 +515,21 @@ pub(super) async fn retained_verification(
     selected.ok_or(ServiceError::IntegrityFailure)
 }
 
+fn outcome_proof_payload<'a>(
+    payload: &'a Value,
+    schema: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<&'a Value> {
+    if matches!(
+        schema,
+        "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2"
+    ) {
+        check::field(payload, "replacement", s)
+    } else {
+        Ok(payload)
+    }
+}
+
 fn core_operation_kind(payload: &Value, s: &mut OriginalAuditSession) -> Result<&'static str> {
     Ok(match check::text(payload, "schema", s)? {
         "ledger-workflow-fact-attest/1"
@@ -527,11 +538,64 @@ fn core_operation_kind(payload: &Value, s: &mut OriginalAuditSession) -> Result<
         | "ledger-workflow-app-cost-attest/1" => "evidence.retain",
         "ledger-workflow-cost-finalize/2" => "cost.finalize",
         "ledger-workflow-cost-correct/2" => "cost.correct",
-        "ledger-workflow-outcome/1" => "outcome.submit",
-        "ledger-workflow-outcome-correction/1" => "outcome.correct",
+        "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" => "outcome.submit",
+        "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2" => {
+            "outcome.correct"
+        }
         "ledger-workflow-outcome-close/2" => "outcome.close",
         "ledger-workflow-quantity-correction/2" => "quantity.correct",
         "ledger-workflow-work-reverse/2" => "work.reverse",
         _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
     })
+}
+
+#[cfg(test)]
+mod declared_dispatch_tests {
+    use super::*;
+    #[test]
+    fn exact_outcome_versions_route_and_select_replacement_proofs() {
+        for version in ["1", "2"] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            for (prefix, kind) in [
+                ("ledger-workflow-outcome/", "outcome.submit"),
+                ("ledger-workflow-outcome-correction/", "outcome.correct"),
+            ] {
+                let schema = format!("{prefix}{version}");
+                assert!(super::super::super::super::is_local_financial_schema(
+                    &schema
+                ));
+                let replacement = json!({"schema":format!("ledger-workflow-outcome/{version}"),"fact_proofs":[{"field":"support:code","attestation_ref":{"kind":"workflow-fact-attestation","id":"synthetic-only","digest":"synthetic-only"}}]});
+                let payload = if kind == "outcome.correct" {
+                    json!({"schema":schema,"replacement":replacement})
+                } else {
+                    replacement.clone()
+                };
+                assert_eq!(core_operation_kind(&payload, &mut s).unwrap(), kind);
+                let selected = outcome_proof_payload(&payload, &schema, &mut s).unwrap();
+                assert_eq!(selected["fact_proofs"], replacement["fact_proofs"]);
+                if kind == "outcome.correct" {
+                    assert!(std::ptr::eq(selected, &payload["replacement"]));
+                    let none = json!({"schema":schema,"replacement":{"kind":"none","evidence_refs":[],"reason":"synthetic"}});
+                    let selected = outcome_proof_payload(&none, &schema, &mut s).unwrap();
+                    assert_eq!(selected["kind"], "none");
+                    assert!(selected.get("fact_proofs").is_none());
+                }
+            }
+        }
+        for schema in [
+            "ledger-workflow-outcome/3",
+            "ledger-workflow-outcome-correction/02",
+            "foreign/outcome/2",
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(!super::super::super::super::is_local_financial_schema(
+                schema
+            ));
+            assert!(
+                matches!(core_operation_kind(&json!({"schema":schema}), &mut s), Err(ServiceError::Rejection(code)) if code == "UNSUPPORTED_SCHEMA_PROFILE")
+            );
+        }
+    }
 }

@@ -419,6 +419,26 @@ fn fresh_reply<'a>(
         result
     })
 }
+fn is_local_financial_schema(schema: &str) -> bool {
+    matches!(
+        schema,
+        "ledger-workflow-work/1"
+            | "ledger-workflow-fact-attest/1"
+            | "ledger-workflow-family-close-attest/1"
+            | "ledger-workflow-app-observe/1"
+            | "ledger-workflow-app-cost-attest/1"
+            | "ledger-workflow-cost-finalize/2"
+            | "ledger-workflow-cost-correct/2"
+            | "ledger-workflow-outcome/1"
+            | "ledger-workflow-outcome/2"
+            | "ledger-workflow-outcome-correction/1"
+            | "ledger-workflow-outcome-correction/2"
+            | "ledger-workflow-outcome-close/2"
+            | "ledger-workflow-quantity-correction/2"
+            | "ledger-workflow-work-reverse/2"
+    )
+}
+
 async fn fresh_reply_in(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -515,21 +535,11 @@ async fn fresh_reply_in(
         }
     }
 
-    if matches!(
-        request_wrapper::text(req.payload(session)?, "schema", session)?,
-        "ledger-workflow-work/1"
-            | "ledger-workflow-fact-attest/1"
-            | "ledger-workflow-family-close-attest/1"
-            | "ledger-workflow-app-observe/1"
-            | "ledger-workflow-app-cost-attest/1"
-            | "ledger-workflow-cost-finalize/2"
-            | "ledger-workflow-cost-correct/2"
-            | "ledger-workflow-outcome/1"
-            | "ledger-workflow-outcome-correction/1"
-            | "ledger-workflow-outcome-close/2"
-            | "ledger-workflow-quantity-correction/2"
-            | "ledger-workflow-work-reverse/2"
-    ) {
+    if is_local_financial_schema(request_wrapper::text(
+        req.payload(session)?,
+        "schema",
+        session,
+    )?) {
         let reply =
             local_financial::prepare_work_append(ledger, tx, req, &management, session).await?;
         return Ok(TransactionResult::Appended(reply));
