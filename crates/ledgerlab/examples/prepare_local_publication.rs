@@ -67,12 +67,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     (scalar, input.join("report-facts.json").is_file())
                 } else {
                     drop(scalar);
-                    (
+                    let context =
                         SelectedCompilerSupport::local_policy_context_execution_with_session(
                             &mut session,
-                        )?,
-                        input.join("report-facts.json").is_file(),
-                    )
+                        )?;
+                    if policy["compiler_ref"] == serde_json::to_value(context.reference())? {
+                        (context, input.join("report-facts.json").is_file())
+                    } else {
+                        drop(context);
+                        (
+                            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(
+                                &mut session,
+                            )?,
+                            input.join("report-facts.json").is_file(),
+                        )
+                    }
                 }
             }
         }

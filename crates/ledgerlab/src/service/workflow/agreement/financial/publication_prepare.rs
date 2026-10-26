@@ -134,11 +134,17 @@ pub(super) fn local_support(
     drop(policy);
     let context = SelectedCompilerSupport::local_policy_context_execution_with_session(s)
         .map_err(core_error)?;
+    if same_support(reference, &context, s)? {
+        return Ok(context);
+    }
+    drop(context);
+    let lifecycle = SelectedCompilerSupport::local_work_lifecycle_execution_with_session(s)
+        .map_err(core_error)?;
     require(
-        same_support(reference, &context, s)?,
+        same_support(reference, &lifecycle, s)?,
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    Ok(context)
+    Ok(lifecycle)
 }
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],
@@ -558,7 +564,18 @@ mod support_selection_tests {
             SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s).unwrap();
         let context_ref = serde_json::to_value(context.reference()).unwrap();
         assert_ne!(context_ref, policy_ref);
-        for reference in [&old_ref, &new_ref, &declared_ref, &policy_ref, &context_ref] {
+        let lifecycle =
+            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
+        let lifecycle_ref = serde_json::to_value(lifecycle.reference()).unwrap();
+        assert_ne!(lifecycle_ref, context_ref);
+        for reference in [
+            &old_ref,
+            &new_ref,
+            &declared_ref,
+            &policy_ref,
+            &context_ref,
+            &lifecycle_ref,
+        ] {
             let selected = local_support(reference, &mut s).unwrap();
             assert_eq!(
                 serde_json::to_value(selected.reference()).unwrap(),
