@@ -122,6 +122,15 @@ fn output_reservation(m: &mut CoreMeter, schema: &FactSchema, input: &Value) -> 
             // bytes in total; canonical body is an independent27-byte copy.
             let timestamp = mul(m, 4, 64)?;
             add(m, timestamp, 27)?
+        } else if shape::same_text(m, kind, "reference")? {
+            // Three copied typed strings and its independent canonical Ref
+            // object/keys coexist. The actual input graph bound dominates both.
+            if let Some(value) = input.get(name) {
+                let raw = crate::canonical::audit_arena::value_copy_payload_bound(value, m)?;
+                mul(m, 2, raw)?
+            } else {
+                0
+            }
         } else if shape::same_text(m, kind, "boolean")? {
             0
         } else {

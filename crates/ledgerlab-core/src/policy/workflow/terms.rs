@@ -982,4 +982,5 @@ fn fail(s: &str) -> Error {
 mod tests;
 
 mod offer;
+pub(in crate::policy::workflow) use offer::record_kind_with_work;
 pub use offer::SupplierOffer;

@@ -809,3 +809,77 @@ fn complete_source_schema_preserves_scalar_bytes_and_rejections() {
         assert_eq!(old.code, new.code);
     }
 }
+
+#[test]
+fn reference_scalar_is_typed_closed_paid_data_and_retains_declared_relation() {
+    let s = schema(json!([field(
+        "example:ancestor",
+        true,
+        json!({"kind":"reference","record_kind":"workflow-work","relation":"same_binding"})
+    )]));
+    let reference = json!({"kind":"workflow-work","id":format!("wwork_{}","a".repeat(64)),"digest":format!("sha256:{}","b".repeat(64))});
+    let input = json!({"example:ancestor":reference});
+    let normalized = s.normalize(&serde_json::to_vec(&input).unwrap()).unwrap();
+    assert_eq!(normalized.canonical_value(), &input);
+    let Some(FactValue::Reference(value)) = normalized.get("example:ancestor") else {
+        panic!("typed reference")
+    };
+    assert_eq!(value.kind(), "workflow-work");
+    assert_eq!(value.id(), reference["id"].as_str().unwrap());
+    assert_eq!(value.digest(), reference["digest"].as_str().unwrap());
+    assert_eq!(
+        s.reference_requirement_with_work("example:ancestor", &mut NoopValidationWork)
+            .unwrap(),
+        Some(("workflow-work", "same_binding"))
+    );
+    // Use the actual owning complete normalizer, not a serialization mirror.
+    let arena = crate::canonical::audit_arena::AuditArena::with_resource_limits(
+        crate::validation_work::ResourceLimits::unlimited(),
+    )
+    .unwrap();
+    let mut session =
+        crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let owned = crate::policy::workflow::transition_constructor::owned_facts::normalize(
+        &arena,
+        session.meter_mut(),
+        &s,
+        &input,
+    )
+    .unwrap();
+    assert_eq!(owned.facts().canonical_value(), &input);
+    for case in 0..5 {
+        let mut wrong = reference.clone();
+        match case {
+            0 => wrong["kind"] = json!("workflow-action"),
+            1 => wrong["extra"] = json!(true),
+            2 => wrong["digest"] = json!("sha256:dead"),
+            3 => wrong["id"] = json!("x".repeat(129)),
+            _ => wrong["digest"] = json!(format!("sha256:{}", "A".repeat(64))),
+        }
+        error(
+            s.normalize(&serde_json::to_vec(&json!({"example:ancestor":wrong})).unwrap()),
+            "FACT_TYPE",
+        );
+    }
+    let mut bad = s.body.clone();
+    bad["fields"][0]["type"]["relation"] = json!("arbitrary_reachability");
+    error(
+        FactSchema::parse(&serde_json::to_vec(&bad).unwrap()),
+        "FACT_SCHEMA",
+    );
+    // Legacy identity remains DATA here; its body/hash/provenance must be read
+    // through the legacy bridge, never the generic workflow record domain.
+    let legacy = schema(json!([field(
+        "example:prior",
+        true,
+        json!({"kind":"reference","record_kind":"legacy-event","relation":"same_scope_customer"})
+    )]));
+    let value = json!({"example:prior":{"kind":"legacy-event","id":format!("ev_{}","c".repeat(64)),"digest":format!("sha256:{}","d".repeat(64))}});
+    assert_eq!(
+        legacy
+            .normalize(&serde_json::to_vec(&value).unwrap())
+            .unwrap()
+            .canonical_value(),
+        &value
+    );
+}

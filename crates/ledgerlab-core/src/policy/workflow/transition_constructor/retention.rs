@@ -1086,6 +1086,19 @@ pub(super) fn normalize_assertion(
                     arena.string_value(value.as_str(), m)?
                 }
                 FactValue::Timestamp(value) => arena.string_value(value.as_str(), m)?,
+                FactValue::Reference(value) => {
+                    let kind = arena.string_value(value.kind(), m)?;
+                    let id = arena.string_value(value.id(), m)?;
+                    let digest = arena.string_value(value.digest(), m)?;
+                    arena.object_from_fields(
+                        &[
+                            ("kind", kind.value()),
+                            ("id", id.value()),
+                            ("digest", digest.value()),
+                        ],
+                        m,
+                    )?
+                }
                 FactValue::Missing => return Err(shape::fail("missing attested claim value")),
             };
             let field = shape::field(m, claim, "field")?;

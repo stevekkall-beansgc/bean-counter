@@ -180,6 +180,19 @@ fn scalar(m: &mut CoreMeter, s: &FactSchema, name: &str, value: &Value) -> Resul
         FactValue::String(v) | FactValue::Enum(v) => a.string_value(v, m),
         FactValue::Integer(v) | FactValue::Decimal(v) => a.string_value(v.as_str(), m),
         FactValue::Timestamp(v) => a.string_value(v.as_str(), m),
+        FactValue::Reference(v) => {
+            let kind = a.string_value(v.kind(), m)?;
+            let id = a.string_value(v.id(), m)?;
+            let digest = a.string_value(v.digest(), m)?;
+            a.object_from_fields(
+                &[
+                    ("kind", kind.value()),
+                    ("id", id.value()),
+                    ("digest", digest.value()),
+                ],
+                m,
+            )
+        }
         FactValue::Missing => Err(shape::fail("missing Work attested value")),
     }
 }

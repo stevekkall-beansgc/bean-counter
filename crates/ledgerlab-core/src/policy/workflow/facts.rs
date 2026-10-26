@@ -279,6 +279,58 @@ enum FactType {
         min: Timestamp,
         max: Timestamp,
     },
+    Reference {
+        record_kind: String,
+        relation: ReferenceRelation,
+    },
+}
+#[derive(Clone, Copy, Debug)]
+enum ReferenceRelation {
+    ScopeCustomer,
+    Binding,
+    Invocation,
+}
+impl ReferenceRelation {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ScopeCustomer => "same_scope_customer",
+            Self::Binding => "same_binding",
+            Self::Invocation => "same_invocation",
+        }
+    }
+}
+/// A normalized immutable Ref scalar is DATA, not a verified record or an
+/// authority token. Actual record family/body, origin and declared relation are
+/// consuming interpreter obligations even when these strings are well formed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FactReference {
+    kind: String,
+    id: String,
+    digest: String,
+}
+impl FactReference {
+    pub fn kind(&self) -> &str {
+        &self.kind
+    }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+    fn value_with_work(&self, work: &mut dyn ValidationWork) -> Result<Value> {
+        let mut object = serde_json::Map::new();
+        for (key, value) in [
+            ("kind", &self.kind),
+            ("id", &self.id),
+            ("digest", &self.digest),
+        ] {
+            work.visit(Visit::Field)?;
+            work.write_bytes(key.len())?;
+            object.insert(key.to_owned(), Value::String(copy_text(value, work)?));
+        }
+        Ok(Value::Object(object))
+    }
 }
 #[derive(Clone, Debug)]
 struct Field {
@@ -506,13 +558,26 @@ impl FactSchema {
                         max: high,
                     }
                 }
-                // Closed record-kind registry and trusted proof resolution are
-                // separate dependencies; shape alone must not authenticate refs.
-                TypeDto::Reference { .. } => {
-                    return Err(fail(
-                        "FACT_UNSUPPORTED_TYPE",
-                        "reference descriptors not implemented",
-                    ));
+                TypeDto::Reference {
+                    record_kind,
+                    relation,
+                } => {
+                    if !super::terms::record_kind_with_work(record_kind, work)? {
+                        return Err(fail(
+                            "FACT_UNSUPPORTED_TYPE",
+                            "unknown reference record kind",
+                        ));
+                    }
+                    let relation = match relation.as_str() {
+                        "same_scope_customer" => ReferenceRelation::ScopeCustomer,
+                        "same_binding" => ReferenceRelation::Binding,
+                        "same_invocation" => ReferenceRelation::Invocation,
+                        _ => return Err(fail("FACT_SCHEMA", "unknown reference relation")),
+                    };
+                    FactType::Reference {
+                        record_kind: copy_text(record_kind, work)?,
+                        relation,
+                    }
                 }
             };
             if complete {
@@ -565,6 +630,25 @@ impl FactSchema {
         work.scan_bytes(64)?;
         work.write_bytes(69)?;
         Ok(format!("wdoc_{}", &digest[7..]))
+    }
+    pub fn reference_requirement_with_work<'a>(
+        &'a self,
+        name: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<(&'a str, &'static str)>> {
+        for field in &self.fields {
+            work.visit(Visit::Field)?;
+            if member_compare(&field.name, name, work)? == Ordering::Equal {
+                return Ok(match &field.field_type {
+                    FactType::Reference {
+                        record_kind,
+                        relation,
+                    } => Some((record_kind.as_str(), relation.as_str())),
+                    _ => None,
+                });
+            }
+        }
+        Err(fail("FACT_UNKNOWN", "unknown reference field"))
     }
     pub fn canonical_value(&self) -> &Value {
         &self.body
@@ -923,6 +1007,7 @@ pub enum FactValue {
     Integer(SignedScalar),
     Decimal(SignedScalar),
     Timestamp(Timestamp),
+    Reference(FactReference),
 }
 impl FactValue {
     pub(crate) fn canonical_value_complete_with_work(
@@ -937,6 +1022,7 @@ impl FactValue {
                 Value::String(copy_text(value.as_str(), work)?)
             }
             Self::Timestamp(value) => Value::String(copy_text(value.as_str(), work)?),
+            Self::Reference(value) => value.value_with_work(work)?,
         }))
     }
     fn canonical_value(&self) -> Option<Value> {
@@ -946,6 +1032,9 @@ impl FactValue {
             Self::String(value) | Self::Enum(value) => Value::String(value.clone()),
             Self::Integer(value) | Self::Decimal(value) => Value::String(value.as_str().to_owned()),
             Self::Timestamp(value) => Value::String(value.as_str().to_owned()),
+            Self::Reference(value) => value
+                .value_with_work(&mut NoopValidationWork)
+                .expect("Noop reference DATA cannot fail"),
         })
     }
 }
@@ -1082,6 +1171,56 @@ fn normalize_value_mode(
             } else {
                 FactValue::Decimal(scalar)
             }
+        }
+        FactType::Reference { record_kind, .. } => {
+            let object = value
+                .as_object()
+                .ok_or_else(|| fail("FACT_TYPE", "reference object required"))?;
+            if vw::compare(work, object.len(), 3usize)? != Ordering::Equal {
+                return Err(fail("FACT_TYPE", "closed reference scalar"));
+            }
+            for key in object.keys() {
+                work.visit(Visit::Field)?;
+                if !contains_name(&["kind", "id", "digest"], key, work)? {
+                    return Err(fail("FACT_TYPE", "unknown reference scalar member"));
+                }
+            }
+            let field = |name: &str| {
+                object
+                    .get(name)
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| fail("FACT_TYPE", "reference string member"))
+            };
+            let kind = field("kind")?;
+            let id = field("id")?;
+            let digest = field("digest")?;
+            if member_compare(kind, record_kind, work)? != Ordering::Equal {
+                return Err(fail("FACT_TYPE", "reference declared kind mismatch"));
+            }
+            if vw::compare(work, id.len(), 1usize)? == Ordering::Less
+                || vw::compare(work, id.len(), 128usize)? == Ordering::Greater
+                || has_control(id, work)?
+            {
+                return Err(fail("FACT_TYPE", "reference id bound"));
+            }
+            if vw::compare(work, digest.len(), 71usize)? != Ordering::Equal {
+                return Err(fail("FACT_TYPE", "reference digest length"));
+            }
+            if member_compare(digest.get(..7).unwrap_or(""), "sha256:", work)? != Ordering::Equal {
+                return Err(fail("FACT_TYPE", "reference digest prefix"));
+            }
+            for byte in digest[7..].bytes() {
+                work.scan_bytes(1)?;
+                work.visit(Visit::Constraint)?;
+                if !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte) {
+                    return Err(fail("FACT_TYPE", "reference digest hex"));
+                }
+            }
+            FactValue::Reference(FactReference {
+                kind: copy_text(kind, work)?,
+                id: copy_text(id, work)?,
+                digest: copy_text(digest, work)?,
+            })
         }
         FactType::Time { min, max } => {
             let time = Timestamp::parse_with_work(text()?, work)?;

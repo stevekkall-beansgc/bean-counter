@@ -328,6 +328,16 @@ fn compare(m: &mut CoreMeter, a: &FactValue, b: &FactValue, ordered: bool) -> Re
                 Ordering::Less
             })
         }
+        (FactValue::Reference(a), FactValue::Reference(b)) if !ordered => {
+            let same = shape::same_text(m, a.kind(), b.kind())?
+                && shape::same_text(m, a.id(), b.id())?
+                && shape::same_text(m, a.digest(), b.digest())?;
+            Ok(if same {
+                Ordering::Equal
+            } else {
+                Ordering::Less
+            })
+        }
         _ => Err(bad("predicate type/order mismatch")),
     }
 }

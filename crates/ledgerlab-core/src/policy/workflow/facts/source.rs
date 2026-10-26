@@ -130,6 +130,9 @@ pub(super) fn bound(value: &Value, w: &mut dyn ValidationWork) -> Result<usize> 
                 if let Some(unit) = member(t, "unit", w)?.and_then(Value::as_str) {
                     total = add(total, unit.len(), w)?;
                 }
+                if let Some(kind) = member(t, "record_kind", w)?.and_then(Value::as_str) {
+                    total = add(total, kind.len(), w)?;
+                }
                 // Two numeric bounds: digit join, canonical coefficient, leading
                 // padding, signed/dotted replacement, and final typed/body strings.
                 // All producer widths follow the existing64-byte scalar syntax.

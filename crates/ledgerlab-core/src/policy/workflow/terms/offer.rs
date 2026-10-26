@@ -87,6 +87,23 @@ const RECORD_KINDS: &[&str] = &[
     "workflow-authority-audit-verifier",
     "workflow-financial-history-observation",
 ];
+/// Closed RecordKind DATA only; parsing never establishes retained membership,
+/// prefix/body correspondence, customer relation or authority.
+pub(in crate::policy::workflow) fn record_kind_with_work(
+    candidate: &str,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<bool> {
+    for known in RECORD_KINDS {
+        work.visit(crate::validation_work::ValidationVisit::MemberCompare)?;
+        work.scan_bytes(known.len())?;
+        work.scan_bytes(candidate.len())?;
+        if *known == candidate {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefData {
