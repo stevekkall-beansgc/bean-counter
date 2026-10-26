@@ -704,6 +704,7 @@ impl Assembly<'_, '_> {
             _alias_origin: None,
             _alias_ownership: None,
             inline_authority: None,
+            alias_origin_records: None,
         })
     }
 }

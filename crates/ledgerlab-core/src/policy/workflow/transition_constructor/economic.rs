@@ -498,92 +498,8 @@ pub fn construct_local_financial_candidate(
                 "local capture cannot substitute experimental witness metadata",
             ));
         }
-        if capture.sources.is_empty() || capture.sources.len() > 32 {
-            return Err(shape::fail("local captured source count"));
-        }
-        // Concrete ownership for the bounded captured DATA copies. This does not
-        // assert a universal future resource proof or lend parent semantic credit
-        // to the independently validating economic child.
-        let arena = session.arena().shared_handle();
-        let m = session.meter_mut();
-        let mut bytes = std::mem::size_of::<DraftContextData>();
-        for text in [
-            &capture.key.logical_store_id,
-            &capture.key.scope[0],
-            &capture.key.scope[1],
-            &capture.key.source,
-            &capture.key.operation_id,
-            capture.actor,
-            capture.canonical_economic_namespace,
-            capture.installation_mode,
-            capture.received_at,
-            capture.accepted_at,
-        ] {
-            bytes = w::usize_add(m, bytes, text.len())?;
-        }
-        for source in capture.sources {
-            bytes = w::usize_add(m, bytes, std::mem::size_of::<AuthorityContextData>())?;
-            bytes = w::usize_add(m, bytes, source.source_slot.len())?;
-            for reference in [
-                source.enrollment_ref,
-                source.current_state_ref,
-                source.current_grant_ref,
-                source.binding_ref,
-                source.accepted_agreement_ref,
-                source.activation_ref,
-            ]
-            .into_iter()
-            .chain(source.original_grant_refs.iter())
-            {
-                bytes = w::usize_add(m, bytes, std::mem::size_of::<ExactRef>())?;
-                for field in [&reference.kind, &reference.id, &reference.digest] {
-                    bytes = w::usize_add(m, bytes, field.len())?;
-                }
-            }
-        }
-        let _capture_owner = arena.reserve_external_payload(bytes, m)?;
-        m.scan_bytes(bytes)?;
-        m.write_bytes(bytes)?;
-        let mut authorities = Vec::new();
-        authorities
-            .try_reserve_exact(capture.sources.len())
-            .map_err(|_| shape::fail("local source capture allocation"))?;
-        let submitting = |source: &&super::input_selection::SourceAuthorityCapture<'_>| {
-            source.source == capture.key.source
-                && source.principal == capture.actor
-                && source.canonical_economic_namespace == capture.canonical_economic_namespace
-        };
-        if !capture.sources.iter().any(|s| submitting(&s)) {
-            return Err(shape::fail("actual local submitting source frame missing"));
-        }
-        for source in capture
-            .sources
-            .iter()
-            .filter(submitting)
-            .chain(capture.sources.iter().filter(|s| !submitting(s)))
-        {
-            authorities.push(AuthorityContextData {
-                source_slot: source.source_slot.to_owned(),
-                enrollment_ref: source.enrollment_ref.clone(),
-                current_state_ref: source.current_state_ref.clone(),
-                current_grant_ref: source.current_grant_ref.clone(),
-                original_grant_refs: source.original_grant_refs.to_vec(),
-                binding_ref: source.binding_ref.clone(),
-                accepted_agreement_ref: source.accepted_agreement_ref.clone(),
-                activation_ref: source.activation_ref.clone(),
-                authority_observation_ref: None,
-            });
-        }
-        let c = DraftContextData {
-            key: capture.key.clone(),
-            actor: capture.actor.to_owned(),
-            canonical_economic_namespace: capture.canonical_economic_namespace.to_owned(),
-            installation_mode: capture.installation_mode.to_owned(),
-            received_at: capture.received_at.to_owned(),
-            accepted_at: capture.accepted_at.to_owned(),
-            authorities,
-            source_observation_inputs: Vec::new(),
-        };
+        let captured = local_capture_context(capture, session)?;
+        let c = &captured.context;
         let parent_budget = program.uses_local_parent_budget_recipe();
         let mut child = if parent_budget {
             session.meter_mut().local_economic_meter()?
@@ -591,11 +507,11 @@ pub fn construct_local_financial_candidate(
             session.meter_mut().original_economic_meter()?
         };
         let construction =
-            construct::execute_complete(program, &c, payload, inputs, state, &mut child)?;
-        let assembly = Assembly::derive(&mut child, &c, program, state, construction)?;
+            construct::execute_complete(program, c, payload, inputs, state, &mut child)?;
+        let assembly = Assembly::derive(&mut child, c, program, state, construction)?;
         // Financial/topology production and actual finite interpreter/record/arena
         // guards have already run. Local1 makes no universal future resource claim.
-        let candidate = assembly.into_local(&c, &mut child)?;
+        let candidate = assembly.into_local(c, &mut child)?;
         if parent_budget {
             session.meter_mut().finish_local_economic(child)?;
         } else {
@@ -607,4 +523,106 @@ pub fn construct_local_financial_candidate(
         session.invalidate();
     }
     result
+}
+
+/// The SAME bounded paid capture copy used by fresh local execution and alias
+/// authority. This is owning DATA only, never a currentness/authority token.
+pub(super) struct LocalCaptureContext {
+    pub context: DraftContextData,
+    _ownership: crate::canonical::audit_arena::ExternalBufferLease,
+}
+pub(super) fn local_capture_context(
+    capture: &super::input_selection::EconomicCapture<'_>,
+    session: &mut OriginalAuditSession,
+) -> Result<LocalCaptureContext> {
+    if capture.sources.is_empty() || capture.sources.len() > 32 {
+        return Err(shape::fail("local captured source count"));
+    }
+    // Concrete ownership for the bounded captured DATA copies. This does not
+    // assert a universal future resource proof or lend parent semantic credit
+    // to the independently validating economic child.
+    let arena = session.arena().shared_handle();
+    let m = session.meter_mut();
+    let mut bytes = std::mem::size_of::<DraftContextData>();
+    for text in [
+        &capture.key.logical_store_id,
+        &capture.key.scope[0],
+        &capture.key.scope[1],
+        &capture.key.source,
+        &capture.key.operation_id,
+        capture.actor,
+        capture.canonical_economic_namespace,
+        capture.installation_mode,
+        capture.received_at,
+        capture.accepted_at,
+    ] {
+        bytes = w::usize_add(m, bytes, text.len())?;
+    }
+    for source in capture.sources {
+        bytes = w::usize_add(m, bytes, std::mem::size_of::<AuthorityContextData>())?;
+        bytes = w::usize_add(m, bytes, source.source_slot.len())?;
+        for reference in [
+            source.enrollment_ref,
+            source.current_state_ref,
+            source.current_grant_ref,
+            source.binding_ref,
+            source.accepted_agreement_ref,
+            source.activation_ref,
+        ]
+        .into_iter()
+        .chain(source.original_grant_refs.iter())
+        {
+            bytes = w::usize_add(m, bytes, std::mem::size_of::<ExactRef>())?;
+            for field in [&reference.kind, &reference.id, &reference.digest] {
+                bytes = w::usize_add(m, bytes, field.len())?;
+            }
+        }
+    }
+    let ownership = arena.reserve_external_payload(bytes, m)?;
+    m.scan_bytes(bytes)?;
+    m.write_bytes(bytes)?;
+    let mut authorities = Vec::new();
+    authorities
+        .try_reserve_exact(capture.sources.len())
+        .map_err(|_| shape::fail("local source capture allocation"))?;
+    let submitting = |source: &&super::input_selection::SourceAuthorityCapture<'_>| {
+        source.source == capture.key.source
+            && source.principal == capture.actor
+            && source.canonical_economic_namespace == capture.canonical_economic_namespace
+    };
+    if !capture.sources.iter().any(|s| submitting(&s)) {
+        return Err(shape::fail("actual local submitting source frame missing"));
+    }
+    for source in capture
+        .sources
+        .iter()
+        .filter(submitting)
+        .chain(capture.sources.iter().filter(|s| !submitting(s)))
+    {
+        authorities.push(AuthorityContextData {
+            source_slot: source.source_slot.to_owned(),
+            enrollment_ref: source.enrollment_ref.clone(),
+            current_state_ref: source.current_state_ref.clone(),
+            current_grant_ref: source.current_grant_ref.clone(),
+            original_grant_refs: source.original_grant_refs.to_vec(),
+            binding_ref: source.binding_ref.clone(),
+            accepted_agreement_ref: source.accepted_agreement_ref.clone(),
+            activation_ref: source.activation_ref.clone(),
+            authority_observation_ref: None,
+        });
+    }
+    let c = DraftContextData {
+        key: capture.key.clone(),
+        actor: capture.actor.to_owned(),
+        canonical_economic_namespace: capture.canonical_economic_namespace.to_owned(),
+        installation_mode: capture.installation_mode.to_owned(),
+        received_at: capture.received_at.to_owned(),
+        accepted_at: capture.accepted_at.to_owned(),
+        authorities,
+        source_observation_inputs: Vec::new(),
+    };
+    Ok(LocalCaptureContext {
+        context: c,
+        _ownership: ownership,
+    })
 }

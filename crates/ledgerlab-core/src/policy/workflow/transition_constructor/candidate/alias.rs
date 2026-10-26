@@ -46,22 +46,30 @@ fn canonical_view(
     view: EconomicRecordView<'_>,
     s: &mut OriginalAuditSession,
 ) -> Result<crate::canonical::audit_arena::AuditedValue> {
-    records::reference(s.meter_mut(), view.reference)?;
-    let value = s.parse_representation(view.canonical_body, RepresentationKind::Record)?;
-    let canonical = s.canonical_representation(value.value(), RepresentationKind::Record)?;
-    exact_bytes(s.meter_mut(), canonical.bytes(), view.canonical_body)?;
+    let a = s.arena().shared_handle();
+    canonical_meter(view, &a, s.meter_mut())
+}
+fn canonical_meter(
+    view: EconomicRecordView<'_>,
+    a: &AuditArena,
+    m: &mut CoreMeter,
+) -> Result<crate::canonical::audit_arena::AuditedValue> {
+    records::reference(m, view.reference)?;
+    let value = m.parse_owned_representation(a, view.canonical_body, RepresentationKind::Record)?;
+    let canonical =
+        m.canonical_owned_representation(a, value.value(), RepresentationKind::Record)?;
+    exact_bytes(m, canonical.bytes(), view.canonical_body)?;
     Ok(value)
 }
-fn receipt(
+fn receipt_checked(
     view: EconomicRecordView<'_>,
     op: &Value,
     results: &Value,
     a: &AuditArena,
-    s: &mut OriginalAuditSession,
-) -> Result<()> {
-    let value = canonical_view(view, s)?;
+    m: &mut CoreMeter,
+) -> Result<crate::canonical::audit_arena::AuditedValue> {
+    let value = canonical_meter(view, a, m)?;
     let v = value.value();
-    let m = s.meter_mut();
     shape::closed(
         m,
         v,
@@ -162,7 +170,7 @@ fn receipt(
     if !shape::same_text(m, &view.reference.id, &expected)? {
         return Err(shape::fail("alias original receipt identity"));
     }
-    Ok(())
+    Ok(value)
 }
 /// Original must come from the SAME original interpreter (including exact
 /// local10 reconstruction), never a boolean or reconstructed public effects.
@@ -171,7 +179,7 @@ fn receipt(
 /// evidence / receipt reusing the original results; all economic effects empty.
 pub fn construct_local_work_alias_candidate(
     program: &SelectedProgram,
-    c: &DraftContextData,
+    capture: &super::super::input_selection::EconomicCapture<'_>,
     incoming_raw: &[u8],
     original: EconomicCandidate,
     origin: (
@@ -185,6 +193,8 @@ pub fn construct_local_work_alias_candidate(
     let result = (|| {
         let (work_view, operation_view, receipt_view) = origin;
         s.check_cancelled()?;
+        let captured = super::super::economic::local_capture_context(capture, s)?;
+        let c = &captured.context;
         program.require_attempt_owner(s.meter_mut())?;
         if !program.uses_shared_namespace_recipe()
             || !original.result_metadata().is_local_execution()
@@ -405,7 +415,7 @@ pub fn construct_local_work_alias_candidate(
         }
         let results = super::super::app_cost::reference_set(s.meter_mut(), &a, &borrowed)?;
         shape::equal(s.meter_mut(), &op.value()["result_refs"], results.value())?;
-        receipt(receipt_view, op.value(), results.value(), &a, s)?;
+        receipt_checked(receipt_view, op.value(), results.value(), &a, s.meter_mut())?;
         let kind = a.string_value("workflow-operation", s.meter_mut())?;
         let kind = s.canonical_representation(kind.value(), RepresentationKind::Record)?;
         let scoped = s.canonical_representation(scope.value(), RepresentationKind::Record)?;
@@ -506,6 +516,20 @@ pub fn construct_local_work_alias_candidate(
             source: copy(s.meter_mut(), &c.key.source)?,
             operation_id: copy(s.meter_mut(), &c.key.operation_id)?,
         };
+        let operation_body =
+            s.copy_representation(operation_view.canonical_body, RepresentationKind::Record)?;
+        let receipt_body =
+            s.copy_representation(receipt_view.canonical_body, RepresentationKind::Record)?;
+        let original_operation = CandidateEnvelope {
+            reference: reference(s.meter_mut(), operation_view.reference)?,
+            schema: copy(s.meter_mut(), "ledger-workflow-economic-operation/10")?,
+            body: EncodedBody::owned(&a, operation_body, s.meter_mut())?,
+        };
+        let original_receipt = CandidateEnvelope {
+            reference: reference(s.meter_mut(), receipt_view.reference)?,
+            schema: copy(s.meter_mut(), "ledger-operation-receipt/2")?,
+            body: EncodedBody::owned(&a, receipt_body, s.meter_mut())?,
+        };
         Ok(EconomicCandidate {
             key,
             normalized_payload: EncodedBody::owned(&a, normalized, s.meter_mut())?,
@@ -527,10 +551,128 @@ pub fn construct_local_work_alias_candidate(
             _alias_origin: Some(Box::new(original)),
             _alias_ownership: Some(ownership),
             inline_authority: Some(inline),
+            alias_origin_records: Some((original_operation, original_receipt)),
         })
     })();
     if result.is_err() {
         s.invalidate();
     }
     result
+}
+
+impl EconomicCandidate {
+    /// Only the exact private alias origin has a receipt-domain exception.
+    /// Every consumer repeats the same canonical receipt2 hash and joins;
+    /// unrelated/non-alias rows keep the ordinary immutable-record kernel.
+    pub(in crate::policy::workflow::transition_constructor) fn checked_alias_origin_body(
+        &self,
+        m: &mut CoreMeter,
+        a: &AuditArena,
+        row: EconomicRecordView<'_>,
+    ) -> Result<Option<crate::canonical::audit_arena::AuditedValue>> {
+        let Some((operation, receipt)) = &self.alias_origin_records else {
+            return Ok(None);
+        };
+        let is_operation = shape::same_ref(m, row.reference, operation.reference())?;
+        if !is_operation && !shape::same_ref(m, row.reference, receipt.reference())? {
+            return Ok(None);
+        }
+        if self.result_metadata().result_kind() != "semantic_alias" {
+            return Err(shape::fail("alias receipt on non-alias candidate"));
+        }
+        if is_operation {
+            exact_bytes(m, row.canonical_body, operation.canonical_body())?;
+            return canonical_meter(row, a, m).map(Some);
+        }
+        exact_bytes(m, row.canonical_body, receipt.canonical_body())?;
+        let op = canonical_meter(
+            EconomicRecordView {
+                reference: operation.reference(),
+                canonical_body: operation.canonical_body(),
+            },
+            a,
+            m,
+        )?;
+        let body = receipt_checked(row, op.value(), &op.value()["result_refs"], a, m)?;
+        Ok(Some(body))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    fn receipt_ref(value: &mut Value) -> ExactRef {
+        let mut h = Sha256::new();
+        h.update(b"bean-counter/operation-receipt/2\0");
+        h.update(
+            canonical::CanonicalBytes::from_value(value)
+                .unwrap()
+                .as_slice(),
+        );
+        let hex = canonical::hex(&h.finalize());
+        value["receipt_hash"] = json!(format!("sha256:{hex}"));
+        ExactRef {
+            kind: "workflow-receipt".into(),
+            id: format!("wreceipt_{hex}"),
+            digest: format!("sha256:{hex}"),
+        }
+    }
+    #[test]
+    fn alias_origin_receipt_uses_its_exact_domain_and_operation_joins() {
+        let a = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let key = json!({"logical_store_id":"store","scope":["scope","test"],"source":"worker","operation_id":"original"});
+        let hash = format!("sha256:{}", "0".repeat(64));
+        let at = "2026-10-26T12:00:00Z";
+        let results = json!([]);
+        let op = json!({"key":key,"accepted_at":at,"commit_sequence":"12","result_refs":results,"request_evidence":{"request_hash":hash,"original_request_bytes_sha256":hash,"schema_bundle_digest":hash,"descriptor_resolution":{"closure_digest":hash}}});
+        let mut v = json!({"schema":"ledger-operation-receipt/2","key":key,"accepted_at":at,"commit_sequence":"12","request_hash":hash,"request_hash_profile":"bean-counter/operation-request/2","original_request_bytes_sha256":hash,"schema_bundle_digest":hash,"descriptor_closure_digest":hash,"normalization_profile":"ledger-operation-normalization/2","manifest_hash":hash,"result_kind":"economic","result_refs":results});
+        let r = receipt_ref(&mut v);
+        let raw = canonical::CanonicalBytes::from_value(&v).unwrap();
+        receipt_checked(
+            EconomicRecordView {
+                reference: &r,
+                canonical_body: raw.as_slice(),
+            },
+            &op,
+            &results,
+            &a,
+            s.meter_mut(),
+        )
+        .unwrap();
+        // A validly rehashed alternate receipt cannot change its producer.
+        v.as_object_mut().unwrap().remove("receipt_hash");
+        v["accepted_at"] = json!("2026-10-26T12:00:01Z");
+        let other = receipt_ref(&mut v);
+        let raw = canonical::CanonicalBytes::from_value(&v).unwrap();
+        assert!(receipt_checked(
+            EconomicRecordView {
+                reference: &other,
+                canonical_body: raw.as_slice()
+            },
+            &op,
+            &results,
+            &a,
+            s.meter_mut()
+        )
+        .is_err());
+        // Ordinary record-domain hashes do not authenticate receipts.
+        v["accepted_at"] = json!(at);
+        v.as_object_mut().unwrap().remove("receipt_hash");
+        let mut r = receipt_ref(&mut v);
+        r.digest = hash;
+        let raw = canonical::CanonicalBytes::from_value(&v).unwrap();
+        assert!(receipt_checked(
+            EconomicRecordView {
+                reference: &r,
+                canonical_body: raw.as_slice()
+            },
+            &op,
+            &results,
+            &a,
+            s.meter_mut()
+        )
+        .is_err());
+    }
 }

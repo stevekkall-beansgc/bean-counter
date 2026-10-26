@@ -644,7 +644,10 @@ pub fn produce_local_financial_request_evidence<'a>(
         needed_schema_refs(m, &a, &mut needed, payload.value())?;
         for r in candidate.consumed_refs() {
             let row = row_for(m, r, inputs)?;
-            let body = checked_body(m, &a, candidate.key(), row)?;
+            let body = match candidate.checked_alias_origin_body(m, &a, row)? {
+                Some(body) => body,
+                None => checked_body(m, &a, candidate.key(), row)?,
+            };
             if shape::same_text(m, &r.kind, "workflow-work")?
                 || shape::same_text(m, &r.kind, "workflow-outcome-claim")?
             {
@@ -668,7 +671,10 @@ pub fn produce_local_financial_request_evidence<'a>(
         )?;
         for r in candidate.consumed_refs() {
             let row = row_for(m, r, inputs)?;
-            let body = checked_body(m, &a, candidate.key(), row)?;
+            let body = match candidate.checked_alias_origin_body(m, &a, row)? {
+                Some(body) => body,
+                None => checked_body(m, &a, candidate.key(), row)?,
+            };
             let reference = owning_reference(m, &a, r)?;
             selected_anchor(
                 m,
@@ -877,6 +883,12 @@ fn selected_anchor(
             } else {
                 ("evidence", "evidence_input", 0, true)
             }
+        }
+        ("workflow-operation", "ledger-workflow-economic-operation/10")
+        | ("workflow-receipt", "ledger-operation-receipt/2")
+            if candidate.result_metadata().result_kind() == "semantic_alias" =>
+        {
+            ("evidence", "evidence_input", 0, true)
         }
         ("workflow-action", "ledger-workflow-action/1")
         | ("workflow-evaluation", "ledger-workflow-evaluation-proof/1")

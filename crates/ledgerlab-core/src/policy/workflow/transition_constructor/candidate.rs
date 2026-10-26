@@ -509,6 +509,7 @@ pub struct EconomicCandidate {
     _alias_origin: Option<Box<EconomicCandidate>>,
     _alias_ownership: Option<ExternalBufferLease>,
     inline_authority: Option<CandidateEnvelope>,
+    alias_origin_records: Option<(CandidateEnvelope, CandidateEnvelope)>,
 }
 impl EconomicCandidate {
     pub fn inline_authority(&self) -> Option<&CandidateEnvelope> {
