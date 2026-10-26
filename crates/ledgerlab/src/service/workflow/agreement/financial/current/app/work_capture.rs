@@ -552,24 +552,59 @@ pub(super) async fn retained_root(
         .get(index)
         .ok_or(ServiceError::IntegrityFailure)?;
     let reference = check::field(selected.enrollment_record().body(), "authority_ref", s)?;
-    let root = source::retained_record(
-        tx,
-        key,
-        reference,
-        "workflow-authority",
-        "ledger-workflow-local-authority-snapshot/1",
-        observed.before,
-        s,
-    )
-    .await?;
+    let administration = observed
+        .work_source_birth
+        .as_mut()
+        .and_then(|birth| birth.registered_administration.as_mut());
+    let (root, administrative_context) = if let Some(administration) = administration {
+        let root = administration
+            .root
+            .take()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let expected = wire::reference(root.reference(), s)?;
+        let actual = s
+            .canonical_representation(reference, RepresentationKind::Record)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(expected.bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(actual.bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        require(expected.bytes() == actual.bytes(), "INTEGRITY_FAILURE")?;
+        check::same_text(&administration.actor, &observed.setup.operator, s)?;
+        (
+            root,
+            Some((&administration.key, administration.actor.as_str())),
+        )
+    } else {
+        (
+            source::retained_record(
+                tx,
+                key,
+                reference,
+                "workflow-authority",
+                "ledger-workflow-local-authority-snapshot/1",
+                observed.before,
+                s,
+            )
+            .await?,
+            None,
+        )
+    };
     let encoded = wire::reference(root.reference(), s)?;
     observed
         .original
         .require_held_reference(encoded.bytes(), "workflow-authority", s)?;
+    let (administrative_key, administrative_actor) =
+        administrative_context.unwrap_or((key, observed.setup.operator.as_str()));
     super::super::party::produce::validate_original_root(
         root.body(),
-        key,
-        &observed.setup.operator,
+        administrative_key,
+        administrative_actor,
         &observed.at,
         s,
     )?;

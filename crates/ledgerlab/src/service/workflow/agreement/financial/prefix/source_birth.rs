@@ -6,7 +6,24 @@ use ledgerlab_core::policy::workflow::transition_constructor::ExactRef;
 pub(in super::super) struct SourceBirthInputs {
     pub(in super::super) state: current::source::SourceRecord,
     pub(in super::super) grant: current::source::SourceRecord,
+    pub(in super::super) registered_administration: Option<RegisteredAdministrativeBirth>,
     _storage: ExternalBufferLease,
+}
+pub(in super::super) struct RegisteredAdministrativeBirth {
+    pub(in super::super) root: Option<current::source::SourceRecord>,
+    pub(in super::super) key: OperationKey,
+    pub(in super::super) actor: String,
+    _storage: ExternalBufferLease,
+}
+fn copy_text(v: &str, s: &mut OriginalAuditSession) -> Result<String> {
+    s.semantic_work().scan_bytes(v.len()).map_err(core_error)?;
+    s.semantic_work().write_bytes(v.len()).map_err(core_error)?;
+    let mut value = String::new();
+    value
+        .try_reserve_exact(v.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    value.push_str(v);
+    Ok(value)
 }
 fn same(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<()> {
     s.semantic_work()
@@ -188,12 +205,60 @@ impl LocatedAppAcceptance {
                 .map_err(core_error)?;
             let expected = wire::reference(grant.reference(), s)?;
             same(actual.bytes(), expected.bytes(), s)?;
+            // The registered target B is not the administrative producer A.
+            // Preserve the actual authenticated birth root/key/actor for the
+            // later held-root adapter; old source/1 keeps its exact route.
+            let registered_administration = if schema == "ledger-workflow-source-enroll/2" {
+                request_wrapper::key(
+                    request_wrapper::field(state.body(), "operation_key", s)?,
+                    origin.key(),
+                    s,
+                )?;
+                let management = super::source::management(tx, &origin, s).await?;
+                let key = origin.key();
+                let mut payload = 0usize;
+                for text in [
+                    key.logical_store_id.as_str(),
+                    key.scope[0].as_str(),
+                    key.scope[1].as_str(),
+                    key.source.as_str(),
+                    key.operation_id.as_str(),
+                    management.actor,
+                ] {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    s.semantic_work()
+                        .arithmetic(Op::Add, &[&payload.into(), &text.len().into()])
+                        .map_err(core_error)?;
+                    payload = payload
+                        .checked_add(text.len())
+                        .ok_or(ServiceError::Unavailable)?;
+                }
+                let owner = s.reserve_external_payload(payload).map_err(core_error)?;
+                let key = OperationKey {
+                    logical_store_id: copy_text(&key.logical_store_id, s)?,
+                    scope: [copy_text(&key.scope[0], s)?, copy_text(&key.scope[1], s)?],
+                    source: copy_text(&key.source, s)?,
+                    operation_id: copy_text(&key.operation_id, s)?,
+                };
+                let actor = copy_text(management.actor, s)?;
+                Some(RegisteredAdministrativeBirth {
+                    root: Some(management.root),
+                    key,
+                    actor,
+                    _storage: owner,
+                })
+            } else {
+                None
+            };
             s.semantic_work()
                 .write_bytes(std::mem::size_of::<SourceBirthInputs>())
                 .map_err(core_error)?;
             Ok(SourceBirthInputs {
                 state,
                 grant,
+                registered_administration,
                 _storage: storage,
             })
         }

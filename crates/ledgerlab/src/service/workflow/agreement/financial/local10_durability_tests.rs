@@ -534,3 +534,46 @@ async fn policy_independent_issuer_acceptance_prepare_without_append() {
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
     result.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires explicit quiescent synthetic policy issuer fixture"]
+async fn policy_independent_issuer_retention_prepare_without_append() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("main-quantity-proof.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "05d36d716a8a702e9b7a24e2177a0bdedd2dfb7998804c5f4a0b97d744e00d76"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let snapshot = ledger.resource_snapshot().unwrap();
+    let arena = snapshot.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let req = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+    let mut tx = snapshot.begin(&ledger.store, &mut s).await.unwrap();
+    let result = proof_session::with_proofs(&mut tx, req.key(), |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, req.key()).await?;
+            local_financial::check_retention_prepare_without_append(&ledger, tx, &req, &mut s).await
+        })
+    })
+    .await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
+}

@@ -1314,14 +1314,14 @@ mod birth_tests {
     }
 }
 
-struct Management<'a> {
-    root: current::source::SourceRecord,
+pub(super) struct Management<'a> {
+    pub(super) root: current::source::SourceRecord,
     at: Timestamp,
-    actor: &'a str,
+    pub(super) actor: &'a str,
     own_before: i64,
     _time_storage: ExternalBufferLease,
 }
-async fn management<'a>(
+pub(super) async fn management<'a>(
     tx: &mut SqliteTx,
     origin: &'a LocatedWrappers,
     s: &mut OriginalAuditSession,

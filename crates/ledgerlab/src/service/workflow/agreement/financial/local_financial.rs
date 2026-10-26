@@ -153,3 +153,46 @@ pub(super) async fn check_report_prepare_without_append(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+pub(super) async fn check_retention_prepare_without_append(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &ingress::IncomingRequest,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let held = ledger
+        .admin
+        .read_management(&ledger.store, tx, req.key(), s)
+        .await?;
+    let prepared = PreparedFinancialCommit::work(ledger, tx, req, s).await?;
+    let management = ManagementObservation::capture_registered_participant(
+        ledger,
+        tx,
+        req,
+        held,
+        &prepared.observed,
+        s,
+    )
+    .await?;
+    management.recheck(ledger, tx, req.key(), s).await?;
+    assert!(prepared
+        .candidate
+        .introduced()
+        .iter()
+        .all(|record| !matches!(
+            record.reference().kind.as_str(),
+            "workflow-action" | "workflow-decision" | "workflow-target" | "workflow-family-state"
+        )));
+    let _journal = wire::frame_candidate(
+        &prepared.candidate,
+        req.key(),
+        req.kind(),
+        prepared.evidence.value(),
+        prepared.observed.received_at()?,
+        &prepared.observed.at,
+        prepared.observed.before,
+        s,
+    )?;
+    Ok(())
+}
