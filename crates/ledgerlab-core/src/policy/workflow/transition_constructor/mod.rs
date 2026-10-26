@@ -43,6 +43,8 @@ pub use candidate::{
     construct_local_cost_authority_enrollment, construct_local_work_alias_candidate,
     CostAuthorityEnrollmentState, LocalCostAuthorityEnrollment,
 };
+mod invocation;
+pub use invocation::{select_invocation_operation_locators, InvocationOperationLocators};
 mod stage;
 pub use stage::{
     select_stage_work_head_locator, select_work_invocation_head_locators, StageWorkHeadLocator,

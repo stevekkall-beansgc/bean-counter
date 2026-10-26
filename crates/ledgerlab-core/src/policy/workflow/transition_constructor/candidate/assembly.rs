@@ -14,6 +14,7 @@ pub(in crate::policy::workflow::transition_constructor) struct Assembly<'inv, 'r
     pub schemas: Vec<String>,
     pub result_refs: Vec<ExactRef>,
     pub authority_position: usize,
+    result_kind: super::CandidateResultKind,
     pub source_observations: Vec<super::ObservationAssociation>,
     pub _actual_members: capacity::ActualMembers,
     reservations: super::reservations::OwnedReservations,
@@ -87,6 +88,13 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(
 ) -> Result<&'static str> {
     let schema = shape::text(m, p, "schema")?;
     for (s, kind) in [
+        ("ledger-workflow-stage-authorize/1", "invocation.authorize"),
+        (
+            "ledger-workflow-invocation-authorize/1",
+            "invocation.authorize",
+        ),
+        ("ledger-workflow-invocation-close/1", "invocation.close"),
+        ("ledger-workflow-stage-close/1", "outcome.submit"),
         ("ledger-workflow-work/1", "work.accept"),
         ("ledger-workflow-outcome/1", "outcome.submit"),
         ("ledger-workflow-outcome/2", "outcome.submit"),
@@ -367,7 +375,12 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
                 && shape::same_text(
                     m,
                     schema,
-                    if local {
+                    if local
+                        && program.uses_stage_lifecycle_recipe()
+                        && (kind == "invocation.authorize" || kind == "invocation.close")
+                    {
+                        "ledger-workflow-stage-authority/1"
+                    } else if local {
                         "ledger-workflow-economic-authority/8"
                     } else {
                         "ledger-workflow-economic-authority/7"
@@ -488,6 +501,7 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
         }
         let actual_members = capacity::actual_members(m, &t)?;
         Ok(Self {
+            result_kind: if local && program.uses_stage_lifecycle_recipe() && matches!(kind,"invocation.authorize"|"invocation.close") {super::CandidateResultKind::Administrative} else {super::CandidateResultKind::Economic},
             construction: t,
             schemas,
             result_refs,
@@ -605,6 +619,7 @@ impl Assembly<'_, '_> {
             schemas,
             result_refs,
             authority_position,
+            result_kind,
             source_observations: _,
             _actual_members: _,
             mut reservations,
@@ -673,7 +688,7 @@ impl Assembly<'_, '_> {
             operation_id: copy(m, &c.key.operation_id)?,
         };
         let result = super::CandidateResultMetadata {
-            kind: super::CandidateResultKind::Economic,
+            kind: result_kind,
             result_refs,
             authority_ref,
             execution,

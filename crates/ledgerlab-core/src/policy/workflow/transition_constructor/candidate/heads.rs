@@ -210,7 +210,9 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     }
     for e in &t.new_envelopes {
         m.visit("candidate.stage_head_count")?;
-        if shape::same_text(m, &e.reference.kind, "workflow-stage-state")? {
+        if shape::same_text(m, &e.reference.kind, "workflow-stage-state")?
+            || shape::same_text(m, &e.reference.kind, "workflow-invocation")?
+        {
             count = add(m, count, 1)?;
         }
     }
@@ -265,6 +267,20 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
             text_size(m, &mut bytes, &h.revision)?;
             if let Some(old) = &h.expected {
                 ref_size(m, &mut bytes, old)?;
+            }
+        }
+    }
+    for e in &t.new_envelopes {
+        if shape::same_text(m, &e.reference.kind, "workflow-invocation")? {
+            let value = e.decoded(m, 4194304)?;
+            for k in ["invocation_id", "revision"] {
+                let text = shape::text(m, &value, k)?;
+                text_size(m, &mut bytes, text)?;
+            }
+            ref_size(m, &mut bytes, &e.reference)?;
+            if let Some(prior) = value.get("prior_ref") {
+                let reference = shape::reference(m, prior)?;
+                ref_size(m, &mut bytes, &reference)?;
             }
         }
     }
@@ -490,6 +506,57 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
                 .old()
                 .map(|h| copy_ref(m, &h.reference))
                 .transpose()?,
+            proposed: copy_ref(m, &e.reference)?,
+            revision: copy(m, revision)?,
+            introduced_position: position,
+        });
+    }
+    for (position, e) in t.new_envelopes.iter().enumerate() {
+        if !shape::same_text(m, &e.reference.kind, "workflow-invocation")? {
+            continue;
+        }
+        let value = e.decoded(m, 4194304)?;
+        if !text_is(m, &value, "schema", "ledger-workflow-invocation/1")? {
+            return Err(shape::fail("Invocation head schema"));
+        }
+        let id = shape::text(m, &value, "invocation_id")?;
+        if !shape::same_text(m, &e.reference.id, id)? {
+            return Err(shape::fail("Invocation head stable ID"));
+        }
+        let supplier = state
+            .supplier
+            .ok_or_else(|| shape::fail("held Invocation heads required"))?;
+        let mut old = None;
+        for h in supplier.invocation_heads {
+            m.visit("candidate.expected_invocation")?;
+            if shape::same_text(m, &h.invocation_id, id)? {
+                if old.is_some() {
+                    return Err(shape::fail("duplicate held Invocation head"));
+                }
+                old = Some(h);
+            }
+        }
+        for prior in &effects {
+            if let FinancialHeadKey::Invocation { invocation_id } = &prior.key {
+                if shape::same_text(m, invocation_id, id)? {
+                    return Err(shape::fail("Invocation head produced twice"));
+                }
+            }
+        }
+        let revision = shape::text(m, &value, "revision")?;
+        lineage(
+            m,
+            &arena,
+            &value,
+            revision,
+            old.map(|h| &h.reference),
+            old.map(|h| h.revision.as_str()),
+        )?;
+        effects.push(HeadEffect {
+            key: FinancialHeadKey::Invocation {
+                invocation_id: copy(m, id)?,
+            },
+            expected: old.map(|h| copy_ref(m, &h.reference)).transpose()?,
             proposed: copy_ref(m, &e.reference)?,
             revision: copy(m, revision)?,
             introduced_position: position,

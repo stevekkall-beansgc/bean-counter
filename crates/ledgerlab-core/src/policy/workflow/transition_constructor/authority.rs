@@ -60,6 +60,8 @@ macro_rules! invoke {
 pub(super) enum EconomicMode {
     Work,
     WorkAlias,
+    InvocationAuthorize,
+    InvocationClose,
     OutcomeSubmit,
     OutcomeCorrect,
     QuantityCorrect,
@@ -74,6 +76,8 @@ impl EconomicMode {
     pub(super) fn operation(self) -> &'static str {
         match self {
             Self::Work | Self::WorkAlias => "work.accept",
+            Self::InvocationAuthorize => "invocation.authorize",
+            Self::InvocationClose => "invocation.close",
             Self::OutcomeSubmit => "outcome.submit",
             Self::OutcomeCorrect => "outcome.correct",
             Self::QuantityCorrect => "quantity.correct",
@@ -94,6 +98,8 @@ impl EconomicMode {
             | Self::OutcomeClose
             | Self::CostFinalize => &["read", "submit"],
             Self::DeadlineClose => &["close", "read"],
+            Self::InvocationAuthorize => &["invocation", "read"],
+            Self::InvocationClose => &["close", "read"],
             Self::OutcomeCorrect
             | Self::QuantityCorrect
             | Self::WorkReverse
@@ -147,7 +153,9 @@ pub(super) fn historical_namespace(
         .authorities
         .first()
         .is_some_and(|a| a.authority_observation_ref.is_none());
-    let schemas: &[&str] = if local {
+    let schemas: &[&str] = if local && operation == "invocation.authorize" {
+        &["ledger-workflow-stage-authority/1"]
+    } else if local {
         &["ledger-workflow-economic-authority/8"]
     } else {
         &[
@@ -223,10 +231,29 @@ impl std::ops::Deref for ResolvedOperands {
 }
 impl ResolvedOperands {
     pub(super) fn into_alias_snapshot(self) -> Result<crate::canonical::audit_arena::AuditedValue> {
+        self.into_local_snapshot()
+    }
+    pub(super) fn into_local_snapshot(self) -> Result<crate::canonical::audit_arena::AuditedValue> {
+        let (terms, value, metadata) = self.into_local_parts()?;
+        drop(terms);
+        drop(metadata);
+        Ok(value)
+    }
+    pub(super) fn into_local_parts(
+        self,
+    ) -> Result<(
+        Terms,
+        crate::canonical::audit_arena::AuditedValue,
+        Option<crate::canonical::audit_arena::ExternalBufferLease>,
+    )> {
         if !self.introduced.is_empty() {
-            return Err(fail("local alias cannot introduce source records"));
+            return Err(fail("local control cannot introduce source observations"));
         }
-        self.authority_body.into_owned()
+        Ok((
+            self.terms,
+            self.authority_body.into_owned()?,
+            self._metadata,
+        ))
     }
     pub(super) fn owning(
         terms: Terms,

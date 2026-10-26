@@ -206,12 +206,41 @@ pub(super) fn resolve_role(
         "ledger-workflow-slot-instantiation/1",
     )?;
     let slots = shape::array(m, &binding, "bindings")?;
-    if !w::compare(m, slots.len(), 1usize)?.is_eq() {
-        return Err(Error::new(
-            "UNSUPPORTED_COMPOSITION",
-            "first app capability requires one retail binding",
-        ));
-    }
+    let selected_slot = if program.uses_stage_lifecycle_recipe() {
+        let policy = program.original_policy_value();
+        let mut selected = None;
+        for instruction in shape::array(
+            m,
+            program.compiled_plan().canonical_value(),
+            "typed_instructions",
+        )? {
+            m.visit("binding.stage_actual_retail_slot")?;
+            if !shape::same(m, &instruction["rule"]["activity"], &payload["activity"])? {
+                continue;
+            }
+            let name = shape::text(m, &instruction["rule"], "binding_slot")?;
+            let definitions = shape::array(m, policy, "binding_slots")?;
+            let definition = shape::named(m, definitions, "name", name)?;
+            let book = shape::text(m, definition, "book")?;
+            if !shape::same_text(m, book, "retail")? {
+                continue;
+            }
+            let candidate = shape::named(m, slots, "slot", name)?;
+            if let Some(old) = selected {
+                shape::equal(m, old, candidate)?;
+            }
+            selected = Some(candidate);
+        }
+        selected.ok_or_else(|| shape::fail("Stage operation's exact retail binding slot"))?
+    } else {
+        if !w::compare(m, slots.len(), 1usize)?.is_eq() {
+            return Err(Error::new(
+                "UNSUPPORTED_COMPOSITION",
+                "first app capability requires one retail binding",
+            ));
+        }
+        &slots[0]
+    };
     let schema = if program.uses_app_cost_causal_recipe() {
         "ledger-workflow-slot-binding-terms/7"
     } else {
@@ -221,7 +250,7 @@ pub(super) fn resolve_role(
         m,
         r,
         c,
-        &slots[0]["binding_ref"],
+        &selected_slot["binding_ref"],
         "workflow-slot-terms",
         schema,
     )?;
@@ -229,7 +258,7 @@ pub(super) fn resolve_role(
     for field in ["agreement_id", "customer"] {
         eq(m, &slot_terms[field], &binding[field])?;
     }
-    eq(m, &slot_terms["slot"], &slots[0]["slot"])?;
+    eq(m, &slot_terms["slot"], &selected_slot["slot"])?;
     has(m, &slot_terms, "allowed_activities", &payload["activity"])?;
     let (role_ref, role) = load(
         m,
@@ -519,6 +548,13 @@ fn resolved_role(
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app operation authority"))?;
     let (operation, rights) = match mode {
+        EconomicMode::InvocationClose if program.uses_stage_lifecycle_recipe() => {
+            ("invocation.close", br#"["close","read"]"#.as_slice())
+        }
+        EconomicMode::InvocationAuthorize if program.uses_stage_lifecycle_recipe() => (
+            "invocation.authorize",
+            br#"["invocation","read"]"#.as_slice(),
+        ),
         EconomicMode::WorkAlias if program.uses_shared_namespace_recipe() => {
             ("work.accept", br#"["read","submit"]"#.as_slice())
         }

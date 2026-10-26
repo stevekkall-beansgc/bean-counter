@@ -112,7 +112,309 @@ fn definition<'a>(m: &mut CoreMeter, p: &'a SelectedProgram, name: &str) -> Resu
     let policy = found.ok_or_else(|| shape::fail("Stage original Policy"))?;
     same(m, policy, "mode", "closure_share")?;
     let stages = shape::array(m, policy, "stages")?;
-    shape::named(m, stages, "name", name)
+    let definition = shape::named(m, stages, "name", name)?;
+    shape::closed(
+        m,
+        definition,
+        &[
+            "name",
+            "authorization_source_slot",
+            "closure_activity",
+            "closure_component_key",
+            "closure_source_slot",
+            "closure_evidence_kind",
+            "window",
+            "expected_slots",
+        ],
+        &[],
+    )?;
+    Ok(definition)
+}
+
+/// The declaration has its own accepted authorizer purpose. Worker, closer
+/// and supplier purposes never substitute for this explicit StageDef slot.
+pub(super) fn authorize<'a>(
+    program: &SelectedProgram,
+    c: &'a DraftContextData,
+    p: super::working_value::WorkingValue,
+    inputs: &'a [EconomicRecordView<'a>],
+    state: &EconomicStateData<'a>,
+    m: &mut CoreMeter,
+) -> Result<Construction<'a, 'a>> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("exact Stage authorization recipe required"));
+    }
+    let a = arena(m)?;
+    super::inventory::entry::context_selected(m, c, program)?;
+    shape::closed(
+        m,
+        &p,
+        &[
+            "schema",
+            "stage_instance",
+            "expected_chain_revision",
+            "invocation_inputs",
+        ],
+        &[],
+    )?;
+    same(m, &p, "schema", "ledger-workflow-stage-authorize/1")?;
+    let declaration = shape::field(m, &p, "stage_instance")?;
+    shape::closed(
+        m,
+        declaration,
+        &[
+            "customer",
+            "chain",
+            "agreement_id",
+            "binding_ref",
+            "stage_name",
+            "expected",
+            "authority_refs",
+        ],
+        &[],
+    )?;
+    let name = shape::text(m, declaration, "stage_name")?;
+    let def = definition(m, program, name)?;
+    let source_slot = shape::text(m, def, "authorization_source_slot")?;
+    let binding_ref = parse_owned_reference(m, &a, &declaration["binding_ref"])?;
+    let mut records =
+        Records::borrowed_selected(m, &a, &c.key, inputs, &c.source_observation_inputs, program)?;
+    records.install_initial_source_outputs(m, state.initial_source_correspondences)?;
+    let binding = records.get(
+        m,
+        &c.key,
+        binding_ref.reference(),
+        "workflow-binding",
+        "ledger-workflow-binding/2",
+    )?;
+    for field in ["customer", "agreement_id"] {
+        shape::equal(m, &declaration[field], &binding[field])?;
+    }
+    for h in &state.financial.stage_heads {
+        m.visit("stage.declaration_permanent_head")?;
+        let agreement = shape::text(m, declaration, "agreement_id")?;
+        let chain = shape::text(m, declaration, "chain")?;
+        if shape::same_text(m, &h.agreement, agreement)?
+            && shape::same_text(m, &h.chain, chain)?
+            && shape::same_text(m, &h.stage, name)?
+        {
+            return Err(crate::Error::new(
+                "IDENTITY_CONFLICT",
+                "Stage declaration is permanent",
+            ));
+        }
+    }
+    // This operation has no Work payload. These source-purpose fields are all
+    // taken from its actual accepted StageDef/Binding/declaration, not a fake
+    // completion, supplier token, current policy or graph-derived authority.
+    let purpose = a.object_from_fields(
+        &[
+            ("binding_ref", &declaration["binding_ref"]),
+            ("customer", &declaration["customer"]),
+            ("product_ref", &binding["product_ref"]),
+            ("policy_ref", &binding["policy_ref"]),
+            ("activity", &def["closure_activity"]),
+            ("evidence_refs", &declaration["authority_refs"]),
+        ],
+        m,
+    )?;
+    let namespace = shape::text(m, &binding, "source_namespace")?;
+    let resolved = super::app_cost::binding_resolved(
+        m,
+        &mut records,
+        c,
+        purpose.value(),
+        program,
+        super::authority::EconomicMode::InvocationAuthorize,
+        (source_slot, &[], namespace),
+    )?;
+    let expected = shape::array(m, declaration, "expected")?;
+    let templates = shape::array(m, def, "expected_slots")?;
+    if !w::compare(m, expected.len(), templates.len())?.is_eq()
+        || w::compare(m, expected.len(), 1usize)?.is_lt()
+        || w::compare(m, expected.len(), 32usize)?.is_gt()
+    {
+        return Err(shape::fail("Stage declaration exact expected membership"));
+    }
+    super::inventory::slots::keyed_order(m, expected, "template_input_key", false)?;
+    let maps = shape::array(m, &resolved.instantiation, "component_map")?;
+    for (index, row) in expected.iter().enumerate() {
+        m.visit("stage.declaration_expected_member")?;
+        shape::closed(
+            m,
+            row,
+            &[
+                "template_input_key",
+                "source",
+                "business_operation_id",
+                "activity",
+                "component_slots",
+            ],
+            &[],
+        )?;
+        let key = shape::text(m, row, "template_input_key")?;
+        let template = shape::named(m, templates, "key", key)?;
+        shape::equal(m, &row["activity"], &template["activity"])?;
+        let nominated_slot = shape::text(m, template, "source_slot")?;
+        let nominations = shape::array(m, &binding, "source_slots")?;
+        let nomination = shape::named(m, nominations, "name", nominated_slot)?;
+        let sources = shape::array(m, nomination, "sources")?;
+        if !shape::member(m, sources, &row["source"])? {
+            return Err(shape::fail("Stage declared original worker nomination"));
+        }
+        for old in &expected[..index] {
+            m.visit("stage.declaration_permanent_completion_unique")?;
+            // Binding namespace equality is retained for every actual member.
+            // Different transport sources cannot allocate two completions for
+            // one canonical business operation inside this fixed Stage.
+            if shape::same(
+                m,
+                &old["business_operation_id"],
+                &row["business_operation_id"],
+            )? {
+                return Err(shape::fail("duplicate canonical Stage completion"));
+            }
+        }
+        let keys = shape::array(m, template, "component_keys")?;
+        let slots = shape::array(m, row, "component_slots")?;
+        if !w::compare(m, keys.len(), slots.len())?.is_eq() {
+            return Err(shape::fail("Stage exact component slots"));
+        }
+        for key in keys {
+            m.visit("stage.declaration_component_mapping")?;
+            let key = key
+                .as_str()
+                .ok_or_else(|| shape::fail("Stage component key"))?;
+            let mapping = shape::named(m, maps, "template_key", key)?;
+            if !shape::member(m, slots, &mapping["slot_id"])? {
+                return Err(shape::fail("Stage declared component mapping"));
+            }
+        }
+    }
+    let invocations = shape::array(m, &p, "invocation_inputs")?;
+    if !invocations.is_empty() {
+        return Err(crate::Error::new(
+            "UNSUPPORTED_COMPOSITION",
+            "actual embedded supplier Invocation construction remains required",
+        ));
+    }
+    for instruction in shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )? {
+        m.visit("stage.declaration_supplier_obligation")?;
+        if instruction["rule"]["formula"]["kind"].as_str() == Some("closure_share") {
+            return Err(crate::Error::new(
+                "INVOCATION_REQUIRED",
+                "Stage supplier share requires actual supplier invocation inputs",
+            ));
+        }
+    }
+    let requested = shape::text(m, &p, "expected_chain_revision")?;
+    let requested = super::arithmetic::integer(m, requested, false)?;
+    let current = if let Some(reference) = &state.financial.chain_head {
+        let old = records.get(
+            m,
+            &c.key,
+            reference,
+            "workflow-chain-state",
+            "ledger-workflow-chain-state/1",
+        )?;
+        for field in ["customer", "chain", "binding_ref"] {
+            shape::equal(m, &old[field], &declaration[field])?;
+        }
+        {
+            let revision = shape::text(m, &old, "revision")?;
+            super::arithmetic::integer(m, revision, false)?
+        }
+    } else {
+        0.into()
+    };
+    if !super::meter::cmp(m, &requested, &current)?.is_eq() {
+        return Err(crate::Error::new(
+            "STALE_REVISION",
+            "Stage expected chain revision",
+        ));
+    }
+    let owner = a.reserve_external_payload(
+        mem::size_of::<Construction>()
+            + 4 * mem::size_of::<ConstructedEnvelope>()
+            + 4 * (mem::size_of::<ExactRef>() + 64 + 128 + 71)
+            + 4096,
+        m,
+    )?;
+    let (terms, authority_value, terms_owner) = resolved.into_local_parts()?;
+    let authority =
+        body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
+    let id = instance_id(m, &c.key, declaration)?;
+    let id_value = a.string_value(&id, m)?;
+    let at = a.string_value(&c.accepted_at, m)?;
+    let constants=m.parse_owned_representation(&a,br#"{"instance":"ledger-workflow-stage-instance/1","state":"ledger-workflow-stage-state/1","declared":"declared","one":"1"}"#,RepresentationKind::SourceDefinition)?;
+    let instance = super::working_value::WorkingValue::copy(m, declaration)?.with_fields(
+        m,
+        &[
+            ("schema", &constants.value()["instance"]),
+            ("instance_id", id_value.value()),
+            ("declared_at", at.value()),
+        ],
+    )?;
+    let instance = body::record_borrowed(m, &c.key, "workflow-stage-instance", id, &instance)?;
+    let instance_ref = owning_reference(m, &a, &instance.reference)?;
+    let authority_ref = owning_reference(m, &a, &authority.reference)?;
+    let key = super::cost_postings::operation_key(m, &a, c)?;
+    let value = a.object_from_fields(
+        &[
+            ("schema", &constants.value()["state"]),
+            ("stage_instance_ref", instance_ref.value()),
+            ("revision", &constants.value()["one"]),
+            ("state", &constants.value()["declared"]),
+            ("operation_key", key.value()),
+            ("authority_ref", authority_ref.value()),
+            ("accepted_at", at.value()),
+        ],
+        m,
+    )?;
+    let id = state_id(m, &c.key, &instance.reference, &constants.value()["one"])?;
+    let stage = body::record_borrowed(m, &c.key, "workflow-stage-state", id, value.value())?;
+    let normalized = p.bytes(m)?;
+    let mut envelopes = Vec::new();
+    envelopes
+        .try_reserve_exact(3)
+        .map_err(|_| shape::fail("Stage authorization output allocation"))?;
+    envelopes.push(instance);
+    envelopes.push(authority);
+    envelopes.push(stage);
+    Ok(Construction {
+        economic: EconomicConstruction {
+            terms,
+            original_work: OriginalWorkPayload::Unattached,
+        },
+        original_reservations: None,
+        financial_reservations: None,
+        normalized_payload: normalized,
+        new_envelopes: envelopes,
+        reused_result: None,
+        evaluation_steps: Vec::new(),
+        proposed_heads: ProposedHeads {
+            decision: Vec::new(),
+            family: Vec::new(),
+            chain: None,
+        },
+        claim_introductions: Vec::new(),
+        link_introductions: Vec::new(),
+        prospective_obligations: Vec::new(),
+        records,
+        history_edges: Vec::new(),
+        app_effects: None,
+        _app_causal: None,
+        current_capacity: None,
+        candidate_heads: None,
+        candidate_introductions: None,
+        financial_observation: None,
+        funding_effects: None,
+        control_owners: [Some(owner), terms_owner, None, None, None, None, None, None],
+    })
 }
 fn closed_instance(m: &mut CoreMeter, key: &OperationKey, r: &ExactRef, v: &Value) -> Result<()> {
     shape::closed(

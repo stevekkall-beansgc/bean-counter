@@ -245,7 +245,18 @@ pub(in crate::policy::workflow::transition_constructor) fn attach_source_observa
                 "local authority cannot carry an experimental observation",
             ));
         }
-        let schema = arena.string_value("ledger-workflow-economic-authority/8", m)?;
+        let operation = shape::text(m, value.value(), "operation")?;
+        let invocation = program.uses_stage_lifecycle_recipe()
+            && (shape::same_text(m, operation, "invocation.authorize")?
+                || shape::same_text(m, operation, "invocation.close")?);
+        let schema = arena.string_value(
+            if invocation {
+                "ledger-workflow-stage-authority/1"
+            } else {
+                "ledger-workflow-economic-authority/8"
+            },
+            m,
+        )?;
         super::super::working_value::WorkingValue::Owned(value)
             .with_fields(m, &[("schema", schema.value())])?
             .into_owned()

@@ -72,6 +72,45 @@ pub(super) fn execute_complete<'raw>(
         .representation_arena()
         .ok_or_else(|| shape::fail("complete constructor requires owning resource session"))?;
     let schema = shape::text(m, &p, "schema")?;
+    if program.uses_stage_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-invocation-close/1")?
+    {
+        let mut construction = super::invocation::close(program, c, p, inputs, state, m)?;
+        construction.candidate_heads =
+            Some(super::candidate::heads::derive(m, c, state, &construction)?);
+        construction.candidate_introductions = Some(super::candidate::introductions::derive(
+            m,
+            c,
+            &construction,
+        )?);
+        return Ok(construction);
+    }
+    if program.uses_stage_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-invocation-authorize/1")?
+    {
+        let mut construction = super::invocation::authorize(program, c, p, inputs, state, m)?;
+        construction.candidate_heads =
+            Some(super::candidate::heads::derive(m, c, state, &construction)?);
+        construction.candidate_introductions = Some(super::candidate::introductions::derive(
+            m,
+            c,
+            &construction,
+        )?);
+        return Ok(construction);
+    }
+    if program.uses_stage_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-stage-authorize/1")?
+    {
+        let mut construction = super::stage::authorize(program, c, p, inputs, state, m)?;
+        construction.candidate_heads =
+            Some(super::candidate::heads::derive(m, c, state, &construction)?);
+        construction.candidate_introductions = Some(super::candidate::introductions::derive(
+            m,
+            c,
+            &construction,
+        )?);
+        return Ok(construction);
+    }
     if shape::same_text(m, schema, "ledger-workflow-fact-attest/1")?
         || shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?
     {
