@@ -128,11 +128,17 @@ pub(super) fn local_support(
     drop(declared);
     let policy = SelectedCompilerSupport::local_policy_semantics_execution_with_session(s)
         .map_err(core_error)?;
+    if same_support(reference, &policy, s)? {
+        return Ok(policy);
+    }
+    drop(policy);
+    let context = SelectedCompilerSupport::local_policy_context_execution_with_session(s)
+        .map_err(core_error)?;
     require(
-        same_support(reference, &policy, s)?,
+        same_support(reference, &context, s)?,
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    Ok(policy)
+    Ok(context)
 }
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],
@@ -548,7 +554,11 @@ mod support_selection_tests {
         let policy_ref = serde_json::to_value(policy.reference()).unwrap();
         assert_ne!(old_ref, new_ref);
         assert_ne!(declared_ref, policy_ref);
-        for reference in [&old_ref, &new_ref, &declared_ref, &policy_ref] {
+        let context =
+            SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s).unwrap();
+        let context_ref = serde_json::to_value(context.reference()).unwrap();
+        assert_ne!(context_ref, policy_ref);
+        for reference in [&old_ref, &new_ref, &declared_ref, &policy_ref, &context_ref] {
             let selected = local_support(reference, &mut s).unwrap();
             assert_eq!(
                 serde_json::to_value(selected.reference()).unwrap(),

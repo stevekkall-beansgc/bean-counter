@@ -267,8 +267,8 @@
       ],
       "compiler_ref": {
         "kind": "workflow-compiler-descriptor",
-        "id": "wdoc_b449d77319b2c7e6c2d7b2b605c8eaffe86a5fe39d66d2153d2acd9a4957015d",
-        "digest": "sha256:b449d77319b2c7e6c2d7b2b605c8eaffe86a5fe39d66d2153d2acd9a4957015d"
+        "id": "wdoc_1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
+        "digest": "sha256:1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613"
       },
       "context_schema_ref": {
         "kind": "workflow-fact-schema",
@@ -393,6 +393,20 @@
                 "value": "support:eligible"
               },
               {
+                "op": "eq",
+                "field": {
+                  "context": "funding_mode"
+                },
+                "value": "customer_local"
+              },
+              {
+                "op": "eq",
+                "field": {
+                  "context": "source"
+                },
+                "value": "urn:example:work"
+              },
+              {
                 "op": "ge",
                 "field": {
                   "fact": "support:quantity"
@@ -442,7 +456,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_ea79ff43e65b958b527433d234db7d825be10d30ba3ff9740a12fc5b754964a0",
-    "digest": "sha256:ea79ff43e65b958b527433d234db7d825be10d30ba3ff9740a12fc5b754964a0"
+    "id": "wdoc_cfd87931f147c95df20bd6dcfd34014ddc6b8c40c7540ebb6d25d92abb3d2ff5",
+    "digest": "sha256:cfd87931f147c95df20bd6dcfd34014ddc6b8c40c7540ebb6d25d92abb3d2ff5"
   }
 }
