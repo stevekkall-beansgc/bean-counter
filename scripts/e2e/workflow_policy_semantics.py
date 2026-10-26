@@ -33,6 +33,11 @@ class PolicyJourney(AttestedJourney):
             "worker_source": self.source, "issuer_source": self.issuer}
         self.save()
 
+    def snapshot(self):
+        value = super().snapshot()
+        value["billing_configuration_sha256"] = sha((self.installation / "billing.json").read_bytes())
+        return value
+
     def source_documents(self):
         return Journey.source_documents(self)
 
@@ -123,6 +128,17 @@ class PolicyJourney(AttestedJourney):
             assert responses["retry"]["duplicate_kind"] == "identity"
             assert responses["status"]["request_evidence"] == original["request_evidence"] == responses["retry"]["request_evidence"]
 
+    def restored_originals(self):
+        fixture = self.preserve_fixture("restored-final-history")
+        restored = copy.copy(self)
+        restored.root, restored.installation = fixture, fixture / "installation"
+        restored.inputs, restored.log = fixture / "inputs", fixture / "RESTORE-RUN.json"
+        restored.meta = {"classification": "Quiescent whole synthetic installation copy",
+                         "commands": [], "checks": [], "source_history": str(self.root)}
+        restored.reopen_retry(["issuer-revoke", "main-quantity-correct"])
+        restored.meta["status"] = "restored_exact_originals_complete"
+        restored.save()
+
     def proof_negatives(self):
         # Genuine issuer receipts and all sidecars are copied. These two refused
         # Work requests cannot create a second charge or mutate the main history.
@@ -174,6 +190,10 @@ class PolicyJourney(AttestedJourney):
             "main-final-evidence-1", "main-finalize", "main-success-outcome", "main-success-occurrence",
             "main-success", "main-quantity-correct", "main-reverse"]
         self.reopen_retry(operations)
+        changed = json.loads((self.root / "main-work.request.json").read_bytes())
+        changed["payload"]["facts"]["support:quantity"] = "60"
+        refuse(self, "same-key-changed-work", changed, "IDENTITY_CONFLICT")
+        self.restored_originals()
         self.proof_negatives()
         self.meta["status"] = "policy_semantics_complete"
         self.save()
