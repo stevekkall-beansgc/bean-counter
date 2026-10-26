@@ -88,6 +88,16 @@ impl SelectedCompilerSupport {
             execution_registry: Some(super::local::LOCAL_WORK_LIFECYCLE_REGISTRY),
         })
     }
+    /// Exact explicit source-to-canonical-namespace mapping support DATA.
+    pub fn local_shared_namespace_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_shared_namespace_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::LOCAL_SHARED_NAMESPACE_REGISTRY),
+        })
+    }
     #[cfg(test)]
     pub(super) fn legacy_local_for_test(
         session: &mut crate::validation_work::OriginalAuditSession,

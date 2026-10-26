@@ -36,4 +36,5 @@ pub use local::{
     local_policy_semantics_compiler_descriptor_with_session,
     local_policy_context_compiler_descriptor_with_session,
     local_work_lifecycle_compiler_descriptor_with_session,
+    local_shared_namespace_compiler_descriptor_with_session,
 };
