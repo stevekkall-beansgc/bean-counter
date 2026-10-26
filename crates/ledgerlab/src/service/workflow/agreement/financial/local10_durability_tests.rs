@@ -577,3 +577,61 @@ async fn policy_independent_issuer_retention_prepare_without_append() {
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
     result.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires explicit quiescent synthetic completed policy fixture"]
+async fn policy_original_acceptance_status_after_issuer_revocation_and_closure() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("acceptance.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "c10e75928af22b107e1c0292f826cdd0a7c2ba18c1bdc9064bb0627844973f9d"
+    );
+    let request: Value = serde_json::from_slice(&raw).unwrap();
+    let saved: Value =
+        serde_json::from_slice(&fs::read(root.join("acceptance.committed.json")).unwrap()).unwrap();
+    assert_eq!(saved["receipt"]["key"], request["key"]);
+    assert_eq!(
+        saved["receipt"]["original_request_bytes_sha256"],
+        records::raw_hash(&raw)
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let status = ledger
+        .status(&records::bytes(&request["key"]).unwrap())
+        .await;
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    let status = status.unwrap();
+    assert_eq!(status["schema"], "ledger-operation-status/1");
+    assert_eq!(status["status"], "committed");
+    assert_eq!(status["receipt"], saved["receipt"]);
+    assert_eq!(status["request_evidence"], saved["request_evidence"]);
+    // The exact CLI acceptance route is an ORIGINAL query only after known
+    // committed STATUS, with the same saved raw bytes/key and later history.
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let retry = ledger.financial_owned_reply(&raw).await;
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    let retry = retry.unwrap().into_legacy_value();
+    assert_eq!(retry["schema"], "ledger-operation-result/1");
+    assert_eq!(retry["status"], "committed");
+    assert_eq!(retry["duplicate_kind"], "identity");
+    assert_eq!(retry["receipt"], saved["receipt"]);
+    assert_eq!(retry["request_evidence"], saved["request_evidence"]);
+}

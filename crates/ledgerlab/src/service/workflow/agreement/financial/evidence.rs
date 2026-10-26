@@ -702,9 +702,25 @@ pub(super) fn original_party(
     result
 }
 
-/// R1 administration uses its original immutable registry and literal original
-/// request. Anchors are freshly extracted from the normalized operands, never
-/// from the stored resolution. This does not certify an earlier dependency.
+/// Select the same immutable tuple registry in producer and original reader.
+/// Parsing and complete normalization remain separate mandatory gates.
+fn administration_registry(payload: &Value) -> &'static str {
+    if super::super::source::participant_schema(payload) {
+        SOURCE_PARTICIPANT_REGISTRY
+    } else {
+        R1_REGISTRY
+    }
+}
+fn require_administration_registry(
+    req: &ingress::IncomingRequest,
+    saved: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    request_wrapper::same_text(saved, administration_registry(req.payload(s)?), s)
+}
+
+/// Replay the literal original tuple and its own immutable registry. Anchors
+/// are derived from normalized operands, never copied from saved resolution.
 pub(super) fn original_administration(
     origin: &prefix::LocatedWrappers,
     normalized_payload: &[u8],
@@ -713,11 +729,6 @@ pub(super) fn original_administration(
     let result = (|| {
         let saved = request_wrapper::field(origin.wrappers().operation(), "request_evidence", s)?;
         let resolution = request_wrapper::field(saved, "descriptor_resolution", s)?;
-        request_wrapper::same_text(
-            request_wrapper::text(resolution, "registry_digest", s)?,
-            R1_REGISTRY,
-            s,
-        )?;
         let req = ingress::IncomingRequest::parse_original_administration(
             origin.wrappers().original_request().raw(),
             s,
@@ -725,6 +736,11 @@ pub(super) fn original_administration(
         request_wrapper::key(
             request_wrapper::field(req.value(), "key", s)?,
             origin.key(),
+            s,
+        )?;
+        require_administration_registry(
+            &req,
+            request_wrapper::text(resolution, "registry_digest", s)?,
             s,
         )?;
         let reproduced = administration(&req, normalized_payload, s)?;
@@ -846,11 +862,7 @@ pub(super) fn administration(
             normalized_payload,
             p,
             &set,
-            if super::super::source::participant_schema(p) {
-                SOURCE_PARTICIPANT_REGISTRY
-            } else {
-                R1_REGISTRY
-            },
+            administration_registry(p),
             (b"[]", 262144),
             s,
         )
@@ -1002,6 +1014,46 @@ mod commitment_tests {
     #[cfg(test)]
     const REGISTRY: &str =
         "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
+    #[test]
+    fn original_administration_binds_literal_version_to_exact_registry() {
+        use ledgerlab_core::canonical::audit_arena::AuditArena;
+        for action in ["enroll", "restrict", "revoke"] {
+            for version in [1, 2] {
+                let expected = if version == 2 {
+                    SOURCE_PARTICIPANT_REGISTRY
+                } else {
+                    R1_REGISTRY
+                };
+                for saved in [
+                    expected,
+                    if version == 2 {
+                        R1_REGISTRY
+                    } else {
+                        SOURCE_PARTICIPANT_REGISTRY
+                    },
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                ] {
+                    let value = serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"authority.change",
+                        "key":{"logical_store_id":"registry-test","scope":["test","local"],"source":"owner","operation_id":"original-registry"},
+                        "payload":{"schema":format!("ledger-workflow-source-{action}/{version}"),"action":format!("source.{action}")}});
+                    let raw = serde_json::to_vec(&value).unwrap();
+                    let arena = AuditArena::new().unwrap();
+                    let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                    // This is literal dispatch DATA, not enrollment authority or
+                    // body validation; the genuine copied certificate covers
+                    // the complete produced enrollment and original receipt.
+                    let req = ingress::IncomingRequest::parse_original_administration(&raw, &mut s)
+                        .unwrap();
+                    let result = require_administration_registry(&req, saved, &mut s);
+                    assert_eq!(result.is_ok(), saved == expected);
+                }
+            }
+        }
+        let raw = br#"{"schema":"ledger-operation/1","contract":"workflow/1","kind":"authority.change","key":{"logical_store_id":"registry-test","scope":["test","local"],"source":"owner","operation_id":"foreign"},"payload":{"schema":"ledger-workflow-source-enroll/3","action":"source.enroll"}}"#;
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(ingress::IncomingRequest::parse_original_administration(raw, &mut s).is_err());
+    }
     #[test]
     fn commitment_anchors_keep_authorization_immediate_and_terms_in_original_recipe() {
         let reference = |kind: &str| serde_json::json!({"kind":kind,"id":format!("wdoc_{}","1".repeat(64)),"digest":format!("sha256:{}","1".repeat(64))});
