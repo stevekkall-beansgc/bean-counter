@@ -94,11 +94,20 @@ fn fixture(case: &str) -> (tempfile::TempDir, PathBuf, Vec<u8>, OperationKey, Ve
 /// Read-only equality of retained workflow bytes and all workflow projections.
 /// This is test observation, never input to financial construction.
 async fn snapshot(path: &Path) -> Vec<(String, Vec<String>)> {
+    snapshot_tables(path, false).await
+}
+async fn snapshot_tables(path: &Path, all: bool) -> Vec<(String, Vec<String>)> {
     let options = SqliteConnectOptions::new()
         .filename(path.join(".ledger/local.db"))
         .read_only(true);
     let mut connection = SqliteConnection::connect_with(&options).await.unwrap();
-    let tables:Vec<String>=sqlx::query_scalar("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'workflow_%' ORDER BY name").fetch_all(&mut connection).await.unwrap();
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE ? AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .bind(if all { "%" } else { "workflow_%" })
+    .fetch_all(&mut connection)
+    .await
+    .unwrap();
     let mut result = Vec::new();
     for table in tables {
         let columns: Vec<String> =
@@ -407,11 +416,13 @@ async fn local10_initial_activation_original_status_after_linked_closure() {
         .join("installation");
     copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
     let config = fs::read(installation.join("billing.json")).unwrap();
-    let before = snapshot(&installation).await;
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
     let ledger = LocalWorkflowLedger::open_local(&installation)
         .await
         .unwrap();
-    // Only STATUS: no activation submit, identity retry, new source or clock.
+    // STATUS proves the existing commit before an identical original-query retry.
+    // No NEW activation, source, identity or clock is constructed.
     let status = ledger
         .status(&records::bytes(&request["key"]).unwrap())
         .await
@@ -420,7 +431,18 @@ async fn local10_initial_activation_original_status_after_linked_closure() {
     assert_eq!(status["status"], "committed");
     assert_eq!(status["receipt"], saved["receipt"]);
     assert_eq!(status["request_evidence"], saved["request_evidence"]);
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    let retry = ledger
+        .local_activation_owned(&original)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_legacy_value();
+    assert_eq!(retry["schema"], "ledger-operation-result/1");
+    assert_eq!(retry["duplicate_kind"], "identity");
+    assert_eq!(retry["receipt"], saved["receipt"]);
+    assert_eq!(retry["request_evidence"], saved["request_evidence"]);
     ledger.close().await;
-    assert_eq!(snapshot(&installation).await, before);
+    assert_eq!(snapshot_tables(&installation, true).await, before);
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
 }

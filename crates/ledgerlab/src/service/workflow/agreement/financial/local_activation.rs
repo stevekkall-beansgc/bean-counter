@@ -314,16 +314,25 @@ pub(super) async fn selected(
             .await
             .map_err(prefix::read_error)?
         {
-            let owned = s
-                .copy_representation(&identity, RepresentationKind::Record)
-                .map_err(core_error)?;
-            let old = prefix::target(&mut tx, req.key(), owned, s)
-                .await?
-                .checked_wrappers(&mut tx, s)
-                .await?;
-            let e = request_wrapper::field(old.wrappers().operation(), "request_evidence", s)?;
-            let d = request_wrapper::field(e, "descriptor_resolution", s)?;
-            return wrappers::is_local_registry(request_wrapper::text(d, "registry_digest", s)?, s);
+            // This is routing DATA, not an original certificate. The exact
+            // wrapper read still needs the same held transaction's proof scope;
+            // owning dispatch independently completes the saved original below.
+            return proof_session::with_proofs(&mut tx, req.key(), |tx| {
+                Box::pin(async {
+                    let owned = s
+                        .copy_representation(&identity, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let old = prefix::target(tx, req.key(), owned, s)
+                        .await?
+                        .checked_wrappers(tx, s)
+                        .await?;
+                    let e =
+                        request_wrapper::field(old.wrappers().operation(), "request_evidence", s)?;
+                    let d = request_wrapper::field(e, "descriptor_resolution", s)?;
+                    wrappers::is_local_registry(request_wrapper::text(d, "registry_digest", s)?, s)
+                })
+            })
+            .await;
         }
         let (reference, _lease) = current::source::from_value(r, "workflow-binding", s)?;
         let stored = tx
