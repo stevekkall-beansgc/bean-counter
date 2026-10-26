@@ -1,0 +1,9 @@
+# Local policy semantics with original operational operands
+
+This additive `local-policy-semantics/2` profile retains the scalar predicate and exact unit semantics of profile1 and adds only the already approved original-event `source` and per-component accepted-leg `funding_mode` operands. Policy4, Product1, FactSchema1, Descriptor8, Plan8, the evaluator and the declared-link operation registry stay unchanged. The original profile1 artifacts and getters remain immutable.
+
+The defining policy-context-02 specification fixes original versus current interpretation for fresh selection, correction, exposure, Evaluation verification and original/recovery consumers. Source must come from the authenticated original event key; funding mode must come from the exact evaluated component's original accepted slot/leg, or the family target component's original leg. No SQL, SDK or fixture computes authoritative economics. Comparing existing modes enables no new funding execution.
+
+Explicit same-principal local source registration and evidence issuance use the defining local-source-participants-01 recipe. Administration retains the actual Setup owner identity; the issuer's current grant and original accepted provenance nomination must complete before retention. Later Work/correction consumption verifies the issuer historically while checking the consuming source currently.
+
+Direct1 and declared2 topology remain structurally selected and fully certified, with no graph-inferred authority or source-global winner. Status/invocation-dependent reference provenance, broader lifecycle, supplier books, shares, caps, stages and unsupported funding execution are not advertised by this increment. This metadata is not runtime qualification or full Wave2b completion; those consumers and final required checks must finish independently.

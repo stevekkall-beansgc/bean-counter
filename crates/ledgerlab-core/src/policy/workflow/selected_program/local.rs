@@ -16,6 +16,8 @@ mod conditional_assets;
 mod declared_link_assets;
 #[path = "local_policy_semantics_assets.rs"]
 mod policy_semantics_assets;
+#[path = "local_policy_context_assets.rs"]
+mod policy_context_assets;
 #[path = "local_operator_assets.rs"]
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
@@ -32,6 +34,9 @@ pub(super) const CONDITIONAL_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../
 const CONDITIONAL_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-contract-profile.json");
 pub(super) const DECLARED_LINK_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-declared-link-compiler8-data.json");
 const DECLARED_LINK_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-declared-link-contract-profile.json");
+pub(super) const POLICY_CONTEXT_REGISTRY: &str = DECLARED_LINK_REGISTRY;
+pub(super) const POLICY_CONTEXT_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-policy-context-compiler8-data.json");
+const POLICY_CONTEXT_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-policy-context-contract-profile.json");
 pub(super) const POLICY_SEMANTICS_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const POLICY_SEMANTICS_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-policy-semantics-compiler8-data.json");
 const POLICY_SEMANTICS_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-policy-semantics-contract-profile.json");
@@ -92,6 +97,12 @@ pub fn local_policy_semantics_compiler_descriptor_with_session(
         POLICY_SEMANTICS_MANIFEST,
         policy_semantics_assets::ARTIFACTS,
     )
+}
+/// Exact additive original-event operational context support DATA.
+pub fn local_policy_context_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(s, POLICY_CONTEXT_DESCRIPTOR, POLICY_CONTEXT_MANIFEST, policy_context_assets::ARTIFACTS)
 }
 #[cfg(test)]
 pub(super) fn legacy_descriptor_for_test(s: &mut OriginalAuditSession) -> Result<SelectedDocument> {
