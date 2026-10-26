@@ -2732,8 +2732,8 @@ pub(super) fn original_family_effect(
     }
 }
 
-/// The selector tuple retains both exact path edge identities in traversal
-/// order. Old direct recipes delegate to their unchanged one-edge encoding.
+/// The selector tuple retains both exact path edge identities in canonical
+/// sorted order (ECONOMIC-BOUNDARY37). Old direct recipes retain one edge.
 pub(super) fn original_family_effect_path(
     m: &mut CoreMeter,
     scope: &[String; 2],
@@ -2762,7 +2762,16 @@ pub(super) fn original_family_effect_path(
     let scope = arena.array_from_values(&[a.value(), b.value()], m)?;
     let root = arena.string_value(root_slot, m)?;
     let claim = arena.string_value(&work_claim.id, m)?;
-    let first = arena.string_value(&links.0.id, m)?;
+    let order = shape::byte_order(m, links.0.id.as_bytes(), second.id.as_bytes())?;
+    if order.is_eq() {
+        return Err(shape::fail("duplicate selected Link identity"));
+    }
+    let (first, second) = if order.is_gt() {
+        (second, links.0)
+    } else {
+        (links.0, second)
+    };
+    let first = arena.string_value(&first.id, m)?;
     let second = arena.string_value(&second.id, m)?;
     let path = arena.array_from_values(&[first.value(), second.value()], m)?;
     let family = arena.array_from_values(&[family_slot, path.value(), root.value()], m)?;

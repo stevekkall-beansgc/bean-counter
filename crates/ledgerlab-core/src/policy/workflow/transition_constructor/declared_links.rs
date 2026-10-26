@@ -948,4 +948,78 @@ mod tests {
             assert_eq!(selected_right(&mut m, &grant, &slot).is_ok(), expected);
         }
     }
+    #[test]
+    fn two_link_effect_identity_is_a_sorted_set_and_direct_identity_is_unchanged() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let m = session.meter_mut();
+        let link = |hex: &str| ExactRef {
+            kind: "workflow-link".into(),
+            id: format!("wlink_{}", hex.repeat(64)),
+            digest: format!("sha256:{}", hex.repeat(64)),
+        };
+        let first = link("a");
+        let second = link("b");
+        let claim = ExactRef {
+            kind: "workflow-work-claim".into(),
+            id: format!("wclaim_{}", "c".repeat(64)),
+            digest: format!("sha256:{}", "c".repeat(64)),
+        };
+        let scope = ["scope".into(), "test".into()];
+        let agreement = json!("agreement");
+        let family = json!("test:family");
+        let a = super::super::outcome::original_family_effect_path(
+            m,
+            &scope,
+            &agreement,
+            "test:root",
+            &claim,
+            &family,
+            (&first, Some(&second)),
+        )
+        .unwrap();
+        let b = super::super::outcome::original_family_effect_path(
+            m,
+            &scope,
+            &agreement,
+            "test:root",
+            &claim,
+            &family,
+            (&second, Some(&first)),
+        )
+        .unwrap();
+        assert_eq!(a, b);
+        assert!(super::super::outcome::original_family_effect_path(
+            m,
+            &scope,
+            &agreement,
+            "test:root",
+            &claim,
+            &family,
+            (&first, Some(&first))
+        )
+        .is_err());
+        let original = super::super::outcome::original_family_effect(
+            m,
+            &scope,
+            &agreement,
+            "test:root",
+            &claim,
+            &family,
+            &first,
+        )
+        .unwrap();
+        let unchanged = super::super::outcome::original_family_effect_path(
+            m,
+            &scope,
+            &agreement,
+            "test:root",
+            &claim,
+            &family,
+            (&first, None),
+        )
+        .unwrap();
+        assert_eq!(original, unchanged);
+        assert_ne!(original, a);
+    }
 }
