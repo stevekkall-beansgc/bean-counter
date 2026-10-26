@@ -6,6 +6,7 @@ use ledgerlab_core::canonical::audit_arena::AuditedValue;
 
 pub(super) struct ChainLinks {
     pub(super) references: Vec<ExactRef>,
+    work_births: Vec<ExactRef>,
     owners: Vec<ExternalBufferLease>,
     _vectors: ExternalBufferLease,
 }
@@ -16,46 +17,85 @@ impl ChainLinks {
             .map_err(core_error)?;
         Ok(Self {
             references: Vec::new(),
+            work_births: Vec::new(),
             owners: Vec::new(),
             _vectors: vectors,
         })
     }
+    fn grow(&mut self, s: &mut OriginalAuditSession) -> Result<()> {
+        let capacity = self
+            .references
+            .capacity()
+            .max(self.work_births.capacity())
+            .max(1);
+        s.semantic_work()
+            .arithmetic(Op::Multiply, &[&capacity.into(), &2usize.into()])
+            .map_err(core_error)?;
+        let next = capacity.checked_mul(2).ok_or(ServiceError::Unavailable)?;
+        let stride =
+            2 * std::mem::size_of::<ExactRef>() + 2 * std::mem::size_of::<ExternalBufferLease>();
+        s.semantic_work()
+            .arithmetic(Op::Multiply, &[&next.into(), &stride.into()])
+            .map_err(core_error)?;
+        let rows = next.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
+        s.semantic_work()
+            .arithmetic(
+                Op::Add,
+                &[&rows.into(), &std::mem::size_of::<Self>().into()],
+            )
+            .map_err(core_error)?;
+        let bytes = rows
+            .checked_add(std::mem::size_of::<Self>())
+            .ok_or(ServiceError::Unavailable)?;
+        let lease = s.reserve_external_payload(bytes).map_err(core_error)?;
+        s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(Op::Multiply, &[&next.into(), &2usize.into()])
+            .map_err(core_error)?;
+        let owner_count = next.checked_mul(2).ok_or(ServiceError::Unavailable)?;
+        let mut refs = Vec::new();
+        refs.try_reserve_exact(next)
+            .map_err(|_| ServiceError::Unavailable)?;
+        let mut births = Vec::new();
+        births
+            .try_reserve_exact(next)
+            .map_err(|_| ServiceError::Unavailable)?;
+        let mut owners = Vec::new();
+        owners
+            .try_reserve_exact(owner_count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        refs.append(&mut self.references);
+        births.append(&mut self.work_births);
+        owners.append(&mut self.owners);
+        self.references = refs;
+        self.work_births = births;
+        self.owners = owners;
+        self._vectors = lease;
+        Ok(())
+    }
+    fn has_work_birth(&self, reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<bool> {
+        super::contains_reference(&self.work_births, reference, s)
+    }
+    fn remember_work_birth(
+        &mut self,
+        reference: &ExactRef,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        if self.work_births.len() == self.work_births.capacity() {
+            self.grow(s)?;
+        }
+        let value = wire::reference(reference, s)?;
+        let value = s
+            .parse_representation(value.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let (reference, owner) = source::from_value_local(value.value(), s)?;
+        self.work_births.push(reference);
+        self.owners.push(owner);
+        Ok(())
+    }
     fn push(&mut self, reference: &Value, s: &mut OriginalAuditSession) -> Result<()> {
         if self.references.len() == self.references.capacity() {
-            let capacity = self.references.capacity().max(1);
-            s.semantic_work()
-                .arithmetic(Op::Multiply, &[&capacity.into(), &2usize.into()])
-                .map_err(core_error)?;
-            let next = capacity.checked_mul(2).ok_or(ServiceError::Unavailable)?;
-            let stride =
-                std::mem::size_of::<ExactRef>() + std::mem::size_of::<ExternalBufferLease>();
-            s.semantic_work()
-                .arithmetic(Op::Multiply, &[&next.into(), &stride.into()])
-                .map_err(core_error)?;
-            let rows = next.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
-            s.semantic_work()
-                .arithmetic(
-                    Op::Add,
-                    &[&rows.into(), &std::mem::size_of::<Self>().into()],
-                )
-                .map_err(core_error)?;
-            let bytes = rows
-                .checked_add(std::mem::size_of::<Self>())
-                .ok_or(ServiceError::Unavailable)?;
-            let lease = s.reserve_external_payload(bytes).map_err(core_error)?;
-            s.semantic_work().write_bytes(bytes).map_err(core_error)?;
-            let mut refs = Vec::new();
-            refs.try_reserve_exact(next)
-                .map_err(|_| ServiceError::Unavailable)?;
-            let mut owners = Vec::new();
-            owners
-                .try_reserve_exact(next)
-                .map_err(|_| ServiceError::Unavailable)?;
-            refs.append(&mut self.references);
-            owners.append(&mut self.owners);
-            self.references = refs;
-            self.owners = owners;
-            self._vectors = lease;
+            self.grow(s)?;
         }
         let (r, owner) = source::from_value_local(reference, s)?;
         require(
@@ -150,6 +190,71 @@ fn unique_result<'a>(
     }
     selected.ok_or(ServiceError::IntegrityFailure)
 }
+/// Exact immutable Work birth support; it never acquires a mutable ancestor
+/// head or confers a dependent monetary/closure right.
+async fn retain_work_claim(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    before: i64,
+    work: &source::SourceRecord,
+    origin: &prefix::LocatedWrappers,
+    pool: &mut super::super::super::local_inputs::LocalInputs,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    s.semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&origin.wrappers().sequence().into(), &before.into()],
+        )
+        .map_err(core_error)?;
+    require(origin.wrappers().sequence() < before, "INTEGRITY_FAILURE")?;
+    check::same_text(
+        check::text(origin.wrappers().operation(), "kind", s)?,
+        "work.accept",
+        s,
+    )?;
+    let work_ref = wire::reference(work.reference(), s)?;
+    let work_ref = s
+        .parse_representation(work_ref.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    origin.require_member(work_ref.value(), s)?;
+    result_member(origin.wrappers().receipt(), work_ref.value(), s)?;
+    let evidence = check::field(origin.wrappers().operation(), "request_evidence", s)?;
+    let normalized = check::field(evidence, "normalized_request", s)?;
+    equal(
+        check::field(normalized, "key", s)?,
+        check::field(work.body(), "key", s)?,
+        s,
+    )?;
+    equal(
+        check::field(normalized, "payload", s)?,
+        check::field(work.body(), "payload", s)?,
+        s,
+    )?;
+    let claim = unique_result(origin.wrappers().receipt(), "workflow-work-claim", s)?;
+    origin.require_member(claim, s)?;
+    check::same_text(
+        check::text(claim, "id", s)?,
+        check::text(work.body(), "claim_id", s)?,
+        s,
+    )?;
+    let claim = source::retained_local_record(
+        tx,
+        key,
+        claim,
+        ("workflow-work-claim", "ledger-workflow-work-claim/1"),
+        before,
+        s,
+    )
+    .await?;
+    equal(
+        check::field(claim.body(), "work_ref", s)?,
+        work_ref.value(),
+        s,
+    )?;
+    pool.add(claim.reference(), s)
+}
+
 pub(super) struct Selection<'a> {
     pub(super) binding: &'a ExactRef,
     pub(super) customer: &'a str,
@@ -238,6 +343,19 @@ pub(super) async fn acquire(
             )
             .map_err(core_error)?;
         if customer == selected.customer && chain == selected.chain {
+            if !out.has_work_birth(predecessor.reference(), s)? {
+                let producer_key = check::field(predecessor.body(), "key", s)?;
+                let identity = s
+                    .canonical_representation(producer_key, RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let producer = prefix::target(tx, key, identity, s)
+                    .await?
+                    .checked_wrappers(tx, s)
+                    .await?;
+                retain_work_claim(tx, key, selected.before, &predecessor, &producer, pool, s)
+                    .await?;
+                out.remember_work_birth(predecessor.reference(), s)?;
+            }
             let producer_key = check::field(link.body(), "operation_key", s)?;
             let identity = s
                 .canonical_representation(producer_key, RepresentationKind::Record)
@@ -324,22 +442,11 @@ pub(super) async fn acquire(
             check::same_text(check::text(initial_body.body(), "revision", s)?, "1", s)?;
             pool.add(initial_body.reference(), s)?;
             if child_kind == "workflow-work" {
-                let claim = unique_result(origin.wrappers().receipt(), "workflow-work-claim", s)?;
-                let claim_body = source::retained_local_record(
-                    tx,
-                    key,
-                    claim,
-                    ("workflow-work-claim", "ledger-workflow-work-claim/1"),
-                    selected.before,
-                    s,
-                )
-                .await?;
-                equal(
-                    check::field(claim_body.body(), "work_ref", s)?,
-                    child.value(),
-                    s,
-                )?;
-                pool.add(claim_body.reference(), s)?;
+                if !out.has_work_birth(child_body.reference(), s)? {
+                    retain_work_claim(tx, key, selected.before, &child_body, &origin, pool, s)
+                        .await?;
+                    out.remember_work_birth(child_body.reference(), s)?;
+                }
                 let mut matches = 0usize;
                 for input in check::field(child_payload, "links", s)?
                     .as_array()

@@ -81,3 +81,52 @@ pub(super) async fn prepare_work_append(
         .append(ledger, tx, req, management, s)
         .await
 }
+
+#[cfg(test)]
+pub(super) async fn check_report_prepare_without_append(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &ingress::IncomingRequest,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let prepared = PreparedFinancialCommit::work(ledger, tx, req, s).await?;
+    use ledgerlab_core::policy::workflow::transition_constructor::FinancialHeadKey;
+    assert!(prepared.candidate.introduced().iter().all(|record| {
+        !matches!(
+            record.reference().kind.as_str(),
+            "workflow-action" | "workflow-family-state" | "workflow-capacity-retirement"
+        )
+    }));
+    let decision = prepared
+        .candidate
+        .introduced()
+        .iter()
+        .find(|record| record.reference().kind == "workflow-decision")
+        .unwrap();
+    let decision: Value = serde_json::from_slice(decision.canonical_body()).unwrap();
+    assert_eq!(decision["subject_ref"], req.payload(s)?["work_ref"]);
+    assert_eq!(decision["status"], "reversed");
+    for head in prepared.candidate.heads() {
+        match head.key() {
+            FinancialHeadKey::Decision { decision_id } => {
+                assert_eq!(decision_id, decision["decision_id"].as_str().unwrap())
+            }
+            FinancialHeadKey::Capacity { root_decision_id } => {
+                assert_eq!(root_decision_id, decision["decision_id"].as_str().unwrap())
+            }
+            FinancialHeadKey::Chain { .. } => {}
+            _ => panic!("report reversal affected another root's app or family"),
+        }
+    }
+    let _journal = wire::frame_candidate(
+        &prepared.candidate,
+        req.key(),
+        req.kind(),
+        prepared.evidence.value(),
+        prepared.observed.received_at()?,
+        &prepared.observed.at,
+        prepared.observed.before,
+        s,
+    )?;
+    Ok(())
+}

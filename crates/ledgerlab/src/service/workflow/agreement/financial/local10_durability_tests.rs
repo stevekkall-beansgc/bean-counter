@@ -446,3 +446,46 @@ async fn local10_initial_activation_original_status_after_linked_closure() {
     assert_eq!(snapshot_tables(&installation, true).await, before);
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
 }
+
+#[tokio::test]
+#[ignore = "requires explicit quiescent synthetic preclaim report fixture"]
+async fn preclaim_report_prepare_preserves_unrelated_pending_root() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("main-report-reverse.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "fe64580e4740a61dcfd47c79c6aff89fa9cdcf8f3126fbaaa16d74abec4fb314"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let snapshot = ledger.resource_snapshot().unwrap();
+    let arena = snapshot.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let req = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+    let mut tx = snapshot.begin(&ledger.store, &mut s).await.unwrap();
+    let result = proof_session::with_proofs(&mut tx, req.key(), |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, req.key()).await?;
+            local_financial::check_report_prepare_without_append(&ledger, tx, &req, &mut s).await
+        })
+    })
+    .await;
+    result.unwrap();
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+}
