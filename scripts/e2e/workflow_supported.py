@@ -366,16 +366,24 @@ class Journey:
                             {"purpose": "party_operator_attestation", "statement": "operator_verified_party_acceptor_authority", "target_evidence_ref": ev})
         auth = unique(self.submit("platform-authorize", "authority.change", {"schema": "ledger-workflow-party-authorize/1",
             "expected_revision": "0", "authorization": authorization, "evidence_ref": ev, "operator_attestation_ref": att}), "workflow-authority")
+        self.setup_publication(auth, psub, roles)
+
+    def write_source_documents(self):
         documents = self.source_documents()
         for d in documents:
             if d["schema"] == "ledger-workflow-policy/4" and self.args.deadline_seconds:
                 d["families"][0]["window"].update({"occurrence_us": str(self.args.deadline_seconds * 1_000_000),
                     "receipt_grace_us": "1000000", "acceptance_grace_us": "1000000"})
             name = {"support:context": "context-facts.json", "support:work-facts": "work-facts.json",
-                    "support:assessment-facts": "outcome-facts.json"}.get(d.get("schema_id"))
+                    "support:assessment-facts": "outcome-facts.json",
+                    "support:report-facts": "report-facts.json"}.get(d.get("schema_id"))
             name = name or {"ledger-workflow-product/1": "product.json", "ledger-workflow-slot-template/1": "slot-template.json",
                             "ledger-workflow-policy/4": "policy.json"}.get(d["schema"])
             self.write(name, d)
+
+    def setup_publication(self, auth, psub, roles):
+        # Continue only the publication/acceptance stage after setup authority.
+        self.write_source_documents()
         pub_input = self.inputs / "publication.request.json"
         self.command("prepare-publication", [self.args.publication_helper, self.inputs,
             self.write("publication.key.json", self.key("publication")), pub_input, "--operator-resources"])

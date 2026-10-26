@@ -22,6 +22,26 @@ def ref(name, kind="workflow-decision"):
     return {"kind": kind, "id": name, "digest": "sha256:" + name}
 
 
+class DeclaredSourceRoutingTests(unittest.TestCase):
+    def test_declared_documents_write_complete_helper_inputs_without_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            journey = declared.DeclaredLinkJourney.__new__(declared.DeclaredLinkJourney)
+            journey.inputs = Path(directory)
+            journey.parameters = json.loads((supported.REPO / "examples/workflow-metered/variants.json").read_bytes())["main"]
+            journey.args = type("Args", (), {"deadline_seconds": None})()
+            # This is the real declared source path, before any setup/store call.
+            documents = journey.source_documents()
+            journey.write_source_documents()
+            actual = [json.loads(p.read_bytes()) for p in journey.inputs.iterdir()]
+            self.assertCountEqual(actual, documents)
+            report = json.loads((journey.inputs / "report-facts.json").read_bytes())
+            self.assertEqual(report["schema_id"], "support:report-facts")
+            self.assertEqual(report["fields"], [])
+            self.assertEqual(len(actual), len(documents))
+            self.assertTrue((journey.inputs / "product.json").is_file())
+            self.assertTrue((journey.inputs / "policy.json").is_file())
+
+
 class MeteredDriverTests(unittest.TestCase):
     def test_fixed_defaults_and_source_files_are_preserved(self):
         self.assertEqual(supported.Journey.quantity, "20")

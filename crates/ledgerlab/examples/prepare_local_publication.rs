@@ -43,15 +43,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|d| d["schema"] == "ledger-workflow-policy/4")
         .ok_or("missing policy")?;
     let old = SelectedCompilerSupport::local_execution_with_session(&mut session)?;
-    let support = if policy["compiler_ref"] == serde_json::to_value(old.reference())? {
-        old
+    let (support, declared) = if policy["compiler_ref"] == serde_json::to_value(old.reference())? {
+        (old, false)
     } else {
         drop(old);
-        SelectedCompilerSupport::local_conditional_execution_with_session(&mut session)?
+        let conditional =
+            SelectedCompilerSupport::local_conditional_execution_with_session(&mut session)?;
+        if policy["compiler_ref"] == serde_json::to_value(conditional.reference())? {
+            (conditional, false)
+        } else {
+            drop(conditional);
+            (
+                SelectedCompilerSupport::local_declared_link_execution_with_session(&mut session)?,
+                true,
+            )
+        }
     };
     if policy["compiler_ref"] != serde_json::to_value(support.reference())? {
         return Err("input compiler_ref differs from actual local compiler".into());
     }
+    if declared {
+        documents.push(canonical::parse(&fs::read(
+            input.join("report-facts.json"),
+        )?)?);
+    }
+    let policy = documents
+        .iter()
+        .find(|d| d["schema"] == "ledger-workflow-policy/4")
+        .ok_or("missing policy")?;
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
     hash.update(b"bean-counter/workflow-document/1\0");
