@@ -5,7 +5,7 @@ use super::{
     body,
     data::{ExactRef, OperationKey},
     records, shape,
-    working_value::owning_reference,
+    working_value::{owning_reference, parse_owned_reference, OwnedExactRef},
     CoreMeter,
 };
 use crate::{
@@ -33,6 +33,7 @@ pub struct InitialSourceRecords {
     enrollment: InitialSourceRecord,
     grant: InitialSourceRecord,
     state: InitialSourceRecord,
+    namespace_owner: Option<OwnedExactRef>,
     _ownership: ExternalBufferLease,
 }
 // Exact producer output correspondence, not historical authority or custody.
@@ -45,9 +46,15 @@ pub struct InitialSourceCorrespondence {
     state_digest: String,
     state_id: String,
     boxed_once: bool,
+    namespace_owner: Option<OwnedExactRef>,
     _ownership: ExternalBufferLease,
 }
 impl InitialSourceCorrespondence {
+    /// Construction-only typed operand from the exact enroll/3 request. This
+    /// does not certify its original membership, mapping or authority.
+    pub fn namespace_owner_enrollment_ref(&self) -> Option<&ExactRef> {
+        self.namespace_owner.as_ref().map(OwnedExactRef::reference)
+    }
     /// The original producer prepaid TWO carrier controls plus its four actual
     /// string payloads: inline controls plus this heap move. No string is copied
     /// during the move. There is no caller-selected allowance,
@@ -87,6 +94,11 @@ impl InitialSourceCorrespondence {
     }
 }
 impl InitialSourceRecords {
+    /// Exact /3 input association only; host original custody and the child's
+    /// canonical owner/target/principal/scope checks remain mandatory.
+    pub fn namespace_owner_enrollment_ref(&self) -> Option<&ExactRef> {
+        self.namespace_owner.as_ref().map(OwnedExactRef::reference)
+    }
     pub fn enrollment(&self) -> &InitialSourceRecord {
         &self.enrollment
     }
@@ -116,6 +128,12 @@ impl InitialSourceRecords {
             let grant_digest = copy(m, &self.grant.reference.digest)?;
             let state_digest = copy(m, &self.state.reference.digest)?;
             let state_id = copy(m, &self.state.reference.id)?;
+            let namespace_owner = if let Some(reference) = self.namespace_owner_enrollment_ref() {
+                let value = owning_reference(m, &a, reference)?;
+                Some(parse_owned_reference(m, &a, value.value())?)
+            } else {
+                None
+            };
             m.write_bytes(2 * mem::size_of::<InitialSourceCorrespondence>())?;
             Ok(InitialSourceCorrespondence {
                 enrollment_digest,
@@ -123,6 +141,7 @@ impl InitialSourceRecords {
                 state_digest,
                 state_id,
                 boxed_once: false,
+                namespace_owner,
                 _ownership: owner,
             })
         })();
@@ -138,6 +157,7 @@ impl InitialSourceRecords {
             enrollment,
             grant,
             state,
+            namespace_owner: _,
             _ownership,
         } = self;
         [enrollment, grant, state]
@@ -233,6 +253,46 @@ pub fn produce_initial_registered_source_records(
         (accepted_at, root_ref, "ledger-workflow-source-enroll/2"),
         session,
     );
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+
+/// Exact enroll/3 construction correspondence. Its typed owner Ref is kept
+/// separate from the unchanged Enrollment1/Grant1/State1 bytes. It grants no
+/// mapping, inherited source rights, remap permission or original certificate.
+pub fn produce_initial_shared_namespace_source_records(
+    key_and_payload: (&OperationKey, &Value),
+    ceiling: &Value,
+    installation_mode: &str,
+    actor: &str,
+    accepted_at: &str,
+    root_ref: &ExactRef,
+    session: &mut OriginalAuditSession,
+) -> Result<InitialSourceRecords> {
+    let result = (|| {
+        session.check_cancelled()?;
+        let (key, payload) = key_and_payload;
+        let a = session.arena().shared_handle();
+        let m = session.meter_mut();
+        let value = shape::field(m, payload, "namespace_owner_enrollment_ref")?;
+        let owner = parse_owned_reference(m, &a, value)?;
+        if !shape::same_text(m, &owner.reference().kind, "workflow-source-enrollment")? {
+            return Err(shape::fail("shared namespace owner enrollment kind"));
+        }
+        let mut records = produce(
+            key,
+            payload,
+            ceiling,
+            installation_mode,
+            actor,
+            (accepted_at, root_ref, "ledger-workflow-source-enroll/3"),
+            session,
+        )?;
+        records.namespace_owner = Some(owner);
+        Ok(records)
+    })();
     if result.is_err() {
         session.invalidate();
     }
@@ -386,6 +446,7 @@ fn produce(
         enrollment,
         grant,
         state,
+        namespace_owner: None,
         _ownership: ownership,
     })
 }
@@ -463,6 +524,117 @@ mod tests {
             assert!(factory(
                 (&key, &wrong),
                 &enrollment["ceiling"],
+                enrollment["installation_mode"].as_str().unwrap(),
+                "authenticated-operator",
+                enrollment["enrolled_at"].as_str().unwrap(),
+                &root,
+                &mut s
+            )
+            .is_err());
+        }
+    }
+    #[test]
+    fn shared_namespace_source_keeps_typed_owner_as_data_and_old_record_bytes() {
+        let (_, c, _, rows) = super::super::first_work_tests::test_inputs();
+        let old = rows
+            .iter()
+            .find(|r| r.reference == c.authorities[0].enrollment_ref)
+            .unwrap();
+        let enrollment: Value = serde_json::from_slice(&old.canonical_body).unwrap();
+        let root: ExactRef = serde_json::from_value(enrollment["authority_ref"].clone()).unwrap();
+        let owner = c.authorities[0].enrollment_ref.clone();
+        let mut ceiling = enrollment["ceiling"].clone();
+        ceiling["source"] = json!("urn:example:worker-D");
+        ceiling["canonical_economic_namespace"] = json!("urn:example:worker-B");
+        let mut key = c.key.clone();
+        key.source = "urn:example:administrator-A".into();
+        let payload = json!({"schema":"ledger-workflow-source-enroll/3","namespace_owner_enrollment_ref":owner,"enrollment_id":"shared-D","customer_refs":enrollment["customer_refs"],"evidence_ref":enrollment["evidence_ref"]});
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let actual = produce_initial_shared_namespace_source_records(
+            (&key, &payload),
+            &ceiling,
+            enrollment["installation_mode"].as_str().unwrap(),
+            "authenticated-operator",
+            enrollment["enrolled_at"].as_str().unwrap(),
+            &root,
+            &mut s,
+        )
+        .unwrap();
+        assert_eq!(actual.namespace_owner_enrollment_ref(), Some(&owner));
+        let correspondence = actual
+            .correspondence(&mut s)
+            .unwrap()
+            .into_boxed(&mut s)
+            .unwrap();
+        let parts = actual.into_parts();
+        assert_eq!(
+            correspondence.namespace_owner_enrollment_ref(),
+            Some(&owner)
+        );
+        let state: Value = serde_json::from_slice(parts[2].canonical_body()).unwrap();
+        let grant: Value = serde_json::from_slice(parts[1].canonical_body()).unwrap();
+        assert_eq!(state["operation_key"]["source"], key.source);
+        assert_eq!(grant["source"], ceiling["source"]);
+        assert_eq!(
+            grant["canonical_economic_namespace"],
+            ceiling["canonical_economic_namespace"]
+        );
+        // DATA-only constructor comparison: /2 runtime would not authorize
+        // this alias. Neither factory certifies the supplied owner record.
+        let mut old_payload = payload.clone();
+        old_payload["schema"] = json!("ledger-workflow-source-enroll/2");
+        old_payload
+            .as_object_mut()
+            .unwrap()
+            .remove("namespace_owner_enrollment_ref");
+        let a = AuditArena::new().unwrap();
+        let mut old_session = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let original = produce_initial_registered_source_records(
+            (&key, &old_payload),
+            &ceiling,
+            enrollment["installation_mode"].as_str().unwrap(),
+            "authenticated-operator",
+            enrollment["enrolled_at"].as_str().unwrap(),
+            &root,
+            &mut old_session,
+        )
+        .unwrap();
+        assert!(original.namespace_owner_enrollment_ref().is_none());
+        assert!(original
+            .correspondence(&mut old_session)
+            .unwrap()
+            .namespace_owner_enrollment_ref()
+            .is_none());
+        for (a, b) in parts
+            .iter()
+            .zip([original.enrollment(), original.grant(), original.state()])
+        {
+            assert_eq!(a.reference(), b.reference());
+            assert_eq!(a.canonical_body(), b.canonical_body());
+        }
+        for bad in [0, 1, 2] {
+            let mut wrong = payload.clone();
+            match bad {
+                0 => {
+                    wrong
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("namespace_owner_enrollment_ref");
+                }
+                1 => {
+                    wrong["namespace_owner_enrollment_ref"]["kind"] =
+                        json!("workflow-source-grant");
+                }
+                _ => {
+                    wrong["schema"] = json!("ledger-workflow-source-enroll/2");
+                }
+            }
+            let a = AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+            assert!(produce_initial_shared_namespace_source_records(
+                (&key, &wrong),
+                &ceiling,
                 enrollment["installation_mode"].as_str().unwrap(),
                 "authenticated-operator",
                 enrollment["enrolled_at"].as_str().unwrap(),

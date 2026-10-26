@@ -52,8 +52,9 @@ pub use source_projection::{
     NominatedSourceGrant,
 };
 pub use source_records::{
-    produce_initial_registered_source_records, produce_initial_source_records,
-    InitialSourceCorrespondence, InitialSourceRecord, InitialSourceRecords,
+    produce_initial_registered_source_records, produce_initial_shared_namespace_source_records,
+    produce_initial_source_records, InitialSourceCorrespondence, InitialSourceRecord,
+    InitialSourceRecords,
 };
 mod financial_observation;
 pub use financial_observation::audit_stream::{
