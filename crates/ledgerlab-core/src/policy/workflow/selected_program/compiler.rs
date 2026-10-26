@@ -192,7 +192,13 @@ impl SelectedProgram {
         if !self.uses_local_execution_recipe() {
             return Err(err("supported local admission requires local recipe"));
         }
-        super::local_admission::check(m, &self.policy, &self.sources, &self.schemas, self.uses_declared_work_link_recipe())
+        super::local_admission::check(
+            m,
+            &self.policy,
+            &self.sources,
+            &self.schemas,
+            self.uses_declared_work_link_recipe(),
+        )
     }
     /// Binary recipe identity, not current-support freshness or authority.
     pub fn uses_family_close_recipe(&self) -> bool {
@@ -214,7 +220,10 @@ impl SelectedProgram {
         self.execution_registry
     }
     pub fn uses_local_execution_recipe(&self) -> bool {
-        matches!(self.execution_registry, Some(super::local::REGISTRY | super::local::DECLARED_LINK_REGISTRY))
+        matches!(
+            self.execution_registry,
+            Some(super::local::REGISTRY | super::local::DECLARED_LINK_REGISTRY)
+        )
     }
     pub(in crate::policy::workflow) fn uses_local_parent_budget_recipe(&self) -> bool {
         self.uses_local_execution_recipe()
@@ -222,18 +231,24 @@ impl SelectedProgram {
                 self.recipe,
                 SelectedRecipe::LocalParentBudget1
                     | SelectedRecipe::LocalOperator1
-                    | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                    | SelectedRecipe::LocalConditional1
+                    | SelectedRecipe::LocalDeclaredLink1
             )
     }
     pub(in crate::policy::workflow) fn uses_local_operator_resource_recipe(&self) -> bool {
         self.uses_local_execution_recipe()
             && matches!(
                 self.recipe,
-                SelectedRecipe::LocalOperator1 | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                SelectedRecipe::LocalOperator1
+                    | SelectedRecipe::LocalConditional1
+                    | SelectedRecipe::LocalDeclaredLink1
             )
     }
     pub(in crate::policy::workflow) fn uses_conditional_work_recipe(&self) -> bool {
-        matches!(self.recipe, SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1)
+        matches!(
+            self.recipe,
+            SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+        )
     }
     pub fn uses_declared_work_link_recipe(&self) -> bool {
         matches!(self.recipe, SelectedRecipe::LocalDeclaredLink1)
@@ -595,7 +610,13 @@ pub fn compile_selected_program(
         // Compilation also exposes non-owning DATA for source/plan comparison.
         // Check its supported structure here. Actual promise admission still
         // calls require_local_admission and requires this attempt's owner.
-        super::local_admission::check(m, &program.policy, &program.sources, &program.schemas, program.uses_declared_work_link_recipe())?;
+        super::local_admission::check(
+            m,
+            &program.policy,
+            &program.sources,
+            &program.schemas,
+            program.uses_declared_work_link_recipe(),
+        )?;
     }
     Ok(program)
 }
@@ -619,7 +640,8 @@ impl SelectedRecipe {
             Self::AppCostCausal1
             | Self::LocalParentBudget1
             | Self::LocalOperator1
-            | Self::LocalConditional1 | Self::LocalDeclaredLink1 => "ledger-workflow-policy/4",
+            | Self::LocalConditional1
+            | Self::LocalDeclaredLink1 => "ledger-workflow-policy/4",
             Self::AppOwnedCost1 => "ledger-workflow-policy/3",
             Self::FamilyClose1 | Self::OwnerLocalCost1 | Self::SupplierScopedConsent1 => {
                 "ledger-workflow-policy/2"
@@ -631,7 +653,9 @@ impl SelectedRecipe {
             Self::RetailDraft1 => "ledger-workflow-compiled-plan/1",
             Self::FamilyClose1 => "ledger-workflow-compiled-plan/2",
             Self::OwnerLocalCost1 => "ledger-workflow-compiled-plan/3",
-            Self::LocalOperator1 | Self::LocalConditional1 | Self::LocalDeclaredLink1 => "ledger-workflow-compiled-plan/8",
+            Self::LocalOperator1 | Self::LocalConditional1 | Self::LocalDeclaredLink1 => {
+                "ledger-workflow-compiled-plan/8"
+            }
             Self::LocalParentBudget1 => "ledger-workflow-compiled-plan/7",
             Self::AppCostCausal1 => "ledger-workflow-compiled-plan/6",
             Self::AppOwnedCost1 => "ledger-workflow-compiled-plan/5",
@@ -646,7 +670,8 @@ impl SelectedRecipe {
             Self::AppCostCausal1
             | Self::LocalParentBudget1
             | Self::LocalOperator1
-            | Self::LocalConditional1 | Self::LocalDeclaredLink1 => "ledger-policy-compiler/app-cost-causal-1",
+            | Self::LocalConditional1
+            | Self::LocalDeclaredLink1 => "ledger-policy-compiler/app-cost-causal-1",
             Self::AppOwnedCost1 => "ledger-policy-compiler/app-owned-cost-1",
             Self::SupplierScopedConsent1 => "ledger-policy-compiler/supplier-scoped-consent-1",
         }
@@ -675,7 +700,11 @@ fn require_selected_recipe(
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
 ) -> Result<SelectedRecipe> {
-    if super::support::same_bytes(m, support.canonical_bytes(), super::local::DECLARED_LINK_DESCRIPTOR)? {
+    if super::support::same_bytes(
+        m,
+        support.canonical_bytes(),
+        super::local::DECLARED_LINK_DESCRIPTOR,
+    )? {
         if support.execution_registry() != Some(super::local::DECLARED_LINK_REGISTRY) {
             return Err(err("declared link compiler registry"));
         }
@@ -1034,7 +1063,8 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
-                        | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                        | SelectedRecipe::LocalConditional1
+                        | SelectedRecipe::LocalDeclaredLink1
                 ) && body.get("app_delayed_costs").is_some()
                 {
                     return Err(err("old policy dictionary has no app declarations"));
@@ -1045,7 +1075,8 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
-                        | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                        | SelectedRecipe::LocalConditional1
+                        | SelectedRecipe::LocalDeclaredLink1
                 ) {
                     for declaration in body["app_delayed_costs"]
                         .as_array()
@@ -1156,7 +1187,10 @@ fn compile_selected_recipe(
         let predicate = rule["when"]
             .as_object()
             .ok_or_else(|| err("predicate object"))?;
-        if matches!(recipe, SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1) {
+        if matches!(
+            recipe,
+            SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+        ) {
             continue;
         }
         if !m.check("predicate.unit_keys", || {
@@ -1202,7 +1236,10 @@ fn compile_selected_recipe(
     };
     for rule in &policy.rules {
         if let super::model::Predicate::Eq { field, value } = &rule.when {
-            if !matches!(recipe, SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1) {
+            if !matches!(
+                recipe,
+                SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+            ) {
                 return Err(err("predicate capability"));
             }
             let mut context = None;
@@ -1252,7 +1289,8 @@ fn compile_selected_recipe(
                     | SelectedRecipe::AppCostCausal1
                     | SelectedRecipe::LocalParentBudget1
                     | SelectedRecipe::LocalOperator1
-                    | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                    | SelectedRecipe::LocalConditional1
+                    | SelectedRecipe::LocalDeclaredLink1
             ) {
                 policy
                     .app_delayed_costs
@@ -1404,7 +1442,8 @@ fn compile_selected_recipe(
                         | SelectedRecipe::AppCostCausal1
                         | SelectedRecipe::LocalParentBudget1
                         | SelectedRecipe::LocalOperator1
-                        | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                        | SelectedRecipe::LocalConditional1
+                        | SelectedRecipe::LocalDeclaredLink1
                 ) {
                     return Err(err("app cost compiler recipe"));
                 }
@@ -1847,7 +1886,8 @@ fn compile_selected_recipe(
             recipe,
             SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ) {
             plan["limits_profile"] = json!("workflow-local-limits/1");
             plan["worst_case"]
@@ -1857,7 +1897,9 @@ fn compile_selected_recipe(
         }
         if matches!(
             recipe,
-            SelectedRecipe::LocalOperator1 | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+            SelectedRecipe::LocalOperator1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ) {
             plan["limits_profile"] = json!("workflow-local-operator-limits/1");
             for field in ["compile_work", "loaded_refs", "bytes"] {
@@ -1954,14 +1996,16 @@ fn compile_selected_recipe(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
             SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ),
         app_owned_cost_recipe: matches!(
             recipe,
@@ -1969,7 +2013,8 @@ fn compile_selected_recipe(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ),
         supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
         owner_local_cost_recipe: matches!(

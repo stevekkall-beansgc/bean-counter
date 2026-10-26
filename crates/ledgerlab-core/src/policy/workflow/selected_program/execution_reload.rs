@@ -301,7 +301,10 @@ fn rehydrate_inner(
     let policy_owner = arena.reserve_external_payload(bound, m)?;
     let value = normalizer_projection(m, root_body, &mut projection_ownership, 0)?;
     let (mut policy, policy_owner) = super::super::policy_decode::decode(m, value, policy_owner)?;
-    if !matches!(key.recipe, SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1) {
+    if !matches!(
+        key.recipe,
+        SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+    ) {
         for rule in &policy.rules {
             m.visit("reload.original_predicate_capability")?;
             if !matches!(rule.when, super::super::model::Predicate::True) {
@@ -374,14 +377,16 @@ fn rehydrate_inner(
                 | SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
             SelectedRecipe::AppCostCausal1
                 | SelectedRecipe::LocalParentBudget1
                 | SelectedRecipe::LocalOperator1
-                | SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalConditional1
+                | SelectedRecipe::LocalDeclaredLink1
         ),
         execution_registry: key.registry,
         _policy_decode_ownership: Some(policy_owner),
@@ -408,7 +413,11 @@ pub fn load_local_selected_execution(
         let mut recipe = None;
         for raw in &input.documents {
             m.visit("local.reload_exact_compiler_selection")?;
-            let selected = if super::super::support::same_bytes(m, raw, super::super::local::DECLARED_LINK_DESCRIPTOR)? {
+            let selected = if super::super::support::same_bytes(
+                m,
+                raw,
+                super::super::local::DECLARED_LINK_DESCRIPTOR,
+            )? {
                 Some(SelectedRecipe::LocalDeclaredLink1)
             } else if super::super::support::same_bytes(
                 m,
@@ -444,7 +453,11 @@ pub fn load_local_selected_execution(
             root: digest_bits(m, input.root_policy_ref.digest())?,
             plan: digest_bits(m, expected_plan.digest())?,
             recipe,
-            registry: Some(if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) { super::super::local::DECLARED_LINK_REGISTRY } else { super::super::local::REGISTRY }),
+            registry: Some(if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) {
+                super::super::local::DECLARED_LINK_REGISTRY
+            } else {
+                super::super::local::REGISTRY
+            }),
             compile_work: None,
         };
         let program = rehydrate_inner(input, saved_plan, &binding, m)?;

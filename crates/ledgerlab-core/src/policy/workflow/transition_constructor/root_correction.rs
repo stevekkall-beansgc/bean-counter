@@ -2553,6 +2553,8 @@ fn execute_with_state<'inv, 'raw>(
             root_output_owner,
             plan.proofs.map(super::work_proofs::WorkProofs::into_owner),
             None,
+            None,
+            None,
         ],
     })
 }

@@ -424,7 +424,8 @@ pub(super) fn body(
         }
     }
     let work = shape::same_text(m, schema, "ledger-workflow-work-record/1")?;
-    let outcome = shape::same_text(m, schema, "ledger-workflow-outcome-claim/1")? || shape::same_text(m, schema, "ledger-workflow-outcome-claim/2")?;
+    let outcome = shape::same_text(m, schema, "ledger-workflow-outcome-claim/1")?
+        || shape::same_text(m, schema, "ledger-workflow-outcome-claim/2")?;
     let evaluation = shape::same_text(m, schema, "ledger-workflow-evaluation-proof/1")?;
     let fact = shape::same_text(m, schema, "ledger-workflow-verified-fact/1")?;
     let fields = v

@@ -212,7 +212,15 @@ pub(super) fn execute<'inv, 'raw>(
     entry::context_selected(m, c, program)?;
     super::correction::dictionary_outcome(m, &p)?;
     let linked = program.uses_declared_work_link_recipe();
-    equal(m, &p["schema"], &json!(if linked { "ledger-workflow-outcome/2" } else { "ledger-workflow-outcome/1" }))?;
+    equal(
+        m,
+        &p["schema"],
+        &json!(if linked {
+            "ledger-workflow-outcome/2"
+        } else {
+            "ledger-workflow-outcome/1"
+        }),
+    )?;
     for key in ["family_slot", "business_outcome_token"] {
         let text = shape::text(m, &p, key)?;
         if !call!(meter::cmp, m, &text.len().into(), &0.into())?.is_gt()
@@ -421,7 +429,14 @@ pub(super) fn execute<'inv, 'raw>(
     } else {
         state.decision_heads.len()
     };
-    if !call!(meter::cmp, m, &ordinary_heads.into(), &if linked { 2 } else { 1 }.into())?.is_eq() {
+    if !call!(
+        meter::cmp,
+        m,
+        &ordinary_heads.into(),
+        &if linked { 2 } else { 1 }.into()
+    )?
+    .is_eq()
+    {
         return Err(unsupported("extra outcome decision selection"));
     }
     let mut basis_owner = None;
@@ -597,8 +612,25 @@ pub(super) fn execute<'inv, 'raw>(
         call!(shape::field, m, &family["selector"], "target_activity")?,
         call!(shape::field, m, work_payload, "activity")?
     )?;
-    if !call!(meter::cmp, m, &shape::array(m, &family["selector"], "path")?.len().into(), &if linked { 2 } else { 1 }.into())?.is_eq() { return Err(unsupported("selected outcome path length")); }
-    let report = super::declared_links::report_path(m, &mut r, c, program, &p, (&work_ref, family), Some(state))?;
+    if !call!(
+        meter::cmp,
+        m,
+        &shape::array(m, &family["selector"], "path")?.len().into(),
+        &if linked { 2 } else { 1 }.into()
+    )?
+    .is_eq()
+    {
+        return Err(unsupported("selected outcome path length"));
+    }
+    let report = super::declared_links::report_path(
+        m,
+        &mut r,
+        c,
+        program,
+        &p,
+        (&work_ref, family),
+        Some(state),
+    )?;
     let selector_start = report.as_ref().map_or(&work_ref, |v| &v.reference);
     call!(
         equal,
@@ -869,7 +901,16 @@ pub(super) fn execute<'inv, 'raw>(
         &work_ref,
         (&work, &claim_ref, &root_decision_ref, &root_decision),
     )?;
-    if let Some(report) = &report { super::declared_links::verify_report_original(m, &mut r, c, program, report, &operands.terms)?; }
+    if let Some(report) = &report {
+        super::declared_links::verify_report_original(
+            m,
+            &mut r,
+            c,
+            program,
+            report,
+            &operands.terms,
+        )?;
+    }
     let code_field = shape::text(m, family, "code_field")?;
     let code = shape::text(m, &p["facts"], code_field)?;
     let price = pricing::outcome(program, family_key, code, &net, m)?;
@@ -894,6 +935,9 @@ pub(super) fn execute<'inv, 'raw>(
         posting_owner = Some(arena.reserve_external_payload(bytes, m)?);
         m.write_bytes(bytes)?;
     }
+    if linked {
+        super::declared_links::current_link_rights(m, &mut r, c, &family["target_link_slot"])?;
+    }
     let (claim, link) = if let Some(arena) = m.representation_arena() {
         let constants=m.parse_owned_representation(&arena,
             br#"{"claim":"ledger-workflow-outcome-claim/1","claim2":"ledger-workflow-outcome-claim/2","link":"ledger-workflow-link/1","classification":"monetary"}"#,
@@ -917,7 +961,10 @@ pub(super) fn execute<'inv, 'raw>(
         let accepted = arena.string_value(&c.accepted_at, m)?;
         let value = arena.object_from_fields(
             &[
-                ("schema", &constants.value()[if linked { "claim2" } else { "claim" }]),
+                (
+                    "schema",
+                    &constants.value()[if linked { "claim2" } else { "claim" }],
+                ),
                 ("scope", &key.value()["scope"]),
                 ("agreement_id", &target["agreement_id"]),
                 ("family_slot", family_slot.value()),
@@ -1004,7 +1051,15 @@ pub(super) fn execute<'inv, 'raw>(
         (claim, link)
     };
     let effect_id = if let Some(report) = &report {
-        original_family_effect_path(m, &c.key.scope, &target["agreement_id"], root_slot, &claim_ref, &target_family["family_slot"], (&link.reference, Some(&report.link)))?
+        original_family_effect_path(
+            m,
+            &c.key.scope,
+            &target["agreement_id"],
+            root_slot,
+            &claim_ref,
+            &target_family["family_slot"],
+            (&link.reference, Some(&report.link)),
+        )?
     } else if m.representation_arena().is_some() {
         original_family_effect(
             m,
@@ -1082,7 +1137,7 @@ pub(super) fn execute<'inv, 'raw>(
         (super::working_value::WorkingValue::Legacy(step), actions)
     };
     if let Some(report) = &report {
-        let proof = super::declared_links::evaluation_basis(m, &basis_value, report, &link.reference)?;
+        let proof = super::declared_links::evaluation_basis(m, &basis, report, &link.reference)?;
         step = step.with_fields(m, &[("basis_refs", proof.value())])?;
     }
     let (evaluation, decision) = if let Some(arena) = m.representation_arena() {
@@ -1287,7 +1342,8 @@ pub(super) fn execute<'inv, 'raw>(
         let _owner = arena.reserve_external_payload(bytes, m)?;
         m.write_bytes(bytes)?;
         let mut refs = Vec::new();
-        refs.try_reserve_exact(count).map_err(|_| shape::fail("outcome complete Link set"))?;
+        refs.try_reserve_exact(count)
+            .map_err(|_| shape::fail("outcome complete Link set"))?;
         refs.extend(state.links.iter());
         refs.push(&link.reference);
         let links = super::app_cost::reference_set(m, &arena, &refs)?;
@@ -1482,7 +1538,15 @@ pub(super) fn execute<'inv, 'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [posting_owner, result_owner, basis_owner, None, None],
+        control_owners: [
+            posting_owner,
+            result_owner,
+            basis_owner,
+            None,
+            None,
+            None,
+            None,
+        ],
     })
 }
 
@@ -2679,8 +2743,20 @@ pub(super) fn original_family_effect_path(
     family_slot: &Value,
     links: (&ExactRef, Option<&ExactRef>),
 ) -> Result<String> {
-    let Some(second) = links.1 else { return original_family_effect(m, scope, agreement, root_slot, work_claim, family_slot, links.0); };
-    let arena = m.representation_arena().ok_or_else(|| shape::fail("owning declared selector effect"))?;
+    let Some(second) = links.1 else {
+        return original_family_effect(
+            m,
+            scope,
+            agreement,
+            root_slot,
+            work_claim,
+            family_slot,
+            links.0,
+        );
+    };
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning declared selector effect"))?;
     let a = arena.string_value(&scope[0], m)?;
     let b = arena.string_value(&scope[1], m)?;
     let scope = arena.array_from_values(&[a.value(), b.value()], m)?;
@@ -2691,7 +2767,17 @@ pub(super) fn original_family_effect_path(
     let path = arena.array_from_values(&[first.value(), second.value()], m)?;
     let family = arena.array_from_values(&[family_slot, path.value(), root.value()], m)?;
     let original = arena.string_value("original", m)?;
-    let tuple = arena.array_from_values(&[scope.value(), agreement, root.value(), claim.value(), family.value(), original.value()], m)?;
+    let tuple = arena.array_from_values(
+        &[
+            scope.value(),
+            agreement,
+            root.value(),
+            claim.value(),
+            family.value(),
+            original.value(),
+        ],
+        m,
+    )?;
     body::semantic_id(m, "weffect_", "workflow-effect", tuple.value())
 }
 

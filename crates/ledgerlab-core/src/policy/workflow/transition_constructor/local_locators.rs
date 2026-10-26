@@ -68,8 +68,17 @@ impl LocalOperationLocators {
     pub fn original_binding_ref(&self) -> &ExactRef {
         self.subject.original_binding_ref()
     }
-    pub fn selector_start_work_heads(&self) -> Option<&WorkHeadLocators> { if self.fresh_selector { self.selector.as_ref() } else { None } }
-    pub fn selector_start_root_decision_id(&self) -> Option<&str> { self.selector_start_work_heads().map(|v| v.root_decision_id()) }
+    pub fn selector_start_work_heads(&self) -> Option<&WorkHeadLocators> {
+        if self.fresh_selector {
+            self.selector.as_ref()
+        } else {
+            None
+        }
+    }
+    pub fn selector_start_root_decision_id(&self) -> Option<&str> {
+        self.selector_start_work_heads()
+            .map(|v| v.root_decision_id())
+    }
     pub fn work_heads(&self) -> Option<&WorkHeadLocators> {
         self.work.as_ref()
     }
@@ -270,8 +279,19 @@ fn load_ref(
 ) -> Result<(OwnedExactRef, super::record_body::RecordBody)> {
     let reference = parse_owned_reference(m, a, value)?;
     let body = if schema == "ledger-workflow-outcome-claim/1" {
-        r.get_schemas(m, key, reference.reference(), kind, &["ledger-workflow-outcome-claim/1", "ledger-workflow-outcome-claim/2"])?
-    } else { r.get(m, key, reference.reference(), kind, schema)? };
+        r.get_schemas(
+            m,
+            key,
+            reference.reference(),
+            kind,
+            &[
+                "ledger-workflow-outcome-claim/1",
+                "ledger-workflow-outcome-claim/2",
+            ],
+        )?
+    } else {
+        r.get(m, key, reference.reference(), kind, schema)?
+    };
     Ok((reference, body))
 }
 fn initial_id(m: &mut CoreMeter, a: &AuditArena, decision: &str) -> Result<String> {
@@ -396,8 +416,16 @@ pub fn select_local_operation_locators(
         }
         let selector = if let Some(reference) = &subject.selector_ref {
             let value = super::working_value::owning_reference(m, &a, reference.reference())?;
-            Some(super::input_selection::retained_work_heads(program, m, &mut r, capture.key, value.value())?)
-        } else { None };
+            Some(super::input_selection::retained_work_heads(
+                program,
+                m,
+                &mut r,
+                capture.key,
+                value.value(),
+            )?)
+        } else {
+            None
+        };
         let payload_schema = txt(m, v, "schema")?;
         let fresh_selector = shape::same_text(m, payload_schema, "ledger-workflow-outcome/2")?;
         let n = if let Some(heads) = &work {
@@ -418,7 +446,11 @@ pub fn select_local_operation_locators(
         let bytes = n
             .checked_mul(mem::size_of::<LocalRecordIdentity>() + 128)
             .ok_or_else(|| shape::fail("local locator record dimensions"))?;
-        let extra = if selector.is_some() { 2 * (mem::size_of::<LocalRecordIdentity>() + 128) } else { 0 };
+        let extra = if selector.is_some() {
+            2 * (mem::size_of::<LocalRecordIdentity>() + 128)
+        } else {
+            0
+        };
         let bytes = w::usize_add(m, bytes, extra)?;
         let n = w::usize_add(m, n, if selector.is_some() { 2 } else { 0 })?;
         let record_owner = a.reserve_external_payload(bytes, m)?;
@@ -563,8 +595,16 @@ pub fn select_local_operation_locators(
             )?;
         }
         if let Some(heads) = &selector {
-            records.push(LocalRecordIdentity { kind: "workflow-decision", id: initial_id(m, &a, heads.root_decision_id())?, schema: "ledger-workflow-decision-revision/1" });
-            records.push(LocalRecordIdentity { kind: "workflow-work-claim", id: cp(m, &a, &mut copies, heads.work_claim_id())?, schema: "ledger-workflow-work-claim/1" });
+            records.push(LocalRecordIdentity {
+                kind: "workflow-decision",
+                id: initial_id(m, &a, heads.root_decision_id())?,
+                schema: "ledger-workflow-decision-revision/1",
+            });
+            records.push(LocalRecordIdentity {
+                kind: "workflow-work-claim",
+                id: cp(m, &a, &mut copies, heads.work_claim_id())?,
+                schema: "ledger-workflow-work-claim/1",
+            });
         }
         claim_keys(
             m,
@@ -898,7 +938,8 @@ fn outcome_links(
 ) -> Result<Vec<(ExactRef, String)>> {
     let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
-    let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")? || shape::same_text(m, schema, "ledger-workflow-outcome-correction/2")?;
+    let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?
+        || shape::same_text(m, schema, "ledger-workflow-outcome-correction/2")?;
     let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
         || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
     if !correct && !root {
@@ -1301,7 +1342,11 @@ fn subject_refs(
     let mut family_slot = None;
     let mut component_slot = None;
     let mut work_ref = None;
-    let mut selector_ref = if schema == "ledger-workflow-outcome/2" { Some(parse_owned_reference(m, a, &p["selector_start_work_ref"])?) } else { None };
+    let mut selector_ref = if schema == "ledger-workflow-outcome/2" {
+        Some(parse_owned_reference(m, a, &p["selector_start_work_ref"])?)
+    } else {
+        None
+    };
     let mut target_ref = None;
     let v = p;
     m.visit("local.locator_payload_dispatch")?;
@@ -1332,7 +1377,9 @@ fn subject_refs(
             component_slot = Some(locator_text(m, a, slot)?);
             None
         }
-        "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" | "ledger-workflow-outcome-close/2" => {
+        "ledger-workflow-outcome/1"
+        | "ledger-workflow-outcome/2"
+        | "ledger-workflow-outcome-close/2" => {
             target_ref = Some(parse_owned_reference(m, a, &v["target_ref"])?);
             None
         }
@@ -1346,7 +1393,13 @@ fn subject_refs(
                 "workflow-outcome-claim",
                 "ledger-workflow-outcome-claim/1",
             )?;
-            if schema == "ledger-workflow-outcome-correction/2" { selector_ref = Some(parse_owned_reference(m, a, &claim["original_payload"]["selector_start_work_ref"])?) };
+            if schema == "ledger-workflow-outcome-correction/2" {
+                selector_ref = Some(parse_owned_reference(
+                    m,
+                    a,
+                    &claim["original_payload"]["selector_start_work_ref"],
+                )?)
+            };
             target_ref = Some(parse_owned_reference(m, a, &claim["target_ref"])?);
             let slot = txt(m, &claim, "family_slot")?;
             family_slot = Some(locator_text(m, a, slot)?);
@@ -1391,7 +1444,9 @@ fn subject_refs(
     }
     if matches!(
         schema,
-        "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" | "ledger-workflow-outcome-close/2"
+        "ledger-workflow-outcome/1"
+            | "ledger-workflow-outcome/2"
+            | "ledger-workflow-outcome-close/2"
     ) {
         let slot = txt(m, v, "family_slot")?;
         family_slot = Some(locator_text(m, a, slot)?);

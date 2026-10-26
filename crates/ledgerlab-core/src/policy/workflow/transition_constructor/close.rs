@@ -79,7 +79,9 @@ fn deadline_slot(
     const REGISTRY: &str =
         "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da";
     let registry = if program.uses_local_execution_recipe() {
-        program.execution_registry().ok_or_else(|| shape::fail("local original registry"))?
+        program
+            .execution_registry()
+            .ok_or_else(|| shape::fail("local original registry"))?
     } else if program.uses_app_cost_causal_recipe() {
         "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"
     } else if program.uses_app_owned_cost_recipe() {
@@ -744,7 +746,7 @@ pub(super) fn execute<'inv, 'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [None, None, None, None, None],
+        control_owners: [None, None, None, None, None, None, None],
     })
 }
 pub(super) fn counter_value(

@@ -120,7 +120,14 @@ pub(super) fn execute_complete<'raw>(
             )?;
             if program.uses_declared_work_link_recipe() {
                 let original = construction.economic.original_work.payload()?;
-                super::declared_links::validate_chain(m, &mut construction.records, c, program, original, &state.financial.links)?;
+                super::declared_links::validate_chain(
+                    m,
+                    &mut construction.records,
+                    c,
+                    program,
+                    original,
+                    &state.financial.links,
+                )?;
             }
             construction.candidate_heads =
                 Some(super::candidate::heads::derive(m, c, state, &construction)?);
@@ -152,7 +159,14 @@ pub(super) fn execute_complete<'raw>(
                     .into_construction(c, m)?;
             if program.uses_declared_work_link_recipe() {
                 let original = construction.economic.original_work.payload()?;
-                super::declared_links::validate_chain(m, &mut construction.records, c, program, original, &state.financial.links)?;
+                super::declared_links::validate_chain(
+                    m,
+                    &mut construction.records,
+                    c,
+                    program,
+                    original,
+                    &state.financial.links,
+                )?;
             }
             construction.candidate_heads =
                 Some(super::candidate::heads::derive(m, c, state, &construction)?);
@@ -197,7 +211,14 @@ pub(super) fn execute_complete<'raw>(
     )?;
     if program.uses_declared_work_link_recipe() {
         let original = construction.economic.original_work.payload()?;
-        super::declared_links::validate_chain(m, &mut construction.records, c, program, original, &state.financial.links)?;
+        super::declared_links::validate_chain(
+            m,
+            &mut construction.records,
+            c,
+            program,
+            original,
+            &state.financial.links,
+        )?;
     }
     if program.uses_app_owned_cost_recipe() {
         super::app_cost::check_current_consent(
@@ -261,10 +282,19 @@ fn execute_parsed<'inv, 'raw>(
         m,
         &p["schema"],
         &json!("ledger-workflow-outcome-correction/1"),
-    )? || program.uses_declared_work_link_recipe() && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome-correction/2"))? {
+    )? || program.uses_declared_work_link_recipe()
+        && shape::same(
+            m,
+            &p["schema"],
+            &json!("ledger-workflow-outcome-correction/2"),
+        )?
+    {
         return super::correction::execute(program, c, p, inputs, state, m, intrinsic);
     }
-    if shape::same(m, &p["schema"], &json!("ledger-workflow-outcome/1"))? || program.uses_declared_work_link_recipe() && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome/2"))? {
+    if shape::same(m, &p["schema"], &json!("ledger-workflow-outcome/1"))?
+        || program.uses_declared_work_link_recipe()
+            && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome/2"))?
+    {
         return super::outcome::execute(program, c, p, inputs, state, m, intrinsic);
     }
     if !shape::same(m, &p["schema"], &json!("ledger-workflow-work/1"))? {
@@ -348,7 +378,9 @@ fn execute_parsed<'inv, 'raw>(
             ));
         }
     }
-    if program.uses_declared_work_link_recipe() { super::declared_links::validate_inputs(m, program, &p)?; }
+    if program.uses_declared_work_link_recipe() {
+        super::declared_links::validate_inputs(m, program, &p)?;
+    }
     if !shape::same(m, &p["status"], &json!("succeeded"))? {
         return Err(unsupported("failed work construction pending"));
     }
@@ -462,7 +494,7 @@ fn execute_parsed<'inv, 'raw>(
         return Err(shape::fail("original plan substitution"));
     }
     let agreement = &a.binding["agreement_id"];
-    let mut construction_owners = [None, None, None, None, None];
+    let mut construction_owners = [None, None, None, None, None, None, None];
     if let Some(arena) = m.representation_arena() {
         // Ref payloads/control strings are admitted BEFORE either semantic ID
         // is constructed. Canonical/decoded graphs have independent owners.
@@ -648,8 +680,16 @@ fn execute_parsed<'inv, 'raw>(
         (work, claim)
     };
     let inline_link = if program.uses_declared_work_link_recipe() {
-        super::declared_links::emit_work(m, &mut r, c, program, (&p, &work.reference, &a.authority.reference, state))?
-    } else { None };
+        super::declared_links::emit_work(
+            m,
+            &mut r,
+            c,
+            program,
+            (&p, &work.reference, &a.authority.reference, state),
+        )?
+    } else {
+        None
+    };
     let decision_id = if m.representation_arena().is_some() {
         super::work_keys::decision(m, &claim_id)?
     } else {
@@ -1058,7 +1098,11 @@ fn execute_parsed<'inv, 'raw>(
     }
     let links_root = if let Some(arena) = m.representation_arena() {
         use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
-        let count = crate::validation_work::usize_add(m, state.links.len(), usize::from(inline_link.is_some()))?;
+        let count = crate::validation_work::usize_add(
+            m,
+            state.links.len(),
+            usize::from(inline_link.is_some()),
+        )?;
         let per = std::mem::size_of::<&ExactRef>();
         ValidationWork::arithmetic(
             m,
@@ -1130,7 +1174,9 @@ fn execute_parsed<'inv, 'raw>(
             selected.push(&link.reference);
             let links = super::app_cost::reference_set(m, &arena, &selected)?;
             records::hash(m, "workflow-link-set", links.value())?
-        } else { digest }
+        } else {
+            digest
+        }
     } else {
         let links_root = if meter::cmp(m, &state.links.len().into(), &0usize.into())?.is_eq() {
             records::hash(m, "workflow-link-set", &json!([]))?
@@ -1294,11 +1340,15 @@ fn execute_parsed<'inv, 'raw>(
     };
     let mut link_introductions = Vec::new();
     if let Some(link) = &inline_link {
-        let arena = m.representation_arena().ok_or_else(|| shape::fail("owning inline link output"))?;
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| shape::fail("owning inline link output"))?;
         let bytes = 2 * std::mem::size_of::<ExactRef>() + 64 + 128 + 71;
-        construction_owners[1] = Some(arena.reserve_external_payload(bytes, m)?);
+        construction_owners[6] = Some(arena.reserve_external_payload(bytes, m)?);
         m.write_bytes(bytes)?;
-        link_introductions.try_reserve_exact(1).map_err(|_| shape::fail("inline link Ref allocation"))?;
+        link_introductions
+            .try_reserve_exact(1)
+            .map_err(|_| shape::fail("inline link Ref allocation"))?;
         link_introductions.push(link.reference.clone());
     }
     let mut envelopes = if let Some(arena) = m.representation_arena() {
@@ -1366,11 +1416,13 @@ fn execute_parsed<'inv, 'raw>(
         envelopes.push(chain);
         envelopes
     };
-    if let Some(link) = inline_link { envelopes.push(link); }
+    if let Some(link) = inline_link {
+        envelopes.push(link);
+    }
     if let Some(proofs) = work_proofs.as_mut() {
         proofs.attach(m, &mut envelopes)?;
     }
-    construction_owners[4] = work_proofs.map(super::work_proofs::WorkProofs::into_owner);
+    construction_owners[5] = work_proofs.map(super::work_proofs::WorkProofs::into_owner);
     Ok(Construction {
         original_reservations,
         financial_reservations,

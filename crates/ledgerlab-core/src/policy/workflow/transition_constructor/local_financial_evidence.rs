@@ -19,7 +19,6 @@ use crate::{
 use serde_json::Value;
 use std::mem;
 
-
 /// Owned DATA retained by the local operation framer through the transaction.
 pub struct LocalFinancialRequestEvidence {
     value: AuditedValue,
@@ -712,7 +711,12 @@ pub fn produce_local_financial_request_evidence<'a>(
             request.value(),
             payload.value(),
             &anchors,
-            (descriptors.value(), program.execution_registry().ok_or_else(|| shape::fail("local request registry"))?),
+            (
+                descriptors.value(),
+                program
+                    .execution_registry()
+                    .ok_or_else(|| shape::fail("local request registry"))?,
+            ),
         )
     })();
     if result.is_err() {
@@ -1116,7 +1120,10 @@ mod tests {
             &request,
             &payload,
             &anchors,
-            (&descriptors, "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"),
+            (
+                &descriptors,
+                "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a",
+            ),
         )
         .unwrap();
         let actual = evidence.value();

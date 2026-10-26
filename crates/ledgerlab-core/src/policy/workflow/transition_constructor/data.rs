@@ -266,7 +266,7 @@ pub(super) struct Construction<'inv, 'raw> {
     pub funding_effects: Option<super::funding::OwnedFundingEffects>,
     // Retain each producer's control payload owner after its returned vectors,
     // typed Ref/string fields and body owners. These are memory only.
-    pub control_owners: [Option<crate::canonical::audit_arena::ExternalBufferLease>; 5],
+    pub control_owners: [Option<crate::canonical::audit_arena::ExternalBufferLease>; 7],
 }
 impl Construction<'_, '_> {
     pub(super) fn draft_projection(

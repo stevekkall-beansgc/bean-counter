@@ -237,10 +237,26 @@ pub(super) fn dictionary_outcome(m: &mut CoreMeter, p: &Value) -> Result<()> {
             "evidence_refs",
             "occurred_at"
         ],
-        if linked { &["selector_start_work_ref"][..] } else { &[][..] }
+        if linked {
+            &["selector_start_work_ref"][..]
+        } else {
+            &[][..]
+        }
     )?;
-    if linked { let selected = shape::field(m, p, "selector_start_work_ref")?; shape::reference(m, selected)?; }
-    call!(equal, m, &p["schema"], &json!(if linked { "ledger-workflow-outcome/2" } else { "ledger-workflow-outcome/1" }))
+    if linked {
+        let selected = shape::field(m, p, "selector_start_work_ref")?;
+        shape::reference(m, selected)?;
+    }
+    call!(
+        equal,
+        m,
+        &p["schema"],
+        &json!(if linked {
+            "ledger-workflow-outcome/2"
+        } else {
+            "ledger-workflow-outcome/1"
+        })
+    )
 }
 pub(super) fn dictionary_decision(m: &mut CoreMeter, p: &Value) -> Result<()> {
     call!(
@@ -364,7 +380,11 @@ pub(super) fn execute<'inv, 'raw>(
         equal,
         m,
         &request["schema"],
-        &json!(if program.uses_declared_work_link_recipe() { "ledger-workflow-outcome-correction/2" } else { "ledger-workflow-outcome-correction/1" })
+        &json!(if program.uses_declared_work_link_recipe() {
+            "ledger-workflow-outcome-correction/2"
+        } else {
+            "ledger-workflow-outcome-correction/1"
+        })
     )?;
     let expected = call!(counter, m, &request, "expected_revision")?;
     let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
@@ -378,7 +398,11 @@ pub(super) fn execute<'inv, 'raw>(
         c,
         &request["original_claim_ref"],
         "workflow-outcome-claim",
-        if program.uses_declared_work_link_recipe() { "ledger-workflow-outcome-claim/2" } else { "ledger-workflow-outcome-claim/1" }
+        if program.uses_declared_work_link_recipe() {
+            "ledger-workflow-outcome-claim/2"
+        } else {
+            "ledger-workflow-outcome-claim/1"
+        }
     )?;
     call!(
         shape::closed,
@@ -402,7 +426,15 @@ pub(super) fn execute<'inv, 'raw>(
     let original_value = call!(shape::field, m, &claim, "original_payload")?;
     let original = super::working_value::WorkingValue::copy(m, original_value)?;
     call!(dictionary_outcome, m, &original)?;
-    equal(m, &original["schema"], &json!(if program.uses_declared_work_link_recipe() { "ledger-workflow-outcome/2" } else { "ledger-workflow-outcome/1" }))?;
+    equal(
+        m,
+        &original["schema"],
+        &json!(if program.uses_declared_work_link_recipe() {
+            "ledger-workflow-outcome/2"
+        } else {
+            "ledger-workflow-outcome/1"
+        }),
+    )?;
     for k in ["family_slot", "target_ref", "business_outcome_token"] {
         call!(equal, m, &claim[k], &original[k])?;
     }
@@ -481,7 +513,11 @@ pub(super) fn execute<'inv, 'raw>(
     }
     if program.uses_declared_work_link_recipe() {
         equal(m, &p["schema"], &original["schema"])?;
-        equal(m, &p["selector_start_work_ref"], &original["selector_start_work_ref"])?;
+        equal(
+            m,
+            &p["selector_start_work_ref"],
+            &original["selector_start_work_ref"],
+        )?;
     }
     let evidence = if none {
         &request["replacement"]["evidence_refs"]
@@ -503,7 +539,8 @@ pub(super) fn execute<'inv, 'raw>(
     if !call!(meter::cmp, m, &state.work_claims.len().into(), &0.into())?.is_eq()
         || !call!(meter::cmp, m, &state.outcome_claims.len().into(), &1.into())?.is_eq()
         || !call!(shape::same_ref, m, &state.outcome_claims[0], &claim_ref)?
-        || (!program.uses_declared_work_link_recipe() && !call!(meter::cmp, m, &state.links.len().into(), &1.into())?.is_eq())
+        || (!program.uses_declared_work_link_recipe()
+            && !call!(meter::cmp, m, &state.links.len().into(), &1.into())?.is_eq())
     {
         return Err(unsupported(
             "selected permanent claim/link index composition",
@@ -951,11 +988,45 @@ pub(super) fn execute<'inv, 'raw>(
         &work_ref,
         (&*work, &work_claim_ref, &root_ref, &*root)
     )?;
-    let report = super::declared_links::report_path(m, &mut r, c, program, &original, (&work_ref, family), None)?;
-    if let Some(report) = &report { super::declared_links::verify_report_original(m, &mut r, c, program, report, &operands.terms)?; }
+    let report = super::declared_links::report_path(
+        m,
+        &mut r,
+        c,
+        program,
+        &original,
+        (&work_ref, family),
+        None,
+    )?;
+    if let Some(report) = &report {
+        super::declared_links::verify_report_original(
+            m,
+            &mut r,
+            c,
+            program,
+            report,
+            &operands.terms,
+        )?;
+    }
     let selector_start = report.as_ref().map_or(&work_ref, |v| &v.reference);
-    let selected_link_id = body::semantic_id(m, "wlink_", "workflow-link", &json!([c.key.scope, claim_ref, p["product_ref"], family["target_link_slot"], selector_start]))?;
-    let (link_ref, link) = r.by_identity(m, &c.key, "workflow-link", &selected_link_id, "ledger-workflow-link/1")?;
+    let selected_link_id = body::semantic_id(
+        m,
+        "wlink_",
+        "workflow-link",
+        &json!([
+            c.key.scope,
+            claim_ref,
+            p["product_ref"],
+            family["target_link_slot"],
+            selector_start
+        ]),
+    )?;
+    let (link_ref, link) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-link",
+        &selected_link_id,
+        "ledger-workflow-link/1",
+    )?;
     call!(
         shape::closed,
         m,
@@ -1001,7 +1072,15 @@ pub(super) fn execute<'inv, 'raw>(
     if !call!(shape::same_text, m, &link_ref.id, &link_id)? {
         return Err(shape::fail("original selected link identity"));
     }
-    let effect = outcome::original_family_effect_path(m, &c.key.scope, &target["agreement_id"], &root_slot, &work_claim_ref, &json!(family_slot), (&link_ref, report.as_ref().map(|v| &v.link)))?;
+    let effect = outcome::original_family_effect_path(
+        m,
+        &c.key.scope,
+        &target["agreement_id"],
+        &root_slot,
+        &work_claim_ref,
+        &json!(family_slot),
+        (&link_ref, report.as_ref().map(|v| &v.link)),
+    )?;
     let active = call!(
         verify_current,
         m,
@@ -1083,16 +1162,10 @@ pub(super) fn execute<'inv, 'raw>(
         actions.push(action);
     }
     let evaluation = if let Some(report) = &report {
-        let arena = m.representation_arena().ok_or_else(|| shape::fail("owning replacement selector proof"))?;
-        let count = crate::validation_work::usize_add(m, basis.len(), 1)?;
-        let bytes = count * std::mem::size_of::<&ExactRef>();
-        let _metadata = arena.reserve_external_payload(bytes, m)?;
-        m.write_bytes(bytes)?;
-        let mut refs = Vec::new();
-        refs.try_reserve_exact(count).map_err(|_| shape::fail("replacement basis pointers"))?;
-        refs.extend(basis.iter());
-        let basis_value = super::app_cost::reference_set(m, &arena, &refs)?;
-        let proof = super::declared_links::evaluation_basis(m, basis_value.value(), report, &link_ref)?;
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| shape::fail("owning replacement selector proof"))?;
+        let proof = super::declared_links::evaluation_basis(m, &basis, report, &link_ref)?;
         let owned_step = super::working_value::WorkingValue::copy(m, &step)?;
         let composed = owned_step.with_fields(m, &[("basis_refs", proof.value())])?;
         let count = crate::validation_work::usize_add(m, steps.len(), 1)?;
@@ -1100,18 +1173,46 @@ pub(super) fn execute<'inv, 'raw>(
         let _steps = arena.reserve_external_payload(bytes, m)?;
         m.write_bytes(bytes)?;
         let mut views = Vec::new();
-        views.try_reserve_exact(count).map_err(|_| shape::fail("replacement evaluation step views"))?;
+        views
+            .try_reserve_exact(count)
+            .map_err(|_| shape::fail("replacement evaluation step views"))?;
         views.extend(steps.iter());
         views.push(&composed);
         let steps = arena.array_from_values(&views, m)?;
         let schema = arena.string_value("ledger-workflow-evaluation-proof/1", m)?;
         let subject = super::working_value::owning_reference(m, &arena, &claim_ref)?;
-        let plan = super::working_value::owning_definition(m, &arena, program.compiled_plan().reference())?;
-        let value = arena.object_from_fields(&[("schema", schema.value()), ("subject_ref", subject.value()), ("policy_ref", &p["policy_ref"]), ("compiled_plan_ref", plan.value()), ("compiler_ref", &program.compiled_plan().canonical_value()["compiler_ref"]), ("binding_ref", &p["binding_ref"]), ("fact_schema_ref", &p["fact_schema_ref"]), ("facts", &p["facts"]), ("context", &operands.binding["accepted_context"]), ("steps", steps.value())], m)?;
+        let plan = super::working_value::owning_definition(
+            m,
+            &arena,
+            program.compiled_plan().reference(),
+        )?;
+        let value = arena.object_from_fields(
+            &[
+                ("schema", schema.value()),
+                ("subject_ref", subject.value()),
+                ("policy_ref", &p["policy_ref"]),
+                ("compiled_plan_ref", plan.value()),
+                (
+                    "compiler_ref",
+                    &program.compiled_plan().canonical_value()["compiler_ref"],
+                ),
+                ("binding_ref", &p["binding_ref"]),
+                ("fact_schema_ref", &p["fact_schema_ref"]),
+                ("facts", &p["facts"]),
+                ("context", &operands.binding["accepted_context"]),
+                ("steps", steps.value()),
+            ],
+            m,
+        )?;
         body::document_borrowed(m, "workflow-evaluation", value.value())?
     } else {
         steps.push(step);
-        call!(body::document, m, "workflow-evaluation", json!({"schema":"ledger-workflow-evaluation-proof/1","subject_ref":claim_ref,"policy_ref":p["policy_ref"],"compiled_plan_ref":program.compiled_plan().reference(),"compiler_ref":program.compiled_plan().canonical_value()["compiler_ref"],"binding_ref":p["binding_ref"],"fact_schema_ref":p["fact_schema_ref"],"facts":p["facts"],"context":operands.binding["accepted_context"],"steps":steps}))?
+        call!(
+            body::document,
+            m,
+            "workflow-evaluation",
+            json!({"schema":"ledger-workflow-evaluation-proof/1","subject_ref":claim_ref,"policy_ref":p["policy_ref"],"compiled_plan_ref":program.compiled_plan().reference(),"compiler_ref":program.compiled_plan().canonical_value()["compiler_ref"],"binding_ref":p["binding_ref"],"fact_schema_ref":p["fact_schema_ref"],"facts":p["facts"],"context":operands.binding["accepted_context"],"steps":steps})
+        )?
     };
     let appended = call!(
         body::ref_set,
@@ -1239,7 +1340,7 @@ pub(super) fn execute<'inv, 'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [None, None, None, None, None],
+        control_owners: [None, None, None, None, None, None, None],
     })
 }
 fn inverse_value(m: &mut CoreMeter, v: &ConstructedEnvelope) -> Result<Value> {
@@ -1427,6 +1528,77 @@ pub(super) fn verify_current(
     };
     if !call!(meter::cmp, m, &refs.len().into(), &expected.into())?.is_eq() {
         return Err(shape::fail("current action count versus original pricing"));
+    }
+    if program.uses_declared_work_link_recipe() {
+        let target_ref = shape::reference(m, &p["target_ref"])?;
+        let target = r.get(
+            m,
+            &c.key,
+            &target_ref,
+            "workflow-target",
+            "ledger-workflow-component-target/1",
+        )?;
+        let work_ref = shape::reference(m, &target["work_ref"])?;
+        let report =
+            super::declared_links::report_path(m, r, c, program, p, (&work_ref, family), None)?
+                .ok_or_else(|| shape::fail("retained declared selector proof"))?;
+        let link_id = body::semantic_id(
+            m,
+            "wlink_",
+            "workflow-link",
+            &json!([
+                c.key.scope,
+                claim,
+                p["product_ref"],
+                family["target_link_slot"],
+                report.reference
+            ]),
+        )?;
+        let (link, _) = r.by_identity(
+            m,
+            &c.key,
+            "workflow-link",
+            &link_id,
+            "ledger-workflow-link/1",
+        )?;
+        let proof = super::declared_links::evaluation_basis(m, basis, &report, &link)?;
+        let steps = shape::array(m, &evaluation, "steps")?;
+        let step = steps
+            .last()
+            .ok_or_else(|| shape::fail("retained outcome evaluation step"))?;
+        for (field, expected) in [
+            ("basis_refs", proof.value()),
+            ("family_slot", &p["family_slot"]),
+        ] {
+            equal(m, &step[field], expected)?;
+        }
+        equal(m, &step["instruction"], &json!(price.ordinal))?;
+        equal(m, &step["component_slot"], &json!(root))?;
+        equal(m, &step["predicate"], &json!("true"))?;
+        equal(
+            m,
+            &step["rational_numerator"],
+            &json!(price.rational.numerator.to_string()),
+        )?;
+        equal(
+            m,
+            &step["rational_denominator"],
+            &json!(price.rational.denominator.to_string()),
+        )?;
+        equal(m, &step["rounded"], &amount(&price.atoms.into()))?;
+        let disposition = if price.none {
+            "none"
+        } else if expected == 0 {
+            "zero"
+        } else {
+            "posted"
+        };
+        equal(m, &step["disposition"], &json!(disposition))?;
+        if expected == 1 {
+            equal(m, &step["action_ref"], &refs[0])?;
+        } else if step.get("action_ref").is_some() {
+            return Err(shape::fail("none/zero selector action"));
+        }
     }
     let mut out = vec![];
     for item in refs {

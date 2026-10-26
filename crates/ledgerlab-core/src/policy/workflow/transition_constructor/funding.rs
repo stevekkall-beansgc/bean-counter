@@ -183,7 +183,10 @@ fn active_work_total(
             output,
             subject,
             "workflow-outcome-claim",
-            &["ledger-workflow-outcome-claim/1", "ledger-workflow-outcome-claim/2"],
+            &[
+                "ledger-workflow-outcome-claim/1",
+                "ledger-workflow-outcome-claim/2",
+            ],
         )?;
         let target_ref = parse_owned_reference(m, &arena, &claim["target_ref"])?;
         let target = selected_body(

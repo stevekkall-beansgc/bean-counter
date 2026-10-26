@@ -159,14 +159,21 @@ fn normalized(
     }
     if shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-work/1")?
         || shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome/1")?
-        || program.uses_declared_work_link_recipe() && shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome/2")?
+        || program.uses_declared_work_link_recipe()
+            && shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome/2")?
     {
         facts(program, original, incoming, session)?;
     } else if shape::same_text(
         session.meter_mut(),
         old_schema,
         "ledger-workflow-outcome-correction/1",
-    )? || program.uses_declared_work_link_recipe() && shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome-correction/2")? {
+    )? || program.uses_declared_work_link_recipe()
+        && shape::same_text(
+            session.meter_mut(),
+            old_schema,
+            "ledger-workflow-outcome-correction/2",
+        )?
+    {
         let original_replacement = shape::field(session.meter_mut(), original, "replacement")?;
         let replacement = shape::field(session.meter_mut(), incoming.value(), "replacement")?;
         if replacement.get("kind").is_none() && original_replacement.get("kind").is_none() {

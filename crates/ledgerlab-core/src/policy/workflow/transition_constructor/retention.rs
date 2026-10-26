@@ -399,7 +399,15 @@ pub(super) fn execute_complete<'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [Some(ownership), Some(transfer), None, None, None],
+        control_owners: [
+            Some(ownership),
+            Some(transfer),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
     })
 }
 fn produce<'raw>(
