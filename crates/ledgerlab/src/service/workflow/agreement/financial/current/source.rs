@@ -522,6 +522,100 @@ pub(in super::super) async fn retained_record(
     load(tx, key, r, l, schema, before, s).await
 }
 
+/// Economic retained DATA uses the existing local record kernel, whose digest
+/// domain is scoped workflow-record for semantic IDs. Management document
+/// decoding above deliberately remains restricted to its own families.
+pub(super) fn local_record_value(
+    key: &OperationKey,
+    reference: &ExactRef,
+    raw: &[u8],
+    schema: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedValue> {
+    use ledgerlab_core::policy::workflow::transition_constructor::{
+        select_local_input_edges, OperationKey as CoreKey,
+    };
+    let texts = [
+        &key.logical_store_id,
+        &key.scope[0],
+        &key.scope[1],
+        &key.source,
+        &key.operation_id,
+    ];
+    let mut bytes = std::mem::size_of::<CoreKey>();
+    for text in texts {
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&bytes.into(), &text.len().into()])
+            .map_err(core_error)?;
+        bytes = bytes
+            .checked_add(text.len())
+            .ok_or(ServiceError::Unavailable)?;
+    }
+    let _key_owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let mut copy = |text: &str| -> Result<String> {
+        s.semantic_work()
+            .scan_bytes(text.len())
+            .map_err(core_error)?;
+        let mut value = String::new();
+        value
+            .try_reserve_exact(text.len())
+            .map_err(|_| ServiceError::Unavailable)?;
+        value.push_str(text);
+        Ok(value)
+    };
+    let core_key = CoreKey {
+        logical_store_id: copy(&key.logical_store_id)?,
+        scope: [copy(&key.scope[0])?, copy(&key.scope[1])?],
+        source: copy(&key.source)?,
+        operation_id: copy(&key.operation_id)?,
+    };
+    // This kernel checks canonical bytes, local ID family and scoped digest.
+    // It supplies no origin, currentness, semantic authority or chain proof.
+    let _edges = select_local_input_edges(
+        &core_key,
+        EconomicRecordView {
+            reference,
+            canonical_body: raw,
+        },
+        s,
+    )
+    .map_err(core_error)?;
+    let parsed = s
+        .parse_representation(raw, RepresentationKind::Record)
+        .map_err(core_error)?;
+    super::super::request_wrapper::same_text(
+        super::super::request_wrapper::text(parsed.value(), "schema", s)?,
+        schema,
+        s,
+    )?;
+    Ok(parsed)
+}
+pub(in super::super) async fn retained_local_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    expected: (&str, &str),
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let (reference, lease) = from_value_local(value, s)?;
+    super::super::request_wrapper::same_text(&reference.kind, expected.0, s)?;
+    let stored = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    same(stored.schema.bytes(), expected.1.as_bytes(), s)?;
+    let parsed = local_record_value(key, &reference, stored.body.bytes(), expected.1, s)?;
+    Ok(SourceRecord {
+        parsed,
+        stored,
+        reference,
+        _reference_lease: lease,
+    })
+}
+
 /// Read one retained compiler as DATA before the exact binary-owned support
 /// selector runs. Its schema chooses parsing only; it grants no capability.
 pub(in super::super) async fn retained_compiler_record(

@@ -79,9 +79,9 @@ fn value(row: &AppClaimLocator, s: &mut OriginalAuditSession) -> Result<AuditedV
         .map_err(core_error)?;
     let encoded = wire::object(
         &[
-            ("kind", kind.bytes()),
-            ("id", id.bytes()),
             ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", kind.bytes()),
         ],
         262144,
         s,
@@ -184,12 +184,11 @@ pub(super) async fn acquire(
             break;
         };
         let link_ref = value(&row.record, s)?;
-        let link = source::retained_record(
+        let link = source::retained_local_record(
             tx,
             key,
             link_ref.value(),
-            "workflow-link",
-            "ledger-workflow-link/1",
+            ("workflow-link", "ledger-workflow-link/1"),
             selected.before,
             s,
         )
@@ -218,12 +217,11 @@ pub(super) async fn acquire(
             binding.value(),
             s,
         )?;
-        let predecessor = source::retained_record(
+        let predecessor = source::retained_local_record(
             tx,
             key,
             predecessor.value(),
-            "workflow-work",
-            "ledger-workflow-work-record/1",
+            ("workflow-work", "ledger-workflow-work-record/1"),
             selected.before,
             s,
         )
@@ -271,12 +269,11 @@ pub(super) async fn acquire(
                 "workflow-outcome-claim" => ("ledger-workflow-outcome-claim/2", "outcome.submit"),
                 _ => return Err(ServiceError::IntegrityFailure),
             };
-            let child_body = source::retained_record(
+            let child_body = source::retained_local_record(
                 tx,
                 key,
                 child.value(),
-                child_kind,
-                schema,
+                (child_kind, schema),
                 selected.before,
                 s,
             )
@@ -305,12 +302,11 @@ pub(super) async fn acquire(
             };
             equal(check::field(normalized, "payload", s)?, child_payload, s)?;
             let initial = unique_result(origin.wrappers().receipt(), "workflow-decision", s)?;
-            let initial_body = source::retained_record(
+            let initial_body = source::retained_local_record(
                 tx,
                 key,
                 initial,
-                "workflow-decision",
-                "ledger-workflow-decision-revision/1",
+                ("workflow-decision", "ledger-workflow-decision-revision/1"),
                 selected.before,
                 s,
             )
@@ -329,12 +325,11 @@ pub(super) async fn acquire(
             pool.add(initial_body.reference(), s)?;
             if child_kind == "workflow-work" {
                 let claim = unique_result(origin.wrappers().receipt(), "workflow-work-claim", s)?;
-                let claim_body = source::retained_record(
+                let claim_body = source::retained_local_record(
                     tx,
                     key,
                     claim,
-                    "workflow-work-claim",
-                    "ledger-workflow-work-claim/1",
+                    ("workflow-work-claim", "ledger-workflow-work-claim/1"),
                     selected.before,
                     s,
                 )
@@ -381,3 +376,7 @@ pub(super) async fn acquire(
     pool.complete(tx, key, selected.before, s).await?;
     Ok(out)
 }
+
+#[cfg(test)]
+#[path = "chain_links_tests.rs"]
+mod tests;
