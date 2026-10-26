@@ -152,7 +152,7 @@ class PolicyJourney(AttestedJourney):
         self.reverse(work, "main-reverse")
         self.total("main", 0)
         operations = ["publication", "acceptance", "activation", "issuer-enroll", "issuer-revoke",
-            "main-quantity-proof", "main-quantity-replacement-proof", "main-work", "main-observation",
+            "main-work", "main-observation",
             "main-final-evidence-1", "main-finalize", "main-success-outcome", "main-success-occurrence",
             "main-success", "main-quantity-correct", "main-reverse"]
         self.reopen_retry(operations)

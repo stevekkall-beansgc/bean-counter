@@ -254,7 +254,6 @@
       "customer-B"
     ],
     "operations": [
-      "authority.change",
       "evidence.retain"
     ],
     "product_selectors": [
@@ -276,7 +275,6 @@
       "support:meter"
     ],
     "permissions": [
-      "admin",
       "read",
       "submit"
     ],

@@ -352,8 +352,8 @@
       "policy_id": "policy:converted-attested-service",
       "product_ref": {
         "kind": "workflow-product",
-        "id": "wdoc_e4446593e24c8a1b56b27f275860cb7c41bc9f606388b14b6c7b7b3a1b0bf415",
-        "digest": "sha256:e4446593e24c8a1b56b27f275860cb7c41bc9f606388b14b6c7b7b3a1b0bf415"
+        "id": "wdoc_2131eddc06905c88c3c45747d5120448f52ef3de97c6961805a4eb8631d5b461",
+        "digest": "sha256:2131eddc06905c88c3c45747d5120448f52ef3de97c6961805a4eb8631d5b461"
       },
       "rounding": "nearest_ties_away",
       "rules": [
@@ -442,7 +442,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_f46b52404683ebd48d9640c6ad0cace847124bf8231d391b06e117535dd19883",
-    "digest": "sha256:f46b52404683ebd48d9640c6ad0cace847124bf8231d391b06e117535dd19883"
+    "id": "wdoc_ea79ff43e65b958b527433d234db7d825be10d30ba3ff9740a12fc5b754964a0",
+    "digest": "sha256:ea79ff43e65b958b527433d234db7d825be10d30ba3ff9740a12fc5b754964a0"
   }
 }
