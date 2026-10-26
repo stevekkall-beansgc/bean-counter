@@ -78,6 +78,16 @@ impl SelectedCompilerSupport {
             execution_registry: Some(super::local::POLICY_CONTEXT_REGISTRY),
         })
     }
+    /// Exact additive Work lifecycle support; retained DATA grants no capability.
+    pub fn local_work_lifecycle_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_work_lifecycle_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::LOCAL_WORK_LIFECYCLE_REGISTRY),
+        })
+    }
     #[cfg(test)]
     pub(super) fn legacy_local_for_test(
         session: &mut crate::validation_work::OriginalAuditSession,
