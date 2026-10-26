@@ -924,3 +924,213 @@ fn lifecycle_exact_factory_and_saved_reload_preserve_recipe_identity_under_sourc
     // This proves exact recipe dispatch/reload only. Failed/Reference/current
     // lifecycle input and original consumer completion are still SOURCE_HOLD.
 }
+
+#[test]
+fn lifecycle_failed_work_uses_real_status_zero_steps_and_no_promised_heads() {
+    // Production pricing/step/parent selectors; custody/append is host proof.
+    let (_arena, mut s) = session();
+    let support =
+        SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
+    let mut source = policy_context_input(&support);
+    for raw in &mut source.documents {
+        let mut value: Value = serde_json::from_slice(raw).unwrap();
+        if value["schema"] == "ledger-workflow-policy/4" {
+            value["rules"][0]["when"]["args"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"op":"eq","field":{"context":"status"},"value":"succeeded"}));
+            source.root_policy_ref =
+                serde_json::from_value(reference("workflow-policy", &value)).unwrap();
+        }
+        *raw = canonical::CanonicalBytes::from_value(&value)
+            .unwrap()
+            .into_vec();
+    }
+    let p = compile_selected_publication(source, &support, &mut s).unwrap();
+    let context = json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":"support:billable"}});
+    let binding = json!({"agreement_id":"agreement","bindings":[{"slot":"support:retail"}],"funding_legs":[{"name":"support:aaa-platform","mode":"platform"},{"name":"support:customer","mode":"customer_local"}]});
+    let inst = json!({"component_map":[{"template_key":"support:service","slot_id":"service"},{"template_key":"support:model-retail","slot_id":"app"}],"family_map":[{"template_key":"support:quality","slot_id":"quality"}]});
+    for (status, quantity, atoms, heads) in [
+        ("succeeded", "90", 150_000_000_000_000_000i128, 2usize),
+        ("succeeded", "30", 0, 1),
+        ("succeeded", "0", 0, 1),
+        ("failed", "90", 0, 0),
+        ("failed", "0", 0, 0),
+    ] {
+        let subject = json!({"activity":"support:complete","status":status,"facts":{"support:quantity":quantity,"support:approved":true}});
+        let prices = pricing::work_subject(
+            &p,
+            ("support:complete", &subject),
+            (&subject["facts"], &context),
+            Some((&binding, "urn:example:original-worker")),
+            s.meter_mut(),
+        )
+        .unwrap();
+        assert_eq!(prices.len(), 1);
+        assert_eq!(prices[0].atoms, atoms);
+        assert_eq!(prices[0].failed, status == "failed");
+        let mut selected = 0usize;
+        input_selection::head_rows(
+            &p,
+            (
+                &subject,
+                &context,
+                Some((&binding, "urn:example:original-worker")),
+            ),
+            &inst,
+            s.meter_mut(),
+            &mut |_, _, _| {
+                selected += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(selected, heads);
+        if status == "failed" {
+            assert_eq!(prices[0].rational.numerator.to_string(), "0");
+            assert_eq!(prices[0].rational.denominator.to_string(), "1");
+            let key = super::super::OperationKey {
+                logical_store_id: "store".into(),
+                scope: ["org".into(), "local".into()],
+                source: "urn:example:original-worker".into(),
+                operation_id: "failed".into(),
+            };
+            let r = |kind: &str, prefix: &str| super::super::ExactRef {
+                kind: kind.into(),
+                id: format!("{prefix}{}", "a".repeat(64)),
+                digest: format!("sha256:{}", "b".repeat(64)),
+            };
+            let posting = super::super::cost_postings::original_cost_posting_key(
+                s.meter_mut(),
+                &key,
+                super::super::cost_postings::OriginalCostPosting {
+                    binding: &binding,
+                    original_work_claim: &r("workflow-work-claim", "wclaim_"),
+                    component_slot: &json!("service"),
+                    root_slot: &json!("service"),
+                    book: &json!("retail"),
+                    terms_ref: &r("workflow-slot-terms", "wdoc_"),
+                    terms: &json!({"funding_leg":"support:customer"}),
+                    role_ref: &r("workflow-roles", "wdoc_"),
+                    decision_id: "decision",
+                    revision: &1.into(),
+                    replacement: false,
+                    basis_refs: None,
+                },
+                &prices[0],
+            )
+            .unwrap();
+            assert!(posting.action.is_none());
+            assert_eq!(posting.step.value()["disposition"], "failed_work");
+            assert_eq!(posting.step.value()["rounded"]["atoms"], "0");
+            assert!(posting.step.value().get("action_ref").is_none());
+        }
+    }
+    // A failed-only rule cannot witness reachable completion billing. The old
+    // descriptor must not acquire status from the familiar typed AST shape.
+    for lifecycle in [true, false] {
+        let (_arena, mut s) = session();
+        let support = if lifecycle {
+            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s)
+        } else {
+            SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s)
+        }
+        .unwrap();
+        let mut source = policy_context_input(&support);
+        for raw in &mut source.documents {
+            let mut value: Value = serde_json::from_slice(raw).unwrap();
+            if value["schema"] == "ledger-workflow-policy/4" {
+                value["rules"][0]["when"] =
+                    json!({"op":"eq","field":{"context":"status"},"value":"failed"});
+                source.root_policy_ref =
+                    serde_json::from_value(reference("workflow-policy", &value)).unwrap();
+            }
+            *raw = canonical::CanonicalBytes::from_value(&value)
+                .unwrap()
+                .into_vec();
+        }
+        let error = compile_selected_publication(source, &support, &mut s)
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.detail,
+            if lifecycle {
+                "unreachable monetary rule"
+            } else {
+                "original predicate context capability"
+            }
+        );
+    }
+    // Price eligibility is narrower than the declared nonnegative fact
+    // domain. A selected Unit needs positive quantity, including replacement;
+    // a positive quantity that prices to zero remains a selected root.
+    for zero_only in [true, false] {
+        let (_arena, mut s) = session();
+        let support =
+            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
+        let mut source = policy_context_input(&support);
+        for raw in &mut source.documents {
+            let mut value: Value = serde_json::from_slice(raw).unwrap();
+            if value["schema"] == "ledger-workflow-policy/4" {
+                value["rules"][0]["when"] = if zero_only {
+                    json!({"op":"eq","field":{"fact":"support:quantity"},"value":"0"})
+                } else {
+                    json!({"op":"true"})
+                };
+                value["rules"][0]["formula"]["rate"] = json!("0");
+                source.root_policy_ref =
+                    serde_json::from_value(reference("workflow-policy", &value)).unwrap();
+            }
+            *raw = canonical::CanonicalBytes::from_value(&value)
+                .unwrap()
+                .into_vec();
+        }
+        let compiled = compile_selected_publication(source, &support, &mut s);
+        if zero_only {
+            assert_eq!(compiled.err().unwrap().detail, "unreachable monetary rule");
+            continue;
+        }
+        let p = compiled.unwrap();
+        for (status, q, valid) in [
+            ("succeeded", "0", false),
+            ("failed", "0", true),
+            ("succeeded", "1", true),
+        ] {
+            let subject = json!({"activity":"support:complete","status":status,"facts":{"support:quantity":q,"support:approved":true}});
+            let prices = pricing::work_subject(
+                &p,
+                ("support:complete", &subject),
+                (&subject["facts"], &context),
+                Some((&binding, "urn:example:original-worker")),
+                s.meter_mut(),
+            );
+            if !valid {
+                assert_eq!(
+                    prices.err().unwrap().detail,
+                    "successful selected quantity must be positive"
+                );
+            } else {
+                let prices = prices.unwrap();
+                assert_eq!(prices[0].atoms, 0);
+                assert!(prices[0].predicate);
+                let mut heads = 0usize;
+                input_selection::head_rows(
+                    &p,
+                    (
+                        &subject,
+                        &context,
+                        Some((&binding, "urn:example:original-worker")),
+                    ),
+                    &inst,
+                    s.meter_mut(),
+                    &mut |_, _, _| {
+                        heads += 1;
+                        Ok(())
+                    },
+                )
+                .unwrap();
+                assert_eq!(heads, if status == "failed" { 0 } else { 2 });
+            }
+        }
+    }
+}

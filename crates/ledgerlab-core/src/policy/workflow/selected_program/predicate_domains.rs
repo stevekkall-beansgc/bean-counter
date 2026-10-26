@@ -313,6 +313,14 @@ fn operational_domain<'a>(
             m.write_bytes(mode.len())?;
             add(m, &mut values, FactValue::Enum(mode.to_owned()))?;
         }
+    } else if name == "status" {
+        // Completion-price reachability/producer implication ranges over
+        // successful Work only. Failed Work is globally zero-price even when
+        // its predicate would otherwise be true; it cannot witness a billable
+        // program or impose a monetary dependency in an impossible price cell.
+        m.scan_bytes("succeeded".len())?;
+        m.write_bytes("succeeded".len())?;
+        add(m, &mut values, FactValue::Enum("succeeded".to_owned()))?;
     } else if name == "source" {
         for condition in conditions {
             atoms(m, condition, &mut |field, value, m| {
@@ -360,6 +368,7 @@ fn domain<'a>(
     conditions: &[&Predicate],
     activity: &FactSchema,
     context: &FactSchema,
+    positive_quantity: bool,
 ) -> Result<Domain<'a>> {
     if let TypedOperand::Context { context: name } = operand {
         return operational_domain(m, operand, conditions, name);
@@ -586,7 +595,8 @@ fn domain<'a>(
     for index in 0..values.len() {
         let mut duplicate = false;
         for prior in 0..unique {
-            let mut same = true;
+            let mut same = !positive_quantity
+                || quantity_positive(m, &values[prior])? == quantity_positive(m, &values[index])?;
             for condition in conditions {
                 if !equivalent(
                     m,
@@ -618,6 +628,15 @@ fn domain<'a>(
         values,
         _owner: owner,
     })
+}
+
+fn quantity_positive(m: &mut CoreMeter, value: &FactValue) -> Result<bool> {
+    let text = match value {
+        FactValue::Integer(value) | FactValue::Decimal(value) => value.as_str(),
+        _ => return Err(bad("required numeric monetary quantity")),
+    };
+    let value = arithmetic::decimal(m, text)?;
+    Ok(cmp(m, &value.numerator, &BigInt::zero())?.is_gt())
 }
 
 fn evaluate(
@@ -748,7 +767,7 @@ pub(super) fn prove(
     activity: &FactSchema,
     context: &FactSchema,
 ) -> Result<()> {
-    prove_scoped(m, conditions, implications, activity, context, None)
+    prove_scoped(m, conditions, implications, activity, context, None, None)
 }
 pub(super) fn prove_scoped(
     m: &mut CoreMeter,
@@ -757,10 +776,16 @@ pub(super) fn prove_scoped(
     activity: &FactSchema,
     context: &FactSchema,
     funding_legs: Option<&[&str]>,
+    quantities: Option<&[Option<&str>]>,
 ) -> Result<()> {
     if let Some(legs) = funding_legs {
         if !w::compare(m, legs.len(), conditions.len())?.is_eq() {
             return Err(bad("predicate per-rule funding leg count"));
+        }
+    }
+    if let Some(quantities) = quantities {
+        if !w::compare(m, quantities.len(), conditions.len())?.is_eq() {
+            return Err(bad("predicate per-rule quantity count"));
         }
     }
     if w::compare(m, conditions.len(), 64usize)?.is_gt() {
@@ -780,6 +805,12 @@ pub(super) fn prove_scoped(
         std::mem::size_of::<bool>() + std::mem::size_of::<Truth>(),
     )?;
     let size = w::usize_add(m, size, rows)?;
+    let size = if quantities.is_some() {
+        let extra = w::usize_add(m, conditions.len(), std::mem::size_of::<Vec<bool>>())?;
+        w::usize_add(m, size, extra)?
+    } else {
+        size
+    };
     let _owner = m
         .representation_arena()
         .map(|a| a.reserve_external_payload(size, m))
@@ -790,6 +821,21 @@ pub(super) fn prove_scoped(
         .representation_arena()
         .map(|a| a.reserve_external_payload(8192, m))
         .transpose()?;
+    let mut positive_possible = Vec::new();
+    if let Some(quantities) = quantities {
+        positive_possible
+            .try_reserve_exact(quantities.len())
+            .map_err(|_| bad("predicate quantity allocation"))?;
+        for name in quantities {
+            positive_possible.push(match name {
+                Some(name) => {
+                    let maximum = activity.maximum_quantity_complete_with_work(name, None, m)?;
+                    quantity_positive(m, &maximum)?
+                }
+                None => true,
+            });
+        }
+    }
     let mut domains = Vec::new();
     domains
         .try_reserve_exact(256)
@@ -807,7 +853,15 @@ pub(super) fn prove_scoped(
             if w::compare(m, domains.len(), 256usize)?.is_ge() {
                 return Err(bad("predicate operand count"));
             }
-            let mut next = domain(m, field, conditions, activity, context)?;
+            let mut positive_quantity = false;
+            if let (Some(quantities), TypedOperand::Fact { fact }) = (quantities, field) {
+                for name in quantities.iter().flatten() {
+                    if shape::same_text(m, name, fact)? {
+                        positive_quantity = true;
+                    }
+                }
+            }
+            let mut next = domain(m, field, conditions, activity, context, positive_quantity)?;
             if let TypedOperand::Context { context: name } = field {
                 if shape::same_text(m, name, "funding_mode")? {
                     next.funding_leg =
@@ -849,17 +903,45 @@ pub(super) fn prove_scoped(
                 funding_legs.map(|legs| legs[index]),
             )?;
             m.write_bytes(std::mem::size_of::<bool>() + std::mem::size_of::<Truth>())?;
-            reachable[index] |= result == Truth::True;
             truth.push(result);
         }
-        for &(producer, consumer) in implications {
-            if w::compare(m, producer, truth.len())?.is_ge()
-                || w::compare(m, consumer, truth.len())?.is_ge()
-            {
-                return Err(bad("predicate dependency index"));
+        // A selected succeeded Unit with zero quantity refuses the whole
+        // Work. Such cells cannot establish any monetary reachability or
+        // producer implication. Unmentioned independent quantity operands can
+        // choose their positive schema witness without multiplying cells.
+        let mut eligible = true;
+        if let Some(quantities) = quantities {
+            for (index, name) in quantities.iter().enumerate() {
+                if truth[index] != Truth::True {
+                    continue;
+                }
+                if let Some(name) = name {
+                    let mut positive = positive_possible[index];
+                    for (i, domain) in domains.iter().enumerate() {
+                        if let TypedOperand::Fact { fact } = domain.operand {
+                            if shape::same_text(m, name, fact)? {
+                                positive = quantity_positive(m, &domain.values[cell[i]])?;
+                                break;
+                            }
+                        }
+                    }
+                    eligible &= positive;
+                }
             }
-            if truth[consumer] == Truth::True && truth[producer] != Truth::True {
-                return Err(bad("dependent predicate does not imply producer"));
+        }
+        if eligible {
+            for (index, value) in truth.iter().enumerate() {
+                reachable[index] |= *value == Truth::True;
+            }
+            for &(producer, consumer) in implications {
+                if w::compare(m, producer, truth.len())?.is_ge()
+                    || w::compare(m, consumer, truth.len())?.is_ge()
+                {
+                    return Err(bad("predicate dependency index"));
+                }
+                if truth[consumer] == Truth::True && truth[producer] != Truth::True {
+                    return Err(bad("dependent predicate does not imply producer"));
+                }
             }
         }
         for (index, domain) in domains.iter().enumerate() {
@@ -909,6 +991,7 @@ mod tests {
             &schema,
             &schema,
             Some(&["leg:shared", "leg:shared"]),
+            None,
         )
         .unwrap();
         let error = prove_scoped(
@@ -918,6 +1001,7 @@ mod tests {
             &schema,
             &schema,
             Some(&["leg:producer", "leg:consumer"]),
+            None,
         )
         .unwrap_err();
         assert_eq!(error.detail, "dependent predicate does not imply producer");
@@ -933,6 +1017,7 @@ mod tests {
             &schema,
             &schema,
             Some(&["leg:a", "leg:b"]),
+            None,
         )
         .unwrap();
         assert!(prove_scoped(
@@ -941,7 +1026,8 @@ mod tests {
             &[(0, 1)],
             &schema,
             &schema,
-            Some(&["leg:a", "leg:b"])
+            Some(&["leg:a", "leg:b"]),
+            None
         )
         .is_err());
         let other = condition(
@@ -954,6 +1040,7 @@ mod tests {
             &schema,
             &schema,
             Some(&["leg:a"]),
+            None,
         )
         .unwrap();
     }

@@ -562,9 +562,9 @@ fn prepare(
     } else {
         None
     };
-    let old_prices = pricing::work_operational(
+    let old_prices = pricing::work_subject(
         program,
-        activity_name,
+        (activity_name, &payload),
         (current_facts, &evaluation["context"]),
         context_binding
             .as_ref()
@@ -842,9 +842,9 @@ fn prepare(
     let new_prices = if reverse {
         pricing::PricedInstructions::empty()
     } else {
-        pricing::work_operational(
+        pricing::work_subject(
             program,
-            activity_name,
+            (activity_name, &payload),
             (&replacement_facts, &operands.binding["accepted_context"]),
             Some((&operands.binding, event_source)),
             m,
@@ -1919,7 +1919,13 @@ fn execute_with_state<'inv, 'raw>(
     } else {
         None
     };
-    let app_closures = if program.uses_app_owned_cost_recipe() {
+    let failed_original = if program.uses_work_lifecycle_recipe() {
+        let status = text(m, &plan.payload, "status")?;
+        shape::same_text(m, status, "failed")?
+    } else {
+        false
+    };
+    let app_closures = if program.uses_app_owned_cost_recipe() && !failed_original {
         let complete = complete_state
             .ok_or_else(|| shape::fail("app root closure requires complete economic state"))?;
         Some(super::app_cost::causal::prepare(

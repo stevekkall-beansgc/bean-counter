@@ -1913,9 +1913,9 @@ pub(super) fn verify_original_actions(
     } else {
         ""
     };
-    let prices = pricing::work_operational(
+    let prices = pricing::work_subject(
         program,
-        activity,
+        (activity, p),
         (
             facts.canonical_value(),
             &operands.binding["accepted_context"],

@@ -488,9 +488,9 @@ pub(super) fn prepare(
         } else {
             ""
         };
-        let original_prices = pricing::work_operational(
+        let original_prices = pricing::work_subject(
             program,
-            activity,
+            (activity, &plan.payload),
             (
                 &plan.payload["facts"],
                 &plan.operands.binding["accepted_context"],

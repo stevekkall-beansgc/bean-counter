@@ -222,9 +222,9 @@ pub(super) fn verify(
     } else {
         ""
     };
-    let prices = pricing::work_operational(
+    let prices = pricing::work_subject(
         program,
-        activity,
+        (activity, &plan.payload),
         (normalized.canonical_value(), &evaluation["context"]),
         Some((&plan.operands.binding, event_source)),
         m,

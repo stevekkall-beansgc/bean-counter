@@ -250,12 +250,21 @@ pub(super) fn derive_financial_data(
         program.compiled_plan().canonical_value(),
         "typed_instructions",
     )?;
+    let failed = if program.uses_work_lifecycle_recipe() {
+        let status = shape::text(m, payload, "status")?;
+        shape::same_text(m, status, "failed")?
+    } else {
+        false
+    };
     let mut family_count = 0usize;
     let mut roots = 0usize;
     let mut delayed_count = 0usize;
     let mut app_count = 0usize;
     for instruction in instructions {
         m.visit("capacity.original_instruction_dimension")?;
+        if failed {
+            continue;
+        }
         let opcode = shape::text(m, instruction, "opcode")?;
         if shape::same_text(m, opcode, "evaluate_rule")? {
             if shape::same(m, &instruction["rule"]["activity"], &payload["activity"])? {
@@ -375,6 +384,9 @@ pub(super) fn derive_financial_data(
     }
     for instruction in instructions {
         m.visit("capacity.delayed_original_instruction")?;
+        if failed {
+            continue;
+        }
         let opcode = shape::text(m, instruction, "opcode")?;
         if !shape::same_text(m, opcode, "evaluate_rule")? {
             continue;
@@ -442,6 +454,9 @@ pub(super) fn derive_financial_data(
     }
     for instruction in instructions {
         m.visit("capacity.app_original_instruction")?;
+        if failed {
+            continue;
+        }
         let opcode = shape::text(m, instruction, "opcode")?;
         if !shape::same_text(m, opcode, "evaluate_rule")? {
             continue;

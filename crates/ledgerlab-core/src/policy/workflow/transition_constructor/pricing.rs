@@ -19,6 +19,7 @@ pub(super) struct PricedInstruction {
     pub rational: Ratio,
     pub atoms: i128,
     pub predicate: bool,
+    pub failed: bool,
     pub predicate_state: &'static str,
     // Row payload survives pop/iteration independently of the vector owner.
     pub(super) _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
@@ -287,6 +288,63 @@ pub(super) fn work_operational(
         )
     }
 }
+/// Real immutable Work status is separate from current authority and from
+/// eligibility. Failed completion evaluates its predicate for explanation but
+/// never evaluates completion-price arithmetic or produces a monetary effect.
+pub(super) fn work_subject(
+    program: &SelectedProgram,
+    original: (&str, &Value),
+    inputs: (&Value, &Value),
+    operational: Option<(&Value, &str)>,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    let (activity, subject) = original;
+    if !program.uses_work_lifecycle_recipe() {
+        return work_operational(program, activity, inputs, operational, m);
+    }
+    let status = shape::text(m, subject, "status")?;
+    if !matches!(status, "succeeded" | "failed") {
+        return Err(fail("Work completion status"));
+    }
+    let instructions = shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )?;
+    let components = shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "component_slots",
+    )?;
+    price_instructions_selected_mode(
+        instructions,
+        components,
+        activity,
+        inputs.0,
+        m,
+        (
+            Some(CostSelection::AppDeferred),
+            Some((program, inputs.1, operational)),
+        ),
+        PriceMode::Work(status),
+    )
+}
+pub(super) fn work_subject_exposure_bound(
+    program: &SelectedProgram,
+    original: (&str, &Value),
+    inputs: (&Value, &Value),
+    operational: Option<(&Value, &str)>,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    let (activity, subject) = original;
+    if program.uses_work_lifecycle_recipe() {
+        let status = shape::text(m, subject, "status")?;
+        if shape::same_text(m, status, "failed")? {
+            return work_subject(program, original, inputs, operational, m);
+        }
+    }
+    work_exposure_bound(program, activity, inputs, m)
+}
 /// Conservative future positive exposure for the supported independent
 /// Fixed/Unit producer. Eligibility is ignored ONLY in this DATA bound; actual
 /// prices, targets and evaluations always use the original predicate.
@@ -319,7 +377,7 @@ pub(super) fn work_exposure_bound(
             Some(CostSelection::AppDeferred),
             Some((program, inputs.1, None)),
         ),
-        true,
+        PriceMode::Exposure,
     )
 }
 #[cfg(test)]
@@ -388,6 +446,57 @@ pub(super) fn app_final_cost_operational(
     eligible_atoms: &BigInt,
     m: &mut CoreMeter,
 ) -> Result<PricedInstructions> {
+    app_final_cost_mode(
+        program,
+        activity,
+        component_key,
+        original_inputs,
+        eligible_atoms,
+        m,
+        PriceMode::Actual,
+    )
+}
+pub(super) fn app_final_cost_work(
+    program: &SelectedProgram,
+    original: (&str, &Value),
+    component_key: &str,
+    original_inputs: ((&Value, &Value), Option<(&Value, &str)>),
+    eligible_atoms: &BigInt,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    if !program.uses_work_lifecycle_recipe() {
+        return app_final_cost_operational(
+            program,
+            original.0,
+            component_key,
+            original_inputs,
+            eligible_atoms,
+            m,
+        );
+    }
+    let status = shape::text(m, original.1, "status")?;
+    if !shape::same_text(m, status, "succeeded")? {
+        return Err(fail("app cost requires successful original Work"));
+    }
+    app_final_cost_mode(
+        program,
+        original.0,
+        component_key,
+        original_inputs,
+        eligible_atoms,
+        m,
+        PriceMode::Work(status),
+    )
+}
+fn app_final_cost_mode(
+    program: &SelectedProgram,
+    activity: &str,
+    component_key: &str,
+    original_inputs: ((&Value, &Value), Option<(&Value, &str)>),
+    eligible_atoms: &BigInt,
+    m: &mut CoreMeter,
+    mode: PriceMode<'_>,
+) -> Result<PricedInstructions> {
     let (original_inputs, operational) = original_inputs;
     if !program.uses_app_owned_cost_recipe() {
         return Err(Error::new(
@@ -416,7 +525,7 @@ pub(super) fn app_final_cost_operational(
     {
         return Err(fail("eligible attributable amount"));
     }
-    price_instructions_selected(
+    price_instructions_selected_mode(
         instructions,
         components,
         activity,
@@ -429,6 +538,7 @@ pub(super) fn app_final_cost_operational(
             }),
             condition,
         ),
+        mode,
     )
 }
 fn price_instructions_selected(
@@ -446,8 +556,13 @@ fn price_instructions_selected(
         normalized_facts,
         m,
         selections,
-        false,
+        PriceMode::Actual,
     )
+}
+enum PriceMode<'a> {
+    Actual,
+    Exposure,
+    Work(&'a str),
 }
 fn price_instructions_selected_mode(
     instructions: &[Value],
@@ -456,8 +571,14 @@ fn price_instructions_selected_mode(
     normalized_facts: &Value,
     m: &mut CoreMeter,
     selections: PricingSelections<'_>,
-    exposure_bound: bool,
+    mode: PriceMode<'_>,
 ) -> Result<PricedInstructions> {
+    let exposure_bound = matches!(mode, PriceMode::Exposure);
+    let work_status = match mode {
+        PriceMode::Work(status) => Some(status),
+        _ => None,
+    };
+    let failed = matches!(work_status, Some("failed"));
     let (selection, condition) = selections;
     m.phase(Phase::Pricing);
     let scale = arithmetic::integer(m, "1000000000000000000", false)?;
@@ -568,22 +689,34 @@ fn price_instructions_selected_mode(
             match condition {
                 Some((program, context, operational)) => {
                     let slot = shape::text(m, rule, "binding_slot")?;
-                    program.evaluate_rule_condition_operational(
-                        m,
-                        &rule["when"],
-                        activity,
-                        normalized_facts,
-                        (
-                            context,
-                            operational.map(|(binding, source)| (binding, source, slot)),
-                        ),
-                    )?
+                    let contexts = (
+                        context,
+                        operational.map(|(binding, source)| (binding, source, slot)),
+                    );
+                    if let Some(status) = work_status {
+                        program.evaluate_work_rule_condition_operational(
+                            m,
+                            &rule["when"],
+                            activity,
+                            normalized_facts,
+                            contexts,
+                            status,
+                        )?
+                    } else {
+                        program.evaluate_rule_condition_operational(
+                            m,
+                            &rule["when"],
+                            activity,
+                            normalized_facts,
+                            contexts,
+                        )?
+                    }
                 }
                 None => "true",
             }
         };
         let predicate = predicate_state == "true";
-        let rational = if !predicate {
+        let rational = if failed || !predicate {
             Ratio {
                 numerator: BigInt::from(0),
                 denominator: BigInt::one(),
@@ -630,6 +763,11 @@ fn price_instructions_selected_mode(
                             denominator: BigInt::one(),
                         }
                     };
+                    if condition.is_some_and(|(program, _, _)| program.uses_work_lifecycle_recipe())
+                        && !meter::cmp(m, &quantity.numerator, &BigInt::from(0))?.is_gt()
+                    {
+                        return Err(fail("successful selected quantity must be positive"));
+                    }
                     let rate = arithmetic::decimal(
                         m,
                         formula["rate"].as_str().ok_or_else(|| fail("unit rate"))?,
@@ -754,6 +892,7 @@ fn price_instructions_selected_mode(
         }
         output.push(PricedInstruction {
             predicate,
+            failed,
             predicate_state,
             ordinal: copied(
                 m,

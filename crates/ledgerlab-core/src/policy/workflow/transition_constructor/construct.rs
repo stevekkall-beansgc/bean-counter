@@ -381,7 +381,10 @@ fn execute_parsed<'inv, 'raw>(
     if program.uses_declared_work_link_recipe() {
         super::declared_links::validate_inputs(m, program, &p)?;
     }
-    if !shape::same(m, &p["status"], &json!("succeeded"))? {
+    if !shape::same(m, &p["status"], &json!("succeeded"))?
+        && (!program.uses_work_lifecycle_recipe()
+            || !shape::same(m, &p["status"], &json!("failed"))?)
+    {
         return Err(unsupported("failed work construction pending"));
     }
     super::inventory::entry::validate_selected(m, c, &p, state, program)?;
@@ -700,9 +703,9 @@ fn execute_parsed<'inv, 'raw>(
             &json!([claim_id, "work"]),
         )?
     };
-    let prices = pricing::work_operational(
+    let prices = pricing::work_subject(
         program,
-        activity_name,
+        (activity_name, &p),
         (&p["facts"], &a.binding["accepted_context"]),
         Some((&a.binding, &c.key.source)),
         m,
@@ -903,7 +906,9 @@ fn execute_parsed<'inv, 'raw>(
         )?;
         let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
         let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
-        let disposition = if !price.predicate {
+        let disposition = if price.failed {
+            "failed_work"
+        } else if !price.predicate {
             "predicate_not_true"
         } else if nonzero {
             "posted"

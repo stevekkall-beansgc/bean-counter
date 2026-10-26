@@ -324,6 +324,38 @@ impl SelectedProgram {
         facts: &Value,
         contexts: (&Value, Option<(&Value, &str, &str)>),
     ) -> Result<&'static str> {
+        self.evaluate_condition_inputs(m, condition, activity, facts, contexts, None)
+    }
+    pub(in crate::policy::workflow) fn evaluate_work_rule_condition_operational(
+        &self,
+        m: &mut CoreMeter,
+        condition: &Value,
+        activity: &str,
+        facts: &Value,
+        contexts: (&Value, Option<(&Value, &str, &str)>),
+        status: &str,
+    ) -> Result<&'static str> {
+        if self.uses_work_lifecycle_recipe() && !matches!(status, "succeeded" | "failed") {
+            return Err(err("original Work predicate status"));
+        }
+        self.evaluate_condition_inputs(
+            m,
+            condition,
+            activity,
+            facts,
+            contexts,
+            self.uses_work_lifecycle_recipe().then_some(status),
+        )
+    }
+    fn evaluate_condition_inputs(
+        &self,
+        m: &mut CoreMeter,
+        condition: &Value,
+        activity: &str,
+        facts: &Value,
+        contexts: (&Value, Option<(&Value, &str, &str)>),
+        work_status: Option<&str>,
+    ) -> Result<&'static str> {
         let (context, operational) = contexts;
         if !self.uses_policy_semantics_recipe() {
             return Ok(if self.evaluate_work_condition(m, condition, context)? {
@@ -372,6 +404,7 @@ impl SelectedProgram {
             } else {
                 None
             },
+            work_status,
         };
         Ok(predicate::evaluate(m, condition, &inputs)?.as_str())
     }
@@ -413,11 +446,23 @@ impl SelectedProgram {
         component: &str,
         contexts: (&Value, Option<(&Value, &str)>),
     ) -> Result<bool> {
+        use crate::policy::workflow::transition_constructor::shape;
         let (context, operational) = contexts;
+        let work_status = if self.uses_work_lifecycle_recipe() {
+            let status = shape::text(m, payload, "status")?;
+            if same_literal(m, status, "failed")? {
+                return Ok(false);
+            }
+            if !same_literal(m, status, "succeeded")? {
+                return Err(err("Work status"));
+            }
+            Some(status)
+        } else {
+            None
+        };
         if !self.uses_policy_semantics_recipe() {
             return self.root_is_selected(m, &payload["activity"], component, context);
         }
-        use crate::policy::workflow::transition_constructor::shape;
         let activity = shape::text(m, payload, "activity")?;
         let mut selected = None;
         for row in shape::array(
@@ -440,7 +485,7 @@ impl SelectedProgram {
             }
             let binding_slot = shape::text(m, rule, "binding_slot")?;
             selected = Some(
-                self.evaluate_rule_condition_operational(
+                self.evaluate_work_rule_condition_operational(
                     m,
                     &rule["when"],
                     activity,
@@ -449,6 +494,7 @@ impl SelectedProgram {
                         context,
                         operational.map(|(binding, source)| (binding, source, binding_slot)),
                     ),
+                    work_status.unwrap_or("succeeded"),
                 )? == "true",
             );
         }
@@ -915,7 +961,7 @@ fn normalize_policy_predicates(
     p: &mut Policy,
     product: &Product,
     schemas: &[FactSchema],
-    operational: bool,
+    recipe: SelectedRecipe,
 ) -> Result<()> {
     let _scratch = m
         .representation_arena()
@@ -928,14 +974,18 @@ fn normalize_policy_predicates(
             .activity_with_work(&rule.activity, m)?
             .ok_or_else(|| err("predicate activity"))?;
         let schema = predicate_schema(m, schemas, activity.fact_schema_id())?;
-        predicate::normalize_with_operational(
-            m,
-            &mut rule.when,
-            schema,
-            context,
-            &mut nodes,
-            operational,
-        )?;
+        if matches!(recipe, SelectedRecipe::LocalWorkLifecycle1) {
+            predicate::normalize_work_lifecycle(m, &mut rule.when, schema, context, &mut nodes)?;
+        } else {
+            predicate::normalize_with_operational(
+                m,
+                &mut rule.when,
+                schema,
+                context,
+                &mut nodes,
+                matches!(recipe, SelectedRecipe::LocalPolicySemantics2),
+            )?;
+        }
     }
     Ok(())
 }
@@ -944,6 +994,7 @@ fn prove_policy_predicates(
     p: &Policy,
     product: &Product,
     schemas: &[FactSchema],
+    lifecycle: bool,
 ) -> Result<()> {
     let _scratch = m
         .representation_arena()
@@ -970,11 +1021,32 @@ fn prove_policy_predicates(
             .checked_mul(per)
             .ok_or_else(|| err("predicate rule metadata"))?;
         let bytes = work::usize_add(m, bytes, 4 * std::mem::size_of::<Vec<usize>>())?;
+        let bytes = if lifecycle {
+            let per = std::mem::size_of::<Option<&str>>();
+            work::ValidationWork::arithmetic(
+                m,
+                work::ArithmeticOperation::Multiply,
+                &[&count.into(), &per.into()],
+            )?;
+            let extra = count
+                .checked_mul(per)
+                .ok_or_else(|| err("predicate quantity metadata"))?;
+            let extra = work::usize_add(m, extra, std::mem::size_of::<Vec<Option<&str>>>())?;
+            work::usize_add(m, bytes, extra)?
+        } else {
+            bytes
+        };
         let _owner = m
             .representation_arena()
             .map(|a| a.reserve_external_payload(bytes, m))
             .transpose()?;
         m.write_bytes(bytes)?;
+        let mut quantities = Vec::new();
+        if lifecycle {
+            quantities
+                .try_reserve_exact(count)
+                .map_err(|_| err("predicate quantity metadata"))?;
+        }
         let mut funding_legs = Vec::new();
         funding_legs
             .try_reserve_exact(count)
@@ -1002,6 +1074,12 @@ fn prove_policy_predicates(
                 }
                 funding_legs
                     .push(selected.ok_or_else(|| err("predicate original rule funding slot"))?);
+                if lifecycle {
+                    quantities.push(match &rule.formula {
+                        Formula::Unit { quantity_field, .. } => Some(quantity_field.as_str()),
+                        _ => None,
+                    });
+                }
                 rules.push(rule);
                 conditions.push(&rule.when);
             }
@@ -1031,6 +1109,7 @@ fn prove_policy_predicates(
             schema,
             context,
             &funding_legs,
+            lifecycle.then_some(quantities.as_slice()),
         )?;
     }
     Ok(())
@@ -1749,16 +1828,7 @@ fn compile_selected_recipe(
             | SelectedRecipe::LocalPolicySemantics2
             | SelectedRecipe::LocalWorkLifecycle1
     ) {
-        normalize_policy_predicates(
-            m,
-            &mut policy,
-            &product,
-            &schemas,
-            matches!(
-                recipe,
-                SelectedRecipe::LocalPolicySemantics2 | SelectedRecipe::LocalWorkLifecycle1
-            ),
-        )?;
+        normalize_policy_predicates(m, &mut policy, &product, &schemas, recipe)?;
     }
     arithmetic::integer(m, &policy.version, false)?;
     super::validate::policy(
@@ -1965,7 +2035,13 @@ fn compile_selected_recipe(
             | SelectedRecipe::LocalPolicySemantics2
             | SelectedRecipe::LocalWorkLifecycle1
     ) {
-        prove_policy_predicates(m, &policy, &product, &schemas)?;
+        prove_policy_predicates(
+            m,
+            &policy,
+            &product,
+            &schemas,
+            matches!(recipe, SelectedRecipe::LocalWorkLifecycle1),
+        )?;
     }
     for family in &policy.families {
         m.visit("family.validate")?;

@@ -687,7 +687,7 @@ pub fn normalize_local_publication_input(
                                 .as_ref()
                                 .ok_or_else(|| fail("incoming predicate Product"))?,
                             &schemas,
-                            original.uses_policy_context_recipe(),
+                            original.recipe,
                         )?;
                     }
                     let value = super::super::owning_policy::build(m, &policy)?;

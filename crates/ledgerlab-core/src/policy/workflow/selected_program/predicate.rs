@@ -16,8 +16,17 @@ pub(super) fn prove_with_funding(
     activity: &FactSchema,
     context: &FactSchema,
     legs: &[&str],
+    quantities: Option<&[Option<&str>]>,
 ) -> Result<()> {
-    domains::prove_scoped(m, conditions, implications, activity, context, Some(legs))
+    domains::prove_scoped(
+        m,
+        conditions,
+        implications,
+        activity,
+        context,
+        Some(legs),
+        quantities,
+    )
 }
 
 /// Typechecking and scalar normalization of the already defined AST. The caller
@@ -34,6 +43,21 @@ pub(super) fn normalize(
 ) -> Result<()> {
     normalize_with_operational(m, condition, activity_schema, context_schema, nodes, false)
 }
+#[derive(Clone, Copy)]
+enum ContextSupport {
+    None,
+    Original,
+    Work,
+}
+impl ContextSupport {
+    fn allows(self, name: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::Original => matches!(name, "source" | "funding_mode"),
+            Self::Work => matches!(name, "source" | "funding_mode" | "status"),
+        }
+    }
+}
 pub(super) fn normalize_with_operational(
     m: &mut CoreMeter,
     condition: &mut Predicate,
@@ -41,6 +65,43 @@ pub(super) fn normalize_with_operational(
     context_schema: &FactSchema,
     nodes: &mut usize,
     operational: bool,
+) -> Result<()> {
+    normalize_with_context(
+        m,
+        condition,
+        activity_schema,
+        context_schema,
+        nodes,
+        if operational {
+            ContextSupport::Original
+        } else {
+            ContextSupport::None
+        },
+    )
+}
+pub(super) fn normalize_work_lifecycle(
+    m: &mut CoreMeter,
+    condition: &mut Predicate,
+    activity_schema: &FactSchema,
+    context_schema: &FactSchema,
+    nodes: &mut usize,
+) -> Result<()> {
+    normalize_with_context(
+        m,
+        condition,
+        activity_schema,
+        context_schema,
+        nodes,
+        ContextSupport::Work,
+    )
+}
+fn normalize_with_context(
+    m: &mut CoreMeter,
+    condition: &mut Predicate,
+    activity_schema: &FactSchema,
+    context_schema: &FactSchema,
+    nodes: &mut usize,
+    operational: ContextSupport,
 ) -> Result<()> {
     fn field<'a>(
         m: &mut CoreMeter,
@@ -66,10 +127,10 @@ pub(super) fn normalize_with_operational(
         ordered: bool,
         activity: &FactSchema,
         context: &FactSchema,
-        operational: bool,
+        operational: ContextSupport,
     ) -> Result<()> {
         if let TypedOperand::Context { context } = operand {
-            if !operational {
+            if !operational.allows(context) {
                 return Err(bad("original predicate context capability"));
             }
             operational_literal(m, context, value, ordered)?;
@@ -97,7 +158,7 @@ pub(super) fn normalize_with_operational(
         context: &FactSchema,
         nodes: &mut usize,
         depth: usize,
-        operational: bool,
+        operational: ContextSupport,
     ) -> Result<()> {
         m.visit("predicate.compile_node")?;
         *nodes = w::usize_add(m, *nodes, 1)?;
@@ -198,6 +259,11 @@ pub(super) fn operational_literal<'a>(
                 return Err(bad("funding predicate literal mode"));
             }
         }
+        "status" => {
+            if !matches!(value, "succeeded" | "failed") {
+                return Err(bad("work predicate status literal"));
+            }
+        }
         _ => return Err(bad("operational predicate context not yet authenticated")),
     }
     Ok(value)
@@ -253,6 +319,8 @@ pub(super) struct Inputs<'a> {
     pub accepted_context: &'a Value,
     /// Authenticated subject source and exact original evaluated-leg mode.
     pub operation_context: Option<(&'a str, &'a str)>,
+    /// Immutable actual original Work status; no current-corrector substitute.
+    pub work_status: Option<&'a str>,
 }
 fn bad(detail: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", detail)
@@ -423,12 +491,22 @@ fn evaluate_inner(
                 let name = name
                     .as_str()
                     .ok_or_else(|| bad("operational context name"))?;
-                let (source, mode) = inputs
-                    .operation_context
-                    .ok_or_else(|| bad("operational context owner missing"))?;
                 let actual = match name {
-                    "source" => source,
-                    "funding_mode" => mode,
+                    "source" => {
+                        inputs
+                            .operation_context
+                            .ok_or_else(|| bad("operational context owner missing"))?
+                            .0
+                    }
+                    "funding_mode" => {
+                        inputs
+                            .operation_context
+                            .ok_or_else(|| bad("operational context owner missing"))?
+                            .1
+                    }
+                    "status" => inputs
+                        .work_status
+                        .ok_or_else(|| bad("original Work status missing"))?,
                     _ => return Err(bad("operational predicate context not yet authenticated")),
                 };
                 if op == "in" {
@@ -602,6 +680,7 @@ mod tests {
             facts: &facts,
             accepted_context: &accepted,
             operation_context: None,
+            work_status: None,
         };
         let mut m = CoreMeter::new(65_536).unwrap();
         for condition in [
@@ -621,6 +700,7 @@ mod tests {
             facts: &absent,
             accepted_context: &accepted,
             operation_context: None,
+            work_status: None,
         };
         let condition = json!({"op":"gt","field":{"fact":"test:n"},"value":"0"});
         assert_eq!(
@@ -674,6 +754,7 @@ mod tests {
             facts: &facts,
             accepted_context: &missing_context,
             operation_context: None,
+            work_status: None,
         };
         assert_eq!(
             evaluate(

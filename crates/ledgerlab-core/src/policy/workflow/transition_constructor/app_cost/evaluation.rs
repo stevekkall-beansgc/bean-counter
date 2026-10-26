@@ -54,9 +54,9 @@ pub(super) fn price(
     } else {
         ""
     };
-    let mut prices = pricing::app_final_cost_operational(
+    let mut prices = pricing::app_final_cost_work(
         program,
-        activity,
+        (activity, &original.work["payload"]),
         component,
         (
             (

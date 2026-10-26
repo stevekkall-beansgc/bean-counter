@@ -483,6 +483,12 @@ pub(super) fn head_rows(
     f: &mut HeadRowVisitor<'_>,
 ) -> Result<()> {
     let (p, context, operational) = inputs;
+    if program.uses_work_lifecycle_recipe() {
+        let status = shape::text(m, p, "status")?;
+        if shape::same_text(m, status, "failed")? {
+            return Ok(());
+        }
+    }
     let activity = shape::field(m, p, "activity")?;
     for instruction in shape::array(
         m,

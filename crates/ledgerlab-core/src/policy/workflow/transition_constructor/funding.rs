@@ -681,16 +681,31 @@ pub(super) fn derive_per_work_bound(
         m.write_bytes(slot.len())?;
     }
     let binding_slot = slot.to_owned();
-    let original = pricing::work_operational(
+    let original = pricing::work_subject(
         p,
-        activity,
+        (activity, payload),
         (&payload["facts"], &t.binding["accepted_context"]),
         Some((&t.binding, event_source)),
         m,
     )?;
-    let maximum = maximum_facts(m, p, payload, t)?;
-    let corrected =
-        pricing::work_exposure_bound(p, activity, (&maximum, &t.binding["accepted_context"]), m)?;
+    let failed = if p.uses_work_lifecycle_recipe() {
+        let status = shape::text(m, payload, "status")?;
+        shape::same_text(m, status, "failed")?
+    } else {
+        false
+    };
+    let maximum = if failed {
+        WorkingValue::copy(m, &payload["facts"])?
+    } else {
+        maximum_facts(m, p, payload, t)?
+    };
+    let corrected = pricing::work_subject_exposure_bound(
+        p,
+        (activity, payload),
+        (&maximum, &t.binding["accepted_context"]),
+        Some((&t.binding, event_source)),
+        m,
+    )?;
     let mut roots: Vec<RootExposureBound> = vec![];
     if metadata.is_some() {
         roots
@@ -740,7 +755,7 @@ pub(super) fn derive_per_work_bound(
                 meter::add(m, &roots[index].corrected_positive, &atoms)?;
         }
     }
-    if p.uses_app_owned_cost_recipe() {
+    if p.uses_app_owned_cost_recipe() && !failed {
         for declaration in shape::array(m, p.original_policy_value(), "app_delayed_costs")? {
             m.visit("funding.original_app_cost_maximum")?;
             if !shape::same(m, &declaration["activity"], &payload["activity"])? {
@@ -766,9 +781,9 @@ pub(super) fn derive_per_work_bound(
             }
             let raw = shape::text(m, &declaration["maximum_final_amount"], "atoms")?;
             let maximum = arithmetic::integer(m, raw, false)?;
-            let prices = pricing::app_final_cost_operational(
+            let prices = pricing::app_final_cost_work(
                 p,
-                activity,
+                (activity, payload),
                 key,
                 (
                     (&payload["facts"], &t.binding["accepted_context"]),
@@ -811,6 +826,9 @@ pub(super) fn derive_per_work_bound(
             continue;
         }
         let family = &instruction["family"];
+        if failed {
+            continue;
+        }
         same(m, &family["selector"]["binding_slot"], &json!(binding_slot))?;
         if !shape::same(
             m,
@@ -818,6 +836,20 @@ pub(super) fn derive_per_work_bound(
             &payload["activity"],
         )? {
             continue;
+        }
+        if p.uses_work_lifecycle_recipe() {
+            let component = shape::text(m, &family["selector"], "component_key")?;
+            if !p.root_is_selected_for_work_operational(
+                m,
+                payload,
+                component,
+                (
+                    &t.binding["accepted_context"],
+                    Some((&t.binding, event_source)),
+                ),
+            )? {
+                continue;
+            }
         }
         let key = shape::text(m, &family["selector"], "component_key")?;
         let index = root_position(m, &roots, key)?

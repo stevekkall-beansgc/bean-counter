@@ -23,17 +23,18 @@ fn reference(kind: &str, prefix: &str, digit: char) -> ExactRef {
 }
 #[test]
 fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_steps() {
-    for operational in [false, true] {
-        retained_quantity_predicate_flips(operational);
+    for (profile, failed) in [(0, false), (1, false), (2, false), (2, true)] {
+        retained_quantity_predicate_flips(profile, failed);
     }
 }
-fn retained_quantity_predicate_flips(operational: bool) {
+fn retained_quantity_predicate_flips(profile: u8, failed: bool) {
+    let operational = profile != 0;
     let compiled_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
     let mut session = OriginalAuditSession::for_resource_profile_v2(&compiled_arena).unwrap();
-    let support = if operational {
-        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut session)
-    } else {
-        SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut session)
+    let support = match profile {
+        0 => SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut session),
+        1 => SelectedCompilerSupport::local_policy_context_execution_with_session(&mut session),
+        _ => SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut session),
     }
     .unwrap();
     let fixture: Value = serde_json::from_slice(include_bytes!(
@@ -102,7 +103,7 @@ fn retained_quantity_predicate_flips(operational: bool) {
     let digest = document_digest("ledger-workflow-fact-schema/1", &schema_ref).unwrap();
     let schema_ref =
         json!({"kind":"workflow-fact-schema","id":format!("wdoc_{}",&digest[7..]),"digest":digest});
-    let payload = json!({"activity":"support:complete","policy_ref":p.root_policy_ref(),"binding_ref":binding_ref,"fact_schema_ref":schema_ref,"facts":{"support:quantity":"3"},"fact_proofs":[]});
+    let payload = json!({"status":if failed {"failed"} else {"succeeded"},"activity":"support:complete","policy_ref":p.root_policy_ref(),"binding_ref":binding_ref,"fact_schema_ref":schema_ref,"facts":{"support:quantity":"3"},"fact_proofs":[]});
     let work = RecordBody::owned(
         &arena,
         arena
@@ -158,15 +159,16 @@ fn retained_quantity_predicate_flips(operational: bool) {
         (3, "2", 740_000_000_000_000_000),
     ] {
         let facts = json!({"support:quantity":quantity});
-        let prices = pricing::work_operational(
+        let prices = pricing::work_subject(
             &p,
-            "support:complete",
+            ("support:complete", &payload),
             (&facts, &context),
             Some((&operands.binding, "original-worker")),
             m,
         )
         .unwrap();
-        assert_eq!(prices[0].atoms, atoms);
+        assert_eq!(prices[0].atoms, if failed { 0 } else { atoms });
+        assert_eq!(prices[0].failed, failed);
         let key = OperationKey {
             operation_id: format!("revision-{revision}"),
             source: if operational && revision == 1 {
@@ -256,9 +258,9 @@ fn retained_quantity_predicate_flips(operational: bool) {
         let current = decisions[i].decoded(m, 4194304).unwrap();
         let original = decisions[0].decoded(m, 4194304).unwrap();
         let facts = json!({"support:quantity":quantity});
-        let prices = pricing::work_operational(
+        let prices = pricing::work_subject(
             &p,
-            "support:complete",
+            ("support:complete", &payload),
             (&facts, &context),
             Some((&operands.binding, "original-worker")),
             m,

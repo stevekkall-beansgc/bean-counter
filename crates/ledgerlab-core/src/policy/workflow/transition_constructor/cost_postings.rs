@@ -187,7 +187,9 @@ pub(super) fn original_cost_posting_key(
     if !supplied_basis && !w::compare(m, price.basis_components.len(), 0usize)?.is_eq() {
         return Err(shape::fail("cost formula unexpected action basis"));
     }
-    let constants_raw: &[u8] = if price.predicate_state == "unknown" {
+    let constants_raw: &[u8] = if price.failed {
+        br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","false":"false","unknown":"unknown","failed_work":"failed_work","posted":"posted","zero":"zero"}"#
+    } else if price.predicate_state == "unknown" {
         br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","unknown":"unknown","predicate_not_true":"predicate_not_true","posted":"posted","zero":"zero"}"#
     } else if price.predicate {
         br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","posted":"posted","zero":"zero"}"#
@@ -263,7 +265,9 @@ pub(super) fn original_cost_posting_key(
         ("rounded", rounded.value()),
         (
             "disposition",
-            if !price.predicate {
+            if price.failed {
+                &constants.value()["failed_work"]
+            } else if !price.predicate {
                 &constants.value()["predicate_not_true"]
             } else if nonzero {
                 &constants.value()["posted"]
@@ -581,6 +585,7 @@ mod tests {
         let atoms = arithmetic::rounded(m, &rational, &maximum).unwrap();
         pricing::PricedInstruction {
             predicate: true,
+            failed: false,
             predicate_state: "true",
             ordinal: "2".into(),
             component_key: "model:cost".into(),
