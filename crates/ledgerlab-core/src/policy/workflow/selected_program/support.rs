@@ -366,7 +366,7 @@ impl SelectedCompilerSupport {
             SupportDocument::Owned(doc) => doc.reference(),
         }
     }
-    pub(super) fn execution_registry(&self) -> Option<&'static str> {
+    pub(in crate::policy::workflow) fn execution_registry(&self) -> Option<&'static str> {
         self.execution_registry
     }
     pub fn canonical_value(&self) -> &Value {
