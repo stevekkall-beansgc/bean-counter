@@ -62,14 +62,22 @@ impl ManagementObservation {
     ) -> Result<Self> {
         let key = req.key();
         require(
-            req.kind() == "evidence.retain"
+            (req.kind() == "evidence.retain"
                 && request_wrapper::text(req.payload(s)?, "schema", s)?
                     == "ledger-workflow-fact-attest/1"
                 && observed
                     .original
                     .publication
                     .program()
-                    .uses_policy_semantics_recipe(),
+                    .uses_policy_semantics_recipe())
+                || (super::registered_financial_tuple(
+                    req.kind(),
+                    request_wrapper::text(req.payload(s)?, "schema", s)?,
+                ) && observed
+                    .original
+                    .publication
+                    .program()
+                    .uses_work_lifecycle_recipe()),
             "AUTHORITY_REQUIRED",
         )?;
         let source = observed.current_participant_source(s)?;

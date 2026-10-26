@@ -440,6 +440,49 @@ fn is_local_financial_schema(schema: &str) -> bool {
     )
 }
 
+// Routing DATA only. The completed original Binding and actual current source
+// capture still decide whether a registered participant can construct/append.
+fn registered_financial_operation(kind: &str) -> bool {
+    matches!(
+        kind,
+        "work.accept"
+            | "evidence.retain"
+            | "cost.finalize"
+            | "cost.correct"
+            | "outcome.submit"
+            | "outcome.correct"
+            | "outcome.close"
+            | "quantity.correct"
+            | "work.reverse"
+    )
+}
+fn registered_financial_tuple(kind: &str, schema: &str) -> bool {
+    matches!(
+        (kind, schema),
+        ("work.accept", "ledger-workflow-work/1")
+            | (
+                "evidence.retain",
+                "ledger-workflow-fact-attest/1"
+                    | "ledger-workflow-family-close-attest/1"
+                    | "ledger-workflow-app-observe/1"
+                    | "ledger-workflow-app-cost-attest/1"
+            )
+            | ("cost.finalize", "ledger-workflow-cost-finalize/2")
+            | ("cost.correct", "ledger-workflow-cost-correct/2")
+            | (
+                "outcome.submit",
+                "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2"
+            )
+            | (
+                "outcome.correct",
+                "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2"
+            )
+            | ("outcome.close", "ledger-workflow-outcome-close/2")
+            | ("quantity.correct", "ledger-workflow-quantity-correction/2")
+            | ("work.reverse", "ledger-workflow-work-reverse/2")
+    )
+}
+
 async fn fresh_reply_in(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -449,14 +492,12 @@ async fn fresh_reply_in(
 ) -> Result<TransactionResult> {
     let key = req.key();
     if !acceptance::same_recipe_text(&key.source, &held_management.setup().source, session)?
-        && acceptance::same_recipe_text(req.kind(), "evidence.retain", session)?
-        && acceptance::same_recipe_text(
+        && registered_financial_tuple(
+            req.kind(),
             request_wrapper::text(req.payload(session)?, "schema", session)?,
-            "ledger-workflow-fact-attest/1",
-            session,
-        )?
+        )
     {
-        return local_financial::prepare_registered_fact_append(
+        return local_financial::prepare_registered_participant_append(
             ledger,
             tx,
             req,

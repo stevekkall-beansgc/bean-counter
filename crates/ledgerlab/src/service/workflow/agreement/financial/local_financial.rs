@@ -83,9 +83,9 @@ pub(super) async fn prepare_work_append(
 }
 
 /// The caller's held local owner does not confer participant authority. Build
-/// the full current issuer capture and pure candidate before deriving its
+/// the full current selected-role capture and pure candidate before deriving its
 /// private freshness scope; the same writer and owner then reach append.
-pub(super) async fn prepare_registered_fact_append(
+pub(super) async fn prepare_registered_participant_append(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     req: &ingress::IncomingRequest,

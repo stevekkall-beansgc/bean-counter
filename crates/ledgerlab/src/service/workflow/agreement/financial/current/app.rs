@@ -6,10 +6,10 @@ mod chain_links;
 mod nonwork;
 mod work_capture;
 mod work_heads;
-use ledgerlab_core::validation_work::ValidationVisit;
 use ledgerlab_core::policy::workflow::transition_constructor::{
     select_fact_reference_inputs, FactReferenceInputs,
 };
+use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
     pub(in super::super) original: prefix::LocatedAppAcceptance,
@@ -576,11 +576,16 @@ async fn observe_binding(
             ledger.admin.fresh(&ledger.store, tx, key).await?;
         } else {
             require(
-                super::super::acceptance::same_recipe_text(operation, "evidence.retain", session)?
-                    && original
-                        .publication
-                        .program()
-                        .uses_policy_semantics_recipe(),
+                (super::super::acceptance::same_recipe_text(
+                    operation,
+                    "evidence.retain",
+                    session,
+                )? && original
+                    .publication
+                    .program()
+                    .uses_policy_semantics_recipe())
+                    || (super::super::registered_financial_operation(operation)
+                        && original.publication.program().uses_work_lifecycle_recipe()),
                 "AUTHORITY_REQUIRED",
             )?;
             ledger
