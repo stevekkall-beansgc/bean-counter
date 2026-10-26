@@ -195,7 +195,7 @@ impl LocalInputs {
         Ok(())
     }
 }
-pub(super) fn core_key_with_owner(
+pub(in super::super) fn core_key_with_owner(
     key: &OperationKey,
     s: &mut OriginalAuditSession,
 ) -> Result<(CoreKey, ExternalBufferLease)> {
