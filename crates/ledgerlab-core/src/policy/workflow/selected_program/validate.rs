@@ -165,6 +165,7 @@ pub(super) fn policy(
     template: &SlotTemplate,
     schemas: &[FactSchema],
     owner_local_cost: bool,
+    independent_field_issuers: bool,
 ) -> Result<()> {
     name(m, &p.policy_id)?;
     if !m.check("policy.bounds", || {
@@ -498,7 +499,7 @@ pub(super) fn policy(
             code["required"] == true
                 && code["type"]["kind"] == "enum"
                 && code["provenance"]["kind"] == "attested"
-                && code["provenance"]["source_slot"] == f.source_slot
+                && (independent_field_issuers || code["provenance"]["source_slot"] == f.source_slot)
                 && code["provenance"]["evidence_kind"] == "outcome"
         })? {
             return Err(bad("family code provenance"));
@@ -537,7 +538,8 @@ pub(super) fn policy(
                     field["required"] == true
                         && field["type"]["kind"] == "timestamp"
                         && field["provenance"]["kind"] == "attested"
-                        && field["provenance"]["source_slot"] == f.source_slot
+                        && (independent_field_issuers
+                            || field["provenance"]["source_slot"] == f.source_slot)
                 })? {
                     return Err(bad("occurrence provenance"));
                 }

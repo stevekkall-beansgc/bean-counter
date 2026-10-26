@@ -920,9 +920,8 @@ pub(super) fn execute<'inv, 'raw>(
             m,
             &mut r,
             c,
-            &p,
-            schema,
-            &normalized,
+            program,
+            (&*p, schema, &*normalized),
             state
         )?
     };

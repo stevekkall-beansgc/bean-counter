@@ -1605,6 +1605,7 @@ fn compile_selected_recipe(
             recipe,
             SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
         ),
+        matches!(recipe, SelectedRecipe::LocalPolicySemantics1),
     )?;
     for rule in &mut policy.rules {
         m.visit("rule.validate")?;

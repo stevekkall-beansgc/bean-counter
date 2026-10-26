@@ -614,13 +614,26 @@ pub(super) fn validate_chain(
                 "ledger-workflow-work-record/1",
             )?
         } else if shape::same_text(m, &child.kind, "workflow-outcome-claim")? {
-            r.get(
-                m,
-                &c.key,
-                &child,
-                "workflow-outcome-claim",
-                "ledger-workflow-outcome-claim/2",
-            )?
+            if program.uses_policy_semantics_recipe() {
+                r.get_schemas(
+                    m,
+                    &c.key,
+                    &child,
+                    "workflow-outcome-claim",
+                    &[
+                        "ledger-workflow-outcome-claim/1",
+                        "ledger-workflow-outcome-claim/2",
+                    ],
+                )?
+            } else {
+                r.get(
+                    m,
+                    &c.key,
+                    &child,
+                    "workflow-outcome-claim",
+                    "ledger-workflow-outcome-claim/2",
+                )?
+            }
         } else {
             return Err(shape::fail("declared chain child kind"));
         };
@@ -649,8 +662,6 @@ pub(super) fn validate_chain(
             shape::equal(m, &payload["chain"], &current["chain"])?;
         } else {
             super::correction::dictionary_outcome(m, payload)?;
-            shape::equal(m, &payload["schema"], &json!("ledger-workflow-outcome/2"))?;
-            shape::equal(m, &link["predecessor"], &payload["selector_start_work_ref"])?;
             shape::equal(m, &child_body["scope"], &key.value()["scope"])?;
             for field in ["target_ref", "family_slot", "business_outcome_token"] {
                 shape::equal(m, &child_body[field], &payload[field])?;
@@ -665,6 +676,82 @@ pub(super) fn validate_chain(
             )?;
             shape::equal(m, &child_body["agreement_id"], &target["agreement_id"])?;
             shape::equal(m, &target["binding_ref"], &current["binding_ref"])?;
+            let direct = if program.uses_policy_semantics_recipe() {
+                let binding_ref = shape::reference(m, &payload["binding_ref"])?;
+                let binding = r.get(
+                    m,
+                    &c.key,
+                    &binding_ref,
+                    "workflow-binding",
+                    "ledger-workflow-binding/2",
+                )?;
+                let inst_ref = shape::reference(m, &binding["slot_instantiation_ref"])?;
+                let inst = r.get(
+                    m,
+                    &c.key,
+                    &inst_ref,
+                    "workflow-slot-instantiation",
+                    "ledger-workflow-slot-instantiation/1",
+                )?;
+                let work_ref = shape::reference(m, &target["work_ref"])?;
+                let work = r.get(
+                    m,
+                    &c.key,
+                    &work_ref,
+                    "workflow-work",
+                    "ledger-workflow-work-record/1",
+                )?;
+                let slot = shape::text(m, &child_body, "family_slot")?;
+                let family =
+                    super::local_locators::locator_family(program, m, &target, &work, &inst, slot)?;
+                shape::equal(m, &family["trigger_activity"], &payload["activity"])?;
+                shape::equal(m, &family["target_link_slot"], &link["slot"])?;
+                let path = shape::array(m, &family["selector"], "path")?;
+                if w::compare(m, path.len(), 1usize)?.is_eq() {
+                    true
+                } else if w::compare(m, path.len(), 2usize)?.is_eq() {
+                    let report_ref = shape::reference(m, &link["predecessor"])?;
+                    let report = r.get(
+                        m,
+                        &c.key,
+                        &report_ref,
+                        "workflow-work",
+                        "ledger-workflow-work-record/1",
+                    )?;
+                    let input = validate_inputs(m, program, &report["payload"])?
+                        .ok_or_else(|| shape::fail("retained family report link"))?;
+                    shape::equal(m, &input["slot"], &path[1])?;
+                    shape::equal(m, &input["predecessor"], &target["work_ref"])?;
+                    false
+                } else {
+                    return Err(shape::fail("retained family selector path"));
+                }
+            } else {
+                false
+            };
+            shape::equal(
+                m,
+                &child_body["schema"],
+                &json!(if direct {
+                    "ledger-workflow-outcome-claim/1"
+                } else {
+                    "ledger-workflow-outcome-claim/2"
+                }),
+            )?;
+            shape::equal(
+                m,
+                &payload["schema"],
+                &json!(if direct {
+                    "ledger-workflow-outcome/1"
+                } else {
+                    "ledger-workflow-outcome/2"
+                }),
+            )?;
+            if direct {
+                shape::equal(m, &target["work_ref"], &link["predecessor"])?;
+            } else {
+                shape::equal(m, &link["predecessor"], &payload["selector_start_work_ref"])?;
+            }
         }
         let predecessor = shape::reference(m, &link["predecessor"])?;
         let previous = r.get(

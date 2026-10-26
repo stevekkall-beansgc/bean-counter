@@ -118,7 +118,7 @@ pub(super) fn execute_complete<'raw>(
                 &arena,
                 m,
             )?;
-            if program.uses_declared_work_link_recipe() {
+            if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
                 let original = construction.economic.original_work.payload()?;
                 super::declared_links::validate_chain(
                     m,
@@ -157,7 +157,7 @@ pub(super) fn execute_complete<'raw>(
             let mut construction =
                 super::app_cost::produce_parsed(program, c, p, inputs, state, m)?
                     .into_construction(c, m)?;
-            if program.uses_declared_work_link_recipe() {
+            if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
                 let original = construction.economic.original_work.payload()?;
                 super::declared_links::validate_chain(
                     m,
@@ -209,7 +209,7 @@ pub(super) fn execute_complete<'raw>(
         m,
         None,
     )?;
-    if program.uses_declared_work_link_recipe() {
+    if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
         let original = construction.economic.original_work.payload()?;
         super::declared_links::validate_chain(
             m,

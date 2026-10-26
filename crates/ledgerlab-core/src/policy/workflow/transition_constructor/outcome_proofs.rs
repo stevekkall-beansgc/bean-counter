@@ -56,11 +56,11 @@ pub(super) fn resolve(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
-    p: &Value,
-    schema: &FactSchema,
-    normalized: &NormalizedFacts,
+    program: &super::super::selected_program::SelectedProgram,
+    selected: (&Value, &FactSchema, &NormalizedFacts),
     state: &DraftStateData,
 ) -> Result<Proofs> {
+    let (p, schema, normalized) = selected;
     if !meter::cmp(m, &c.authorities.len().into(), &1.into())?.is_eq() {
         return Err(shape::fail("selected outcome source frame"));
     }
@@ -112,12 +112,14 @@ pub(super) fn resolve(
             call!(shape::field, m, provenance, "kind")?,
             &json!("attested")
         )?;
-        call!(
-            equal,
-            m,
-            call!(shape::field, m, provenance, "source_slot")?,
-            &json!(authority.source_slot)
-        )?;
+        if !program.uses_policy_semantics_recipe() {
+            call!(
+                equal,
+                m,
+                call!(shape::field, m, provenance, "source_slot")?,
+                &json!(authority.source_slot)
+            )?;
+        }
         let attestation_ref = shape::field(m, proof, "attestation_ref")?;
         let (att_ref, att) = load(
             m,
@@ -167,12 +169,14 @@ pub(super) fn resolve(
             call!(shape::field, m, &att, "subject_schema_ref")?,
             call!(shape::field, m, p, "fact_schema_ref")?
         )?;
-        call!(
-            equal,
-            m,
-            call!(shape::field, m, &att, "source")?,
-            &json!(c.key.source)
-        )?;
+        if !program.uses_policy_semantics_recipe() {
+            call!(
+                equal,
+                m,
+                call!(shape::field, m, &att, "source")?,
+                &json!(c.key.source)
+            )?;
+        }
         call!(
             equal,
             m,
@@ -332,20 +336,36 @@ pub(super) fn resolve(
         for (key, want) in [
             ("attestation_ref", json!(att_ref)),
             ("attestation_digest", json!(att_ref.digest)),
-            ("verified_source", json!(c.key.source)),
+            (
+                "verified_source",
+                if program.uses_policy_semantics_recipe() {
+                    att["source"].clone()
+                } else {
+                    json!(c.key.source)
+                },
+            ),
             (
                 "verification_primitive",
                 json!("authenticated-nominated-source-retention/1"),
-            ),
-            ("source_grant_ref", json!(authority.current_grant_ref)),
-            (
-                "authenticated_principal_ref",
-                json!(authority.enrollment_ref),
             ),
             ("subject_binding_refs", json!([p["binding_ref"].clone()])),
             ("verification_evidence_refs", json!([])),
         ] {
             call!(equal, m, call!(shape::field, m, &verification, key)?, &want)?;
+        }
+        if !program.uses_policy_semantics_recipe() {
+            call!(
+                equal,
+                m,
+                &verification["source_grant_ref"],
+                &json!(authority.current_grant_ref)
+            )?;
+            call!(
+                equal,
+                m,
+                &verification["authenticated_principal_ref"],
+                &json!(authority.enrollment_ref)
+            )?;
         }
         let raw = r.canonical(m, &att_ref)?;
         m.hash_bytes(raw.len())?;
@@ -356,10 +376,17 @@ pub(super) fn resolve(
             call!(shape::field, m, &verification, "attestation_raw_sha256")?,
             &json!(actual)
         )?;
+        let retained_grant;
+        let grant_ref = if program.uses_policy_semantics_recipe() {
+            retained_grant = shape::reference(m, &verification["source_grant_ref"])?;
+            &retained_grant
+        } else {
+            &authority.current_grant_ref
+        };
         let grant = r.get(
             m,
             &c.key,
-            &authority.current_grant_ref,
+            grant_ref,
             "workflow-source-grant",
             "ledger-workflow-source-grant/1",
         )?;
@@ -380,6 +407,16 @@ pub(super) fn resolve(
             || !meter::cmp(m, &trusted.into(), &ends.into())?.is_lt()
         {
             return Err(shape::fail("attestation historical time relationship"));
+        }
+        if program.uses_policy_semantics_recipe() {
+            super::work_proofs::source::retained(
+                m,
+                r,
+                c,
+                program,
+                p,
+                (provenance, &att, &verification, &c.received_at),
+            )?;
         }
         let value = normalized
             .canonical_value()

@@ -224,14 +224,13 @@ fn check_inner(
                 if full_policy {
                     // Scalar type/range/value and exact proof cardinality are
                     // checked by the shared FactSchema/Work proof consumers.
-                    // Independent evidence-source slots remain unimplemented;
-                    // do not infer their authority from a generic FieldDef.
-                    let worker = shape::text(m, activity, "source_slot")?;
+                    // Each attested field's issuer is authenticated against its
+                    // own accepted nomination and retained source grant. The
+                    // current worker remains a separate consuming authority.
                     require!(
                         m,
-                        field_is(m, &field["provenance"], "kind", "attested")?
-                            && field_is(m, &field["provenance"], "source_slot", worker)?,
-                        "supported attested Work uses original worker source"
+                        field_is(m, &field["provenance"], "kind", "attested")?,
+                        "supported Work field provenance"
                     )?;
                     continue;
                 }

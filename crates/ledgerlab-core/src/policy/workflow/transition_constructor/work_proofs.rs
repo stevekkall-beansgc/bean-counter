@@ -24,6 +24,7 @@ use crate::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::mem;
+pub(super) mod source;
 
 pub(super) struct WorkProofRequest<'a> {
     pub payload: &'a Value,
@@ -344,107 +345,142 @@ fn checked_value(
     if !shape::same_text(m, declared_hash, &raw_hash)? {
         return Err(shape::fail("Work proof raw attestation hash"));
     }
-    let (_, grant) = load(
-        m,
-        r,
-        c,
-        &verification["source_grant_ref"],
-        "workflow-source-grant",
-        "ledger-workflow-source-grant/1",
-    )?;
-    let (enrollment_ref, enrollment) = load(
-        m,
-        r,
-        c,
-        &verification["authenticated_principal_ref"],
-        "workflow-source-enrollment",
-        "ledger-workflow-source-enrollment/1",
-    )?;
-    let enrollment_value = owning_reference(m, &a, &enrollment_ref)?;
-    shape::equal(m, &grant["original_ceiling_ref"], enrollment_value.value())?;
-    shape::equal(m, &grant["grant_id"], &enrollment["enrollment_id"])?;
-    // Bind historical retention to the originally accepted worker identity.
-    // Today's corrector grant is deliberately not a retention-time grant.
-    if let Some(original) = u.request.worker_authority {
-        let (_, worker) = load(
+    if u.program.uses_policy_semantics_recipe() {
+        source::work_namespace(m, r, c, u.program, u.request.payload, u.request.namespace)?;
+        if let Some(original) = u.request.worker_authority {
+            let (_, worker) = load(
+                m,
+                r,
+                c,
+                original,
+                "workflow-economic-authority",
+                "ledger-workflow-economic-authority/8",
+            )?;
+            let operation = a.string_value("work.accept", m)?;
+            shape::equal(m, &worker["operation"], operation.value())?;
+            shape::equal(
+                m,
+                &worker["original_binding_ref"],
+                &u.request.payload["binding_ref"],
+            )?;
+            let namespace = a.string_value(u.request.namespace, m)?;
+            shape::equal(
+                m,
+                &worker["canonical_economic_namespace"],
+                namespace.value(),
+            )?;
+        }
+        source::retained(
             m,
             r,
             c,
-            original,
-            "workflow-economic-authority",
-            "ledger-workflow-economic-authority/8",
+            u.program,
+            u.request.payload,
+            (provenance, &att, &verification, u.request.received_at),
         )?;
-        let operation = a.string_value("work.accept", m)?;
-        let slot_value = a.string_value(slot, m)?;
-        shape::equal(m, &worker["operation"], operation.value())?;
+    } else {
+        let (_, grant) = load(
+            m,
+            r,
+            c,
+            &verification["source_grant_ref"],
+            "workflow-source-grant",
+            "ledger-workflow-source-grant/1",
+        )?;
+        let (enrollment_ref, enrollment) = load(
+            m,
+            r,
+            c,
+            &verification["authenticated_principal_ref"],
+            "workflow-source-enrollment",
+            "ledger-workflow-source-enrollment/1",
+        )?;
+        let enrollment_value = owning_reference(m, &a, &enrollment_ref)?;
+        shape::equal(m, &grant["original_ceiling_ref"], enrollment_value.value())?;
+        shape::equal(m, &grant["grant_id"], &enrollment["enrollment_id"])?;
+        // Bind historical retention to the originally accepted worker identity.
+        // Today's corrector grant is deliberately not a retention-time grant.
+        if let Some(original) = u.request.worker_authority {
+            let (_, worker) = load(
+                m,
+                r,
+                c,
+                original,
+                "workflow-economic-authority",
+                "ledger-workflow-economic-authority/8",
+            )?;
+            let operation = a.string_value("work.accept", m)?;
+            let slot_value = a.string_value(slot, m)?;
+            shape::equal(m, &worker["operation"], operation.value())?;
+            shape::equal(
+                m,
+                &worker["original_binding_ref"],
+                &u.request.payload["binding_ref"],
+            )?;
+            shape::equal(m, &worker["source_slot"], slot_value.value())?;
+            shape::equal(m, &worker["enrollment_ref"], enrollment_value.value())?;
+            shape::equal(m, &worker["source"], &att["source"])?;
+        } else {
+            let worker = c
+                .authorities
+                .first()
+                .ok_or_else(|| shape::fail("Work proof worker authority"))?;
+            if !shape::same_text(m, &worker.source_slot, slot)?
+                || !shape::same_ref(m, &worker.enrollment_ref, &enrollment_ref)?
+            {
+                return Err(shape::fail("Work proof accepted worker identity"));
+            }
+        }
+
         shape::equal(
             m,
-            &worker["original_binding_ref"],
-            &u.request.payload["binding_ref"],
+            &grant["revision"],
+            &verification["source_grant_revision"],
         )?;
-        shape::equal(m, &worker["source_slot"], slot_value.value())?;
-        shape::equal(m, &worker["enrollment_ref"], enrollment_value.value())?;
-        shape::equal(m, &worker["source"], &att["source"])?;
-    } else {
-        let worker = c
-            .authorities
-            .first()
-            .ok_or_else(|| shape::fail("Work proof worker authority"))?;
-        if !shape::same_text(m, &worker.source_slot, slot)?
-            || !shape::same_ref(m, &worker.enrollment_ref, &enrollment_ref)?
-        {
-            return Err(shape::fail("Work proof accepted worker identity"));
+        let ceiling = &enrollment["ceiling"];
+        for field in ["source", "canonical_economic_namespace", "principal_id"] {
+            shape::equal(m, &grant[field], &ceiling[field])?;
         }
-    }
-
-    shape::equal(
-        m,
-        &grant["revision"],
-        &verification["source_grant_revision"],
-    )?;
-    let ceiling = &enrollment["ceiling"];
-    for field in ["source", "canonical_economic_namespace", "principal_id"] {
-        shape::equal(m, &grant[field], &ceiling[field])?;
-    }
-    shape::equal(m, &grant["source"], &att["source"])?;
-    let namespace = a.string_value(u.request.namespace, m)?;
-    shape::equal(m, &grant["canonical_economic_namespace"], namespace.value())?;
-    let trusted =
-        Timestamp::parse_with_work(shape::text(m, &verification, "trusted_received_at")?, m)?
-            .micros();
-    let issued = Timestamp::parse_with_work(shape::text(m, &att, "issued_at")?, m)?.micros();
-    let received = Timestamp::parse_with_work(u.request.received_at, m)?.micros();
-    if w::compare(m, issued, trusted)?.is_gt() || w::compare(m, trusted, received)?.is_gt() {
-        return Err(shape::fail("Work proof historical trusted time"));
-    }
-    // Revalidate the actual retention-time grant, never today's corrector
-    // grant. Completed committed-origin association remains host-owned.
-    authority::grant_shape(m, &grant)?;
-    let token = InvocationToken::new();
-    authority::grant_intersection(m, &token, &grant, ceiling, &trusted.into())?;
-    let mut product = None;
-    for document in u.program.source_documents() {
-        let reference = super::working_value::owning_definition(m, &a, document.reference())?;
-        if shape::same(m, reference.value(), &u.request.payload["product_ref"])? {
-            product = Some(document.canonical_value());
+        shape::equal(m, &grant["source"], &att["source"])?;
+        let namespace = a.string_value(u.request.namespace, m)?;
+        shape::equal(m, &grant["canonical_economic_namespace"], namespace.value())?;
+        let trusted =
+            Timestamp::parse_with_work(shape::text(m, &verification, "trusted_received_at")?, m)?
+                .micros();
+        let issued = Timestamp::parse_with_work(shape::text(m, &att, "issued_at")?, m)?.micros();
+        let received = Timestamp::parse_with_work(u.request.received_at, m)?.micros();
+        if w::compare(m, issued, trusted)?.is_gt() || w::compare(m, trusted, received)?.is_gt() {
+            return Err(shape::fail("Work proof historical trusted time"));
         }
-    }
-    let product = product.ok_or_else(|| shape::fail("Work proof original product"))?;
-    let activity = shape::text(m, u.request.payload, "activity")?;
-    let product_id = shape::text(m, product, "product_id")?;
-    authority::grant_coverage(
-        m,
-        &grant,
-        &u.request.payload["customer"],
-        activity,
-        product_id,
-        slot,
-        ("evidence.retain", &["read", "submit"]),
-    )?;
-    let operation = a.string_value("work.accept", m)?;
-    let operations = shape::array(m, &grant, "operations")?;
-    if !shape::member(m, operations, operation.value())? {
-        return Err(shape::fail("Work proof original retention operation"));
+        // Revalidate the actual retention-time grant, never today's corrector
+        // grant. Completed committed-origin association remains host-owned.
+        authority::grant_shape(m, &grant)?;
+        let token = InvocationToken::new();
+        authority::grant_intersection(m, &token, &grant, ceiling, &trusted.into())?;
+        let mut product = None;
+        for document in u.program.source_documents() {
+            let reference = super::working_value::owning_definition(m, &a, document.reference())?;
+            if shape::same(m, reference.value(), &u.request.payload["product_ref"])? {
+                product = Some(document.canonical_value());
+            }
+        }
+        let product = product.ok_or_else(|| shape::fail("Work proof original product"))?;
+        let activity = shape::text(m, u.request.payload, "activity")?;
+        let product_id = shape::text(m, product, "product_id")?;
+        authority::grant_coverage(
+            m,
+            &grant,
+            &u.request.payload["customer"],
+            activity,
+            product_id,
+            slot,
+            ("evidence.retain", &["read", "submit"]),
+        )?;
+        let operation = a.string_value("work.accept", m)?;
+        let operations = shape::array(m, &grant, "operations")?;
+        if !shape::member(m, operations, operation.value())? {
+            return Err(shape::fail("Work proof original retention operation"));
+        }
     }
     let verification_value = owning_reference(m, &a, verification_ref)?;
     let constants = m.parse_owned_representation(
@@ -801,7 +837,19 @@ mod tests {
         session: &mut OriginalAuditSession,
         provenance: Value,
     ) -> Result<SelectedProgram> {
-        let support = SelectedCompilerSupport::local_execution_with_session(session).unwrap();
+        compile_with_provenance_profile(session, provenance, false)
+    }
+    fn compile_with_provenance_profile(
+        session: &mut OriginalAuditSession,
+        provenance: Value,
+        policy: bool,
+    ) -> Result<SelectedProgram> {
+        let support = if policy {
+            SelectedCompilerSupport::local_policy_semantics_execution_with_session(session)
+        } else {
+            SelectedCompilerSupport::local_execution_with_session(session)
+        }
+        .unwrap();
         let fixture: Value = serde_json::from_slice(include_bytes!(
             "../selected_program/fixtures/local-first-policy-input.json"
         ))
@@ -809,7 +857,17 @@ mod tests {
         let mut docs = fixture["documents"].as_array().unwrap().clone();
         let old_schema = definition("workflow-fact-schema", &docs[0]);
         let old_product = definition("workflow-product", &docs[3]);
-        docs[0]["fields"][0]["provenance"] = provenance;
+        docs[0]["fields"][0]["provenance"] = provenance.clone();
+        if policy {
+            let old = definition("workflow-fact-schema", &docs[1]);
+            for field in docs[1]["fields"].as_array_mut().unwrap() {
+                field["provenance"]["source_slot"] = provenance["source_slot"].clone();
+            }
+            let new = definition("workflow-fact-schema", &docs[1]);
+            for doc in &mut docs {
+                replace_ref(doc, &old, &new);
+            }
+        }
         let new_schema = definition("workflow-fact-schema", &docs[0]);
         for doc in &mut docs {
             replace_ref(doc, &old_schema, &new_schema);
@@ -1023,6 +1081,261 @@ mod tests {
                     .code,
                 "UNSUPPORTED_COMPOSITION"
             );
+        }
+    }
+    #[test]
+    fn policy_proofs_bind_independent_historical_issuer_and_original_worker_namespace() {
+        // Production proof-consumer DATA: no grant to submit Work is given to
+        // the issuer, and no present issuer grant/frame is supplied at consume.
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_with_provenance_profile(
+            &mut compile,
+            json!({"kind":"attested","source_slot":"support:issuer","evidence_kind":"meter_quantity"}),
+            true,
+        ).unwrap();
+        // The old descriptor must continue to reject this independent Outcome
+        // issuer instead of retroactively acquiring the new capability.
+        let old_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut old_session = OriginalAuditSession::for_resource_profile_v2(&old_arena).unwrap();
+        let old = SelectedCompilerSupport::local_execution_with_session(&mut old_session).unwrap();
+        let mut docs: Vec<Value> = program
+            .source_documents()
+            .iter()
+            .filter(|d| d.canonical_value()["schema"] != "ledger-workflow-compiler-descriptor/8")
+            .map(|d| d.canonical_value().clone())
+            .collect();
+        let policy = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-policy/4")
+            .unwrap();
+        policy["compiler_ref"] = json!(old.reference());
+        let root = serde_json::from_value(definition("workflow-policy", policy)).unwrap();
+        docs.push(old.canonical_value().clone());
+        let legacy = compile_selected_publication(
+            SelectedSourceInput {
+                documents: docs
+                    .iter()
+                    .map(|d| canonical::CanonicalBytes::from_value(d).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: root,
+            },
+            &old,
+            &mut old_session,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(legacy.detail, "family code provenance");
+        for case in [
+            "valid",
+            "missing-retention",
+            "missing-original-worker-right",
+            "wrong-worker-namespace",
+            "wrong-nomination",
+        ] {
+            let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+            let mut consumer = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let m = consumer.meter_mut();
+            let mut f = fixture(m, &program, false);
+            f.rows.clear();
+            let mut grants = Vec::new();
+            let mut enrollments = Vec::new();
+            for (id, source, namespace, slot, operation) in [
+                (
+                    "worker",
+                    f.context.key.source.as_str(),
+                    "proof-economic",
+                    "support:worker",
+                    "work.accept",
+                ),
+                (
+                    "issuer",
+                    "urn:example:independent-issuer",
+                    "issuer-economic",
+                    "support:issuer",
+                    "evidence.retain",
+                ),
+            ] {
+                let ceiling = json!({"source":source,"principal_id":"local-operator","canonical_economic_namespace":namespace,"customer_scope":["customer"],"operations":[operation],"product_selectors":[{"names":["support:product"]}],"activity_selectors":[{"names":["support:assess","support:complete"]}],"link_selectors":[],"source_slots":[slot],"permissions":["read","submit"],"starts_at":"2026-10-21T00:00:00.000000Z","ends_at":"2026-10-25T00:00:00.000000Z"});
+                let enrollment = document(
+                    m,
+                    "workflow-source-enrollment",
+                    json!({"schema":"ledger-workflow-source-enrollment/1","scope":f.context.key.scope,"installation_mode":f.context.installation_mode,"enrollment_id":id,"ceiling":ceiling}),
+                );
+                let mut grant = ceiling;
+                grant["schema"] = json!("ledger-workflow-source-grant/1");
+                grant["grant_id"] = json!(id);
+                grant["revision"] = json!("1");
+                grant["original_ceiling_ref"] = json!(enrollment.reference);
+                if id == "issuer" && case == "missing-retention" {
+                    grant["operations"] = json!([]);
+                }
+                if id == "worker" && case == "missing-original-worker-right" {
+                    grant["operations"] = json!([]);
+                }
+                let grant = document(m, "workflow-source-grant", grant);
+                enrollments.push(enrollment.reference.clone());
+                grants.push(grant.reference.clone());
+                f.rows.extend([enrollment, grant]);
+            }
+            let terms = document(
+                m,
+                "workflow-slot-terms",
+                json!({"schema":"ledger-workflow-slot-binding-terms/7","customer":"customer","agreement_id":"agreement","slot":"support:retail","source_grant_refs":grants}),
+            );
+            let binding = document(
+                m,
+                "workflow-binding",
+                json!({"schema":"ledger-workflow-binding/2","product_ref":f.payload["product_ref"],"policy_ref":program.root_policy_ref(),"customer":"customer","agreement_id":"agreement","source_namespace":"proof-economic","authority_refs":grants,"bindings":[{"slot":"support:retail","binding_ref":terms.reference}],"source_slots":[{"name":"support:worker","sources":[f.context.key.source],"evidence_kinds":[]},{"name":"support:issuer","sources":[if case == "wrong-nomination" { "urn:example:other-issuer" } else { "urn:example:independent-issuer" }],"evidence_kinds":["meter_quantity","occurrence","outcome"]}]}),
+            );
+            f.payload["policy_ref"] = json!(program.root_policy_ref());
+            f.payload["binding_ref"] = json!(binding.reference);
+            let subject = json!({"kind":"work","logical_store_id":f.context.key.logical_store_id,"scope":f.context.key.scope,"canonical_source_namespace":"proof-economic","business_operation_id":f.payload["business_operation_id"],"customer":f.payload["customer"],"activity":f.payload["activity"],"product_ref":f.payload["product_ref"],"binding_ref":binding.reference});
+            let assertion = document(
+                m,
+                "workflow-fact-attestation",
+                json!({"schema":"ledger-workflow-fact-attestation/1","attestation_id":"independent","source":"urn:example:independent-issuer","evidence_kind":"meter_quantity","subject":subject,"subject_schema_ref":f.payload["fact_schema_ref"],"claims":[{"field":"support:quantity","value":"3"}],"issued_at":"2026-10-22T00:00:01.000000Z","supporting_evidence_refs":[]}),
+            );
+            let raw_hash =
+                canonical::hex_with_work(&Sha256::digest(assertion.canonical_body.as_ref()), m)
+                    .unwrap();
+            let verification = document(
+                m,
+                "workflow-evidence-verification",
+                json!({"schema":"ledger-workflow-evidence-verification/1","attestation_ref":assertion.reference,"attestation_raw_sha256":raw_hash,"attestation_digest":assertion.reference.digest,"verified_source":"urn:example:independent-issuer","verification_primitive":"authenticated-nominated-source-retention/1","source_grant_ref":grants[1],"source_grant_revision":"1","authenticated_principal_ref":enrollments[1],"trusted_received_at":"2026-10-22T00:00:02.000000Z","subject_binding_refs":[binding.reference],"verification_evidence_refs":[]}),
+            );
+            let verifier = verification.reference.clone();
+            let proofs =
+                vec![json!({"field":"support:quantity","attestation_ref":assertion.reference})];
+            f.payload["fact_proofs"] = json!(proofs);
+            f.rows.extend([terms, binding, assertion, verification]);
+            let v = views(&f.rows);
+            let mut records = Records::borrowed_parent_app(m, &arena, &f.context.key, &v).unwrap();
+            let q = WorkProofRequest {
+                payload: &f.payload,
+                facts: &f.payload["facts"],
+                namespace: if case == "wrong-worker-namespace" {
+                    "issuer-economic"
+                } else {
+                    "proof-economic"
+                },
+                received_at: &f.context.received_at,
+                only_field: None,
+                worker_authority: None,
+            };
+            let result = resolve(
+                m,
+                &mut records,
+                &f.context,
+                &program,
+                &q,
+                &proofs,
+                &[verifier],
+            );
+            if case == "valid" {
+                let mut proof = result.unwrap().unwrap();
+                assert_eq!(proof.references.len(), 1);
+                assert!(source::proof_only_slot(m, &program, "support:issuer").unwrap());
+                assert!(!source::proof_only_slot(m, &program, "support:worker").unwrap());
+                drop(records);
+                drop(v);
+                let original = document(
+                    m,
+                    "workflow-economic-authority",
+                    json!({"schema":"ledger-workflow-economic-authority/8","operation":"work.accept","canonical_economic_namespace":"proof-economic","original_binding_ref":f.payload["binding_ref"],"verified_fact_refs":proof.references}),
+                );
+                let original_ref = json!(original.reference);
+                f.rows.append(&mut proof.introduced);
+                f.rows.push(original);
+                let v = views(&f.rows);
+                let mut records =
+                    Records::borrowed_parent_app(m, &arena, &f.context.key, &v).unwrap();
+                let original_q = WorkProofRequest {
+                    worker_authority: Some(&original_ref),
+                    ..q
+                };
+                let saved = retained(
+                    m,
+                    &mut records,
+                    &f.context,
+                    &program,
+                    &original_q,
+                    &original_ref,
+                    true,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(saved.references, proof.references);
+                assert!(saved.introduced.is_empty());
+                drop(records);
+                drop(v);
+                // The same distinct issuer purpose applies to Outcome fields;
+                // the consuming assessor frame is deliberately still worker A.
+                let schema = program
+                    .fact_schemas()
+                    .iter()
+                    .find(|(_, s)| s.canonical_value()["schema_id"] == "support:assessment-facts")
+                    .unwrap();
+                let mut outcome = f.payload.clone();
+                outcome["schema"] = json!("ledger-workflow-outcome/1");
+                outcome["target_ref"] = original_ref.clone();
+                outcome["family_slot"] = json!("support:result");
+                outcome["business_outcome_token"] = json!("outcome-token");
+                outcome["activity"] = json!("support:assess");
+                outcome["fact_schema_ref"] = json!(schema.0);
+                outcome["occurred_at"] = json!("2026-10-22T00:00:01.000000Z");
+                outcome["facts"] = json!({"support:code":"support:success","support:occurred":outcome["occurred_at"]});
+                let subject = json!({"kind":"outcome","logical_store_id":f.context.key.logical_store_id,"scope":f.context.key.scope,"target_ref":outcome["target_ref"],"family_slot":outcome["family_slot"],"business_outcome_token":outcome["business_outcome_token"],"activity":outcome["activity"],"binding_ref":outcome["binding_ref"]});
+                let mut state = DraftStateData::default();
+                let mut facts_proofs = Vec::new();
+                for (field, kind) in [
+                    ("support:code", "outcome"),
+                    ("support:occurred", "occurrence"),
+                ] {
+                    let assertion = document(
+                        m,
+                        "workflow-fact-attestation",
+                        json!({"schema":"ledger-workflow-fact-attestation/1","attestation_id":kind,"source":"urn:example:independent-issuer","evidence_kind":kind,"subject":subject,"subject_schema_ref":schema.0,"claims":[{"field":field,"value":outcome["facts"][field]}],"issued_at":"2026-10-22T00:00:01.000000Z","supporting_evidence_refs":[]}),
+                    );
+                    let raw = canonical::hex_with_work(
+                        &Sha256::digest(assertion.canonical_body.as_ref()),
+                        m,
+                    )
+                    .unwrap();
+                    let verification = document(
+                        m,
+                        "workflow-evidence-verification",
+                        json!({"schema":"ledger-workflow-evidence-verification/1","attestation_ref":assertion.reference,"attestation_raw_sha256":raw,"attestation_digest":assertion.reference.digest,"verified_source":"urn:example:independent-issuer","verification_primitive":"authenticated-nominated-source-retention/1","source_grant_ref":grants[1],"source_grant_revision":"1","authenticated_principal_ref":enrollments[1],"trusted_received_at":"2026-10-22T00:00:02.000000Z","subject_binding_refs":[f.payload["binding_ref"]],"verification_evidence_refs":[]}),
+                    );
+                    facts_proofs.push(json!({"field":field,"attestation_ref":assertion.reference}));
+                    state
+                        .evidence_verifications
+                        .push(verification.reference.clone());
+                    f.rows.extend([assertion, verification]);
+                }
+                outcome["fact_proofs"] = json!(facts_proofs);
+                let normalized = super::super::working_value::NormalizedInput::normalize(
+                    m,
+                    &schema.1,
+                    &outcome["facts"],
+                )
+                .unwrap();
+                let v = views(&f.rows);
+                let mut records =
+                    Records::borrowed_parent_app(m, &arena, &f.context.key, &v).unwrap();
+                let proofs = super::super::outcome_proofs::resolve(
+                    m,
+                    &mut records,
+                    &f.context,
+                    &program,
+                    (&outcome, &schema.1, &normalized),
+                    &state,
+                )
+                .unwrap();
+                assert_eq!(proofs.references.len(), 2);
+            } else {
+                assert_eq!(result.err().unwrap().code, "INTEGRITY_FAILURE", "{case}");
+            }
         }
     }
     #[test]

@@ -831,7 +831,7 @@ pub(super) fn execute<'inv, 'raw>(
     let schema = schema.ok_or_else(|| shape::fail("original outcome schema"))?;
     let normalized = super::working_value::NormalizedInput::normalize(m, schema, &p["facts"])?;
     p.replace(m, "facts", normalized.canonical_value())?;
-    let proofs = outcome_proofs::resolve(m, &mut r, c, &p, schema, &normalized, state)?;
+    let proofs = outcome_proofs::resolve(m, &mut r, c, program, (&p, schema, &normalized), state)?;
     p.normalize_set(m, "fact_proofs", true)?;
     let authority_payload = p.with_fields(m, &[("customer", &work_payload["customer"])])?;
     let operands = if m.representation_arena().is_some() {

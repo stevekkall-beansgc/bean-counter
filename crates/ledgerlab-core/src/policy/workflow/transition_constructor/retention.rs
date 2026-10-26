@@ -793,6 +793,19 @@ fn resolve_field(
     let subject = &att["subject"];
     let kind = shape::text(m, subject, "kind")?;
     let schema = field_schema(m, program, &att["subject_schema_ref"])?;
+    let issuer_slot = if program.uses_policy_semantics_recipe() {
+        let claims = shape::array(m, att, "claims")?;
+        let first = claims
+            .first()
+            .ok_or_else(|| shape::fail("assertion field issuer missing"))?;
+        let name = shape::text(m, first, "field")?;
+        let fields = shape::array(m, schema.canonical_value(), "fields")?;
+        let field = shape::named(m, fields, "name", name)?;
+        text_eq(m, &field["provenance"]["kind"], "attested")?;
+        Some(shape::text(m, &field["provenance"], "source_slot")?)
+    } else {
+        None
+    };
     let (resolved, binding, work) = if shape::same_text(m, kind, "outcome")? {
         shape::closed(
             m,
@@ -820,10 +833,15 @@ fn resolve_field(
             &subject["activity"],
             &selected.family["trigger_activity"],
         )?;
-        let source_slot = shape::text(m, selected.family, "source_slot")?;
+        let source_slot = match issuer_slot {
+            Some(slot) => slot,
+            None => shape::text(m, selected.family, "source_slot")?,
+        };
         let resolved =
             selected.authority(m, r, c, program, source_slot, EconomicMode::EvidenceRetain)?;
-        additional_operation(m, r, c, "outcome.submit")?;
+        if !program.uses_policy_semantics_recipe() {
+            additional_operation(m, r, c, "outcome.submit")?;
+        }
         {
             let binding = super::working_value::parse_owned_reference(
                 m,
@@ -856,11 +874,13 @@ fn resolve_field(
         )?;
         let business = shape::text(m, subject, "business_operation_id")?;
         text_bound(m, business, 128, true)?;
-        text_eq(
-            m,
-            &subject["canonical_source_namespace"],
-            &c.canonical_economic_namespace,
-        )?;
+        if !program.uses_policy_semantics_recipe() {
+            text_eq(
+                m,
+                &subject["canonical_source_namespace"],
+                &c.canonical_economic_namespace,
+            )?;
+        }
         let mut product = None;
         for document in program.source_documents() {
             m.visit("retention.subject_product")?;
@@ -896,16 +916,43 @@ fn resolve_field(
             &c.received_at,
             &c.accepted_at,
         )?;
-        let resolved = authority::resolve_economic(
-            m,
-            r,
-            c,
-            p.value(),
-            activity,
-            product,
-            (&owner, &times, program, EconomicMode::EvidenceRetain, &[]),
-        )?;
-        additional_operation(m, r, c, "work.accept")?;
+        let resolved = if let Some(issuer_slot) = issuer_slot {
+            let slot = arena.string_value(issuer_slot, m)?;
+            let activity = super::working_value::WorkingValue::copy(m, activity)?
+                .with_fields(m, &[("source_slot", slot.value())])?;
+            let namespace = shape::text(m, subject, "canonical_source_namespace")?;
+            let resolved = authority::resolve_economic_original(
+                m,
+                r,
+                c,
+                p.value(),
+                &activity,
+                product,
+                (
+                    &owner,
+                    &times,
+                    program,
+                    EconomicMode::EvidenceRetain,
+                    &[],
+                    namespace,
+                ),
+            )?;
+            super::work_proofs::source::work_namespace(m, r, c, program, p.value(), namespace)?;
+            resolved
+        } else {
+            authority::resolve_economic(
+                m,
+                r,
+                c,
+                p.value(),
+                activity,
+                product,
+                (&owner, &times, program, EconomicMode::EvidenceRetain, &[]),
+            )?
+        };
+        if !program.uses_policy_semantics_recipe() {
+            additional_operation(m, r, c, "work.accept")?;
+        }
         {
             let binding =
                 super::working_value::parse_owned_reference(m, &arena, &subject["binding_ref"])?;

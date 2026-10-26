@@ -266,7 +266,7 @@ pub(super) fn resolve(
         (&role, &source.current),
     )?;
     if mode == EconomicMode::Work {
-        future_source_shape(m, r, c, &binding, &slot_terms)?;
+        future_source_shape(m, r, c, &binding, &slot_terms, program)?;
     }
     inventory::slots::validate_app_funding_projection(m, program, &binding, &slot_terms, &role)?;
     let funding = shape::array(m, &binding, "funding_legs")?;
@@ -611,16 +611,25 @@ pub(in crate::policy::workflow::transition_constructor) fn resolved(
 /// policy restriction. Refuse before creating any work/dependency promise;
 /// later consumers still recheck current grants. The full implementation must
 /// supply each independently authenticated dependent frame, never substitute
-/// the worker namespace or root actor for another principal.
+/// the worker namespace or root actor for another principal. In the policy
+/// recipe a proof-only issuer is not a dependent monetary principal; its exact
+/// historical nomination/grant is checked by the field-proof consumers.
 fn future_source_shape(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     binding: &Value,
     terms: &Value,
+    program: &SelectedProgram,
 ) -> Result<()> {
     for nomination in shape::array(m, binding, "source_slots")? {
         m.visit("app.promise_source_nomination")?;
+        if program.uses_policy_semantics_recipe() {
+            let slot = shape::text(m, nomination, "name")?;
+            if super::super::work_proofs::source::proof_only_slot(m, program, slot)? {
+                continue;
+            }
+        }
         for source in shape::array(m, nomination, "sources")? {
             let actual = source
                 .as_str()
@@ -647,6 +656,16 @@ fn future_source_shape(
             "workflow-source-grant",
             "ledger-workflow-source-grant/1",
         )?;
+        if program.uses_policy_semantics_recipe()
+            && super::super::work_proofs::source::proof_only_nominee(
+                m,
+                program,
+                binding,
+                &grant["source"],
+            )?
+        {
+            continue;
+        }
         let source = shape::text(m, &grant, "source")?;
         let principal = shape::text(m, &grant, "principal_id")?;
         if !shape::same_text(m, source, &c.key.source)?

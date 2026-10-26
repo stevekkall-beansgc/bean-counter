@@ -739,7 +739,7 @@ pub fn select_local_operation_locators(
 
 // Select the ORIGINAL family from the retained Target declaration and its
 // original instantiation. Never take a requested source-slot string as authority.
-fn locator_family<'p>(
+pub(super) fn locator_family<'p>(
     program: &'p SelectedProgram,
     m: &mut CoreMeter,
     target: &Value,
