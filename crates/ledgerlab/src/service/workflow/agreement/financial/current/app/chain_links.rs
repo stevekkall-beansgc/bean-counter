@@ -190,71 +190,6 @@ fn unique_result<'a>(
     }
     selected.ok_or(ServiceError::IntegrityFailure)
 }
-/// Exact immutable Work birth support; it never acquires a mutable ancestor
-/// head or confers a dependent monetary/closure right.
-async fn retain_work_claim(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    before: i64,
-    work: &source::SourceRecord,
-    origin: &prefix::LocatedWrappers,
-    pool: &mut super::super::super::local_inputs::LocalInputs,
-    s: &mut OriginalAuditSession,
-) -> Result<()> {
-    s.semantic_work()
-        .arithmetic(
-            Op::Compare,
-            &[&origin.wrappers().sequence().into(), &before.into()],
-        )
-        .map_err(core_error)?;
-    require(origin.wrappers().sequence() < before, "INTEGRITY_FAILURE")?;
-    check::same_text(
-        check::text(origin.wrappers().operation(), "kind", s)?,
-        "work.accept",
-        s,
-    )?;
-    let work_ref = wire::reference(work.reference(), s)?;
-    let work_ref = s
-        .parse_representation(work_ref.bytes(), RepresentationKind::Record)
-        .map_err(core_error)?;
-    origin.require_member(work_ref.value(), s)?;
-    result_member(origin.wrappers().receipt(), work_ref.value(), s)?;
-    let evidence = check::field(origin.wrappers().operation(), "request_evidence", s)?;
-    let normalized = check::field(evidence, "normalized_request", s)?;
-    equal(
-        check::field(normalized, "key", s)?,
-        check::field(work.body(), "key", s)?,
-        s,
-    )?;
-    equal(
-        check::field(normalized, "payload", s)?,
-        check::field(work.body(), "payload", s)?,
-        s,
-    )?;
-    let claim = unique_result(origin.wrappers().receipt(), "workflow-work-claim", s)?;
-    origin.require_member(claim, s)?;
-    check::same_text(
-        check::text(claim, "id", s)?,
-        check::text(work.body(), "claim_id", s)?,
-        s,
-    )?;
-    let claim = source::retained_local_record(
-        tx,
-        key,
-        claim,
-        ("workflow-work-claim", "ledger-workflow-work-claim/1"),
-        before,
-        s,
-    )
-    .await?;
-    equal(
-        check::field(claim.body(), "work_ref", s)?,
-        work_ref.value(),
-        s,
-    )?;
-    pool.add(claim.reference(), s)
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum ClaimRecipe {
     Declared,
@@ -358,8 +293,16 @@ pub(super) async fn acquire(
                     .await?
                     .checked_wrappers(tx, s)
                     .await?;
-                retain_work_claim(tx, key, selected.before, &predecessor, &producer, pool, s)
-                    .await?;
+                super::super::super::local_inputs::retain_work_claim(
+                    tx,
+                    key,
+                    selected.before,
+                    &predecessor,
+                    &producer,
+                    pool,
+                    s,
+                )
+                .await?;
                 out.remember_work_birth(predecessor.reference(), s)?;
             }
             let producer_key = check::field(link.body(), "operation_key", s)?;
@@ -462,8 +405,16 @@ pub(super) async fn acquire(
             pool.add(initial_body.reference(), s)?;
             if child_kind == "workflow-work" {
                 if !out.has_work_birth(child_body.reference(), s)? {
-                    retain_work_claim(tx, key, selected.before, &child_body, &origin, pool, s)
-                        .await?;
+                    super::super::super::local_inputs::retain_work_claim(
+                        tx,
+                        key,
+                        selected.before,
+                        &child_body,
+                        &origin,
+                        pool,
+                        s,
+                    )
+                    .await?;
                     out.remember_work_birth(child_body.reference(), s)?;
                 }
                 let mut matches = 0usize;

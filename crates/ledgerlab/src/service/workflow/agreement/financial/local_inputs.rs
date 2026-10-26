@@ -8,9 +8,14 @@ use ledgerlab_core::{
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
+mod lifecycle;
+pub(super) use lifecycle::retain_work_claim;
+
 struct Row {
     reference: ExactRef,
     body: Option<AuditedBytes>,
+    native_schema: Option<AuditedBytes>,
+    lifecycle_processed: bool,
     _reference: ExternalBufferLease,
 }
 pub(super) struct LocalInputs {
@@ -78,6 +83,8 @@ impl LocalInputs {
         self.rows.push(Row {
             reference,
             body: None,
+            native_schema: None,
+            lifecycle_processed: false,
             _reference: owner,
         });
         Ok(())
@@ -180,6 +187,7 @@ impl LocalInputs {
             )
             .map_err(core_error)?;
             self.rows[i].body = Some(body);
+            self.rows[i].native_schema = Some(stored.schema);
             for r in edges.direct_refs() {
                 self.add(r, s)?;
             }

@@ -462,6 +462,44 @@ pub(in super::super::super) async fn observe(
             o._chain_storage = Some(links);
         }
     }
+    if program.uses_work_lifecycle_recipe() {
+        let raw = s
+            .canonical_representation(payload, RepresentationKind::OriginalRequest)
+            .map_err(core_error)?;
+        let app = core::AppStateData {
+            cost_heads: &extra.costs,
+            observation_refs: &extra.observations,
+            cost_claim_refs: &extra.claims,
+            evidence_consumption_refs: &extra.consumed,
+        };
+        let data = core::EconomicStateData {
+            retained_assertion: extra.assertion.as_ref(),
+            financial: &state.financial,
+            capacity_heads: &state.capacities,
+            supplier: None,
+            app: Some(&app),
+            current_party_authorizations: &state.parties,
+            observation: None,
+            audit: None,
+            initial_source_correspondences: &[],
+        };
+        let groups = locators
+            .select_fact_reference_inputs(program, &ck, raw.bytes(), (&data, &pool.views()), s)
+            .map_err(core_error)?;
+        o._fact_reference_groups = Some(groups);
+        for group in o
+            ._fact_reference_groups
+            .as_ref()
+            .ok_or(ServiceError::IntegrityFailure)?
+            .groups()
+        {
+            for input in group.inputs().entries() {
+                pool.add(input.reference(), s)?;
+            }
+        }
+        pool.complete_lifecycle(program, tx, key, o.before, s)
+            .await?;
+    }
     o.work_state = Some(state);
     o.local_input_bodies = Some(pool);
     o.work_source_index = Some(index);

@@ -7,7 +7,7 @@ mod nonwork;
 mod work_capture;
 mod work_heads;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    select_fact_reference_inputs, FactReferenceInputs,
+    select_work_fact_reference_inputs, OperationFactReferenceInputs,
 };
 use ledgerlab_core::validation_work::ValidationVisit;
 
@@ -45,7 +45,7 @@ pub(in super::super) struct ObservedAppBinding {
     _chain_storage: Option<chain_links::ChainLinks>,
     _relation_head: Option<work_heads::RelationDecision>,
     // Retain the paid typed-field selection separately from copied pool Refs.
-    _fact_reference_inputs: Option<FactReferenceInputs>,
+    _fact_reference_groups: Option<OperationFactReferenceInputs>,
 }
 /// Newly emitted management DATA; neither row establishes admission.
 pub(in super::super) struct ActivationAdmissionRecords {
@@ -259,22 +259,28 @@ pub(in super::super) async fn observe(
                 .program()
                 .uses_work_lifecycle_recipe()
             {
-                observed._fact_reference_inputs = Some(
-                    select_fact_reference_inputs(
-                        observed.original.publication.program(),
-                        check::field(payload, "fact_schema_ref", session)?,
-                        check::field(payload, "facts", session)?,
-                        session,
-                    )
-                    .map_err(core_error)?,
-                );
-                for input in observed
-                    ._fact_reference_inputs
-                    .as_ref()
-                    .ok_or(ServiceError::IntegrityFailure)?
-                    .entries()
+                let groups = work_capture::with_capture(
+                    &observed, key, payload, index, &received_at, session,
+                    |capture, _, raw, session| {
+                        select_work_fact_reference_inputs(
+                            observed.original.publication.program(),
+                            capture.key,
+                            raw,
+                            ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView {
+                                reference: observed.original.acceptance.binding.reference(),
+                                canonical_body: observed.original.acceptance.binding.bytes(),
+                            },
+                            session,
+                        ).map_err(core_error)
+                    },
+                )?;
+                observed._fact_reference_groups = Some(groups);
+                for group in observed._fact_reference_groups.as_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?.groups()
                 {
-                    pool.add(input.reference(), session)?;
+                    for input in group.inputs().entries() {
+                        pool.add(input.reference(), session)?;
+                    }
                 }
             }
             let proofs = check::field(payload, "fact_proofs", session)?
@@ -342,6 +348,9 @@ pub(in super::super) async fn observe(
                 .await?;
                 state.financial.links = std::mem::take(&mut links.references);
                 observed._chain_storage = Some(links);
+            }
+            if program.uses_work_lifecycle_recipe() {
+                pool.complete_lifecycle(program, tx, key, observed.before, session).await?;
             }
             observed.local_input_bodies = Some(pool);
         } else {
@@ -739,7 +748,7 @@ async fn observe_binding(
             _verification_storage: None,
             _chain_storage: None,
             _relation_head: None,
-            _fact_reference_inputs: None,
+            _fact_reference_groups: None,
         })
     }
     .await;
