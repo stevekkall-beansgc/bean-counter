@@ -204,6 +204,7 @@ pub(super) fn execute_complete<'raw>(
             records: inputs,
             arena,
             sources: state.initial_source_correspondences,
+            financial_revisions: program.uses_stage_lifecycle_recipe(),
         },
         (state.financial, Some(state)),
         m,
@@ -341,7 +342,9 @@ fn execute_parsed<'inv, 'raw>(
         ],
         &["occurred_at", "stage_instance_ref"],
     )?;
-    if !m.check("draft.no_stage", || p.get("stage_instance_ref").is_none())? {
+    if !program.uses_stage_lifecycle_recipe()
+        && !m.check("draft.no_stage", || p.get("stage_instance_ref").is_none())?
+    {
         return Err(unsupported("staged work"));
     }
     for key in [
@@ -498,7 +501,7 @@ fn execute_parsed<'inv, 'raw>(
         return Err(shape::fail("original plan substitution"));
     }
     let agreement = &a.binding["agreement_id"];
-    let mut construction_owners = [None, None, None, None, None, None, None];
+    let mut construction_owners = [None, None, None, None, None, None, None, None];
     if let Some(arena) = m.representation_arena() {
         // Ref payloads/control strings are admitted BEFORE either semantic ID
         // is constructed. Canonical/decoded graphs have independent owners.
@@ -622,7 +625,7 @@ fn execute_parsed<'inv, 'raw>(
                 m,
             )?
         };
-        let facts_digest = records::hash(m, "workflow-claim-facts", tuple.value())?;
+        let facts_digest = super::work_keys::claim_facts_digest(m, &p, tuple.value())?;
         let facts_digest = arena.string_value(&facts_digest, m)?;
         let work_ref = super::working_value::owning_reference(m, &arena, &work.reference)?;
         let value = arena.object_from_fields(
@@ -673,7 +676,7 @@ fn execute_parsed<'inv, 'raw>(
             claim_tuple.push(occurrence.clone());
         }
         claim_tuple.push(p["evidence_refs"].clone());
-        let facts_digest = records::hash(m, "workflow-claim-facts", &json!(claim_tuple))?;
+        let facts_digest = super::work_keys::claim_facts_digest(m, &p, &json!(claim_tuple))?;
         let claim = body::record(
             m,
             &c.key,
@@ -683,6 +686,14 @@ fn execute_parsed<'inv, 'raw>(
         )?;
         (work, claim)
     };
+    let mut stage_transition = super::stage::work(
+        m,
+        &mut r,
+        c,
+        program,
+        &p,
+        (&work.reference, &a.authority.reference, &a.binding, state),
+    )?;
     let inline_link = if program.uses_declared_work_link_recipe() {
         super::declared_links::emit_work(
             m,
@@ -1371,6 +1382,7 @@ fn execute_parsed<'inv, 'raw>(
         count = w::usize_add(m, count, actions.len())?;
         count = w::usize_add(m, count, targets.records.len())?;
         let added = w::usize_add(m, 4, usize::from(inline_link.is_some()))?;
+        let added = w::usize_add(m, added, usize::from(stage_transition.is_some()))?;
         count = w::usize_add(m, count, added)?; //authority, evaluation, decision, chain
         let per = std::mem::size_of::<ConstructedEnvelope>();
         ValidationWork::arithmetic(
@@ -1432,6 +1444,15 @@ fn execute_parsed<'inv, 'raw>(
     };
     if let Some(link) = inline_link {
         envelopes.push(link);
+    }
+    if let Some(mut transition) = stage_transition.take() {
+        envelopes.push(
+            transition
+                .record
+                .take()
+                .ok_or_else(|| shape::fail("Stage state output consumed twice"))?,
+        );
+        construction_owners[7] = Some(transition.ownership);
     }
     if let Some(proofs) = work_proofs.as_mut() {
         proofs.attach(m, &mut envelopes)?;

@@ -48,12 +48,13 @@ pub(super) fn produce_parsed<'program, 'raw>(
     let arena = m
         .representation_arena()
         .ok_or_else(|| super::shape::fail("owning app execution"))?;
-    let mut records = super::records::Records::borrowed_app(
+    let mut records = super::records::Records::borrowed_selected(
         m,
         &arena,
         &c.key,
         inputs,
         &c.source_observation_inputs,
+        program,
     )?;
     records.install_initial_source_outputs(m, state.initial_source_correspondences)?;
     let plan = plan::prepare(m, &mut records, c, program, request, state)?;
@@ -297,6 +298,7 @@ impl<'program, 'raw> AppConstruction<'program, 'raw> {
                 Some(monetary._ownership),
                 Some(plan._ownership),
                 Some(plan.original._ownership),
+                None,
                 None,
                 None,
                 None,

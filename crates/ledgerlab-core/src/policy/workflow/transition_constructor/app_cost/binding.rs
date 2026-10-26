@@ -519,6 +519,9 @@ fn resolved_role(
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app operation authority"))?;
     let (operation, rights) = match mode {
+        EconomicMode::WorkAlias if program.uses_shared_namespace_recipe() => {
+            ("work.accept", br#"["read","submit"]"#.as_slice())
+        }
         EconomicMode::QuantityCorrect => ("quantity.correct", br#"["correct","read"]"#.as_slice()),
         EconomicMode::WorkReverse => ("work.reverse", br#"["correct","read"]"#.as_slice()),
         EconomicMode::OutcomeSubmit => ("outcome.submit", br#"["read","submit"]"#.as_slice()),

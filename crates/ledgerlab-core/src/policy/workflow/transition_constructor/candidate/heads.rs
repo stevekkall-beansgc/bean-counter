@@ -81,6 +81,60 @@ fn expected_family<'a>(
     }
     Ok(found)
 }
+enum StageKey<'a> {
+    Held(&'a StageHead),
+    Introduced(RecordBody),
+}
+impl StageKey<'_> {
+    fn parts<'a>(&'a self, m: &mut CoreMeter) -> Result<(&'a str, &'a str, &'a str)> {
+        match self {
+            Self::Held(h) => Ok((&h.agreement, &h.chain, &h.stage)),
+            Self::Introduced(v) => Ok((
+                shape::text(m, v, "agreement_id")?,
+                shape::text(m, v, "chain")?,
+                shape::text(m, v, "stage_name")?,
+            )),
+        }
+    }
+    fn old(&self) -> Option<&StageHead> {
+        match self {
+            Self::Held(h) => Some(h),
+            Self::Introduced(_) => None,
+        }
+    }
+}
+fn stage_key<'a>(
+    m: &mut CoreMeter,
+    t: &Construction,
+    state: &'a DraftStateData,
+    value: &serde_json::Value,
+) -> Result<StageKey<'a>> {
+    if let Some(prior) = value.get("prior_ref") {
+        let mut found = None;
+        for h in &state.stage_heads {
+            m.visit("candidate.expected_stage")?;
+            let reference = shape::reference(m, prior)?;
+            if shape::same_ref(m, &reference, &h.reference)? {
+                if found.is_some() {
+                    return Err(shape::fail("ambiguous expected Stage head"));
+                }
+                found = Some(h);
+            }
+        }
+        Ok(StageKey::Held(found.ok_or_else(|| {
+            shape::fail("Stage successor lacks held current head")
+        })?))
+    } else {
+        let instance = shape::reference(m, &value["stage_instance_ref"])?;
+        let (_, body) = introduced(m, t, &instance)?;
+        if !shape::same_text(m, &instance.kind, "workflow-stage-instance")?
+            || !text_is(m, &body, "schema", "ledger-workflow-stage-instance/1")?
+        {
+            return Err(shape::fail("new Stage head instance introduction"));
+        }
+        Ok(StageKey::Introduced(body))
+    }
+}
 pub(super) fn introduced(
     m: &mut CoreMeter,
     t: &Construction,
@@ -154,6 +208,12 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     if let Some(app) = &t.app_effects {
         count = add(m, count, app.heads.len())?;
     }
+    for e in &t.new_envelopes {
+        m.visit("candidate.stage_head_count")?;
+        if shape::same_text(m, &e.reference.kind, "workflow-stage-state")? {
+            count = add(m, count, 1)?;
+        }
+    }
     ValidationWork::arithmetic(
         m,
         ArithmeticOperation::Multiply,
@@ -206,6 +266,22 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
             if let Some(old) = &h.expected {
                 ref_size(m, &mut bytes, old)?;
             }
+        }
+    }
+    for e in &t.new_envelopes {
+        m.visit("candidate.stage_head_size")?;
+        if !shape::same_text(m, &e.reference.kind, "workflow-stage-state")? {
+            continue;
+        }
+        let value = e.decoded(m, 4194304)?;
+        let selected = stage_key(m, t, state.financial, &value)?;
+        let (agreement, chain, stage) = selected.parts(m)?;
+        for s in [agreement, chain, stage, shape::text(m, &value, "revision")?] {
+            text_size(m, &mut bytes, s)?;
+        }
+        ref_size(m, &mut bytes, &e.reference)?;
+        if let Some(old) = selected.old() {
+            ref_size(m, &mut bytes, &old.reference)?;
         }
     }
     let ownership = arena.reserve_external_payload(bytes, m)?;
@@ -367,6 +443,57 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
                 introduced_position: position,
             });
         }
+    }
+    for (position, e) in t.new_envelopes.iter().enumerate() {
+        m.visit("candidate.stage_head_effect")?;
+        if !shape::same_text(m, &e.reference.kind, "workflow-stage-state")? {
+            continue;
+        }
+        let value = e.decoded(m, 4194304)?;
+        if !text_is(m, &value, "schema", "ledger-workflow-stage-state/1")? {
+            return Err(shape::fail("Stage head schema"));
+        }
+        let selected = stage_key(m, t, state.financial, &value)?;
+        let (agreement, chain, stage) = selected.parts(m)?;
+        for prior in &effects {
+            m.visit("candidate.stage_head_unique")?;
+            if let FinancialHeadKey::Stage {
+                agreement: a,
+                chain: b,
+                stage: d,
+            } = &prior.key
+            {
+                if shape::same_text(m, agreement, a)?
+                    && shape::same_text(m, chain, b)?
+                    && shape::same_text(m, stage, d)?
+                {
+                    return Err(shape::fail("Stage head introduced twice"));
+                }
+            }
+        }
+        let revision = shape::text(m, &value, "revision")?;
+        lineage(
+            m,
+            &arena,
+            &value,
+            revision,
+            selected.old().map(|h| &h.reference),
+            selected.old().map(|h| h.revision.as_str()),
+        )?;
+        effects.push(HeadEffect {
+            key: FinancialHeadKey::Stage {
+                agreement: copy(m, agreement)?,
+                chain: copy(m, chain)?,
+                stage: copy(m, stage)?,
+            },
+            expected: selected
+                .old()
+                .map(|h| copy_ref(m, &h.reference))
+                .transpose()?,
+            proposed: copy_ref(m, &e.reference)?,
+            revision: copy(m, revision)?,
+            introduced_position: position,
+        });
     }
     Ok(OwnedHeads {
         effects,

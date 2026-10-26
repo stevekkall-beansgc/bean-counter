@@ -278,7 +278,7 @@ pub(super) fn select(
     let m = s.meter_mut();
     super::codec::validate_selected_types(m, payload.value())?;
     let (state, inputs) = selected;
-    let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+    let mut r = Records::borrowed_parent_selected(m, &a, key, inputs, program)?;
     let mut count = 0usize;
     walk(
         m,
@@ -362,7 +362,7 @@ pub fn select_work_fact_reference_inputs(
         let supplied = shape::field(m, payload.value(), "binding_ref")?;
         shape::equal(m, supplied, expected.value())?;
         let inputs = [original_binding];
-        let mut r = Records::borrowed_parent_app(m, &a, key, &inputs)?;
+        let mut r = Records::borrowed_parent_selected(m, &a, key, &inputs, program)?;
         let binding = r.get(
             m,
             key,

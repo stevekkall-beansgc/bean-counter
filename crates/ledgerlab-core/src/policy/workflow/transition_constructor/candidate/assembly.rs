@@ -540,7 +540,7 @@ pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnershi
     _introductions: super::introductions::OwnedIntroductions,
     _funding: Option<super::super::funding::OwnedFundingEffects>,
     _consumed: super::super::records::OwnedConsumed,
-    _controls: [Option<ExternalBufferLease>; 7],
+    _controls: [Option<ExternalBufferLease>; 8],
     _metadata: ExternalBufferLease,
     _reservations: super::reservations::OwnedReservations,
     _head_transfer: ExternalBufferLease,

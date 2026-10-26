@@ -746,7 +746,7 @@ pub(super) fn execute<'inv, 'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [None, None, None, None, None, None, None],
+        control_owners: [None, None, None, None, None, None, None, None],
     })
 }
 pub(super) fn counter_value(

@@ -220,7 +220,7 @@ pub fn select_work_input_seeds<'a>(
         let arena = s.arena().shared_handle();
         let p = s.parse_representation(raw, RepresentationKind::OriginalRequest)?;
         let m = s.meter_mut();
-        let mut r = Records::borrowed_parent_app(m, &arena, capture.key, inputs)?;
+        let mut r = Records::borrowed_parent_selected(m, &arena, capture.key, inputs, program)?;
         let binding = r.get(
             m,
             capture.key,
@@ -562,7 +562,8 @@ pub fn select_work_head_locators(
         let arena = s.arena().shared_handle();
         let p = s.parse_representation(raw, RepresentationKind::OriginalRequest)?;
         let m = s.meter_mut();
-        let mut records = Records::borrowed_parent_app(m, &arena, capture.key, inputs)?;
+        let mut records =
+            Records::borrowed_parent_selected(m, &arena, capture.key, inputs, program)?;
         let binding_schema = if program.uses_app_owned_cost_recipe() {
             "ledger-workflow-binding/2"
         } else {

@@ -492,7 +492,7 @@ pub fn validate_lifecycle_context_references(
         let a = session.arena().shared_handle();
         let m = session.meter_mut();
         let one = [binding];
-        let mut candidate = Records::borrowed_parent_app(m, &a, key, &one)?;
+        let mut candidate = Records::borrowed_parent_selected(m, &a, key, &one, program)?;
         let value = candidate.get(
             m,
             key,
@@ -500,7 +500,7 @@ pub fn validate_lifecycle_context_references(
             "workflow-binding",
             "ledger-workflow-binding/2",
         )?;
-        let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+        let mut r = Records::borrowed_parent_selected(m, &a, key, inputs, program)?;
         let reference = owning_reference(m, &a, binding.reference)?;
         context(
             m,

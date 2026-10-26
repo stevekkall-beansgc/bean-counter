@@ -87,3 +87,29 @@ pub(super) fn app_decision(
     )?;
     body::semantic_id(m, "wdecision_", "workflow-decision", tuple.value())
 }
+
+/// The stage amendment extends only a present staged Work's original semantic
+/// tuple. Every unstaged original retains its exact twelve/thirteen fields.
+pub(super) fn claim_facts_digest(m: &mut CoreMeter, p: &Value, tuple: &Value) -> Result<String> {
+    let Some(stage) = p.get("stage_instance_ref") else {
+        return super::records::hash(m, "workflow-claim-facts", tuple);
+    };
+    let fields = tuple
+        .as_array()
+        .ok_or_else(|| shape::fail("Work claim tuple"))?;
+    if fields.len() > 13 {
+        return Err(shape::fail("Work claim fixed tuple dimension"));
+    }
+    let a = arena(m)?;
+    let absent = Value::Null;
+    let mut selected = [&absent; 14];
+    for (i, value) in fields.iter().enumerate() {
+        m.visit("work.staged_claim_tuple")?;
+        m.write_bytes(std::mem::size_of::<&Value>())?;
+        selected[i] = value;
+    }
+    selected[fields.len()] = stage;
+    let count = crate::validation_work::usize_add(m, fields.len(), 1)?;
+    let value = a.array_from_values(&selected[..count], m)?;
+    super::records::hash(m, "workflow-claim-facts", value.value())
+}

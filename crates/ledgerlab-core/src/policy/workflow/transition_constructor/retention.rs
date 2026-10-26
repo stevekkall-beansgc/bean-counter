@@ -407,6 +407,7 @@ pub(super) fn execute_complete<'raw>(
             None,
             None,
             None,
+            None,
         ],
     })
 }
@@ -500,7 +501,14 @@ fn produce<'raw>(
     }
     // Generic supporting provenance is resolved below; never used as authority.
     let mut r = if program.uses_app_owned_cost_recipe() {
-        Records::borrowed_app(m, arena, &c.key, inputs, &c.source_observation_inputs)?
+        Records::borrowed_selected(
+            m,
+            arena,
+            &c.key,
+            inputs,
+            &c.source_observation_inputs,
+            program,
+        )?
     } else {
         Records::borrowed(m, arena, &c.key, inputs, &c.source_observation_inputs)?
     };

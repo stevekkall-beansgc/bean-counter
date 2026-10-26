@@ -1339,7 +1339,7 @@ pub(super) fn execute<'inv, 'raw>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [None, None, None, None, None, None, None],
+        control_owners: [None, None, None, None, None, None, None, None],
     })
 }
 fn inverse_value(m: &mut CoreMeter, v: &ConstructedEnvelope) -> Result<Value> {

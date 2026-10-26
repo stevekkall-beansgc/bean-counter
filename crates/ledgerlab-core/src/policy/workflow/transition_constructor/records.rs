@@ -179,6 +179,7 @@ pub(super) enum SuppliedRecords<'a> {
         records: &'a [EconomicRecordView<'a>],
         arena: AuditArena,
         sources: &'a [&'a super::source_records::InitialSourceCorrespondence],
+        financial_revisions: bool,
     },
 }
 impl<'a> SuppliedRecords<'a> {
@@ -201,8 +202,18 @@ impl<'a> SuppliedRecords<'a> {
                 records,
                 arena,
                 sources,
+                financial_revisions,
             } => {
-                let mut result = Records::borrowed_app(m, &arena, key, records, pending)?;
+                let mut result = Records::borrowed_mode(
+                    m,
+                    &arena,
+                    key,
+                    records,
+                    pending,
+                    financial_revisions,
+                    false,
+                )?;
+                result.app_records = true;
                 result.install_initial_source_outputs(m, sources)?;
                 Ok(result)
             }
@@ -410,6 +421,37 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         Ok(records)
     }
 
+    /// The existing stable-Invocation identity index is selected only by the
+    /// exact Stage recipe. Other local profiles retain their original index.
+    pub(super) fn borrowed_parent_selected(
+        m: &mut CoreMeter,
+        arena: &AuditArena,
+        key: &'raw OperationKey,
+        inputs: &'raw [EconomicRecordView<'raw>],
+        program: &super::super::selected_program::SelectedProgram,
+    ) -> Result<Self> {
+        if !program.uses_stage_lifecycle_recipe() {
+            return Self::borrowed_parent_app(m, arena, key, inputs);
+        }
+        let mut result = Self::borrowed_mode(m, arena, key, inputs, &[], true, true)?;
+        result.app_records = true;
+        Ok(result)
+    }
+    pub(super) fn borrowed_selected(
+        m: &mut CoreMeter,
+        arena: &AuditArena,
+        key: &'raw OperationKey,
+        inputs: &'raw [EconomicRecordView<'raw>],
+        pending: &'raw [RecordInput],
+        program: &super::super::selected_program::SelectedProgram,
+    ) -> Result<Self> {
+        if !program.uses_stage_lifecycle_recipe() {
+            return Self::borrowed_app(m, arena, key, inputs, pending);
+        }
+        let mut result = Self::borrowed_mode(m, arena, key, inputs, pending, true, false)?;
+        result.app_records = true;
+        Ok(result)
+    }
     fn borrowed_mode(
         m: &mut CoreMeter,
         arena: &AuditArena,
@@ -1429,12 +1471,16 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             }
             "workflow-operation" => "wop_",
             "workflow-work" => "wevent_",
+            "workflow-invocation" => "winv_",
             "workflow-work-claim" => "wclaim_",
             "workflow-outcome-claim" => "woclaim_",
             "workflow-decision" => "wdrev_",
             "workflow-action" => "waction_",
             "workflow-target" => "wtarget_",
             "workflow-family-state" => "wfamily_",
+            "workflow-stage-instance" => "wstage_",
+            "workflow-stage-state" => "wstage_state_",
+            "workflow-stage-closure-claim" => "wstage_claim_",
             "workflow-link" => "wlink_",
             "workflow-chain-state" => "wchain_",
             "workflow-correction-capacity" => "wcapacity_",

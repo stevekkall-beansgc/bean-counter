@@ -889,18 +889,19 @@ fn policy_causal_declarations_do_not_substitute_a_current_operation_role() {
 #[test]
 fn lifecycle_exact_factory_and_saved_reload_preserve_recipe_identity_under_source_hold() {
     let mut plans = Vec::new();
-    for profile in 0..3 {
+    for profile in 0..4 {
         let (_arena, mut s) = session();
         let support = match profile {
             0 => SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s),
             1 => SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s),
-            _ => SelectedCompilerSupport::local_shared_namespace_execution_with_session(&mut s),
+            2 => SelectedCompilerSupport::local_shared_namespace_execution_with_session(&mut s),
+            _ => SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut s),
         }
         .unwrap();
         let input = policy_context_input(&support);
         let p = compile_selected_publication(input, &support, &mut s).unwrap();
         assert_eq!(p.uses_work_lifecycle_recipe(), profile != 0);
-        assert_eq!(p.uses_shared_namespace_recipe(), profile == 2);
+        assert_eq!(p.uses_shared_namespace_recipe(), profile >= 2);
         assert!(p.uses_policy_context_recipe());
         assert!(p.execution_registry().is_some());
         assert_eq!(p.compiler_descriptor_ref(), support.reference());
@@ -913,7 +914,7 @@ fn lifecycle_exact_factory_and_saved_reload_preserve_recipe_identity_under_sourc
         )
         .unwrap();
         assert_eq!(restored.uses_work_lifecycle_recipe(), profile != 0);
-        assert_eq!(restored.uses_shared_namespace_recipe(), profile == 2);
+        assert_eq!(restored.uses_shared_namespace_recipe(), profile >= 2);
         assert_eq!(restored.execution_registry(), p.execution_registry());
         assert_eq!(
             restored.compiled_plan().canonical_bytes(),

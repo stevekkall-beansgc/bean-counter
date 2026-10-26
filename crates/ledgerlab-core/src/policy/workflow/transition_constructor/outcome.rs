@@ -1561,6 +1561,7 @@ pub(super) fn execute<'inv, 'raw>(
             None,
             None,
             None,
+            None,
         ],
     })
 }
@@ -2522,7 +2523,7 @@ pub(super) fn original_claim_association(
         // hash's fixed SHA256 hexadecimal String has its own short lifetime;
         // this allowance precedes its formatting and outlives the result.
         let _digest = arena.reserve_external_payload(512, m)?;
-        let digest = records::hash(m, "workflow-claim-facts", tuple.value())?;
+        let digest = super::work_keys::claim_facts_digest(m, p, tuple.value())?;
         let declared = shape::text(m, claim, "facts_digest")?;
         if !shape::same_text(m, declared, &digest)? {
             return Err(shape::fail("original work claim facts association"));
@@ -2550,7 +2551,7 @@ pub(super) fn original_claim_association(
         tuple.push(v.clone())
     }
     tuple.push(shape::field(m, p, "evidence_refs")?.clone());
-    let digest = records::hash(m, "workflow-claim-facts", &json!(tuple))?;
+    let digest = super::work_keys::claim_facts_digest(m, p, &json!(tuple))?;
     call!(
         equal,
         m,

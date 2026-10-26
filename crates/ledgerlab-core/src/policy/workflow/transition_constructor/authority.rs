@@ -59,6 +59,7 @@ macro_rules! invoke {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum EconomicMode {
     Work,
+    WorkAlias,
     OutcomeSubmit,
     OutcomeCorrect,
     QuantityCorrect,
@@ -72,7 +73,7 @@ pub(super) enum EconomicMode {
 impl EconomicMode {
     pub(super) fn operation(self) -> &'static str {
         match self {
-            Self::Work => "work.accept",
+            Self::Work | Self::WorkAlias => "work.accept",
             Self::OutcomeSubmit => "outcome.submit",
             Self::OutcomeCorrect => "outcome.correct",
             Self::QuantityCorrect => "quantity.correct",
@@ -87,6 +88,7 @@ impl EconomicMode {
     pub(super) fn rights(self) -> &'static [&'static str] {
         match self {
             Self::Work
+            | Self::WorkAlias
             | Self::OutcomeSubmit
             | Self::EvidenceRetain
             | Self::OutcomeClose
@@ -220,6 +222,12 @@ impl std::ops::Deref for ResolvedOperands {
     }
 }
 impl ResolvedOperands {
+    pub(super) fn into_alias_snapshot(self) -> Result<crate::canonical::audit_arena::AuditedValue> {
+        if !self.introduced.is_empty() {
+            return Err(fail("local alias cannot introduce source records"));
+        }
+        self.authority_body.into_owned()
+    }
     pub(super) fn owning(
         terms: Terms,
         introduced: Vec<ConstructedEnvelope>,

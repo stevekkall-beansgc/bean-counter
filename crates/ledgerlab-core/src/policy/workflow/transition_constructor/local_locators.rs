@@ -144,7 +144,7 @@ impl LocalOperationLocators {
                 }
             }
             let head = selected.ok_or_else(|| shape::fail("retained root head missing"))?;
-            let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+            let mut r = Records::borrowed_parent_selected(m, &a, key, inputs, program)?;
             let current = r.get(
                 m,
                 key,
@@ -411,7 +411,7 @@ impl LocalOperationLocators {
             let a = s.arena().shared_handle();
             let m = s.meter_mut();
             a.require_external_owner(&self._ownership, m)?;
-            let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+            let mut r = Records::borrowed_parent_selected(m, &a, key, inputs, program)?;
             let work_ref = self
                 .subject
                 .original_work_ref()
@@ -643,7 +643,7 @@ pub fn select_local_operation_locators(
         super::codec::validate_selected_types(m, p.value())?;
         let _schema = txt(m, p.value(), "schema")?;
         super::candidate::assembly::operation(m, p.value())?;
-        let mut r = Records::borrowed_parent_app(m, &a, capture.key, inputs)?;
+        let mut r = Records::borrowed_parent_selected(m, &a, capture.key, inputs, program)?;
         let header = mem::size_of::<LocalOperationLocators>()
             + 4 * mem::size_of::<PermanentClaimKey>()
             + 32 * mem::size_of::<ExternalBufferLease>()
