@@ -85,9 +85,6 @@ fn add(m: &mut CoreMeter, values: &mut Vec<FactValue>, value: FactValue) -> Resu
             return Ok(());
         }
     }
-    if w::compare(m, values.len(), 4096usize)?.is_ge() {
-        return Err(bad("predicate cells"));
-    }
     values.push(value);
     Ok(())
 }
@@ -193,6 +190,72 @@ fn neighbor(m: &mut CoreMeter, value: &BigInt, direction: i8) -> Result<BigInt> 
     w::ValidationWork::arithmetic(m, w::ArithmeticOperation::Multiply, &[&q, &grid])?;
     Ok(q * grid)
 }
+fn equivalent(
+    m: &mut CoreMeter,
+    condition: &Predicate,
+    operand: &TypedOperand,
+    left: &FactValue,
+    right: &FactValue,
+    schema: &FactSchema,
+    name: &str,
+) -> Result<bool> {
+    m.visit("predicate.domain_truth_signature")?;
+    if matches!((left, right), (FactValue::Missing, FactValue::Missing)) {
+        return Ok(true);
+    }
+    if matches!(left, FactValue::Missing) || matches!(right, FactValue::Missing) {
+        return Ok(false);
+    }
+    let test = |m: &mut CoreMeter, value: &Value, ordered: bool| -> Result<(Ordering, Ordering)> {
+        let value = schema.normalize_field_scalar_complete_with_work(name, value, m)?;
+        Ok((
+            compare(m, left, &value, ordered)?,
+            compare(m, right, &value, ordered)?,
+        ))
+    };
+    match condition {
+        Predicate::True | Predicate::False => Ok(true),
+        Predicate::All { args } | Predicate::Any { args } => {
+            for arg in args {
+                if !equivalent(m, arg, operand, left, right, schema, name)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        Predicate::Not { arg } => equivalent(m, arg, operand, left, right, schema, name),
+        Predicate::In { field, values } => {
+            if !operand_same(m, field, operand)? {
+                return Ok(true);
+            }
+            let (mut a, mut b) = (false, false);
+            for value in values {
+                let (x, y) = test(m, value, false)?;
+                a |= x.is_eq();
+                b |= y.is_eq();
+            }
+            Ok(a == b)
+        }
+        Predicate::Eq { field, value }
+        | Predicate::Lt { field, value }
+        | Predicate::Le { field, value }
+        | Predicate::Gt { field, value }
+        | Predicate::Ge { field, value } => {
+            if !operand_same(m, field, operand)? {
+                return Ok(true);
+            }
+            let (a, b) = test(m, value, !matches!(condition, Predicate::Eq { .. }))?;
+            let truth = |o: Ordering| match condition {
+                Predicate::Eq { .. } => o.is_eq(),
+                Predicate::Lt { .. } => o.is_lt(),
+                Predicate::Le { .. } => o.is_le(),
+                Predicate::Gt { .. } => o.is_gt(),
+                _ => o.is_ge(),
+            };
+            Ok(truth(a) == truth(b))
+        }
+    }
+}
 fn domain<'a>(
     m: &mut CoreMeter,
     operand: &'a TypedOperand,
@@ -253,7 +316,7 @@ fn domain<'a>(
     // decimal-format scratch coexist with the retained case vector.
     let _scratch = m
         .representation_arena()
-        .map(|a| a.reserve_external_payload(4096, m))
+        .map(|a| a.reserve_external_payload(4096 + maximum_string, m))
         .transpose()?;
     let mut values = Vec::new();
     values
@@ -414,6 +477,40 @@ fn domain<'a>(
     if values.is_empty() {
         return Err(bad("empty predicate domain"));
     }
+    // The cell limit applies to actual predicate equivalence classes, not the
+    // number of endpoint/neighbor witnesses sampled above. In particular an
+    // equality has one class for all other values; do not invent extra cells
+    // from irrelevant distances or enum declaration positions.
+    let mut unique = 0usize;
+    for index in 0..values.len() {
+        let mut duplicate = false;
+        for prior in 0..unique {
+            let mut same = true;
+            for condition in conditions {
+                if !equivalent(
+                    m,
+                    condition,
+                    operand,
+                    &values[prior],
+                    &values[index],
+                    schema,
+                    name,
+                )? {
+                    same = false;
+                    break;
+                }
+            }
+            if same {
+                duplicate = true;
+                break;
+            }
+        }
+        if !duplicate {
+            values.swap(unique, index);
+            unique = w::usize_add(m, unique, 1)?;
+        }
+    }
+    values.truncate(unique);
     Ok(Domain {
         operand,
         values,
@@ -436,9 +533,9 @@ fn evaluate(
         ordered: bool,
         domains: &[Domain<'_>],
         cell: &[usize],
-        activity: &FactSchema,
-        context: &FactSchema,
+        schemas: (&FactSchema, &FactSchema),
     ) -> Result<Option<Ordering>> {
+        let (activity, context) = schemas;
         let mut found = None;
         for (index, domain) in domains.iter().enumerate() {
             if operand_same(m, field, domain.operand)? {
@@ -481,7 +578,7 @@ fn evaluate(
         Predicate::In { field, values } => {
             let mut result = Truth::False;
             for literal in values {
-                let next = atom(m, field, literal, false, domains, cell, activity, context)?
+                let next = atom(m, field, literal, false, domains, cell, (activity, context))?
                     .map(|o| Truth::of(o.is_eq()))
                     .unwrap_or(Truth::Unknown);
                 result = result.any(next);
@@ -494,7 +591,7 @@ fn evaluate(
         | Predicate::Gt { field, value }
         | Predicate::Ge { field, value } => {
             let ordered = !matches!(condition, Predicate::Eq { .. });
-            let Some(order) = atom(m, field, value, ordered, domains, cell, activity, context)?
+            let Some(order) = atom(m, field, value, ordered, domains, cell, (activity, context))?
             else {
                 return Ok(Truth::Unknown);
             };
@@ -522,6 +619,9 @@ pub(super) fn prove(
     if w::compare(m, conditions.len(), 64usize)?.is_gt() {
         return Err(bad("predicate rule count"));
     }
+    if conditions.is_empty() {
+        return Ok(());
+    }
     let size = mul(
         m,
         256,
@@ -538,6 +638,11 @@ pub(super) fn prove(
         .map(|a| a.reserve_external_payload(size, m))
         .transpose()?;
     m.write_bytes(size)?;
+    // One bounded normalized scalar is live while a cell atom is compared.
+    let _scratch = m
+        .representation_arena()
+        .map(|a| a.reserve_external_payload(8192, m))
+        .transpose()?;
     let mut domains = Vec::new();
     domains
         .try_reserve_exact(256)
@@ -667,5 +772,22 @@ mod tests {
             json!({"op":"all","args":[{"op":"gt","field":{"fact":"test:d"},"value":"99999999999999999999999999999.8"},{"op":"lt","field":{"fact":"test:d"},"value":"99999999999999999999999999999.9"}]}),
         );
         assert!(prove(&mut m, &[&sparse_between], &[], &sparse, &sparse).is_err());
+        // Eight required thresholds have 2^8 truth cells. Repeated endpoint
+        // witnesses must not be mistaken for 6^8 distinct predicate cells.
+        let mut many = schema.canonical_value().clone();
+        many["fields"]=json!((0..8).map(|i|json!({"name":format!("test:q{i}"),"required":true,"provenance":{"kind":"caller"},"type":{"kind":"integer","min":"0","max":"10"}})).collect::<Vec<_>>());
+        let many =
+            FactSchema::parse(CanonicalBytes::from_value(&many).unwrap().as_slice()).unwrap();
+        let all = condition(
+            json!({"op":"all","args":(0..8).map(|i|json!({"op":"ge","field":{"fact":format!("test:q{i}")},"value":"2"})).collect::<Vec<_>>()}),
+        );
+        prove(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&all],
+            &[],
+            &many,
+            &many,
+        )
+        .unwrap();
     }
 }

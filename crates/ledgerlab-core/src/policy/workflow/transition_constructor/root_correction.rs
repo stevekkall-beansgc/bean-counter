@@ -21,6 +21,7 @@ use num_bigint::BigInt;
 use serde_json::{json, Value};
 mod causal;
 mod context;
+mod current;
 mod dependent;
 fn unsupported(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
@@ -593,7 +594,9 @@ fn prepare(
         let definition = shape::named(m, fields, "name", &quantity_field)?;
         equal(m, &definition["required"], &json!(true))?;
         let kind = text(m, &definition["type"], "kind")?;
-        if !shape::same_text(m, kind, "integer")? {
+        let numeric = shape::same_text(m, kind, "integer")?
+            || (program.uses_policy_semantics_recipe() && shape::same_text(m, kind, "decimal")?);
+        if !numeric {
             return Err(unsupported("selected correction quantity type"));
         }
         // Required original schema normalization owns raw lexical acceptance,
@@ -768,7 +771,7 @@ fn prepare(
             nonmatching_current |= !price.predicate;
         }
     }
-    if nonmatching_current {
+    if nonmatching_current && !program.uses_policy_semantics_recipe() {
         let current_evaluation = outcome::conditional_work_evaluation(
             m,
             r,
@@ -845,7 +848,7 @@ fn prepare(
             m.write_bytes(v.len())?;
         }
     }
-    Ok(RootPlan {
+    let plan = RootPlan {
         work_ref,
         work,
         claim_ref,
@@ -863,7 +866,11 @@ fn prepare(
         reverse,
         proofs,
         _ownership: metadata,
-    })
+    };
+    if program.uses_policy_semantics_recipe() {
+        current::verify(program, m, r, c, &plan, &evaluation)?;
+    }
+    Ok(plan)
 }
 struct ActiveRootAction {
     price_index: usize,
@@ -1053,6 +1060,16 @@ fn active_actions_owned(
     c: &DraftContextData,
     plan: &RootPlan,
 ) -> Result<ActiveRootActions> {
+    active_actions_owned_for(m, r, c, plan, (&plan.current, &plan.old_prices))
+}
+fn active_actions_owned_for(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    plan: &RootPlan,
+    selected: (&Value, &pricing::PricedInstructions),
+) -> Result<ActiveRootActions> {
+    let (current, prices) = selected;
     use super::{
         cost_postings::{self, OriginalCostPosting},
         working_value::WorkingKey,
@@ -1062,11 +1079,11 @@ fn active_actions_owned(
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("retained active posting owner"))?;
-    let references = shape::array(m, &plan.current, "active_action_refs")?;
+    let references = shape::array(m, current, "active_action_refs")?;
     if w::compare(m, references.len(), 128usize)?.is_gt() {
         return Err(shape::fail("root action bound"));
     }
-    let rows = w::usize_add(m, references.len(), plan.old_prices.len())?;
+    let rows = w::usize_add(m, references.len(), prices.len())?;
     let per = mem::size_of::<ActiveRootAction>() + 64 + 128 + 71 + mem::size_of::<&ExactRef>();
     ValidationWork::arithmetic(
         m,
@@ -1132,14 +1149,14 @@ fn active_actions_owned(
         }
         actual.push((reference, body));
     }
-    let decision = text(m, &plan.current, "decision_id")?;
-    let root_revision = counter(m, &plan.current, "revision")?;
+    let decision = text(m, current, "decision_id")?;
+    let root_revision = counter(m, current, "revision")?;
     let key = cost_postings::operation_key(m, &arena, c)?;
     let retail = arena.string_value("retail", m)?;
     let mut out: Vec<ActiveRootAction> = Vec::new();
-    out.try_reserve_exact(plan.old_prices.len())
+    out.try_reserve_exact(prices.len())
         .map_err(|_| shape::fail("repriced current root rows"))?;
-    for (index, price) in plan.old_prices.iter().enumerate() {
+    for (index, price) in prices.iter().enumerate() {
         m.visit("root.owning_reprice_current_instruction")?;
         if meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq() {
             continue;
@@ -1198,7 +1215,7 @@ fn active_actions_owned(
             m.visit("root.owning_current_basis_name")?;
             for prior in &out {
                 m.visit("root.owning_current_basis_prefix")?;
-                if shape::same_text(m, &plan.old_prices[prior.price_index].component_key, name)? {
+                if shape::same_text(m, &prices[prior.price_index].component_key, name)? {
                     basis.push(&prior.reference);
                 }
             }
@@ -1341,7 +1358,7 @@ fn monetary_effects(
         let basis = body::ref_set(m, basis)?;
         let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
         let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
-        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":if price.predicate {"true"} else {"false"},"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":if !price.predicate {"predicate_not_true"} else if nonzero{"posted"}else{"zero"}});
+        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":price.predicate_state,"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":if !price.predicate {"predicate_not_true"} else if nonzero{"posted"}else{"zero"}});
         if nonzero {
             let effect = body::semantic_id(
                 m,

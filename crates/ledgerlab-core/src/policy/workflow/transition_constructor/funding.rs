@@ -483,6 +483,52 @@ fn maximum_facts(
         let declarations = shape::array(m, original_schema.canonical_value(), "fields")?;
         let declaration = shape::named(m, declarations, "name", field)?;
         same(m, &declaration["required"], &json!(true))?;
+        if p.uses_policy_semantics_recipe() {
+            let _quantity_owner = m
+                .representation_arena()
+                .map(|arena| arena.reserve_external_payload(4096, m))
+                .transpose()?;
+            let mut maximum =
+                original_schema.maximum_quantity_complete_with_work(field, None, m)?;
+            for limits in [
+                &t.binding["quantity_ceilings"],
+                &t.slot_terms["quantity_ceilings"],
+            ] {
+                for bound in limits
+                    .as_array()
+                    .ok_or_else(|| fail("funding quantity ceiling array"))?
+                {
+                    m.visit("funding.accepted_quantity_ceiling")?;
+                    let name = shape::text(m, bound, "activity")?;
+                    let quantity = shape::text(m, bound, "field")?;
+                    if !shape::same_text(m, name, activity)?
+                        || !shape::same_text(m, quantity, field)?
+                    {
+                        continue;
+                    }
+                    same(m, &bound["unit"], &declaration["type"]["unit"])?;
+                    let raw = shape::text(m, bound, "maximum")?;
+                    let cap =
+                        original_schema.maximum_quantity_complete_with_work(field, Some(raw), m)?;
+                    use crate::policy::workflow::FactValue;
+                    let lower = match (&cap, &maximum) {
+                        (
+                            FactValue::Integer(a) | FactValue::Decimal(a),
+                            FactValue::Integer(b) | FactValue::Decimal(b),
+                        ) => a.compare_with_work(b, m)?.is_lt(),
+                        _ => return Err(fail("prospective numeric quantity")),
+                    };
+                    if lower {
+                        maximum = cap;
+                    }
+                }
+            }
+            let value = maximum
+                .canonical_value_complete_with_work(m)?
+                .ok_or_else(|| fail("prospective numeric quantity missing"))?;
+            facts.replace(m, field, &value)?;
+            continue;
+        }
         same(m, &declaration["type"]["kind"], &json!("integer"))?;
         let raw = shape::text(m, &declaration["type"], "max")?;
         let mut maximum = arithmetic::integer(m, raw, true)?;
@@ -627,7 +673,8 @@ pub(super) fn derive_per_work_bound(
         m,
     )?;
     let maximum = maximum_facts(m, p, payload, t)?;
-    let corrected = pricing::work(p, activity, (&maximum, &t.binding["accepted_context"]), m)?;
+    let corrected =
+        pricing::work_exposure_bound(p, activity, (&maximum, &t.binding["accepted_context"]), m)?;
     let mut roots: Vec<RootExposureBound> = vec![];
     if metadata.is_some() {
         roots

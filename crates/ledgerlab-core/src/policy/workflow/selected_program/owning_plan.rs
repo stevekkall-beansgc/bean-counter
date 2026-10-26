@@ -146,9 +146,9 @@ pub(super) fn build(
     p: &Policy,
     product: &Product,
     template: &SlotTemplate,
-    selected_operands: (&str, &str),
+    selected_operands: (&str, &str, bool),
 ) -> Result<Output> {
-    let (plan_schema, semantics) = selected_operands;
+    let (plan_schema, semantics, full_predicates) = selected_operands;
     let a = m
         .representation_arena()
         .ok_or_else(|| fail("owning plan arena"))?;
@@ -333,7 +333,9 @@ pub(super) fn build(
             }
         }
         let sr = shape::field(m, activity.ok_or_else(|| fail("activity"))?, "fact_schema")?;
-        let explanation_capacity = if matches!(rule.when, super::model::Predicate::Eq { .. }) {
+        let explanation_capacity = if full_predicates {
+            257
+        } else if matches!(rule.when, super::model::Predicate::Eq { .. }) {
             2
         } else {
             1
@@ -393,6 +395,41 @@ pub(super) fn build(
             Formula::FinalCost { .. } => "final_cost",
             Formula::SupplierFinalCost { .. } => "supplier_final_cost",
         };
+        let mut binding_names = if full_predicates {
+            Some(vector(m, &a, 256)?)
+        } else {
+            None
+        };
+        if full_predicates {
+            rule.when.visit_operands(m, &mut |operand, m| {
+                let (names, text) = match operand {
+                    super::model::Operand::Fact { fact } => (&mut field_names, fact.as_str()),
+                    super::model::Operand::BindingFact { binding_fact } => (
+                        binding_names
+                            .as_mut()
+                            .ok_or_else(|| fail("binding operand storage"))?,
+                        binding_fact.as_str(),
+                    ),
+                    super::model::Operand::Context { .. } => {
+                        return Err(fail("operational operand not yet authenticated"))
+                    }
+                };
+                for prior in names.iter() {
+                    if shape::same_text(
+                        m,
+                        prior
+                            .value()
+                            .as_str()
+                            .ok_or_else(|| fail("predicate field name"))?,
+                        text,
+                    )? {
+                        return Ok(());
+                    }
+                }
+                names.push(a.string_value(text, m)?);
+                Ok(())
+            })?;
+        }
         let mut indices = vector(m, &a, slots.len())?;
         for slot in &slots {
             if !field_same(m, slot.value(), "schema_ref", sr)? {
@@ -406,7 +443,26 @@ pub(super) fn build(
             }
         }
         let indices = a.array_from_values(&indices, m)?;
-        let binding_indices = if let super::model::Predicate::Eq { field, .. } = &rule.when {
+        let binding_indices = if full_predicates {
+            let mut indices = vector(m, &a, slots.len())?;
+            let context = reference(m, &a, &p.context_schema_ref)?;
+            for slot in &slots {
+                if !field_same(m, slot.value(), "schema_ref", context.value())? {
+                    continue;
+                }
+                for name in binding_names
+                    .as_ref()
+                    .ok_or_else(|| fail("binding operand names"))?
+                    .iter()
+                {
+                    if field_same(m, &slot.value()["field"], "name", name.value())? {
+                        indices.push(shape::field(m, slot.value(), "index")?);
+                        break;
+                    }
+                }
+            }
+            Some(a.array_from_values(&indices, m)?)
+        } else if let super::model::Predicate::Eq { field, .. } = &rule.when {
             let mut indices = vector(m, &a, 1)?;
             let context = reference(m, &a, &p.context_schema_ref)?;
             for slot in &slots {
@@ -467,7 +523,25 @@ pub(super) fn build(
         )?);
         // Activity fact slots above contain formula operands only. The
         // explanation also names the separately indexed accepted-context operand.
-        let names = if let super::model::Predicate::Eq { field, .. } = &rule.when {
+        let names = if full_predicates {
+            for name in binding_names
+                .as_ref()
+                .ok_or_else(|| fail("binding explanation names"))?
+                .iter()
+            {
+                let mut exists = false;
+                for prior in &field_names {
+                    if shape::same(m, prior.value(), name.value())? {
+                        exists = true;
+                        break;
+                    }
+                }
+                if !exists {
+                    field_names.push(a.clone_value(name.value(), m)?);
+                }
+            }
+            set(m, &a, &mut field_names)?
+        } else if let super::model::Predicate::Eq { field, .. } = &rule.when {
             let mut already_named = false;
             for name in &field_names {
                 m.visit("plan.explanation_field_dedup")?;

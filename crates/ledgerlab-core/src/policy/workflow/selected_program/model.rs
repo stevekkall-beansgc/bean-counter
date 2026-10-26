@@ -86,6 +86,34 @@ pub(super) enum Predicate {
         arg: Box<Predicate>,
     },
 }
+impl Predicate {
+    pub(super) fn visit_operands(
+        &self,
+        m: &mut super::super::transition_constructor::CoreMeter,
+        visitor: &mut dyn FnMut(
+            &Operand,
+            &mut super::super::transition_constructor::CoreMeter,
+        ) -> crate::Result<()>,
+    ) -> crate::Result<()> {
+        m.visit("plan.predicate_operand_node")?;
+        match self {
+            Self::True | Self::False => Ok(()),
+            Self::Eq { field, .. }
+            | Self::Lt { field, .. }
+            | Self::Le { field, .. }
+            | Self::Gt { field, .. }
+            | Self::Ge { field, .. }
+            | Self::In { field, .. } => visitor(field, m),
+            Self::All { args } | Self::Any { args } => {
+                for child in args {
+                    child.visit_operands(m, visitor)?;
+                }
+                Ok(())
+            }
+            Self::Not { arg } => arg.visit_operands(m, visitor),
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub(super) enum Operand {

@@ -633,6 +633,92 @@ impl FactSchema {
         let field = self.field_with_work(name, work)?;
         normalize_value_mode(&field.field_type, value, work, true)
     }
+    /// Greatest representable nonnegative quantity within this original field
+    /// and an optional accepted ceiling. This is prospective financial DATA;
+    /// the caller retains both assent checks and the returned storage owner.
+    pub(crate) fn maximum_quantity_complete_with_work(
+        &self,
+        name: &str,
+        ceiling: Option<&str>,
+        work: &mut dyn ValidationWork,
+    ) -> Result<FactValue> {
+        let field = self.field_with_work(name, work)?;
+        let FactType::Number {
+            min, max, scale, ..
+        } = &field.field_type
+        else {
+            return Err(fail("FACT_TYPE", "quantity numeric field"));
+        };
+        work.visit(Visit::Constraint)?;
+        let zero = SignedScalar::parse_with_work("0", 0, work)?;
+        if !field.required || min.compare_with_work(&zero, work)?.is_lt() {
+            return Err(fail("FACT_RANGE", "required nonnegative quantity domain"));
+        }
+        let factor = vw::power_ten(work, *scale)?;
+        let (n, d) = max.ratio_with_work(work)?.into_parts();
+        work.arithmetic(Op::Multiply, &[&n, &factor])?;
+        let scaled = n * &factor;
+        work.arithmetic(Op::DivideRemainder, &[&scaled, &d])?;
+        let mut bound = scaled / d;
+        if let Some(raw) = ceiling {
+            let cap = SignedScalar::parse_with_work(raw, 18, work)?;
+            let zero = SignedScalar::parse_with_work("0", 0, work)?;
+            if !cap.compare_with_work(&zero, work)?.is_gt() {
+                return Err(fail("FACT_RANGE", "positive accepted quantity ceiling"));
+            }
+            let (n, d) = cap.ratio_with_work(work)?.into_parts();
+            work.arithmetic(Op::Multiply, &[&n, &factor])?;
+            let scaled = n * &factor;
+            work.arithmetic(Op::DivideRemainder, &[&scaled, &d])?;
+            let cap = scaled / d;
+            work.arithmetic(Op::Compare, &[&cap, &bound])?;
+            if cap < bound {
+                bound = cap;
+            }
+        }
+        // Decimal precision applies to the normalized coefficient, not every
+        // point on the max_scale lattice. Round down to the nearest permitted
+        // coefficient grid; never round a billed quantity or amount here.
+        work.scan_bytes(156)?;
+        work.write_bytes(156)?;
+        let digits = bound.to_string().len();
+        if vw::compare(work, digits, 30usize)?.is_gt() {
+            let excess = vw::usize_sub(work, digits, 30)?;
+            let grid = vw::power_ten(
+                work,
+                u8::try_from(excess).map_err(|_| fail("FACT_PRECISION", "quantity grid"))?,
+            )?;
+            work.arithmetic(Op::DivideRemainder, &[&bound, &grid])?;
+            let lower = &bound / &grid;
+            work.arithmetic(Op::Multiply, &[&lower, &grid])?;
+            bound = lower * grid;
+        }
+        work.scan_bytes(156)?;
+        work.write_bytes(156)?;
+        let mut raw = bound.to_string();
+        if vw::compare(work, usize::from(*scale), 0usize)?.is_gt() {
+            let width = vw::usize_add(work, usize::from(*scale), 1)?;
+            if vw::compare(work, raw.len(), width)?.is_lt() {
+                let zeros = vw::usize_sub(work, width, raw.len())?;
+                work.write_bytes(width)?;
+                let mut padded = String::new();
+                padded
+                    .try_reserve_exact(width)
+                    .map_err(|_| fail("FACT_PRECISION", "quantity text"))?;
+                for _ in 0..zeros {
+                    work.visit(Visit::ScalarDigit)?;
+                    padded.push('0');
+                }
+                padded.push_str(&raw);
+                raw = padded;
+            }
+            let point = vw::usize_sub(work, raw.len(), usize::from(*scale))?;
+            let bytes = vw::usize_add(work, raw.len(), 1)?;
+            work.write_bytes(bytes)?;
+            raw.insert(point, '.');
+        }
+        normalize_value_mode(&field.field_type, &Value::String(raw), work, true)
+    }
     /// One claimed attested field uses this SAME immutable field definition.
     /// Unrelated required facts are not invented to normalize a proof subset.
     /// The caller still authenticates source/subject/provenance and pre-admits

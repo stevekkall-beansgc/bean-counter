@@ -43,6 +43,7 @@ pub struct LocalOperationLocators {
     claims: Vec<PermanentClaimKey>,
     outcome_links: Vec<(ExactRef, String)>,
     required_slots: Vec<String>,
+    current_root_predecessor: Option<OwnedExactRef>,
     _copies: Vec<ExternalBufferLease>,
     _ownership: ExternalBufferLease,
 }
@@ -81,6 +82,89 @@ impl LocalOperationLocators {
     }
     pub fn work_heads(&self) -> Option<&WorkHeadLocators> {
         self.work.as_ref()
+    }
+    /// One exact prior root needed to verify a retained policy correction's
+    /// inverse prefix. Ordinary Decision history remains deliberately cut.
+    pub fn current_root_predecessor_ref(&self) -> Option<&ExactRef> {
+        self.current_root_predecessor
+            .as_ref()
+            .map(|v| v.reference())
+    }
+    pub fn retain_current_root_predecessor(
+        &mut self,
+        program: &SelectedProgram,
+        key: &OperationKey,
+        heads: &[DecisionHead],
+        inputs: &[EconomicRecordView<'_>],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let result = (|| {
+            s.check_cancelled()?;
+            program.require_attempt_owner(s.meter_mut())?;
+            if !program.uses_policy_semantics_recipe() {
+                return Ok(());
+            }
+            let a = s.arena().shared_handle();
+            let m = s.meter_mut();
+            a.require_external_owner(&self._ownership, m)?;
+            let work = self
+                .work
+                .as_ref()
+                .ok_or_else(|| shape::fail("retained root work locator"))?;
+            let mut selected = None;
+            for head in heads {
+                m.visit("local.retained_root_head")?;
+                if shape::same_text(m, &head.decision_id, work.root_decision_id())?
+                    && selected.replace(head).is_some()
+                {
+                    return Err(shape::fail("duplicate retained root head"));
+                }
+            }
+            let head = selected.ok_or_else(|| shape::fail("retained root head missing"))?;
+            let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+            let current = r.get(
+                m,
+                key,
+                &head.reference,
+                "workflow-decision",
+                "ledger-workflow-decision-revision/1",
+            )?;
+            let id = a.string_value(&head.decision_id, m)?;
+            let revision = a.string_value(&head.revision, m)?;
+            let subject = super::working_value::owning_reference(
+                m,
+                &a,
+                self.subject
+                    .original_work_ref()
+                    .ok_or_else(|| shape::fail("retained root subject"))?,
+            )?;
+            let binding =
+                super::working_value::owning_reference(m, &a, self.subject.original_binding_ref())?;
+            for (name, expected) in [
+                ("decision_id", id.value()),
+                ("revision", revision.value()),
+                ("subject_ref", subject.value()),
+                ("original_terms_ref", binding.value()),
+            ] {
+                shape::equal(m, &current[name], expected)?;
+            }
+            let kind = txt(m, &current, "kind")?;
+            if !shape::same_text(m, kind, "work")? {
+                return Err(shape::fail("retained root kind"));
+            }
+            let prior = if shape::same_text(m, &head.revision, "1")? {
+                None
+            } else {
+                let value = shape::field(m, &current, "prior_ref")?;
+                Some(parse_owned_reference(m, &a, value)?)
+            };
+            self.current_root_predecessor = prior;
+            Ok(())
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
     }
     /// Add original link locators from the actual held closed-family heads.
     /// Permanent closure does not remove immutable links from the chain root.
@@ -642,6 +726,7 @@ pub fn select_local_operation_locators(
             claims,
             outcome_links,
             required_slots,
+            current_root_predecessor: None,
             _copies: copies,
             _ownership: ownership,
         })
@@ -1864,6 +1949,7 @@ mod correction_lookup_tests {
             claims: Vec::new(),
             outcome_links: Vec::new(),
             required_slots: Vec::new(),
+            current_root_predecessor: None,
             _copies: owners,
             _ownership: ownership,
         };

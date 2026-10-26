@@ -499,7 +499,7 @@ pub(super) fn head_rows(
                 continue;
             }
             let component = shape::text(m, selector, "component_key")?;
-            if !program.root_is_selected(m, activity, component, context)? {
+            if !program.root_is_selected_for_work(m, p, component, context)? {
                 continue;
             }
             let mappings = shape::array(m, inst, "component_map")?;

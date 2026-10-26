@@ -19,6 +19,7 @@ pub(super) struct PricedInstruction {
     pub rational: Ratio,
     pub atoms: i128,
     pub predicate: bool,
+    pub predicate_state: &'static str,
     // Row payload survives pop/iteration independently of the vector owner.
     pub(super) _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
@@ -166,6 +167,71 @@ fn row_owner(
 fn fail(s: &str) -> Error {
     Error::new("INTEGRITY_FAILURE", s)
 }
+fn convert_quantity(m: &mut CoreMeter, quantity: &Ratio, factor: &Value) -> Result<Ratio> {
+    shape::closed(m, factor, &["numerator", "denominator"], &[])?;
+    let n = shape::text(m, factor, "numerator")?;
+    let d = shape::text(m, factor, "denominator")?;
+    let factor = crate::money::ExactRatio::from_canonical_with_work(n, d, m)?;
+    if !factor.is_positive_with_work(m)? {
+        return Err(fail("positive unit normalization"));
+    }
+    let (numerator, denominator) = factor.into_parts();
+    arithmetic::multiply(
+        m,
+        quantity,
+        &Ratio {
+            numerator,
+            denominator,
+        },
+    )
+}
+fn normalized_quantity(
+    program: &SelectedProgram,
+    formula: &Value,
+    facts: &Value,
+    m: &mut CoreMeter,
+) -> Result<Ratio> {
+    let _scratch = m
+        .representation_arena()
+        .map(|a| a.reserve_external_payload(4096, m))
+        .transpose()?;
+    let field = shape::text(m, formula, "quantity_field")?;
+    let raw_quantity = shape::text(m, facts, field)?;
+    let quantity = arithmetic::decimal(m, raw_quantity)?;
+    let from = shape::text(m, formula, "unit")?;
+    let to = shape::text(m, formula, "normalize_to")?;
+    let mut product = None;
+    for doc in program.source_documents() {
+        let r = doc.reference();
+        let expected = program.product_ref();
+        if shape::same_text(m, r.kind(), expected.kind())?
+            && shape::same_text(m, r.id(), expected.id())?
+            && shape::same_text(m, r.digest(), expected.digest())?
+        {
+            product = Some(doc.canonical_value());
+            break;
+        }
+    }
+    let product = product.ok_or_else(|| fail("original unit Product"))?;
+    let units = shape::array(m, product, "units")?;
+    let source = shape::named(m, units, "name", from)?;
+    let target = shape::named(m, units, "name", to)?;
+    shape::equal(m, &source["dimension"], &target["dimension"])?;
+    m.visit("pricing.unit_terminal_target")?;
+    if target.get("normalization").is_some() {
+        return Err(fail("normalization requires terminal target"));
+    }
+    if shape::same_text(m, from, to)? {
+        return Ok(quantity);
+    }
+    let normalization = shape::field(m, source, "normalization")?;
+    let declared = shape::text(m, normalization, "to")?;
+    if !shape::same_text(m, declared, to)? {
+        return Err(fail("undeclared unit normalization"));
+    }
+    let factor = shape::field(m, normalization, "factor")?;
+    convert_quantity(m, &quantity, factor)
+}
 pub(super) fn work(
     program: &SelectedProgram,
     activity: &str,
@@ -210,6 +276,38 @@ pub(super) fn work(
             (None, condition),
         )
     }
+}
+/// Conservative future positive exposure for the supported independent
+/// Fixed/Unit producer. Eligibility is ignored ONLY in this DATA bound; actual
+/// prices, targets and evaluations always use the original predicate.
+pub(super) fn work_exposure_bound(
+    program: &SelectedProgram,
+    activity: &str,
+    inputs: (&Value, &Value),
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    if !program.uses_policy_semantics_recipe() {
+        return work(program, activity, inputs, m);
+    }
+    let instructions = shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )?;
+    let components = shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "component_slots",
+    )?;
+    price_instructions_selected_mode(
+        instructions,
+        components,
+        activity,
+        inputs.0,
+        m,
+        (Some(CostSelection::AppDeferred), Some((program, inputs.1))),
+        true,
+    )
 }
 #[cfg(test)]
 pub(super) fn price_instructions(
@@ -305,6 +403,28 @@ fn price_instructions_selected(
         Option<CostSelection<'_>>,
         Option<(&SelectedProgram, &Value)>,
     ),
+) -> Result<PricedInstructions> {
+    price_instructions_selected_mode(
+        instructions,
+        components,
+        activity,
+        normalized_facts,
+        m,
+        selections,
+        false,
+    )
+}
+fn price_instructions_selected_mode(
+    instructions: &[Value],
+    components: &[Value],
+    activity: &str,
+    normalized_facts: &Value,
+    m: &mut CoreMeter,
+    selections: (
+        Option<CostSelection<'_>>,
+        Option<(&SelectedProgram, &Value)>,
+    ),
+    exposure_bound: bool,
 ) -> Result<PricedInstructions> {
     let (selection, condition) = selections;
     m.phase(Phase::Pricing);
@@ -404,12 +524,27 @@ fn price_instructions_selected(
         let row_ownership = row_owner(m, instruction, rule, component)?;
         let mut basis_components = Vec::new();
         m.visit("pricing.formula_variant")?;
-        let predicate = match condition {
-            Some((program, context)) => {
-                program.evaluate_work_condition(m, &rule["when"], context)?
+        let predicate_state = if exposure_bound {
+            let kind = shape::text(m, formula, "kind")?;
+            if !shape::same_text(m, kind, "unit")? && !shape::same_text(m, kind, "fixed")? {
+                return Err(fail(
+                    "future exposure requires independent positive producer",
+                ));
             }
-            None => true,
+            "true"
+        } else {
+            match condition {
+                Some((program, context)) => program.evaluate_rule_condition(
+                    m,
+                    &rule["when"],
+                    activity,
+                    normalized_facts,
+                    context,
+                )?,
+                None => "true",
+            }
         };
+        let predicate = predicate_state == "true";
         let rational = if !predicate {
             Ratio {
                 numerator: BigInt::from(0),
@@ -434,21 +569,33 @@ fn price_instructions_selected(
                         .as_str()
                         .ok_or_else(|| fail("quantity field"))?;
                     m.visit("pricing.fact_lookup")?;
-                    let quantity = arithmetic::integer(
-                        m,
-                        normalized_facts[field]
-                            .as_str()
-                            .ok_or_else(|| fail("normalized integer fact"))?,
-                        true,
-                    )?;
+                    let quantity = if formula.get("normalize_to").is_some() {
+                        let (program, _) = condition.ok_or_else(|| {
+                            fail("unit normalization needs exact selected Product")
+                        })?;
+                        normalized_quantity(program, formula, normalized_facts, m)?
+                    } else if condition
+                        .is_some_and(|(program, _)| program.uses_policy_semantics_recipe())
+                    {
+                        let raw = shape::text(m, normalized_facts, field)?;
+                        arithmetic::decimal(m, raw)?
+                    } else {
+                        let quantity = arithmetic::integer(
+                            m,
+                            normalized_facts[field]
+                                .as_str()
+                                .ok_or_else(|| fail("normalized integer fact"))?,
+                            true,
+                        )?;
+                        Ratio {
+                            numerator: quantity,
+                            denominator: BigInt::one(),
+                        }
+                    };
                     let rate = arithmetic::decimal(
                         m,
                         formula["rate"].as_str().ok_or_else(|| fail("unit rate"))?,
                     )?;
-                    let quantity = Ratio {
-                        numerator: quantity,
-                        denominator: BigInt::one(),
-                    };
                     let amount = arithmetic::multiply(m, &quantity, &rate)?;
                     arithmetic::multiply(m, &amount, &scale)?
                 }
@@ -569,6 +716,7 @@ fn price_instructions_selected(
         }
         output.push(PricedInstruction {
             predicate,
+            predicate_state,
             ordinal: copied(
                 m,
                 instruction["ordinal"]
@@ -885,6 +1033,41 @@ pub(super) fn outcome(
 #[cfg(test)]
 mod outcome_tests {
     use super::*;
+    #[test]
+    fn declared_unit_ratio_is_exact_until_the_single_monetary_round() {
+        let mut m = CoreMeter::new(65_536).unwrap();
+        let factor = serde_json::json!({"numerator":"1","denominator":"60"});
+        let quantity = arithmetic::decimal(&mut m, "90").unwrap();
+        let converted = convert_quantity(&mut m, &quantity, &factor).unwrap();
+        assert_eq!(converted.numerator, BigInt::from(3));
+        assert_eq!(converted.denominator, BigInt::from(2));
+        let rate = arithmetic::decimal(&mut m, "0.1").unwrap();
+        let amount = arithmetic::multiply(&mut m, &converted, &rate).unwrap();
+        let scale = arithmetic::decimal(&mut m, "1000000000000000000").unwrap();
+        let atoms = arithmetic::multiply(&mut m, &amount, &scale).unwrap();
+        let limit = arithmetic::integer(&mut m, "999999999999999999999999999999", false).unwrap();
+        assert_eq!(
+            arithmetic::rounded(&mut m, &atoms, &limit).unwrap(),
+            150_000_000_000_000_000
+        );
+        let one = arithmetic::decimal(&mut m, "1").unwrap();
+        let converted = convert_quantity(&mut m, &one, &factor).unwrap();
+        for (raw, expected) in [("0.00000000000000003", 1), ("0.00000000000000009", 2)] {
+            let rate = arithmetic::decimal(&mut m, raw).unwrap();
+            let amount = arithmetic::multiply(&mut m, &converted, &rate).unwrap();
+            let atoms = arithmetic::multiply(&mut m, &amount, &scale).unwrap();
+            assert_eq!(
+                arithmetic::rounded(&mut m, &atoms, &limit).unwrap(),
+                expected
+            );
+        }
+        assert!(convert_quantity(
+            &mut m,
+            &one,
+            &serde_json::json!({"numerator":"2","denominator":"120"})
+        )
+        .is_err());
+    }
     #[test]
     fn final_supplier_and_retail_share_original_kernel_without_unit_rate_proxy() {
         let input:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/fixture-input.json")).unwrap();

@@ -303,7 +303,9 @@ fn rehydrate_inner(
     let (mut policy, policy_owner) = super::super::policy_decode::decode(m, value, policy_owner)?;
     if !matches!(
         key.recipe,
-        SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+        SelectedRecipe::LocalConditional1
+            | SelectedRecipe::LocalDeclaredLink1
+            | SelectedRecipe::LocalPolicySemantics1
     ) {
         for rule in &policy.rules {
             m.visit("reload.original_predicate_capability")?;
@@ -314,12 +316,17 @@ fn rehydrate_inner(
     }
 
     for rule in &policy.rules {
+        if matches!(key.recipe, SelectedRecipe::LocalPolicySemantics1) {
+            continue;
+        }
         match &rule.when {
             super::super::model::Predicate::True => {}
             super::super::model::Predicate::Eq { field, value }
                 if matches!(
                     key.recipe,
-                    SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                    SelectedRecipe::LocalConditional1
+                        | SelectedRecipe::LocalDeclaredLink1
+                        | SelectedRecipe::LocalPolicySemantics1
                 ) && field.binding_name().is_some()
                     && value.is_string() => {}
             _ => return Err(fail("original predicate capability")),
@@ -368,6 +375,7 @@ fn rehydrate_inner(
     };
     let recipe = key.recipe;
     Ok(SelectedProgram {
+        declared_link_used: declared_link_usage(m, recipe, &policy)?,
         provenance: ProgramProvenance::Reloaded,
         recipe,
         root,
@@ -391,6 +399,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalOperator1
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalPolicySemantics1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -399,6 +408,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalOperator1
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
+                | SelectedRecipe::LocalPolicySemantics1
         ),
         execution_registry: key.registry,
         _policy_decode_ownership: Some(policy_owner),
@@ -425,7 +435,9 @@ pub fn load_local_selected_execution(
         let mut recipe = None;
         for raw in &input.documents {
             m.visit("local.reload_exact_compiler_selection")?;
-            let selected = if super::super::support::same_bytes(
+            let selected = if super::super::support::same_bytes(m,raw,super::super::local::POLICY_SEMANTICS_DESCRIPTOR)? {
+                Some(SelectedRecipe::LocalPolicySemantics1)
+            } else if super::super::support::same_bytes(
                 m,
                 raw,
                 super::super::local::DECLARED_LINK_DESCRIPTOR,
@@ -465,7 +477,7 @@ pub fn load_local_selected_execution(
             root: digest_bits(m, input.root_policy_ref.digest())?,
             plan: digest_bits(m, expected_plan.digest())?,
             recipe,
-            registry: Some(if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) {
+            registry: Some(if matches!(recipe, SelectedRecipe::LocalDeclaredLink1 | SelectedRecipe::LocalPolicySemantics1) {
                 super::super::local::DECLARED_LINK_REGISTRY
             } else {
                 super::super::local::REGISTRY
@@ -484,7 +496,9 @@ pub fn load_local_selected_execution(
         // Exact saved6/7 DATA loading is also used for original receipt/intent
         // comparison. It executes no economic child and grants no new admission;
         // the configured fresh financial factory separately requires exact8.
-        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) {
+        let expected_descriptor = if matches!(recipe,SelectedRecipe::LocalPolicySemantics1) {
+            super::super::local::POLICY_SEMANTICS_DESCRIPTOR
+        } else if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) {
             super::super::local::DECLARED_LINK_DESCRIPTOR
         } else if matches!(recipe, SelectedRecipe::LocalConditional1) {
             super::super::local::CONDITIONAL_DESCRIPTOR
@@ -577,16 +591,40 @@ pub fn normalize_local_publication_input(
                 deferred.push(body);
             }
         }
+        // The new scalar AST's literal types come from the ACTUAL incoming
+        // Product/schema closure. Normalize that Product once before any Policy
+        // regardless of caller document order; old recipes keep their walk.
+        let mut policy_product = None;
+        if original.uses_policy_semantics_recipe() {
+            for body in &deferred {
+                let schema = body["schema"]
+                    .as_str()
+                    .ok_or_else(|| fail("local deferred source schema"))?;
+                if same_literal(m, schema, "ledger-workflow-product/1")? {
+                    if policy_product.is_some() {
+                        return Err(fail("multiple local incoming Products"));
+                    }
+                    let n = Product::normalization_payload_bound_with_work(body, &schemas, m)?;
+                    let value = normalizer_projection(m, body, &mut owners, n)?;
+                    policy_product =
+                        Some(Product::from_value_complete_with_work(value, &schemas, m)?);
+                }
+            }
+        }
         for body in deferred {
             let schema = body["schema"]
                 .as_str()
                 .ok_or_else(|| fail("local deferred source schema"))?;
             match schema {
                 "ledger-workflow-product/1" => {
-                    let n = Product::normalization_payload_bound_with_work(&body, &schemas, m)?;
-                    let value = body.projection_with_payload(m, &mut owners, n)?;
-                    let typed = Product::from_value_complete_with_work(value, &schemas, m)?;
-                    docs.push(borrowed_doc(m, typed.canonical_value())?);
+                    if let Some(typed) = &policy_product {
+                        docs.push(borrowed_doc(m, typed.canonical_value())?);
+                    } else {
+                        let n = Product::normalization_payload_bound_with_work(&body, &schemas, m)?;
+                        let value = body.projection_with_payload(m, &mut owners, n)?;
+                        let typed = Product::from_value_complete_with_work(value, &schemas, m)?;
+                        docs.push(borrowed_doc(m, typed.canonical_value())?);
+                    }
                 }
                 "ledger-workflow-slot-template/1" => {
                     let n = SlotTemplate::normalization_payload_bound_with_work(&body, None, m)?;
@@ -600,6 +638,16 @@ pub fn normalize_local_publication_input(
                     let value = body.projection(m, &mut owners)?;
                     let (mut policy, owner) = super::super::policy_decode::decode(m, value, owner)?;
                     super::super::normalize::policy(m, &mut policy)?;
+                    if original.uses_policy_semantics_recipe() {
+                        normalize_policy_predicates(
+                            m,
+                            &mut policy,
+                            policy_product
+                                .as_ref()
+                                .ok_or_else(|| fail("incoming predicate Product"))?,
+                            &schemas,
+                        )?;
+                    }
                     let value = super::super::owning_policy::build(m, &policy)?;
                     docs.push(borrowed_doc(m, value.value())?);
                     owners.push(owner);

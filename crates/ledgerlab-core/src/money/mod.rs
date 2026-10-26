@@ -506,6 +506,9 @@ impl ExactRatio {
         work.write_bytes(2 * std::mem::size_of::<Self>() + 128)?;
         Ok(self.clone())
     }
+    pub(crate) fn into_parts(self) -> (BigInt, BigInt) {
+        (self.numerator, self.denominator)
+    }
     pub(crate) fn canonical_fields_with_work(
         &self,
         work: &mut dyn crate::validation_work::ValidationWork,

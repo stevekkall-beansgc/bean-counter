@@ -261,12 +261,14 @@ pub(super) fn derive_financial_data(
                     delayed_count = add(m, delayed_count, 1)?;
                 } else if !shape::same_text(m, kind, "final_cost")? {
                     let key = shape::text(m, &instruction["rule"], "component_key")?;
-                    if program.root_is_selected(
-                        m,
-                        &payload["activity"],
-                        key,
-                        &terms.binding["accepted_context"],
-                    )? {
+                    if program.uses_policy_semantics_recipe()
+                        || program.root_is_selected_for_work(
+                            m,
+                            payload,
+                            key,
+                            &terms.binding["accepted_context"],
+                        )?
+                    {
                         roots = add(m, roots, 1)?;
                     }
                 }
@@ -278,9 +280,9 @@ pub(super) fn derive_financial_data(
                 &payload["activity"],
             )? {
                 let key = shape::text(m, &instruction["family"]["selector"], "component_key")?;
-                if program.root_is_selected(
+                if program.root_is_selected_for_work(
                     m,
-                    &payload["activity"],
+                    payload,
                     key,
                     &terms.binding["accepted_context"],
                 )? {

@@ -187,7 +187,9 @@ pub(super) fn original_cost_posting_key(
     if !supplied_basis && !w::compare(m, price.basis_components.len(), 0usize)?.is_eq() {
         return Err(shape::fail("cost formula unexpected action basis"));
     }
-    let constants_raw: &[u8] = if price.predicate {
+    let constants_raw: &[u8] = if price.predicate_state == "unknown" {
+        br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","unknown":"unknown","predicate_not_true":"predicate_not_true","posted":"posted","zero":"zero"}"#
+    } else if price.predicate {
         br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","posted":"posted","zero":"zero"}"#
     } else {
         br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","true":"true","false":"false","predicate_not_true":"predicate_not_true","posted":"posted","zero":"zero"}"#
@@ -254,10 +256,7 @@ pub(super) fn original_cost_posting_key(
     let step_fields = [
         ("instruction", instruction.value()),
         ("component_slot", original.component_slot),
-        (
-            "predicate",
-            &constants.value()[if price.predicate { "true" } else { "false" }],
-        ),
+        ("predicate", &constants.value()[price.predicate_state]),
         ("basis_refs", basis),
         ("rational_numerator", numerator.value()),
         ("rational_denominator", denominator.value()),
@@ -402,7 +401,7 @@ pub(super) fn exact_inverse(
 ) -> Result<CostPosting> {
     exact_inverse_selected(
         m,
-        c,
+        &c.key,
         old_ref,
         old,
         original_instruction,
@@ -420,11 +419,29 @@ pub(super) fn exact_root_inverse(
     original_instruction: &pricing::PricedInstruction,
     new_revision: &BigInt,
 ) -> Result<CostPosting> {
-    exact_inverse_selected(m, c, old_ref, old, original_instruction, new_revision, true)
+    exact_root_inverse_key(m, &c.key, old_ref, old, original_instruction, new_revision)
+}
+pub(super) fn exact_root_inverse_key(
+    m: &mut CoreMeter,
+    key: &super::data::OperationKey,
+    old_ref: &ExactRef,
+    old: &Value,
+    original_instruction: &pricing::PricedInstruction,
+    new_revision: &BigInt,
+) -> Result<CostPosting> {
+    exact_inverse_selected(
+        m,
+        key,
+        old_ref,
+        old,
+        original_instruction,
+        new_revision,
+        true,
+    )
 }
 fn exact_inverse_selected(
     m: &mut CoreMeter,
-    c: &DraftContextData,
+    key: &super::data::OperationKey,
     old_ref: &ExactRef,
     old: &Value,
     original_instruction: &pricing::PricedInstruction,
@@ -483,7 +500,7 @@ fn exact_inverse_selected(
     let negative = meter::neg(m, &atoms)?;
     let rounded = amount(m, &arena, &negative)?;
     let revision = scalar(m, &arena, new_revision)?;
-    let operation = operation_key(m, &arena, c)?;
+    let operation = operation_key_value(m, &arena, key)?;
     let inverse_of = owning_reference(m, &arena, old_ref)?;
     let constants = m.parse_owned_representation(
         &arena,
@@ -508,7 +525,7 @@ fn exact_inverse_selected(
         revision.value(),
         &constants.value()["inverse"],
     )?;
-    let action = body::record_borrowed(m, &c.key, "workflow-action", id, &inverse)?;
+    let action = body::record_borrowed(m, key, "workflow-action", id, &inverse)?;
     let instruction = arena.string_value(&original_instruction.ordinal, m)?;
     let numerator = scalar(m, &arena, &negative)?;
     let reference = owning_reference(m, &arena, &action.reference)?;
@@ -564,6 +581,7 @@ mod tests {
         let atoms = arithmetic::rounded(m, &rational, &maximum).unwrap();
         pricing::PricedInstruction {
             predicate: true,
+            predicate_state: "true",
             ordinal: "2".into(),
             component_key: "model:cost".into(),
             root_key: "model:cost".into(),
@@ -848,6 +866,7 @@ mod tests {
         // The SAME step producer distinguishes a nonmatch from matched zero.
         let mut nonmatch_price = price(&mut m, 0);
         nonmatch_price.predicate = false;
+        nonmatch_price.predicate_state = "false";
         let nonmatch =
             original_cost_posting(&mut m, &c, selection!(&1.into(), false), &nonmatch_price)
                 .unwrap();

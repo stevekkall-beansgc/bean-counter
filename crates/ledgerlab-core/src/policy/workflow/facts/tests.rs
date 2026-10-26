@@ -33,6 +33,63 @@ fn error<T: std::fmt::Debug>(result: Result<T>, code: &str) {
 }
 
 #[test]
+fn prospective_quantity_bound_uses_original_numeric_grid_and_ceiling() {
+    let s = schema(json!([field(
+        "example:q",
+        true,
+        json!({"kind":"decimal","min":"0","max":"12.34","max_scale":"2","unit":"example:work"})
+    )]));
+    for (ceiling, expected) in [
+        (None, "12.34"),
+        (Some("9.876"), "9.87"),
+        (Some("20"), "12.34"),
+        (Some("0.001"), "0"),
+    ] {
+        let maximum = s
+            .maximum_quantity_complete_with_work("example:q", ceiling, &mut NoopValidationWork)
+            .unwrap();
+        assert_eq!(maximum.canonical_value().unwrap(), json!(expected));
+    }
+    let wide = schema(json!([field(
+        "example:q",
+        true,
+        json!({"kind":"decimal","min":"0","max":"999999999999999999999999999999","max_scale":"18","unit":"example:work"})
+    )]));
+    let maximum = wide
+        .maximum_quantity_complete_with_work(
+            "example:q",
+            Some("99999999999999999999999999999.9"),
+            &mut NoopValidationWork,
+        )
+        .unwrap();
+    assert_eq!(
+        maximum.canonical_value().unwrap(),
+        json!("99999999999999999999999999999.9")
+    );
+    let whole = integer();
+    let maximum = whole
+        .maximum_quantity_complete_with_work(
+            "example:quantity",
+            Some("2.9"),
+            &mut NoopValidationWork,
+        )
+        .unwrap();
+    assert_eq!(maximum.canonical_value().unwrap(), json!("2"));
+    error(
+        s.maximum_quantity_complete_with_work("example:q", Some("0"), &mut NoopValidationWork),
+        "FACT_RANGE",
+    );
+    error(
+        decimal().maximum_quantity_complete_with_work(
+            "example:delta",
+            None,
+            &mut NoopValidationWork,
+        ),
+        "FACT_RANGE",
+    );
+}
+
+#[test]
 fn required_and_missing_are_distinct_without_invented_defaults() {
     let s = schema(json!([
         field("example:required", true, json!({"kind":"boolean"})),

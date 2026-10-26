@@ -154,9 +154,9 @@ fn derive_retained_with<T>(
             if program.uses_conditional_work_recipe() {
                 let component =
                     shape::text(m, &instruction["family"]["selector"], "component_key")?;
-                if !program.root_is_selected(
+                if !program.root_is_selected_for_work(
                     m,
-                    &payload["activity"],
+                    payload,
                     component,
                     &terms.binding["accepted_context"],
                 )? {
@@ -206,9 +206,9 @@ fn derive_retained_with<T>(
             return Err(shape::fail("retained original target basis"));
         }
         let component = shape::text(m, selector, "component_key")?;
-        if !program.root_is_selected(
+        if !program.root_is_selected_for_work(
             m,
-            &payload["activity"],
+            payload,
             component,
             &terms.binding["accepted_context"],
         )? {

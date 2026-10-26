@@ -399,9 +399,9 @@ pub(super) fn build(
             return Err(unsupported("selected target basis"));
         }
         let root_key = call!(shape::text, m, selector, "component_key")?;
-        if !program.root_is_selected(
+        if !program.root_is_selected_for_work(
             m,
-            &payload["activity"],
+            payload,
             root_key,
             &operands.binding["accepted_context"],
         )? {

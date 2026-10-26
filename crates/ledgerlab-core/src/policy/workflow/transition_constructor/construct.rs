@@ -902,7 +902,7 @@ fn execute_parsed<'inv, 'raw>(
         } else {
             "zero"
         };
-        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":if price.predicate {"true"} else {"false"},"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":disposition});
+        let mut step = json!({"instruction":price.ordinal,"component_slot":slot,"predicate":price.predicate_state,"basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":disposition});
         if nonzero {
             let action = body::record(
                 m,

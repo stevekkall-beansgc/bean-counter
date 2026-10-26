@@ -331,9 +331,9 @@ pub(super) fn prepare(
             continue;
         }
         let root_key = text(m, &family["selector"], "component_key")?;
-        if !program.root_is_selected(
+        if !program.root_is_selected_for_work(
             m,
-            &plan.payload["activity"],
+            &plan.payload,
             root_key,
             &plan.operands.binding["accepted_context"],
         )? {

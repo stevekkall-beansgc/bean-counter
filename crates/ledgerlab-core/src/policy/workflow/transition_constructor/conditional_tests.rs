@@ -91,6 +91,146 @@ fn session() -> (AuditArena, OriginalAuditSession) {
     let session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
     (arena, session)
 }
+fn policy_scalar_input(support: &SelectedCompilerSupport) -> SelectedSourceInput {
+    input(support, |docs| {
+        let old_work = reference("workflow-fact-schema", &docs[0]);
+        let old_product = reference("workflow-product", &docs[3]);
+        docs[0]["fields"][0]["type"] =
+            json!({"kind":"decimal","min":"0","max":"120","max_scale":"3","unit":"support:second"});
+        docs[0]["fields"].as_array_mut().unwrap().push(json!({"name":"support:approved","required":false,"provenance":{"kind":"caller"},"type":{"kind":"boolean"}}));
+        docs[0]["fields"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by_key(|v| v["name"].as_str().unwrap().to_owned());
+        let new_work = reference("workflow-fact-schema", &docs[0]);
+        for doc in docs.iter_mut() {
+            replace(doc, &old_work, &new_work);
+        }
+        docs[3]["units"] = json!([
+            {"name":"support:minute","labels":{"title":"Minute"},"dimension":"support:time"},
+            {"name":"support:second","labels":{"title":"Second"},"dimension":"support:time","normalization":{"to":"support:minute","factor":{"numerator":"1","denominator":"60"}}}
+        ]);
+        docs[3]["fact_schemas"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by_key(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec());
+        let new_product = reference("workflow-product", &docs[3]);
+        for doc in docs.iter_mut() {
+            replace(doc, &old_product, &new_product);
+        }
+        docs[5]["app_delayed_costs"][0]["usage_unit"] = json!("support:second");
+        docs[5]["rules"][0]["formula"] = json!({"kind":"unit","quantity_field":"support:quantity","unit":"support:second","normalize_to":"support:minute","rate":"0.1"});
+        docs[5]["rules"][0]["when"] = json!({"op":"all","args":[
+            {"op":"ge","field":{"fact":"support:quantity"},"value":"60"},
+            {"op":"eq","field":{"binding_fact":"support:service-eligibility"},"value":"support:billable"},
+            {"op":"not","arg":{"op":"eq","field":{"fact":"support:approved"},"value":false}}
+        ]});
+        docs[5]["rules"][0]["when"]["args"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by_key(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec());
+    })
+}
+#[test]
+fn policy_scalar_actual_source_plan_reload_pricing_and_exposure_share_typed_semantics() {
+    let (_arena, mut s) = session();
+    let support =
+        SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut s).unwrap();
+    let p = compile_selected_publication(policy_scalar_input(&support), &support, &mut s).unwrap();
+    p.require_local_admission_with_session(&mut s).unwrap();
+    let plan = p.compiled_plan().canonical_value();
+    let service = plan["typed_instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["rule"]["component_key"] == "support:service")
+        .unwrap();
+    assert_eq!(service["fact_slots"].as_array().unwrap().len(), 2);
+    assert_eq!(service["binding_fact_slots"].as_array().unwrap().len(), 1);
+    let explanation = plan["explanation_map"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["ordinal"] == service["ordinal"])
+        .unwrap();
+    assert_eq!(
+        explanation["fields"],
+        json!([
+            "support:approved",
+            "support:quantity",
+            "support:service-eligibility"
+        ])
+    );
+    let context = json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":"support:billable"}});
+    for (facts, state, atoms) in [
+        (
+            json!({"support:quantity":"90","support:approved":true}),
+            "true",
+            150_000_000_000_000_000i128,
+        ),
+        (
+            json!({"support:quantity":"30","support:approved":true}),
+            "false",
+            0,
+        ),
+        (json!({"support:quantity":"90"}), "unknown", 0),
+    ] {
+        let prices =
+            pricing::work(&p, "support:complete", (&facts, &context), s.meter_mut()).unwrap();
+        assert_eq!(prices.len(), 1);
+        assert_eq!(prices[0].predicate_state, state);
+        assert_eq!(prices[0].atoms, atoms);
+    }
+    let facts = json!({"support:quantity":"30","support:approved":false});
+    let upper =
+        pricing::work_exposure_bound(&p, "support:complete", (&facts, &context), s.meter_mut())
+            .unwrap();
+    assert_eq!(upper[0].atoms, 50_000_000_000_000_000);
+    // The exposure DATA may ignore eligibility; an actual billed value never does.
+    assert_eq!(
+        pricing::work(&p, "support:complete", (&facts, &context), s.meter_mut()).unwrap()[0].atoms,
+        0
+    );
+    let mut plain = super::super::CoreMeter::for_compile(1_048_576).unwrap();
+    let data = super::super::super::selected_program::compile_selected_program(
+        policy_scalar_input(&support),
+        &support,
+        &mut plain,
+    )
+    .unwrap();
+    assert_eq!(
+        data.compiled_plan().canonical_bytes(),
+        p.compiled_plan().canonical_bytes()
+    );
+    let (_read_arena, mut read) = session();
+    let restored = load_local_selected_execution(
+        SelectedSourceInput {
+            documents: p
+                .source_documents()
+                .iter()
+                .map(|d| d.canonical_bytes().to_vec())
+                .collect(),
+            root_policy_ref: p.root_policy_ref().clone(),
+        },
+        p.compiled_plan().canonical_bytes(),
+        p.compiled_plan().reference(),
+        &mut read,
+    )
+    .unwrap();
+    assert_eq!(
+        restored.compiled_plan().canonical_bytes(),
+        p.compiled_plan().canonical_bytes()
+    );
+    let (_old_arena, mut old) = session();
+    let old_support =
+        SelectedCompilerSupport::local_conditional_execution_with_session(&mut old).unwrap();
+    assert!(compile_selected_publication(
+        policy_scalar_input(&old_support),
+        &old_support,
+        &mut old
+    )
+    .is_err());
+}
 #[test]
 fn conditional_binding_slots_and_exact_original_reload_keep_support_identity() {
     let (_arena, mut s) = session();

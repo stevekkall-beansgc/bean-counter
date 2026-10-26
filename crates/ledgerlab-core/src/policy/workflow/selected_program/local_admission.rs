@@ -58,6 +58,25 @@ pub(super) fn check(
     schemas: &[(DefinitionRef, FactSchema)],
     declared_link: bool,
 ) -> Result<()> {
+    check_inner(m, p, docs, schemas, (declared_link, false))
+}
+pub(super) fn check_policy(
+    m: &mut CoreMeter,
+    p: &Policy,
+    docs: &[SelectedDocument],
+    schemas: &[(DefinitionRef, FactSchema)],
+    declared_link: bool,
+) -> Result<()> {
+    check_inner(m, p, docs, schemas, (declared_link, true))
+}
+fn check_inner(
+    m: &mut CoreMeter,
+    p: &Policy,
+    docs: &[SelectedDocument],
+    schemas: &[(DefinitionRef, FactSchema)],
+    recipe: (bool, bool),
+) -> Result<()> {
+    let (declared_link, full_policy) = recipe;
     count(
         m,
         p.binding_slots.len(),
@@ -120,7 +139,7 @@ pub(super) fn check(
         matches!(app.when, Predicate::True),
         "supported independent app predicate"
     )?;
-    if matches!(base.when, Predicate::Eq { .. }) {
+    if !full_policy && matches!(base.when, Predicate::Eq { .. }) {
         require!(
             m,
             matches!(base.formula, Formula::Unit { .. }),
@@ -200,6 +219,20 @@ pub(super) fn check(
             work_seen = true;
             for field in fields {
                 if field_is(m, &field["provenance"], "kind", "caller")? {
+                    continue;
+                }
+                if full_policy {
+                    // Scalar type/range/value and exact proof cardinality are
+                    // checked by the shared FactSchema/Work proof consumers.
+                    // Independent evidence-source slots remain unimplemented;
+                    // do not infer their authority from a generic FieldDef.
+                    let worker = shape::text(m, activity, "source_slot")?;
+                    require!(
+                        m,
+                        field_is(m, &field["provenance"], "kind", "attested")?
+                            && field_is(m, &field["provenance"], "source_slot", worker)?,
+                        "supported attested Work uses original worker source"
+                    )?;
                     continue;
                 }
                 let quantity = match &base.formula {
