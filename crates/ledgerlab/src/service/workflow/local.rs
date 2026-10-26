@@ -791,6 +791,14 @@ impl LocalOwnerAdmin {
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         require(key.source == setup.source, "AUTHORITY_REQUIRED")?;
+        self.management_installation_available(held, s)
+    }
+    fn management_installation_available(
+        &self,
+        held: &OwnedLocalManagement,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
+        use ledgerlab_core::validation_work::ValidationVisit as Visit;
         let state = held.installation();
         s.semantic_work()
             .visit(Visit::MemberCompare)
@@ -855,7 +863,7 @@ impl LocalOwnerAdmin {
     }
     /// Only immutable normalized DATA is reused. Actual native paths and the
     /// connection mutation baseline are checked again at every consuming stage.
-    pub(super) async fn recheck_management_fresh(
+    async fn recheck_management_owner(
         &self,
         held: &OwnedLocalManagement,
         store: &SqliteStore,
@@ -911,8 +919,33 @@ impl LocalOwnerAdmin {
             .arithmetic(Op::Compare, &[&actual.into(), &held.changes.into()])
             .map_err(core_error)?;
         require(actual == held.changes, "STALE_REVISION")?;
-        self.management_paths(store, s)?;
+        self.management_paths(store, s)
+    }
+    pub(super) async fn recheck_management_fresh(
+        &self,
+        held: &OwnedLocalManagement,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
+        self.recheck_management_owner(held, store, tx, key, s)
+            .await?;
         self.management_available(held, key, s)
+    }
+    /// Local-owner freshness only. The private prepared financial route must
+    /// independently authenticate its exact registered participant before append.
+    pub(super) async fn recheck_management_participant(
+        &self,
+        held: &OwnedLocalManagement,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
+        self.recheck_management_owner(held, store, tx, key, s)
+            .await?;
+        self.management_installation_available(held, s)
     }
     pub(super) async fn read(
         &self,
@@ -946,6 +979,24 @@ impl LocalOwnerAdmin {
             "AUTHORITY_REQUIRED",
         )?;
         // Source rights/current mapping do not revoke this distinct local admin.
+        Ok(setup)
+    }
+    /// No source authority is returned: caller must complete the exact policy
+    /// participant capture and candidate before any append is possible.
+    pub(super) async fn participant_owner(
+        &self,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+    ) -> Result<billing::Setup> {
+        let setup = self.read(store, tx, key).await?;
+        let state = tx
+            .load_installation()
+            .await
+            .map_err(super::super::store_error)?;
+        if state.admission != "open" || !state.dispatch_hold || state.dispatch_enabled {
+            return Err(ServiceError::Unavailable);
+        }
         Ok(setup)
     }
     pub(super) async fn fresh(

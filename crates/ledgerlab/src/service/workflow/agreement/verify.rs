@@ -589,6 +589,18 @@ async fn retained_local(
             .as_str()
             .is_some_and(|a| a.starts_with("source."))
         {
+            if payload["action"] != "source.enroll" {
+                let enrollment: RecordRef =
+                    serde_json::from_value(payload["enrollment_ref"].clone())
+                        .map_err(|_| ServiceError::IntegrityFailure)?;
+                source::require_enrollment_recipe(
+                    tx,
+                    key,
+                    &enrollment,
+                    source::participant_schema(&payload),
+                )
+                .await?;
+            }
             source::verify_original(key, &payload, &results, &docs, &op, authority, &roots[0])?;
         } else {
             let result_time = if o.kind == "evidence.retain" {

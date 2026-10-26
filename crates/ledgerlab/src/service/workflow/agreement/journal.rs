@@ -21,7 +21,10 @@ pub(super) fn locators(req: &request::Request, payload: &Value) -> Result<Vec<Va
         ("authority.change", Some("ledger-workflow-customer-register/1")) => {
             out.push(json!({"role":"evidence","ref":payload["registration_evidence_ref"]}))
         }
-        ("authority.change", Some("ledger-workflow-source-enroll/1")) => {
+        (
+            "authority.change",
+            Some("ledger-workflow-source-enroll/1" | "ledger-workflow-source-enroll/2"),
+        ) => {
             for r in payload["customer_refs"]
                 .as_array()
                 .ok_or_else(|| reject("INVALID_SHAPE"))?
@@ -32,7 +35,12 @@ pub(super) fn locators(req: &request::Request, payload: &Value) -> Result<Vec<Va
         }
         (
             "authority.change",
-            Some("ledger-workflow-source-restrict/1" | "ledger-workflow-source-revoke/1"),
+            Some(
+                "ledger-workflow-source-restrict/1"
+                | "ledger-workflow-source-revoke/1"
+                | "ledger-workflow-source-restrict/2"
+                | "ledger-workflow-source-revoke/2",
+            ),
         ) => out.push(json!({"role":"source_enrollment","ref":payload["enrollment_ref"]})),
         _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
     }
@@ -57,7 +65,13 @@ pub(super) fn evidence(req: &request::Request, normalized_payload: &Value) -> Re
         );
     }
     canonical::sort_set(&mut anchors).map_err(|_| ServiceError::IntegrityFailure)?;
-    let registry=canonical::parse_bounded(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready-registry.json"),65536).map_err(|_|ServiceError::IntegrityFailure)?;
+    let registry_bytes: &[u8] = if source::participant_schema(normalized_payload) {
+        include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/local-source-participants-01/registry.json")
+    } else {
+        include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready-registry.json")
+    };
+    let registry = canonical::parse_bounded(registry_bytes, 65536)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
     let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":req.kind(),"payload_schema":normalized_payload["schema"],"locator_digest":records::hash("descriptor-locators",1,&json!([req.kind(),normalized_payload["schema"],locators]))?,"anchors":anchors,"descriptors":[],"normalization_profile":"ledger-operation-normalization/2"});
     resolution["closure_digest"] = json!(records::hash("descriptor-closure", 1, &resolution)?);
     let normalized = req.normalized_envelope(normalized_payload);

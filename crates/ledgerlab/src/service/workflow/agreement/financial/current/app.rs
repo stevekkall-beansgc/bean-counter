@@ -527,7 +527,7 @@ async fn observe_binding(
     let (expected_customer, expected_agreement) = context;
     let result = async {
         session.check_cancelled().map_err(core_error)?;
-        let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
+        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
         let installation = tx
             .load_installation()
             .await
@@ -543,6 +543,22 @@ async fn observe_binding(
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
         let mut original =
             prefix::acceptance_for(ledger, tx, key, binding_ref, before, session).await?;
+        if super::super::acceptance::same_recipe_text(&key.source, &setup.source, session)? {
+            ledger.admin.fresh(&ledger.store, tx, key).await?;
+        } else {
+            require(
+                super::super::acceptance::same_recipe_text(operation, "evidence.retain", session)?
+                    && original
+                        .publication
+                        .program()
+                        .uses_policy_semantics_recipe(),
+                "AUTHORITY_REQUIRED",
+            )?;
+            ledger
+                .admin
+                .participant_owner(&ledger.store, tx, key)
+                .await?;
+        }
         let binding = session
             .parse_representation(
                 original.acceptance.binding.bytes(),
@@ -751,6 +767,22 @@ impl ObservedAppActivation {
 }
 
 impl ObservedAppBinding {
+    pub(in super::super) fn current_participant_source(
+        &self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&source::ObservedSource> {
+        s.semantic_work()
+            .visit(ValidationVisit::RefLookup)
+            .map_err(core_error)?;
+        require(self.work_source_birth.is_some(), "INTEGRITY_FAILURE")?;
+        self.sources
+            .get(
+                self.work_source_index
+                    .ok_or(ServiceError::IntegrityFailure)?,
+            )
+            .ok_or(ServiceError::IntegrityFailure)
+    }
+
     pub(in super::super) fn construct_local(
         &self,
         key: &OperationKey,

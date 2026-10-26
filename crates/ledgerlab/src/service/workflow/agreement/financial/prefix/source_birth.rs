@@ -93,10 +93,12 @@ impl LocatedAppAcceptance {
                 .await?;
             let payload =
                 request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
-            request_wrapper::same_text(
-                request_wrapper::text(payload, "schema", s)?,
-                "ledger-workflow-source-enroll/1",
-                s,
+            let schema = request_wrapper::text(payload, "schema", s)?;
+            require(
+                schema == "ledger-workflow-source-enroll/1"
+                    || (self.publication.program().uses_policy_semantics_recipe()
+                        && schema == "ledger-workflow-source-enroll/2"),
+                "INTEGRITY_FAILURE",
             )?;
             request_wrapper::same_text(
                 request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,

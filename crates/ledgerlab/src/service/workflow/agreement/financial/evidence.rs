@@ -9,6 +9,8 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+const SOURCE_PARTICIPANT_REGISTRY: &str =
+    "sha256:3413b928959d6f114b22ec7390172b7d48058050df3489e3d7a08680b78fe28d";
 const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
 pub(super) struct RequestEvidence {
     parsed: AuditedValue,
@@ -782,7 +784,9 @@ pub(super) fn administration(
             }
         } else {
             request_wrapper::same_text(req.kind(), "authority.change", s)?;
-            if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq() {
+            if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq()
+                || cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/2", s)?.is_eq()
+            {
                 let refs = request_wrapper::field(p, "customer_refs", s)?
                     .as_array()
                     .ok_or(ServiceError::IntegrityFailure)?;
@@ -818,9 +822,16 @@ pub(super) fn administration(
                     s,
                 )?;
             } else {
-                if !cmp(schema.as_bytes(), b"ledger-workflow-source-restrict/1", s)?.is_eq() {
-                    request_wrapper::same_text(schema, "ledger-workflow-source-revoke/1", s)?;
-                }
+                require(
+                    matches!(
+                        schema,
+                        "ledger-workflow-source-restrict/1"
+                            | "ledger-workflow-source-restrict/2"
+                            | "ledger-workflow-source-revoke/1"
+                            | "ledger-workflow-source-revoke/2"
+                    ),
+                    "INTEGRITY_FAILURE",
+                )?;
                 set.add(
                     "source_enrollment",
                     "source_enrollment",
@@ -835,7 +846,11 @@ pub(super) fn administration(
             normalized_payload,
             p,
             &set,
-            R1_REGISTRY,
+            if super::super::source::participant_schema(p) {
+                SOURCE_PARTICIPANT_REGISTRY
+            } else {
+                R1_REGISTRY
+            },
             (b"[]", 262144),
             s,
         )

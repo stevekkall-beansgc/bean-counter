@@ -1208,3 +1208,119 @@ async fn agreement_source_append_failure_poison_prevents_partial_commit() {
     ledger.prerequisite(&raw).await.unwrap();
     ledger.close().await;
 }
+
+#[tokio::test]
+async fn registered_source_admin_keeps_owner_and_target_distinct_through_original_recovery() {
+    let (_dir, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let customer_name = "source-participant-customer";
+    let (customer, _) = source_inputs(&ledger, customer_name).await;
+    let mut proof = proof_payload();
+    proof["purpose"] = json!("source_enrollment");
+    proof["subject"] = json!({"customer":customer_name});
+    proof["metadata"] = json!({"source":"urn:example:meter","principal_id":"example-operator"});
+    let proof = ledger
+        .prerequisite(&records::bytes(&envelope("meter-proof", "evidence.retain", proof)).unwrap())
+        .await
+        .unwrap();
+    let mut ceiling = source_ceiling(customer_name);
+    ceiling["source"] = json!("urn:example:meter");
+    ceiling["canonical_economic_namespace"] = json!("urn:example:meter");
+    ceiling["operations"] = json!(["evidence.retain"]);
+    ceiling["permissions"] = json!(["read", "submit"]);
+    let request = envelope(
+        "meter-enroll",
+        "authority.change",
+        json!({
+            "schema":"ledger-workflow-source-enroll/2","action":"source.enroll","expected_revision":"0",
+            "enrollment_id":"meter-registration","customer_refs":[customer],"ceiling":ceiling,
+            "evidence_ref":result_ref(&proof,"workflow-evidence")
+        }),
+    );
+    let baseline = retained_projection_counts(&path).await;
+    for variation in [
+        "old-recipe",
+        "other-principal",
+        "alias",
+        "target-is-not-admin",
+    ] {
+        let mut bad = request.clone();
+        bad["key"]["operation_id"] = json!(variation);
+        match variation {
+            "old-recipe" => bad["payload"]["schema"] = json!("ledger-workflow-source-enroll/1"),
+            "other-principal" => {
+                bad["payload"]["ceiling"]["principal_id"] = json!("unmapped-person")
+            }
+            "alias" => {
+                bad["payload"]["ceiling"]["canonical_economic_namespace"] =
+                    json!("urn:example:work")
+            }
+            _ => bad["key"]["source"] = json!("urn:example:meter"),
+        }
+        assert!(
+            ledger
+                .prerequisite(&records::bytes(&bad).unwrap())
+                .await
+                .is_err(),
+            "{variation}"
+        );
+        assert_eq!(retained_projection_counts(&path).await, baseline);
+    }
+    let raw = records::bytes(&request).unwrap();
+    let enrolled = ledger.prerequisite(&raw).await.unwrap();
+    let enrollment = result_ref(&enrolled, "workflow-source-enrollment");
+    let state = result_ref(&enrolled, "workflow-source-state");
+    let key = super::super::request::OperationKey::parse(&records::bytes(&request["key"]).unwrap())
+        .unwrap();
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let actual = canonical_body(&loaded(&mut tx, &key, &state).await.unwrap()).unwrap();
+    assert_eq!(actual["operation_key"], request["key"]);
+    let body = canonical_body(&loaded(&mut tx, &key, &enrollment).await.unwrap()).unwrap();
+    assert_eq!(body["ceiling"], ceiling);
+    assert_eq!(body["enrolled_by"], "example-operator");
+    assert_eq!(
+        tx.workflow_agreement_namespace(&key.logical_store_id, &key.scope, "urn:example:meter")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("urn:example:meter")
+    );
+    tx.rollback().await.unwrap();
+    let revoke = envelope(
+        "meter-revoke",
+        "authority.change",
+        json!({
+            "schema":"ledger-workflow-source-revoke/2","action":"source.revoke","enrollment_ref":enrollment,
+            "expected_revision":"1","reason":"Explicit same-owner source retirement"
+        }),
+    );
+    let revoked_raw = records::bytes(&revoke).unwrap();
+    let revoked = ledger.prerequisite(&revoked_raw).await.unwrap();
+    let baseline = retained_projection_counts(&path).await;
+    ledger.close().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    for (request, raw, expected) in [
+        (&request, &raw, &enrolled),
+        (&revoke, &revoked_raw, &revoked),
+    ] {
+        let status = ledger
+            .status(&records::bytes(&request["key"]).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(status["schema"], "ledger-operation-status/1");
+        assert_eq!(status["status"], "committed");
+        let retried = ledger.prerequisite(raw).await.unwrap();
+        assert_eq!(retried["duplicate_kind"], "identity");
+        assert_eq!(status["receipt"], expected["receipt"]);
+        assert_eq!(retried["receipt"], expected["receipt"]);
+        assert_eq!(status["request_evidence"], expected["request_evidence"]);
+        assert_eq!(retried["request_evidence"], expected["request_evidence"]);
+    }
+    assert_eq!(retained_projection_counts(&path).await, baseline);
+    ledger.close().await;
+}

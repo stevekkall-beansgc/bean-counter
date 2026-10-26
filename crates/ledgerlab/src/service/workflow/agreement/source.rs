@@ -49,7 +49,7 @@ fn revision(s: &str) -> Result<i64> {
 }
 pub(super) fn normalize(payload: &Value) -> Result<Value> {
     match payload["schema"].as_str() {
-        Some("ledger-workflow-source-enroll/1") => {
+        Some("ledger-workflow-source-enroll/1" | "ledger-workflow-source-enroll/2") => {
             let mut p: Enroll =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(
@@ -70,7 +70,7 @@ pub(super) fn normalize(payload: &Value) -> Result<Value> {
                 .map_err(typed_error)?;
             serde_json::to_value(p).map_err(|_| ServiceError::IntegrityFailure)
         }
-        Some("ledger-workflow-source-restrict/1") => {
+        Some("ledger-workflow-source-restrict/1" | "ledger-workflow-source-restrict/2") => {
             let mut p: Restrict =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(p.action == "source.restrict", "INVALID_SHAPE")?;
@@ -82,7 +82,7 @@ pub(super) fn normalize(payload: &Value) -> Result<Value> {
                 .map_err(typed_error)?;
             serde_json::to_value(p).map_err(|_| ServiceError::IntegrityFailure)
         }
-        Some("ledger-workflow-source-revoke/1") => {
+        Some("ledger-workflow-source-revoke/1" | "ledger-workflow-source-revoke/2") => {
             let p: Revoke =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(
@@ -221,17 +221,18 @@ pub(super) async fn prepare(
             "SEMANTIC_CONFLICT",
         )?;
         let ceiling = SourceCeiling::parse(&records::bytes(&p.ceiling)?).map_err(typed_error)?;
+        let participant = payload["schema"] == "ledger-workflow-source-enroll/2";
         require(
-            ceiling.source() == setup.source
-                && ceiling.canonical_economic_namespace() == setup.source
-                && ceiling.principal_id() == setup.operator,
+            ceiling.principal_id() == setup.operator
+                && ceiling.source() == ceiling.canonical_economic_namespace()
+                && (participant || ceiling.source() == setup.source),
             "AUTHORITY_REQUIRED",
         )?;
         if tx
-            .workflow_agreement_namespace(&key.logical_store_id, &key.scope, &setup.source)
+            .workflow_agreement_namespace(&key.logical_store_id, &key.scope, ceiling.source())
             .await
             .map_err(crate::service::store_error)?
-            .is_some_and(|n| n != setup.source)
+            .is_some_and(|n| n != ceiling.canonical_economic_namespace())
         {
             return Err(ServiceError::IntegrityFailure);
         }
@@ -278,7 +279,7 @@ pub(super) async fn prepare(
         require(
             input.purpose() == "source_enrollment"
                 && customers.contains(&input.customer().to_string())
-                && input.metadata()["source"] == setup.source
+                && input.metadata()["source"] == ceiling.source()
                 && input.metadata()["principal_id"] == setup.operator
                 && proof_body["retained_by"] == setup.operator,
             "AUTHORITY_REQUIRED",
@@ -300,8 +301,8 @@ pub(super) async fn prepare(
         let projection = Projection::Enrollment {
             enrollment: p.enrollment_id,
             document: enrollment_doc.reference.id.clone(),
-            source: setup.source.clone(),
-            namespace: setup.source.clone(),
+            source: ceiling.source().into(),
+            namespace: ceiling.canonical_economic_namespace().into(),
             head: SourceHead {
                 revision: 1,
                 state: state_doc.reference.id.clone(),
@@ -326,9 +327,11 @@ pub(super) async fn prepare(
         .map_err(|_| ServiceError::IntegrityFailure)?;
     let e = enrollment(tx, key, &r).await?;
     require(
-        e.ceiling().source() == setup.source && e.ceiling().principal_id() == setup.operator,
+        e.ceiling().principal_id() == setup.operator
+            && (participant_schema(payload) || e.ceiling().source() == setup.source),
         "AUTHORITY_REQUIRED",
     )?;
+    require_enrollment_recipe(tx, key, &r, participant_schema(payload)).await?;
     let b = e
         .canonical_value()
         .map_err(|_| ServiceError::IntegrityFailure)?;
@@ -446,7 +449,6 @@ pub(super) fn verify_closure(
                 }
                 let root = canonical_body(doc(documents, &body["authority_ref"])?)?;
                 if root["basis"]["principal_id"] != body["enrolled_by"]
-                    || root["basis"]["source"] != e.ceiling().source()
                     || e.ceiling().principal_id() != text(&body, "enrolled_by")?
                 {
                     return Err(ServiceError::IntegrityFailure);
@@ -508,9 +510,6 @@ pub(super) fn verify_closure(
                 if s.canonical_bytes() != d.bytes
                     || json!(s.reference()) != json!(d.reference)
                     || s.logical_store_id() != key.logical_store_id
-                    || s.operation_key()
-                        .map_err(|_| ServiceError::IntegrityFailure)?["source"]
-                        != e.ceiling().source()
                     || body["actor"] != e.ceiling().principal_id()
                 {
                     return Err(ServiceError::IntegrityFailure);
@@ -668,6 +667,20 @@ pub(super) fn verify_original(
         .find(|r| r.kind == "workflow-source-state")
         .ok_or(ServiceError::IntegrityFailure)?;
     let body = canonical_body(map.get(&sr.id).ok_or(ServiceError::IntegrityFailure)?)?;
+    let original = canonical_body(doc(&map, &body["enrollment_ref"])?)?;
+    let target = &original["ceiling"];
+    if target["principal_id"] != authority["principal_id"]
+        || target["source"] != target["canonical_economic_namespace"]
+        || (!participant_schema(payload) && target["source"] != key.source)
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let root_body = canonical_body(doc(&map, &original["authority_ref"])?)?;
+    if root_body["basis"]["source"] != key.source
+        || root_body["basis"]["principal_id"] != authority["principal_id"]
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
     if body["operation_key"] != json!(key)
         || body["actor"] != authority["principal_id"]
         || body["accepted_at"] != operation["accepted_at"]
@@ -684,4 +697,48 @@ pub(super) fn verify_original(
         }
     }
     Ok(())
+}
+
+/// Exact additive administration tuples, never an unknown-version fallback.
+pub(super) fn participant_schema(payload: &Value) -> bool {
+    matches!(
+        payload["schema"].as_str(),
+        Some(
+            "ledger-workflow-source-enroll/2"
+                | "ledger-workflow-source-restrict/2"
+                | "ledger-workflow-source-revoke/2"
+        )
+    )
+}
+pub(super) async fn require_enrollment_recipe(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+    participant: bool,
+) -> Result<()> {
+    let (identity, kind, _) = tx
+        .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    require(kind == "authority.change", "INTEGRITY_FAILURE")?;
+    let original = tx
+        .workflow_agreement_lookup(&identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let saved_key = OperationKey::parse(&identity)?;
+    let verified = verify::retained(tx, &saved_key, &original).await?;
+    let schema = verified["request_evidence"]["normalized_request"]["payload"]["schema"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    require(
+        schema
+            == if participant {
+                "ledger-workflow-source-enroll/2"
+            } else {
+                "ledger-workflow-source-enroll/1"
+            },
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )
 }

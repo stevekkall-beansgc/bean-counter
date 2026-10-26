@@ -448,6 +448,24 @@ async fn fresh_reply_in(
     session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
 ) -> Result<TransactionResult> {
     let key = req.key();
+    if !acceptance::same_recipe_text(&key.source, &held_management.setup().source, session)?
+        && acceptance::same_recipe_text(req.kind(), "evidence.retain", session)?
+        && acceptance::same_recipe_text(
+            request_wrapper::text(req.payload(session)?, "schema", session)?,
+            "ledger-workflow-fact-attest/1",
+            session,
+        )?
+    {
+        return local_financial::prepare_registered_fact_append(
+            ledger,
+            tx,
+            req,
+            held_management,
+            session,
+        )
+        .await
+        .map(TransactionResult::Appended);
+    }
     let key_body = request_wrapper::field(req.value(), "key", session)?;
     let management =
         ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session)

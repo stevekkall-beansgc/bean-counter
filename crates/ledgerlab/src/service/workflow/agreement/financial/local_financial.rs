@@ -82,6 +82,29 @@ pub(super) async fn prepare_work_append(
         .await
 }
 
+/// The caller's held local owner does not confer participant authority. Build
+/// the full current issuer capture and pure candidate before deriving its
+/// private freshness scope; the same writer and owner then reach append.
+pub(super) async fn prepare_registered_fact_append(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &ingress::IncomingRequest,
+    held: crate::service::workflow::local::OwnedLocalManagement,
+    s: &mut OriginalAuditSession,
+) -> Result<WorkflowReply> {
+    let prepared = PreparedFinancialCommit::work(ledger, tx, req, s).await?;
+    let management = ManagementObservation::capture_registered_participant(
+        ledger,
+        tx,
+        req,
+        held,
+        &prepared.observed,
+        s,
+    )
+    .await?;
+    prepared.append(ledger, tx, req, &management, s).await
+}
+
 #[cfg(test)]
 pub(super) async fn check_report_prepare_without_append(
     ledger: &LocalWorkflowLedger,

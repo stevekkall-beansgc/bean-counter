@@ -12,7 +12,13 @@ use std::mem;
 mod setup;
 pub(in crate::service::workflow) use setup::effective as effective_setup;
 
+#[derive(Clone, Copy)]
+enum Caller {
+    Administrator,
+    RegisteredParticipant,
+}
 pub(super) struct ManagementObservation {
+    caller: Caller,
     held: crate::service::workflow::local::OwnedLocalManagement,
     owner: crate::store::sqlite::WorkflowProofFailureHandle,
     key_body: ledgerlab_core::canonical::audit_arena::AuditedValue,
@@ -44,10 +50,96 @@ impl ManagementObservation {
         held: crate::service::workflow::local::OwnedLocalManagement,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        ledger
-            .admin
-            .recheck_management_fresh(&held, &ledger.store, tx, key, s)
-            .await?;
+        Self::capture_with_caller(ledger, tx, key, key_body, (held, Caller::Administrator), s).await
+    }
+    pub(super) async fn capture_registered_participant(
+        ledger: &LocalWorkflowLedger,
+        tx: &mut SqliteTx,
+        req: &ingress::IncomingRequest,
+        held: crate::service::workflow::local::OwnedLocalManagement,
+        observed: &current::app::ObservedAppBinding,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let key = req.key();
+        require(
+            req.kind() == "evidence.retain"
+                && request_wrapper::text(req.payload(s)?, "schema", s)?
+                    == "ledger-workflow-fact-attest/1"
+                && observed
+                    .original
+                    .publication
+                    .program()
+                    .uses_policy_semantics_recipe(),
+            "AUTHORITY_REQUIRED",
+        )?;
+        let source = observed.current_participant_source(s)?;
+        let grant = source
+            .current_grant_body()
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let original = source.original_grant_body();
+        for body in [grant, original] {
+            request_wrapper::same_text(
+                request_wrapper::text(body, "principal_id", s)?,
+                &held.setup().operator,
+                s,
+            )?;
+            request_wrapper::same_text(request_wrapper::text(body, "source", s)?, &key.source, s)?;
+            request_wrapper::same_text(
+                request_wrapper::text(body, "canonical_economic_namespace", s)?,
+                &key.source,
+                s,
+            )?;
+        }
+        require(
+            tx.workflow_financial_registered_source(
+                &key.logical_store_id,
+                &key.scope,
+                request_wrapper::text(source.enrollment_record().body(), "enrollment_id", s)?,
+                &source.enrollment_ref().id,
+                &key.source,
+                s,
+            )
+            .await
+            .map_err(prefix::read_error)?,
+            "AUTHORITY_REQUIRED",
+        )?;
+        let key_body = request_wrapper::field(req.value(), "key", s)?;
+        Self::capture_with_caller(
+            ledger,
+            tx,
+            key,
+            key_body,
+            (held, Caller::RegisteredParticipant),
+            s,
+        )
+        .await
+    }
+    async fn capture_with_caller(
+        ledger: &LocalWorkflowLedger,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        key_body: &Value,
+        selected: (
+            crate::service::workflow::local::OwnedLocalManagement,
+            Caller,
+        ),
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let (held, caller) = selected;
+        match caller {
+            Caller::Administrator => {
+                ledger
+                    .admin
+                    .recheck_management_fresh(&held, &ledger.store, tx, key, s)
+                    .await?
+            }
+            Caller::RegisteredParticipant => {
+                ledger
+                    .admin
+                    .recheck_management_participant(&held, &ledger.store, tx, key, s)
+                    .await?
+            }
+        }
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(key_body, key, s)?;
         let control = s
@@ -64,6 +156,7 @@ impl ManagementObservation {
             .map_err(core_error)?;
         let fingerprint = fingerprint(&held, key_body.value(), s)?;
         Ok(Self {
+            caller,
             held,
             owner: tx.workflow_proof_failure_handle(),
             key_body,
@@ -89,10 +182,20 @@ impl ManagementObservation {
         }
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(self.key_body.value(), key, s)?;
-        ledger
-            .admin
-            .recheck_management_fresh(&self.held, &ledger.store, tx, key, s)
-            .await?;
+        match self.caller {
+            Caller::Administrator => {
+                ledger
+                    .admin
+                    .recheck_management_fresh(&self.held, &ledger.store, tx, key, s)
+                    .await?
+            }
+            Caller::RegisteredParticipant => {
+                ledger
+                    .admin
+                    .recheck_management_participant(&self.held, &ledger.store, tx, key, s)
+                    .await?
+            }
+        }
         let actual = fingerprint(&self.held, self.key_body.value(), s)?;
         s.semantic_work()
             .visit(Visit::MemberCompare)
