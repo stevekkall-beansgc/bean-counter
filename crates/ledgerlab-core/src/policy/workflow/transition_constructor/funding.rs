@@ -44,6 +44,7 @@ pub(super) fn initial_construction_effect(
     m: &mut CoreMeter,
     p: &SelectedProgram,
     t: &super::data::Construction,
+    event_source: &str,
 ) -> Result<Option<OwnedFundingEffects>> {
     let Some(original) = t
         .financial_reservations
@@ -70,7 +71,7 @@ pub(super) fn initial_construction_effect(
     let expected =
         super::working_value::owning_reference(m, &arena, &original.original_binding_ref)?;
     shape::equal(m, &payload["binding_ref"], expected.value())?;
-    let bound = derive_per_work_bound(m, p, payload, claim, &t.economic.terms)?;
+    let bound = derive_per_work_bound(m, p, payload, claim, &t.economic.terms, event_source)?;
     let effect = initial_work_effect(
         &arena,
         m,
@@ -283,7 +284,7 @@ pub(super) fn construction_effect(
             super::data::OriginalWorkPayload::New(_)
         )
     })? {
-        return initial_construction_effect(m, p, t)?
+        return initial_construction_effect(m, p, t, &c.key.source)?
             .ok_or_else(|| fail("initial work funding effect missing"));
     }
     let work = match &t.economic.original_work {
@@ -307,7 +308,19 @@ pub(super) fn construction_effect(
     let work_ref = super::working_value::parse_owned_reference(m, &arena, &claim["work_ref"])?;
     let binding_ref =
         super::working_value::parse_owned_reference(m, &arena, &work["payload"]["binding_ref"])?;
-    let bound = derive_per_work_bound(m, p, &work["payload"], &claim_ref, &t.economic.terms)?;
+    let source = if p.uses_policy_context_recipe() {
+        shape::text(m, &work["key"], "source")?
+    } else {
+        ""
+    };
+    let bound = derive_per_work_bound(
+        m,
+        p,
+        &work["payload"],
+        &claim_ref,
+        &t.economic.terms,
+        source,
+    )?;
     let root_seed = arena.string_value(&claim_ref.id, m)?;
     let discriminator = arena.string_value("work", m)?;
     let root_tuple = arena.array_from_values(&[root_seed.value(), discriminator.value()], m)?;
@@ -604,6 +617,7 @@ pub(super) fn derive_per_work_bound(
     payload: &Value,
     claim: &ExactRef,
     t: &Terms,
+    event_source: &str,
 ) -> Result<WorkExposureBound> {
     let schema = if p.uses_app_cost_causal_recipe() {
         "ledger-workflow-slot-binding-terms/7"
@@ -666,10 +680,11 @@ pub(super) fn derive_per_work_bound(
         m.write_bytes(slot.len())?;
     }
     let binding_slot = slot.to_owned();
-    let original = pricing::work(
+    let original = pricing::work_operational(
         p,
         activity,
         (&payload["facts"], &t.binding["accepted_context"]),
+        Some((&t.binding, event_source)),
         m,
     )?;
     let maximum = maximum_facts(m, p, payload, t)?;
@@ -750,11 +765,14 @@ pub(super) fn derive_per_work_bound(
             }
             let raw = shape::text(m, &declaration["maximum_final_amount"], "atoms")?;
             let maximum = arithmetic::integer(m, raw, false)?;
-            let prices = pricing::app_final_cost(
+            let prices = pricing::app_final_cost_operational(
                 p,
                 activity,
                 key,
-                (&payload["facts"], &t.binding["accepted_context"]),
+                (
+                    (&payload["facts"], &t.binding["accepted_context"]),
+                    Some((&t.binding, event_source)),
+                ),
                 &maximum,
                 m,
             )?;
@@ -1124,7 +1142,7 @@ mod tests {
             role_ref: claim.clone(),
         };
         let mut m = CoreMeter::new(65_536).unwrap();
-        let bound = derive_per_work_bound(&mut m, &program, &payload, &claim, &terms).unwrap();
+        let bound = derive_per_work_bound(&mut m, &program, &payload, &claim, &terms, "").unwrap();
         assert_eq!(
             bound.maximum_positive,
             BigInt::from(37) * BigInt::from(10u8).pow(18)
@@ -1153,7 +1171,7 @@ mod tests {
         let mut independent = claim.clone();
         independent.id = format!("wclaim_{}", "3".repeat(64));
         assert_eq!(
-            derive_per_work_bound(&mut m, &program, &payload, &independent, &terms)
+            derive_per_work_bound(&mut m, &program, &payload, &independent, &terms, "")
                 .unwrap()
                 .maximum_positive,
             bound.maximum_positive
@@ -1164,7 +1182,8 @@ mod tests {
         let mut session =
             crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let mut child = session.meter_mut().original_economic_meter().unwrap();
-        let owned = derive_per_work_bound(&mut child, &program, &payload, &claim, &terms).unwrap();
+        let owned =
+            derive_per_work_bound(&mut child, &program, &payload, &claim, &terms, "").unwrap();
         assert_eq!(owned.maximum_positive, bound.maximum_positive);
         assert_eq!(owned.roots[0].original_net, bound.roots[0].original_net);
         assert_eq!(
@@ -1176,6 +1195,6 @@ mod tests {
         drop(owned);
         assert_eq!(arena.usage().unwrap().live_bytes, before);
         terms.slot_terms.legacy_mut()["exposure_ceiling"]["atoms"] = json!("1000000000000000000");
-        assert!(derive_per_work_bound(&mut m, &program, &payload, &claim, &terms).is_err());
+        assert!(derive_per_work_bound(&mut m, &program, &payload, &claim, &terms, "").is_err());
     }
 }

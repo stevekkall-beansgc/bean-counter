@@ -242,6 +242,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalConditional1
                     | SelectedRecipe::LocalDeclaredLink1
                     | SelectedRecipe::LocalPolicySemantics1
+                    | SelectedRecipe::LocalPolicySemantics2
             )
     }
     pub(in crate::policy::workflow) fn uses_local_operator_resource_recipe(&self) -> bool {
@@ -252,6 +253,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalConditional1
                     | SelectedRecipe::LocalDeclaredLink1
                     | SelectedRecipe::LocalPolicySemantics1
+                    | SelectedRecipe::LocalPolicySemantics2
             )
     }
     pub(in crate::policy::workflow) fn uses_conditional_work_recipe(&self) -> bool {
@@ -260,13 +262,20 @@ impl SelectedProgram {
             SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         )
     }
     pub fn uses_declared_work_link_recipe(&self) -> bool {
         self.declared_link_used
     }
     pub fn uses_policy_semantics_recipe(&self) -> bool {
-        matches!(self.recipe, SelectedRecipe::LocalPolicySemantics1)
+        matches!(
+            self.recipe,
+            SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+        )
+    }
+    pub fn uses_policy_context_recipe(&self) -> bool {
+        matches!(self.recipe, SelectedRecipe::LocalPolicySemantics2)
     }
     /// Only the new exact code-owned descriptor admits this pretyped enum
     /// equality. The accepted immutable context is supplied by each consumer.
@@ -296,15 +305,15 @@ impl SelectedProgram {
         same_literal(m, actual, expected)
     }
     /// One typed condition meaning for fresh, current and original operands.
-    /// The whole immutable accepted-context wrapper stays with the caller.
-    pub(in crate::policy::workflow) fn evaluate_rule_condition(
+    pub(in crate::policy::workflow) fn evaluate_rule_condition_operational(
         &self,
         m: &mut CoreMeter,
         condition: &Value,
         activity: &str,
         facts: &Value,
-        context: &Value,
+        contexts: (&Value, Option<(&Value, &str, &str)>),
     ) -> Result<&'static str> {
+        let (context, operational) = contexts;
         if !self.uses_policy_semantics_recipe() {
             return Ok(if self.evaluate_work_condition(m, condition, context)? {
                 "true"
@@ -342,16 +351,58 @@ impl SelectedProgram {
                 .ok_or_else(|| err("predicate original context schema"))?,
             facts,
             accepted_context: context,
+            operation_context: if self.uses_policy_context_recipe() {
+                operational
+                    .map(|(binding, source, slot)| {
+                        self.original_component_funding_mode(m, binding, slot)
+                            .map(|mode| (source, mode))
+                    })
+                    .transpose()?
+            } else {
+                None
+            },
         };
         Ok(predicate::evaluate(m, condition, &inputs)?.as_str())
     }
-    pub(in crate::policy::workflow) fn root_is_selected_for_work(
+    /// Policy slot/accepted SlotTerms correspondence is checked by inventory;
+    /// this borrowed projection names THAT leg in the original accepted Binding.
+    pub(in crate::policy::workflow) fn original_component_funding_mode<'a>(
+        &self,
+        m: &mut CoreMeter,
+        binding: &'a Value,
+        slot: &str,
+    ) -> Result<&'a str> {
+        use crate::policy::workflow::transition_constructor::shape;
+        let slots = shape::array(m, binding, "bindings")?;
+        shape::named(m, slots, "slot", slot)?;
+        let mut leg = None;
+        for selected in &self.policy.binding_slots {
+            m.visit("predicate.original_component_slot")?;
+            if same_literal(m, &selected.name, slot)? {
+                leg = Some(selected.funding_leg.as_str());
+            }
+        }
+        let leg = leg.ok_or_else(|| err("predicate original binding slot"))?;
+        let legs = shape::array(m, binding, "funding_legs")?;
+        let leg = shape::named(m, legs, "name", leg)?;
+        let mode = shape::text(m, leg, "mode")?;
+        let mut found = false;
+        for expected in predicate::FUNDING_MODES {
+            found |= same_literal(m, mode, expected)?;
+        }
+        if !found {
+            return Err(err("predicate original funding mode"));
+        }
+        Ok(mode)
+    }
+    pub(in crate::policy::workflow) fn root_is_selected_for_work_operational(
         &self,
         m: &mut CoreMeter,
         payload: &Value,
         component: &str,
-        context: &Value,
+        contexts: (&Value, Option<(&Value, &str)>),
     ) -> Result<bool> {
+        let (context, operational) = contexts;
         if !self.uses_policy_semantics_recipe() {
             return self.root_is_selected(m, &payload["activity"], component, context);
         }
@@ -376,13 +427,17 @@ impl SelectedProgram {
             if selected.is_some() {
                 return Err(err("ambiguous original root condition"));
             }
+            let binding_slot = shape::text(m, rule, "binding_slot")?;
             selected = Some(
-                self.evaluate_rule_condition(
+                self.evaluate_rule_condition_operational(
                     m,
                     &rule["when"],
                     activity,
                     &payload["facts"],
-                    context,
+                    (
+                        context,
+                        operational.map(|(binding, source)| (binding, source, binding_slot)),
+                    ),
                 )? == "true",
             );
         }
@@ -746,6 +801,7 @@ enum SelectedRecipe {
     LocalConditional1,
     LocalDeclaredLink1,
     LocalPolicySemantics1,
+    LocalPolicySemantics2,
 }
 impl SelectedRecipe {
     fn policy_schema(self) -> &'static str {
@@ -756,7 +812,8 @@ impl SelectedRecipe {
             | Self::LocalOperator1
             | Self::LocalConditional1
             | Self::LocalDeclaredLink1
-            | Self::LocalPolicySemantics1 => "ledger-workflow-policy/4",
+            | Self::LocalPolicySemantics1
+            | Self::LocalPolicySemantics2 => "ledger-workflow-policy/4",
             Self::AppOwnedCost1 => "ledger-workflow-policy/3",
             Self::FamilyClose1 | Self::OwnerLocalCost1 | Self::SupplierScopedConsent1 => {
                 "ledger-workflow-policy/2"
@@ -771,7 +828,8 @@ impl SelectedRecipe {
             Self::LocalOperator1
             | Self::LocalConditional1
             | Self::LocalDeclaredLink1
-            | Self::LocalPolicySemantics1 => "ledger-workflow-compiled-plan/8",
+            | Self::LocalPolicySemantics1
+            | Self::LocalPolicySemantics2 => "ledger-workflow-compiled-plan/8",
             Self::LocalParentBudget1 => "ledger-workflow-compiled-plan/7",
             Self::AppCostCausal1 => "ledger-workflow-compiled-plan/6",
             Self::AppOwnedCost1 => "ledger-workflow-compiled-plan/5",
@@ -788,7 +846,8 @@ impl SelectedRecipe {
             | Self::LocalOperator1
             | Self::LocalConditional1
             | Self::LocalDeclaredLink1
-            | Self::LocalPolicySemantics1 => "ledger-policy-compiler/app-cost-causal-1",
+            | Self::LocalPolicySemantics1
+            | Self::LocalPolicySemantics2 => "ledger-policy-compiler/app-cost-causal-1",
             Self::AppOwnedCost1 => "ledger-policy-compiler/app-owned-cost-1",
             Self::SupplierScopedConsent1 => "ledger-policy-compiler/supplier-scoped-consent-1",
         }
@@ -808,7 +867,10 @@ pub(super) fn same_literal(m: &mut CoreMeter, a: &str, b: &str) -> Result<bool> 
     Ok(true)
 }
 fn declared_link_usage(m: &mut CoreMeter, recipe: SelectedRecipe, policy: &Policy) -> Result<bool> {
-    if !matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+    if !matches!(
+        recipe,
+        SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+    ) {
         return Ok(matches!(recipe, SelectedRecipe::LocalDeclaredLink1));
     }
     let mut used = false;
@@ -836,6 +898,7 @@ fn normalize_policy_predicates(
     p: &mut Policy,
     product: &Product,
     schemas: &[FactSchema],
+    operational: bool,
 ) -> Result<()> {
     let _scratch = m
         .representation_arena()
@@ -848,7 +911,14 @@ fn normalize_policy_predicates(
             .activity_with_work(&rule.activity, m)?
             .ok_or_else(|| err("predicate activity"))?;
         let schema = predicate_schema(m, schemas, activity.fact_schema_id())?;
-        predicate::normalize(m, &mut rule.when, schema, context, &mut nodes)?;
+        predicate::normalize_with_operational(
+            m,
+            &mut rule.when,
+            schema,
+            context,
+            &mut nodes,
+            operational,
+        )?;
     }
     Ok(())
 }
@@ -872,7 +942,8 @@ fn prove_policy_predicates(
         }
         let per = std::mem::size_of::<&super::model::Rule>()
             + std::mem::size_of::<&super::model::Predicate>()
-            + std::mem::size_of::<(usize, usize)>();
+            + std::mem::size_of::<(usize, usize)>()
+            + std::mem::size_of::<&str>();
         work::ValidationWork::arithmetic(
             m,
             work::ArithmeticOperation::Multiply,
@@ -881,12 +952,16 @@ fn prove_policy_predicates(
         let bytes = count
             .checked_mul(per)
             .ok_or_else(|| err("predicate rule metadata"))?;
-        let bytes = work::usize_add(m, bytes, 3 * std::mem::size_of::<Vec<usize>>())?;
+        let bytes = work::usize_add(m, bytes, 4 * std::mem::size_of::<Vec<usize>>())?;
         let _owner = m
             .representation_arena()
             .map(|a| a.reserve_external_payload(bytes, m))
             .transpose()?;
         m.write_bytes(bytes)?;
+        let mut funding_legs = Vec::new();
+        funding_legs
+            .try_reserve_exact(count)
+            .map_err(|_| err("predicate funding leg metadata"))?;
         let mut rules = Vec::new();
         rules
             .try_reserve_exact(count)
@@ -901,6 +976,15 @@ fn prove_policy_predicates(
             .map_err(|_| err("predicate dependencies"))?;
         for rule in &p.rules {
             if same_literal(m, &rule.activity, activity.name())? {
+                let mut selected = None;
+                for slot in &p.binding_slots {
+                    m.visit("predicate.rule_funding_leg")?;
+                    if same_literal(m, &slot.name, &rule.binding_slot)? {
+                        selected = Some(slot.funding_leg.as_str());
+                    }
+                }
+                funding_legs
+                    .push(selected.ok_or_else(|| err("predicate original rule funding slot"))?);
                 rules.push(rule);
                 conditions.push(&rule.when);
             }
@@ -923,7 +1007,14 @@ fn prove_policy_predicates(
             }
         }
         let schema = predicate_schema(m, schemas, activity.fact_schema_id())?;
-        predicate::prove(m, &conditions, &implications, schema, context)?;
+        predicate::prove_with_funding(
+            m,
+            &conditions,
+            &implications,
+            schema,
+            context,
+            &funding_legs,
+        )?;
     }
     Ok(())
 }
@@ -937,6 +1028,16 @@ fn require_selected_recipe(
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
 ) -> Result<SelectedRecipe> {
+    if super::support::same_bytes(
+        m,
+        support.canonical_bytes(),
+        super::local::POLICY_CONTEXT_DESCRIPTOR,
+    )? {
+        if support.execution_registry() != Some(super::local::POLICY_CONTEXT_REGISTRY) {
+            return Err(err("policy context compiler registry"));
+        }
+        return Ok(SelectedRecipe::LocalPolicySemantics2);
+    }
     if super::support::same_bytes(
         m,
         support.canonical_bytes(),
@@ -1257,19 +1358,22 @@ fn compile_selected_recipe(
                     .ok_or_else(|| err("fact fields"))?
                 {
                     if !m.check("source.fact_type", || {
-                        let allowed: &[&str] =
-                            if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
-                                &[
-                                    "boolean",
-                                    "decimal",
-                                    "enum",
-                                    "integer",
-                                    "string",
-                                    "timestamp",
-                                ]
-                            } else {
-                                &["enum", "integer", "timestamp"]
-                            };
+                        let allowed: &[&str] = if matches!(
+                            recipe,
+                            SelectedRecipe::LocalPolicySemantics1
+                                | SelectedRecipe::LocalPolicySemantics2
+                        ) {
+                            &[
+                                "boolean",
+                                "decimal",
+                                "enum",
+                                "integer",
+                                "string",
+                                "timestamp",
+                            ]
+                        } else {
+                            &["enum", "integer", "timestamp"]
+                        };
                         allowed.contains(&field["type"]["kind"].as_str().unwrap_or(""))
                     })? {
                         return Err(err("selected fact type"));
@@ -1293,7 +1397,11 @@ fn compile_selected_recipe(
             }
             "ledger-workflow-product/1" => {
                 for unit in body["units"].as_array().ok_or_else(|| err("unit array"))? {
-                    if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+                    if matches!(
+                        recipe,
+                        SelectedRecipe::LocalPolicySemantics1
+                            | SelectedRecipe::LocalPolicySemantics2
+                    ) {
                         continue;
                     }
                     if !m.check("source.unit_terminal", || {
@@ -1328,6 +1436,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalConditional1
                         | SelectedRecipe::LocalDeclaredLink1
                         | SelectedRecipe::LocalPolicySemantics1
+                        | SelectedRecipe::LocalPolicySemantics2
                 ) && body.get("app_delayed_costs").is_some()
                 {
                     return Err(err("old policy dictionary has no app declarations"));
@@ -1341,6 +1450,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalConditional1
                         | SelectedRecipe::LocalDeclaredLink1
                         | SelectedRecipe::LocalPolicySemantics1
+                        | SelectedRecipe::LocalPolicySemantics2
                 ) {
                     for declaration in body["app_delayed_costs"]
                         .as_array()
@@ -1456,6 +1566,7 @@ fn compile_selected_recipe(
             SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ) {
             continue;
         }
@@ -1501,7 +1612,10 @@ fn compile_selected_recipe(
         (policy, None)
     };
     for rule in &policy.rules {
-        if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+        if matches!(
+            recipe,
+            SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+        ) {
             continue;
         }
         if !matches!(
@@ -1522,6 +1636,7 @@ fn compile_selected_recipe(
                 SelectedRecipe::LocalConditional1
                     | SelectedRecipe::LocalDeclaredLink1
                     | SelectedRecipe::LocalPolicySemantics1
+                    | SelectedRecipe::LocalPolicySemantics2
             ) {
                 return Err(err("predicate capability"));
             }
@@ -1575,6 +1690,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalConditional1
                     | SelectedRecipe::LocalDeclaredLink1
                     | SelectedRecipe::LocalPolicySemantics1
+                    | SelectedRecipe::LocalPolicySemantics2
             ) {
                 policy
                     .app_delayed_costs
@@ -1591,8 +1707,17 @@ fn compile_selected_recipe(
         return Err(err("selected policy profile"));
     }
     super::normalize::policy(m, &mut policy)?;
-    if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
-        normalize_policy_predicates(m, &mut policy, &product, &schemas)?;
+    if matches!(
+        recipe,
+        SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+    ) {
+        normalize_policy_predicates(
+            m,
+            &mut policy,
+            &product,
+            &schemas,
+            matches!(recipe, SelectedRecipe::LocalPolicySemantics2),
+        )?;
     }
     arithmetic::integer(m, &policy.version, false)?;
     super::validate::policy(
@@ -1605,7 +1730,10 @@ fn compile_selected_recipe(
             recipe,
             SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
         ),
-        matches!(recipe, SelectedRecipe::LocalPolicySemantics1),
+        matches!(
+            recipe,
+            SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+        ),
     )?;
     for rule in &mut policy.rules {
         m.visit("rule.validate")?;
@@ -1668,7 +1796,11 @@ fn compile_selected_recipe(
                 normalize_to,
             } => {
                 if normalize_to.is_some()
-                    && !matches!(recipe, SelectedRecipe::LocalPolicySemantics1)
+                    && !matches!(
+                        recipe,
+                        SelectedRecipe::LocalPolicySemantics1
+                            | SelectedRecipe::LocalPolicySemantics2
+                    )
                 {
                     return Err(err("selected terminal unit"));
                 }
@@ -1688,7 +1820,10 @@ fn compile_selected_recipe(
                 let source = product
                     .unit_with_work(unit, m)?
                     .ok_or_else(|| err("unit missing"))?;
-                if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+                if matches!(
+                    recipe,
+                    SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+                ) {
                     if let Some(to) = normalize_to {
                         let target = product
                             .unit_with_work(to, m)?
@@ -1756,6 +1891,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalConditional1
                         | SelectedRecipe::LocalDeclaredLink1
                         | SelectedRecipe::LocalPolicySemantics1
+                        | SelectedRecipe::LocalPolicySemantics2
                 ) {
                     return Err(err("app cost compiler recipe"));
                 }
@@ -1776,7 +1912,10 @@ fn compile_selected_recipe(
             }
         }
     }
-    if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+    if matches!(
+        recipe,
+        SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+    ) {
         prove_policy_predicates(m, &policy, &product, &schemas)?;
     }
     for family in &policy.families {
@@ -1979,7 +2118,10 @@ fn compile_selected_recipe(
             (
                 recipe.plan_schema(),
                 recipe.compiler_semantics(),
-                matches!(recipe, SelectedRecipe::LocalPolicySemantics1),
+                matches!(
+                    recipe,
+                    SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+                ),
             ),
         )?;
         let document = finish_owned_document(m, output.body, true)?;
@@ -2121,8 +2263,14 @@ fn compile_selected_recipe(
                 Formula::SupplierFinalCost { .. } => (vec![], "supplier_final_cost", vec![]),
             };
             let mut binding_names = Vec::<String>::new();
-            if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+            if matches!(
+                recipe,
+                SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+            ) {
                 rule.when.visit_operands(m, &mut |operand, m| {
+                    if matches!(operand, super::model::Operand::Context { .. }) {
+                        return Ok(());
+                    }
                     let (names, name) = match operand {
                         super::model::Operand::Fact { fact } => (&mut fields, fact.as_str()),
                         super::model::Operand::BindingFact { binding_fact } => {
@@ -2149,7 +2297,10 @@ fn compile_selected_recipe(
                 .map(|s| s["index"].clone())
                 .collect();
             let mut binding_indices = Vec::new();
-            if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+            if matches!(
+                recipe,
+                SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+            ) {
                 for slot in &slots {
                     if slot["schema_ref"] == json!(policy.context_schema_ref)
                         && binding_names
@@ -2183,7 +2334,10 @@ fn compile_selected_recipe(
             );
             order.push(json!({"policy_ref":root,"rule_id":rule.rule_id}));
             // Do not mix context names into the activity fact slots above.
-            let fields = if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
+            let fields = if matches!(
+                recipe,
+                SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+            ) {
                 let mut names: Vec<Value> = fields.into_iter().map(Value::String).collect();
                 for binding in binding_names {
                     let mut exists = false;
@@ -2262,6 +2416,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ) {
             plan["limits_profile"] = json!("workflow-local-limits/1");
             plan["worst_case"]
@@ -2275,6 +2430,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ) {
             plan["limits_profile"] = json!("workflow-local-operator-limits/1");
             for field in ["compile_work", "loaded_refs", "bytes"] {
@@ -2375,6 +2531,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -2384,6 +2541,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ),
         app_owned_cost_recipe: matches!(
             recipe,
@@ -2394,6 +2552,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ),
         supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
         owner_local_cost_recipe: matches!(

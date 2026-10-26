@@ -477,12 +477,12 @@ impl WorkHeadLocators {
 type HeadRowVisitor<'a> = dyn FnMut(&str, Option<&str>, &mut CoreMeter) -> Result<()> + 'a;
 pub(super) fn head_rows(
     program: &SelectedProgram,
-    inputs: (&Value, &Value),
+    inputs: (&Value, &Value, Option<(&Value, &str)>),
     inst: &Value,
     m: &mut CoreMeter,
     f: &mut HeadRowVisitor<'_>,
 ) -> Result<()> {
-    let (p, context) = inputs;
+    let (p, context, operational) = inputs;
     let activity = shape::field(m, p, "activity")?;
     for instruction in shape::array(
         m,
@@ -499,7 +499,12 @@ pub(super) fn head_rows(
                 continue;
             }
             let component = shape::text(m, selector, "component_key")?;
-            if !program.root_is_selected_for_work(m, p, component, context)? {
+            if !program.root_is_selected_for_work_operational(
+                m,
+                p,
+                component,
+                (context, operational),
+            )? {
                 continue;
             }
             let mappings = shape::array(m, inst, "component_map")?;
@@ -689,7 +694,11 @@ pub(super) fn derive_work_head_locators(
     let (mut families, mut apps) = (0usize, 0usize);
     head_rows(
         program,
-        (p, &binding["accepted_context"]),
+        (
+            p,
+            &binding["accepted_context"],
+            Some((binding, &key.source)),
+        ),
         inst,
         m,
         &mut |_, family, m| {
@@ -721,7 +730,11 @@ pub(super) fn derive_work_head_locators(
     let agreement = shape::field(m, binding, "agreement_id")?;
     head_rows(
         program,
-        (p, &binding["accepted_context"]),
+        (
+            p,
+            &binding["accepted_context"],
+            Some((binding, &key.source)),
+        ),
         inst,
         m,
         &mut |slot, family, m| {

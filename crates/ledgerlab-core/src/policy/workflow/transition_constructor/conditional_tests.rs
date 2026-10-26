@@ -131,6 +131,147 @@ fn policy_scalar_input(support: &SelectedCompilerSupport) -> SelectedSourceInput
             .sort_by_key(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec());
     })
 }
+fn policy_context_input(support: &SelectedCompilerSupport) -> SelectedSourceInput {
+    let mut input = policy_scalar_input(support);
+    for bytes in &mut input.documents {
+        let mut value: Value = serde_json::from_slice(bytes).unwrap();
+        if value["schema"] == "ledger-workflow-policy/4" {
+            let args = value["rules"][0]["when"]["args"].as_array_mut().unwrap();
+            args.push(json!({"op":"eq","field":{"context":"source"},"value":"urn:example:original-worker"}));
+            args.push(
+                json!({"op":"eq","field":{"context":"funding_mode"},"value":"customer_local"}),
+            );
+            value["app_delayed_costs"][0]["resource_funding_leg"] = json!("support:aaa-platform");
+            input.root_policy_ref =
+                serde_json::from_value(reference("workflow-policy", &value)).unwrap();
+        }
+        *bytes = canonical::CanonicalBytes::from_value(&value)
+            .unwrap()
+            .into_vec();
+    }
+    input
+}
+#[test]
+fn context2_actual_source_plan_reload_and_component_funding_use_original_operands() {
+    let (_a, mut compile_session) = session();
+    let support =
+        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut compile_session)
+            .unwrap();
+    let p = compile_selected_publication(
+        policy_context_input(&support),
+        &support,
+        &mut compile_session,
+    )
+    .unwrap();
+    assert!(p.uses_policy_context_recipe());
+    p.require_local_admission_with_session(&mut compile_session)
+        .unwrap();
+    let mut plain = super::super::CoreMeter::for_compile(1_048_576).unwrap();
+    let data = super::super::super::selected_program::compile_selected_program(
+        policy_context_input(&support),
+        &support,
+        &mut plain,
+    )
+    .unwrap();
+    assert_eq!(
+        p.compiled_plan().canonical_bytes(),
+        data.compiled_plan().canonical_bytes()
+    );
+    let context = json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":"support:billable"}});
+    let facts = json!({"support:quantity":"90","support:approved":true});
+    // Both are declared accepted legs: the app's independent platform leg sorts
+    // first, while this service component is bound to the customer-local leg.
+    let binding = json!({"bindings":[{"slot":"support:retail"}],"funding_legs":[{"name":"support:aaa-platform","mode":"platform"},{"name":"support:customer","mode":"customer_local"}],"accepted_context":context});
+    let m = compile_session.meter_mut();
+    assert_eq!(
+        p.original_component_funding_mode(m, &binding, "support:retail")
+            .unwrap(),
+        "customer_local"
+    );
+    let prices = pricing::work_operational(
+        &p,
+        "support:complete",
+        (&facts, &context),
+        Some((&binding, "urn:example:original-worker")),
+        m,
+    )
+    .unwrap();
+    assert_eq!(prices[0].atoms, 150_000_000_000_000_000);
+    assert_eq!(prices[0].predicate_state, "true");
+    let changed_source = pricing::work_operational(
+        &p,
+        "support:complete",
+        (&facts, &context),
+        Some((&binding, "urn:example:current-corrector")),
+        m,
+    )
+    .unwrap();
+    assert_eq!(changed_source[0].predicate_state, "false");
+    assert_eq!(changed_source[0].atoms, 0);
+    assert!(pricing::work(&p, "support:complete", (&facts, &context), m).is_err());
+    let payload = json!({"activity":"support:complete","facts":facts});
+    assert!(p
+        .root_is_selected_for_work_operational(
+            m,
+            &payload,
+            "support:service",
+            (&context, Some((&binding, "urn:example:original-worker")))
+        )
+        .unwrap());
+    let app = pricing::app_final_cost_operational(
+        &p,
+        "support:complete",
+        "support:model-retail",
+        (
+            (&facts, &context),
+            Some((&binding, "urn:example:original-worker")),
+        ),
+        &2_000_000_000_000_000_000i128.into(),
+        m,
+    )
+    .unwrap();
+    assert_eq!(app[0].atoms, 2_000_000_000_000_000_000);
+    let service = p.compiled_plan().canonical_value()["typed_instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["rule"]["component_key"] == "support:service")
+        .unwrap();
+    assert_eq!(service["fact_slots"].as_array().unwrap().len(), 2);
+    assert_eq!(service["binding_fact_slots"].as_array().unwrap().len(), 1);
+    // Original reload retains new descriptor exactly; older profile does not
+    // gain the source/funding capability by loading a familiar Plan8 shape.
+    let mut incoming = policy_context_input(&support);
+    incoming.documents.reverse();
+    let normalized = super::super::super::selected_program::normalize_local_publication_input(
+        incoming,
+        &p,
+        &mut compile_session,
+    )
+    .unwrap();
+    assert_eq!(normalized.root_policy_ref(), p.root_policy_ref());
+    let (_a, mut reload) = session();
+    let restored = load_local_selected_execution(
+        policy_context_input(&support),
+        p.compiled_plan().canonical_bytes(),
+        p.compiled_plan().reference(),
+        &mut reload,
+    )
+    .unwrap();
+    assert!(restored.uses_policy_context_recipe());
+    assert_eq!(
+        restored.compiled_plan().canonical_bytes(),
+        p.compiled_plan().canonical_bytes()
+    );
+    let (_a, mut old_session) = session();
+    let old =
+        SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut old_session)
+            .unwrap();
+    assert!(
+        compile_selected_publication(policy_context_input(&old), &old, &mut old_session).is_err()
+    );
+}
+
 #[test]
 fn policy_scalar_actual_source_plan_reload_pricing_and_exposure_share_typed_semantics() {
     let (_arena, mut s) = session();
@@ -409,14 +550,20 @@ fn conditional_actual_pricing_distinguishes_nonmatch_from_matched_zero_and_prese
         let payload = json!({"activity":"support:complete"});
         let mut family = 0;
         let mut app_heads = 0;
-        input_selection::head_rows(&p, (&payload, &context), &inst, m, &mut |_, slot, _| {
-            if slot.is_some() {
-                family += 1;
-            } else {
-                app_heads += 1;
-            }
-            Ok(())
-        })
+        input_selection::head_rows(
+            &p,
+            (&payload, &context, None),
+            &inst,
+            m,
+            &mut |_, slot, _| {
+                if slot.is_some() {
+                    family += 1;
+                } else {
+                    app_heads += 1;
+                }
+                Ok(())
+            },
+        )
         .unwrap();
         assert_eq!(family, usize::from(expected != 0));
         assert_eq!(app_heads, 1);

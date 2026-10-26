@@ -127,6 +127,11 @@ fn derive_retained_with<T>(
 ) -> Result<T> {
     let (decision_ref, decision, work_ref, work, claim_ref, terms) = selected_operands;
     let payload = shape::field(m, work, "payload")?;
+    let original_event_source = if program.uses_policy_context_recipe() {
+        shape::text(m, &work["key"], "source")?
+    } else {
+        ""
+    };
     let claim = r.get(
         m,
         &c.key,
@@ -154,11 +159,14 @@ fn derive_retained_with<T>(
             if program.uses_conditional_work_recipe() {
                 let component =
                     shape::text(m, &instruction["family"]["selector"], "component_key")?;
-                if !program.root_is_selected_for_work(
+                if !program.root_is_selected_for_work_operational(
                     m,
                     payload,
                     component,
-                    &terms.binding["accepted_context"],
+                    (
+                        &terms.binding["accepted_context"],
+                        Some((&terms.binding, original_event_source)),
+                    ),
                 )? {
                     continue;
                 }
@@ -206,11 +214,14 @@ fn derive_retained_with<T>(
             return Err(shape::fail("retained original target basis"));
         }
         let component = shape::text(m, selector, "component_key")?;
-        if !program.root_is_selected_for_work(
+        if !program.root_is_selected_for_work_operational(
             m,
             payload,
             component,
-            &terms.binding["accepted_context"],
+            (
+                &terms.binding["accepted_context"],
+                Some((&terms.binding, original_event_source)),
+            ),
         )? {
             continue;
         }

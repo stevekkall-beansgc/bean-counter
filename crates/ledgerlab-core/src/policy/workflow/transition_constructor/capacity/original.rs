@@ -240,6 +240,11 @@ pub(super) fn derive_financial_data(
         original_claim,
         terms,
     ) = selected_operands;
+    let original_event_source = if program.uses_policy_context_recipe() {
+        shape::text(m, &original_work["key"], "source")?
+    } else {
+        ""
+    };
     let instructions = shape::array(
         m,
         program.compiled_plan().canonical_value(),
@@ -262,11 +267,14 @@ pub(super) fn derive_financial_data(
                 } else if !shape::same_text(m, kind, "final_cost")? {
                     let key = shape::text(m, &instruction["rule"], "component_key")?;
                     if program.uses_policy_semantics_recipe()
-                        || program.root_is_selected_for_work(
+                        || program.root_is_selected_for_work_operational(
                             m,
                             payload,
                             key,
-                            &terms.binding["accepted_context"],
+                            (
+                                &terms.binding["accepted_context"],
+                                Some((&terms.binding, original_event_source)),
+                            ),
                         )?
                     {
                         roots = add(m, roots, 1)?;
@@ -280,11 +288,14 @@ pub(super) fn derive_financial_data(
                 &payload["activity"],
             )? {
                 let key = shape::text(m, &instruction["family"]["selector"], "component_key")?;
-                if program.root_is_selected_for_work(
+                if program.root_is_selected_for_work_operational(
                     m,
                     payload,
                     key,
-                    &terms.binding["accepted_context"],
+                    (
+                        &terms.binding["accepted_context"],
+                        Some((&terms.binding, original_event_source)),
+                    ),
                 )? {
                     family_count = add(m, family_count, 1)?;
                 }

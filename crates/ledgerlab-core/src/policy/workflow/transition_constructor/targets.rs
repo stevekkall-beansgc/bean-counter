@@ -399,11 +399,14 @@ pub(super) fn build(
             return Err(unsupported("selected target basis"));
         }
         let root_key = call!(shape::text, m, selector, "component_key")?;
-        if !program.root_is_selected_for_work(
+        if !program.root_is_selected_for_work_operational(
             m,
             payload,
             root_key,
-            &operands.binding["accepted_context"],
+            (
+                &operands.binding["accepted_context"],
+                Some((&operands.binding, &c.key.source)),
+            ),
         )? {
             continue;
         }

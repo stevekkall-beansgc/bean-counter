@@ -217,10 +217,16 @@ pub(super) fn verify(
             ));
         }
     }
-    let prices = pricing::work(
+    let event_source = if program.uses_policy_context_recipe() {
+        shape::text(m, &plan.work["key"], "source")?
+    } else {
+        ""
+    };
+    let prices = pricing::work_operational(
         program,
         activity,
         (normalized.canonical_value(), &evaluation["context"]),
+        Some((&plan.operands.binding, event_source)),
         m,
     )?;
     let old = active_actions_owned_for(m, r, c, plan, (&prior, &prices))?;

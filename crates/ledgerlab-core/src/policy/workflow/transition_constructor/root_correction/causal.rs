@@ -331,11 +331,19 @@ pub(super) fn prepare(
             continue;
         }
         let root_key = text(m, &family["selector"], "component_key")?;
-        if !program.root_is_selected_for_work(
+        let event_source = if program.uses_policy_context_recipe() {
+            text(m, &plan.work["key"], "source")?
+        } else {
+            ""
+        };
+        if !program.root_is_selected_for_work_operational(
             m,
             &plan.payload,
             root_key,
-            &plan.operands.binding["accepted_context"],
+            (
+                &plan.operands.binding["accepted_context"],
+                Some((&plan.operands.binding, event_source)),
+            ),
         )? {
             continue;
         }
@@ -475,13 +483,19 @@ pub(super) fn prepare(
             family,
         )?;
         let activity = text(m, &plan.payload, "activity")?;
-        let original_prices = pricing::work(
+        let event_source = if program.uses_policy_context_recipe() {
+            text(m, &plan.work["key"], "source")?
+        } else {
+            ""
+        };
+        let original_prices = pricing::work_operational(
             program,
             activity,
             (
                 &plan.payload["facts"],
                 &plan.operands.binding["accepted_context"],
             ),
+            Some((&plan.operands.binding, event_source)),
             m,
         )?;
         let mut net = BigInt::from(0);

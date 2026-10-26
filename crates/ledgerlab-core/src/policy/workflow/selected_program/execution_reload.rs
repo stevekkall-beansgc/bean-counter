@@ -306,6 +306,7 @@ fn rehydrate_inner(
         SelectedRecipe::LocalConditional1
             | SelectedRecipe::LocalDeclaredLink1
             | SelectedRecipe::LocalPolicySemantics1
+            | SelectedRecipe::LocalPolicySemantics2
     ) {
         for rule in &policy.rules {
             m.visit("reload.original_predicate_capability")?;
@@ -316,7 +317,10 @@ fn rehydrate_inner(
     }
 
     for rule in &policy.rules {
-        if matches!(key.recipe, SelectedRecipe::LocalPolicySemantics1) {
+        if matches!(
+            key.recipe,
+            SelectedRecipe::LocalPolicySemantics1 | SelectedRecipe::LocalPolicySemantics2
+        ) {
             continue;
         }
         match &rule.when {
@@ -327,6 +331,7 @@ fn rehydrate_inner(
                     SelectedRecipe::LocalConditional1
                         | SelectedRecipe::LocalDeclaredLink1
                         | SelectedRecipe::LocalPolicySemantics1
+                        | SelectedRecipe::LocalPolicySemantics2
                 ) && field.binding_name().is_some()
                     && value.is_string() => {}
             _ => return Err(fail("original predicate capability")),
@@ -400,6 +405,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -409,6 +415,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalConditional1
                 | SelectedRecipe::LocalDeclaredLink1
                 | SelectedRecipe::LocalPolicySemantics1
+                | SelectedRecipe::LocalPolicySemantics2
         ),
         execution_registry: key.registry,
         _policy_decode_ownership: Some(policy_owner),
@@ -435,7 +442,17 @@ pub fn load_local_selected_execution(
         let mut recipe = None;
         for raw in &input.documents {
             m.visit("local.reload_exact_compiler_selection")?;
-            let selected = if super::super::support::same_bytes(m,raw,super::super::local::POLICY_SEMANTICS_DESCRIPTOR)? {
+            let selected = if super::super::support::same_bytes(
+                m,
+                raw,
+                super::super::local::POLICY_CONTEXT_DESCRIPTOR,
+            )? {
+                Some(SelectedRecipe::LocalPolicySemantics2)
+            } else if super::super::support::same_bytes(
+                m,
+                raw,
+                super::super::local::POLICY_SEMANTICS_DESCRIPTOR,
+            )? {
                 Some(SelectedRecipe::LocalPolicySemantics1)
             } else if super::super::support::same_bytes(
                 m,
@@ -477,11 +494,18 @@ pub fn load_local_selected_execution(
             root: digest_bits(m, input.root_policy_ref.digest())?,
             plan: digest_bits(m, expected_plan.digest())?,
             recipe,
-            registry: Some(if matches!(recipe, SelectedRecipe::LocalDeclaredLink1 | SelectedRecipe::LocalPolicySemantics1) {
-                super::super::local::DECLARED_LINK_REGISTRY
-            } else {
-                super::super::local::REGISTRY
-            }),
+            registry: Some(
+                if matches!(
+                    recipe,
+                    SelectedRecipe::LocalDeclaredLink1
+                        | SelectedRecipe::LocalPolicySemantics1
+                        | SelectedRecipe::LocalPolicySemantics2
+                ) {
+                    super::super::local::DECLARED_LINK_REGISTRY
+                } else {
+                    super::super::local::REGISTRY
+                },
+            ),
             compile_work: None,
         };
         let program = rehydrate_inner(input, saved_plan, &binding, m)?;
@@ -496,7 +520,9 @@ pub fn load_local_selected_execution(
         // Exact saved6/7 DATA loading is also used for original receipt/intent
         // comparison. It executes no economic child and grants no new admission;
         // the configured fresh financial factory separately requires exact8.
-        let expected_descriptor = if matches!(recipe,SelectedRecipe::LocalPolicySemantics1) {
+        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalPolicySemantics2) {
+            super::super::local::POLICY_CONTEXT_DESCRIPTOR
+        } else if matches!(recipe, SelectedRecipe::LocalPolicySemantics1) {
             super::super::local::POLICY_SEMANTICS_DESCRIPTOR
         } else if matches!(recipe, SelectedRecipe::LocalDeclaredLink1) {
             super::super::local::DECLARED_LINK_DESCRIPTOR
@@ -646,6 +672,7 @@ pub fn normalize_local_publication_input(
                                 .as_ref()
                                 .ok_or_else(|| fail("incoming predicate Product"))?,
                             &schemas,
+                            original.uses_policy_context_recipe(),
                         )?;
                     }
                     let value = super::super::owning_policy::build(m, &policy)?;

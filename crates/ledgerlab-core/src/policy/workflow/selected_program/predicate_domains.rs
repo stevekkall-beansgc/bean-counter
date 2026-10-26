@@ -13,6 +13,7 @@ use std::cmp::Ordering;
 
 struct Domain<'a> {
     operand: &'a TypedOperand,
+    funding_leg: Option<&'a str>,
     values: Vec<FactValue>,
     _owner: Option<ExternalBufferLease>,
 }
@@ -31,10 +32,33 @@ fn operand_same(m: &mut CoreMeter, a: &TypedOperand, b: &TypedOperand) -> Result
         | (
             TypedOperand::BindingFact { binding_fact: a },
             TypedOperand::BindingFact { binding_fact: b },
-        ) => shape::same_text(m, a, b),
+        )
+        | (TypedOperand::Context { context: a }, TypedOperand::Context { context: b }) => {
+            shape::same_text(m, a, b)
+        }
         _ => Ok(false),
     }
 }
+fn scoped_operand_same(
+    m: &mut CoreMeter,
+    field: &TypedOperand,
+    domain: &Domain<'_>,
+    leg: Option<&str>,
+) -> Result<bool> {
+    if !operand_same(m, field, domain.operand)? {
+        return Ok(false);
+    }
+    if let TypedOperand::Context { context } = field {
+        if shape::same_text(m, context, "funding_mode")? {
+            return match (domain.funding_leg, leg) {
+                (Some(a), Some(b)) => shape::same_text(m, a, b),
+                _ => Err(bad("funding predicate original leg missing")),
+            };
+        }
+    }
+    Ok(true)
+}
+
 fn atoms<'a>(
     m: &mut CoreMeter,
     p: &'a Predicate,
@@ -256,6 +280,80 @@ fn equivalent(
         }
     }
 }
+fn operational_domain<'a>(
+    m: &mut CoreMeter,
+    operand: &'a TypedOperand,
+    conditions: &[&Predicate],
+    name: &str,
+) -> Result<Domain<'a>> {
+    let literals = literal_count(m, conditions)?;
+    let count = w::usize_add(m, literals, 5usize)?;
+    let mut bytes = mul(m, count, std::mem::size_of::<FactValue>() + 256)?;
+    for condition in conditions {
+        atoms(m, condition, &mut |field, value, m| {
+            if operand_same(m, field, operand)? {
+                let text = super::operational_literal(m, name, value, false)?;
+                bytes = w::usize_add(m, bytes, text.len())?;
+            }
+            Ok(())
+        })?;
+    }
+    let owner = m
+        .representation_arena()
+        .map(|a| a.reserve_external_payload(bytes, m))
+        .transpose()?;
+    m.write_bytes(bytes)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(count)
+        .map_err(|_| bad("operational predicate domain storage"))?;
+    if name == "funding_mode" {
+        for mode in super::FUNDING_MODES {
+            m.scan_bytes(mode.len())?;
+            m.write_bytes(mode.len())?;
+            add(m, &mut values, FactValue::Enum(mode.to_owned()))?;
+        }
+    } else if name == "source" {
+        for condition in conditions {
+            atoms(m, condition, &mut |field, value, m| {
+                if operand_same(m, field, operand)? {
+                    let text = super::operational_literal(m, name, value, false)?;
+                    m.write_bytes(text.len())?;
+                    add(m, &mut values, FactValue::String(text.to_owned()))?;
+                }
+                Ok(())
+            })?;
+        }
+        // One known source outside every literal is the exact Eq/In OTHER
+        // quotient. No private registered source is queried during compilation.
+        let mut other = 0usize;
+        loop {
+            m.visit("predicate.source_other_cell")?;
+            m.write_bytes(64)?;
+            let candidate = format!("predicate-source-other-{other}");
+            let mut used = false;
+            for value in &values {
+                if let FactValue::String(value) = value {
+                    used |= shape::same_text(m, value, &candidate)?;
+                }
+            }
+            if !used {
+                add(m, &mut values, FactValue::String(candidate))?;
+                break;
+            }
+            other = w::usize_add(m, other, 1)?;
+        }
+    } else {
+        return Err(bad("operational predicate domain not yet authenticated"));
+    }
+    Ok(Domain {
+        operand,
+        funding_leg: None,
+        values,
+        _owner: owner,
+    })
+}
+
 fn domain<'a>(
     m: &mut CoreMeter,
     operand: &'a TypedOperand,
@@ -263,6 +361,9 @@ fn domain<'a>(
     activity: &FactSchema,
     context: &FactSchema,
 ) -> Result<Domain<'a>> {
+    if let TypedOperand::Context { context: name } = operand {
+        return operational_domain(m, operand, conditions, name);
+    }
     let (schema, name) = match operand {
         TypedOperand::Fact { fact } => (activity, fact.as_str()),
         TypedOperand::BindingFact { binding_fact } => (context, binding_fact.as_str()),
@@ -513,6 +614,7 @@ fn domain<'a>(
     values.truncate(unique);
     Ok(Domain {
         operand,
+        funding_leg: None,
         values,
         _owner: owner,
     })
@@ -525,6 +627,7 @@ fn evaluate(
     cell: &[usize],
     activity: &FactSchema,
     context: &FactSchema,
+    funding_leg: Option<&str>,
 ) -> Result<Truth> {
     fn atom(
         m: &mut CoreMeter,
@@ -533,18 +636,28 @@ fn evaluate(
         ordered: bool,
         domains: &[Domain<'_>],
         cell: &[usize],
-        schemas: (&FactSchema, &FactSchema),
+        schemas: (&FactSchema, &FactSchema, Option<&str>),
     ) -> Result<Option<Ordering>> {
-        let (activity, context) = schemas;
+        let (activity, context, funding_leg) = schemas;
         let mut found = None;
         for (index, domain) in domains.iter().enumerate() {
-            if operand_same(m, field, domain.operand)? {
+            if scoped_operand_same(m, field, domain, funding_leg)? {
                 found = Some(index);
                 break;
             }
         }
         let index = found.ok_or_else(|| bad("unbound predicate cell"))?;
         let actual = &domains[index].values[cell[index]];
+        if let TypedOperand::Context { context: name } = field {
+            let expected = super::operational_literal(m, name, literal, ordered)?;
+            m.write_bytes(expected.len())?;
+            let expected = if name == "source" {
+                FactValue::String(expected.to_owned())
+            } else {
+                FactValue::Enum(expected.to_owned())
+            };
+            return Ok(Some(compare(m, actual, &expected, ordered)?));
+        }
         let (schema, name) = match field {
             TypedOperand::Fact { fact } => (activity, fact.as_str()),
             TypedOperand::BindingFact { binding_fact } => (context, binding_fact.as_str()),
@@ -565,7 +678,7 @@ fn evaluate(
             let all = matches!(condition, Predicate::All { .. });
             let mut result = if all { Truth::True } else { Truth::False };
             for arg in args {
-                let next = evaluate(m, arg, domains, cell, activity, context)?;
+                let next = evaluate(m, arg, domains, cell, activity, context, funding_leg)?;
                 result = if all {
                     result.all(next)
                 } else {
@@ -574,13 +687,23 @@ fn evaluate(
             }
             Ok(result)
         }
-        Predicate::Not { arg } => Ok(evaluate(m, arg, domains, cell, activity, context)?.not()),
+        Predicate::Not { arg } => {
+            Ok(evaluate(m, arg, domains, cell, activity, context, funding_leg)?.not())
+        }
         Predicate::In { field, values } => {
             let mut result = Truth::False;
             for literal in values {
-                let next = atom(m, field, literal, false, domains, cell, (activity, context))?
-                    .map(|o| Truth::of(o.is_eq()))
-                    .unwrap_or(Truth::Unknown);
+                let next = atom(
+                    m,
+                    field,
+                    literal,
+                    false,
+                    domains,
+                    cell,
+                    (activity, context, funding_leg),
+                )?
+                .map(|o| Truth::of(o.is_eq()))
+                .unwrap_or(Truth::Unknown);
                 result = result.any(next);
             }
             Ok(result)
@@ -591,7 +714,15 @@ fn evaluate(
         | Predicate::Gt { field, value }
         | Predicate::Ge { field, value } => {
             let ordered = !matches!(condition, Predicate::Eq { .. });
-            let Some(order) = atom(m, field, value, ordered, domains, cell, (activity, context))?
+            let Some(order) = atom(
+                m,
+                field,
+                value,
+                ordered,
+                domains,
+                cell,
+                (activity, context, funding_leg),
+            )?
             else {
                 return Ok(Truth::Unknown);
             };
@@ -609,6 +740,7 @@ fn evaluate(
 /// Exhaust the bounded equivalence cells, preserving discrete numeric/time
 /// representability and Missing. An applicable consumer requires its producer
 /// True; a monetary rule needs at least one reachable True cell.
+#[cfg(test)]
 pub(super) fn prove(
     m: &mut CoreMeter,
     conditions: &[&Predicate],
@@ -616,6 +748,21 @@ pub(super) fn prove(
     activity: &FactSchema,
     context: &FactSchema,
 ) -> Result<()> {
+    prove_scoped(m, conditions, implications, activity, context, None)
+}
+pub(super) fn prove_scoped(
+    m: &mut CoreMeter,
+    conditions: &[&Predicate],
+    implications: &[(usize, usize)],
+    activity: &FactSchema,
+    context: &FactSchema,
+    funding_legs: Option<&[&str]>,
+) -> Result<()> {
+    if let Some(legs) = funding_legs {
+        if !w::compare(m, legs.len(), conditions.len())?.is_eq() {
+            return Err(bad("predicate per-rule funding leg count"));
+        }
+    }
     if w::compare(m, conditions.len(), 64usize)?.is_gt() {
         return Err(bad("predicate rule count"));
     }
@@ -648,18 +795,25 @@ pub(super) fn prove(
         .try_reserve_exact(256)
         .map_err(|_| bad("predicate domain allocation"))?;
     let mut cells = 1usize;
-    for condition in conditions {
+    for (rule, condition) in conditions.iter().enumerate() {
+        let leg = funding_legs.map(|legs| legs[rule]);
         atoms(m, condition, &mut |field, _, m| {
             for prior in &domains {
                 let prior: &Domain<'_> = prior;
-                if operand_same(m, field, prior.operand)? {
+                if scoped_operand_same(m, field, prior, leg)? {
                     return Ok(());
                 }
             }
             if w::compare(m, domains.len(), 256usize)?.is_ge() {
                 return Err(bad("predicate operand count"));
             }
-            let next = domain(m, field, conditions, activity, context)?;
+            let mut next = domain(m, field, conditions, activity, context)?;
+            if let TypedOperand::Context { context: name } = field {
+                if shape::same_text(m, name, "funding_mode")? {
+                    next.funding_leg =
+                        Some(leg.ok_or_else(|| bad("funding predicate original leg missing"))?);
+                }
+            }
             cells = mul(m, cells, next.values.len())?;
             if w::compare(m, cells, 4096usize)?.is_gt() {
                 return Err(bad("predicate cells"));
@@ -685,7 +839,15 @@ pub(super) fn prove(
         m.visit("predicate.compile_cell")?;
         truth.clear();
         for (index, condition) in conditions.iter().enumerate() {
-            let result = evaluate(m, condition, &domains, &cell, activity, context)?;
+            let result = evaluate(
+                m,
+                condition,
+                &domains,
+                &cell,
+                activity,
+                context,
+                funding_legs.map(|legs| legs[index]),
+            )?;
             m.write_bytes(std::mem::size_of::<bool>() + std::mem::size_of::<Truth>())?;
             reachable[index] |= result == Truth::True;
             truth.push(result);
@@ -734,6 +896,66 @@ mod tests {
     }
     fn condition(value: Value) -> Predicate {
         serde_json::from_value(value).unwrap()
+    }
+    #[test]
+    fn operational_cells_share_source_but_scope_funding_to_original_leg() {
+        let schema = fact_schema(1);
+        let funding =
+            condition(json!({"op":"eq","field":{"context":"funding_mode"},"value":"platform"}));
+        prove_scoped(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&funding, &funding],
+            &[(0, 1)],
+            &schema,
+            &schema,
+            Some(&["leg:shared", "leg:shared"]),
+        )
+        .unwrap();
+        let error = prove_scoped(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&funding, &funding],
+            &[(0, 1)],
+            &schema,
+            &schema,
+            Some(&["leg:producer", "leg:consumer"]),
+        )
+        .unwrap_err();
+        assert_eq!(error.detail, "dependent predicate does not imply producer");
+        let source =
+            condition(json!({"op":"eq","field":{"context":"source"},"value":"urn:source:a"}));
+        let sources = condition(
+            json!({"op":"in","field":{"context":"source"},"values":["urn:source:a","urn:source:b"]}),
+        );
+        prove_scoped(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&sources, &source],
+            &[(0, 1)],
+            &schema,
+            &schema,
+            Some(&["leg:a", "leg:b"]),
+        )
+        .unwrap();
+        assert!(prove_scoped(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&source, &sources],
+            &[(0, 1)],
+            &schema,
+            &schema,
+            Some(&["leg:a", "leg:b"])
+        )
+        .is_err());
+        let other = condition(
+            json!({"op":"not","arg":{"op":"in","field":{"context":"source"},"values":["urn:source:a","urn:source:b"]}}),
+        );
+        prove_scoped(
+            &mut CoreMeter::for_compile(1_048_576).unwrap(),
+            &[&other],
+            &[],
+            &schema,
+            &schema,
+            Some(&["leg:a"]),
+        )
+        .unwrap();
     }
     #[test]
     fn representable_cells_prove_implication_and_refuse_impossible_money() {

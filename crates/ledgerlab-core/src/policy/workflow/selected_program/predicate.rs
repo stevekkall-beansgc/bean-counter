@@ -9,32 +9,38 @@ use std::cmp::Ordering;
 #[path = "predicate_domains.rs"]
 mod domains;
 
-pub(super) fn prove(
+pub(super) fn prove_with_funding(
     m: &mut CoreMeter,
-    monetary_conditions: &[&Predicate],
+    conditions: &[&Predicate],
     implications: &[(usize, usize)],
-    activity_schema: &FactSchema,
-    context_schema: &FactSchema,
+    activity: &FactSchema,
+    context: &FactSchema,
+    legs: &[&str],
 ) -> Result<()> {
-    domains::prove(
-        m,
-        monetary_conditions,
-        implications,
-        activity_schema,
-        context_schema,
-    )
+    domains::prove_scoped(m, conditions, implications, activity, context, Some(legs))
 }
 
 /// Typechecking and scalar normalization of the already defined AST. The caller
 /// shares `nodes` across the whole policy; no rule-local reset can hide its
 /// aggregate AST cost. Source/funding/status require their real operand owner
 /// before their separately defined lifecycle semantics may be admitted.
+#[cfg(test)]
 pub(super) fn normalize(
     m: &mut CoreMeter,
     condition: &mut Predicate,
     activity_schema: &FactSchema,
     context_schema: &FactSchema,
     nodes: &mut usize,
+) -> Result<()> {
+    normalize_with_operational(m, condition, activity_schema, context_schema, nodes, false)
+}
+pub(super) fn normalize_with_operational(
+    m: &mut CoreMeter,
+    condition: &mut Predicate,
+    activity_schema: &FactSchema,
+    context_schema: &FactSchema,
+    nodes: &mut usize,
+    operational: bool,
 ) -> Result<()> {
     fn field<'a>(
         m: &mut CoreMeter,
@@ -60,7 +66,15 @@ pub(super) fn normalize(
         ordered: bool,
         activity: &FactSchema,
         context: &FactSchema,
+        operational: bool,
     ) -> Result<()> {
+        if let TypedOperand::Context { context } = operand {
+            if !operational {
+                return Err(bad("original predicate context capability"));
+            }
+            operational_literal(m, context, value, ordered)?;
+            return Ok(());
+        }
         let (schema, name) = field(m, operand, activity, context)?;
         let fields = shape::array(m, schema.canonical_value(), "fields")?;
         let definition = shape::named(m, fields, "name", name)?;
@@ -83,6 +97,7 @@ pub(super) fn normalize(
         context: &FactSchema,
         nodes: &mut usize,
         depth: usize,
+        operational: bool,
     ) -> Result<()> {
         m.visit("predicate.compile_node")?;
         *nodes = w::usize_add(m, *nodes, 1)?;
@@ -91,11 +106,15 @@ pub(super) fn normalize(
         }
         match condition {
             Predicate::True | Predicate::False => Ok(()),
-            Predicate::Eq { field, value } => literal(m, field, value, false, activity, context),
+            Predicate::Eq { field, value } => {
+                literal(m, field, value, false, activity, context, operational)
+            }
             Predicate::Lt { field, value }
             | Predicate::Le { field, value }
             | Predicate::Gt { field, value }
-            | Predicate::Ge { field, value } => literal(m, field, value, true, activity, context),
+            | Predicate::Ge { field, value } => {
+                literal(m, field, value, true, activity, context, operational)
+            }
             Predicate::In { field, values } => {
                 if w::compare(m, values.len(), 1usize)?.is_lt()
                     || w::compare(m, values.len(), 32usize)?.is_gt()
@@ -103,7 +122,7 @@ pub(super) fn normalize(
                     return Err(bad("predicate set bounds"));
                 }
                 for value in values.iter_mut() {
-                    literal(m, field, value, false, activity, context)?;
+                    literal(m, field, value, false, activity, context, operational)?;
                 }
                 if m.representation_arena().is_some() {
                     super::super::normalize::owning_set(m, values, |a, m, value| {
@@ -122,17 +141,66 @@ pub(super) fn normalize(
                 }
                 for child in args {
                     let next = w::usize_add(m, depth, 1)?;
-                    visit(m, child, activity, context, nodes, next)?;
+                    visit(m, child, activity, context, nodes, next, operational)?;
                 }
                 Ok(())
             }
             Predicate::Not { arg } => {
                 let next = w::usize_add(m, depth, 1)?;
-                visit(m, arg, activity, context, nodes, next)
+                visit(m, arg, activity, context, nodes, next, operational)
             }
         }
     }
-    visit(m, condition, activity_schema, context_schema, nodes, 1)
+    visit(
+        m,
+        condition,
+        activity_schema,
+        context_schema,
+        nodes,
+        1,
+        operational,
+    )
+}
+
+pub(super) const FUNDING_MODES: [&str; 4] = [
+    "customer_api",
+    "customer_subscription",
+    "customer_local",
+    "platform",
+];
+pub(super) fn operational_literal<'a>(
+    m: &mut CoreMeter,
+    name: &str,
+    value: &'a Value,
+    ordered: bool,
+) -> Result<&'a str> {
+    if ordered {
+        return Err(bad("operational context is an equality domain"));
+    }
+    let value = value
+        .as_str()
+        .ok_or_else(|| bad("operational context literal string"))?;
+    m.scan_bytes(value.len())?;
+    match name {
+        "source" => {
+            if w::compare(m, value.len(), 1usize)?.is_lt()
+                || w::compare(m, value.len(), 256usize)?.is_gt()
+            {
+                return Err(bad("source predicate literal bound"));
+            }
+        }
+        "funding_mode" => {
+            let mut found = false;
+            for mode in FUNDING_MODES {
+                found |= shape::same_text(m, value, mode)?;
+            }
+            if !found {
+                return Err(bad("funding predicate literal mode"));
+            }
+        }
+        _ => return Err(bad("operational predicate context not yet authenticated")),
+    }
+    Ok(value)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -183,6 +251,8 @@ pub(super) struct Inputs<'a> {
     pub context_schema: &'a FactSchema,
     pub facts: &'a Value,
     pub accepted_context: &'a Value,
+    /// Authenticated subject source and exact original evaluated-leg mode.
+    pub operation_context: Option<(&'a str, &'a str)>,
 }
 fn bad(detail: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", detail)
@@ -337,8 +407,38 @@ fn evaluate_inner(
                 &[],
             )?;
             let field = shape::field(m, condition, "field")?;
-            let operand = operand(m, field, inputs)?;
             let ordered = !matches!(op, "eq" | "in");
+            if let Some(name) = field.get("context") {
+                shape::closed(m, field, &["context"], &[])?;
+                let name = name
+                    .as_str()
+                    .ok_or_else(|| bad("operational context name"))?;
+                let (source, mode) = inputs
+                    .operation_context
+                    .ok_or_else(|| bad("operational context owner missing"))?;
+                let actual = match name {
+                    "source" => source,
+                    "funding_mode" => mode,
+                    _ => return Err(bad("operational predicate context not yet authenticated")),
+                };
+                if op == "in" {
+                    let values = shape::array(m, condition, "values")?;
+                    if w::compare(m, values.len(), 1usize)?.is_lt()
+                        || w::compare(m, values.len(), 32usize)?.is_gt()
+                    {
+                        return Err(bad("predicate set size"));
+                    }
+                    let mut found = false;
+                    for value in values {
+                        let expected = operational_literal(m, name, value, false)?;
+                        found |= shape::same_text(m, actual, expected)?;
+                    }
+                    return Ok(Truth::of(found));
+                }
+                let expected = operational_literal(m, name, &condition["value"], ordered)?;
+                return Ok(Truth::of(shape::same_text(m, actual, expected)?));
+            }
+            let operand = operand(m, field, inputs)?;
             let actual = operand
                 .value
                 .map(|value| {
@@ -491,6 +591,7 @@ mod tests {
             context_schema: &context,
             facts: &facts,
             accepted_context: &accepted,
+            operation_context: None,
         };
         let mut m = CoreMeter::new(65_536).unwrap();
         for condition in [
@@ -509,6 +610,7 @@ mod tests {
             context_schema: &context,
             facts: &absent,
             accepted_context: &accepted,
+            operation_context: None,
         };
         let condition = json!({"op":"gt","field":{"fact":"test:n"},"value":"0"});
         assert_eq!(
@@ -561,6 +663,7 @@ mod tests {
             context_schema: &context,
             facts: &facts,
             accepted_context: &missing_context,
+            operation_context: None,
         };
         assert_eq!(
             evaluate(

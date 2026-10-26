@@ -656,9 +656,18 @@ pub fn select_local_operation_locators(
                 &a,
                 work_ref.as_ref().unwrap().reference(),
             )?;
+            let operational = if program.uses_policy_context_recipe() {
+                Some((&*bound, shape::text(m, &original["key"], "source")?))
+            } else {
+                None
+            };
             super::input_selection::head_rows(
                 program,
-                (&original["payload"], &bound["accepted_context"]),
+                (
+                    &original["payload"],
+                    &bound["accepted_context"],
+                    operational,
+                ),
                 &inst,
                 m,
                 &mut |slot, family, m| {

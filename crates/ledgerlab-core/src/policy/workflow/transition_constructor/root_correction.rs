@@ -542,10 +542,33 @@ fn prepare(
     let current_facts = normalized.canonical_value();
     let mut replacement_facts = super::working_value::WorkingValue::copy(m, current_facts)?;
     let activity_name = text(m, &payload, "activity")?;
-    let old_prices = pricing::work(
+    let event_source = if program.uses_policy_context_recipe() {
+        text(m, &work["key"], "source")?
+    } else {
+        ""
+    };
+    let context_binding = if program.uses_policy_context_recipe() {
+        Some(
+            load(
+                m,
+                r,
+                c,
+                &payload["binding_ref"],
+                "workflow-binding",
+                "ledger-workflow-binding/2",
+            )?
+            .1,
+        )
+    } else {
+        None
+    };
+    let old_prices = pricing::work_operational(
         program,
         activity_name,
         (current_facts, &evaluation["context"]),
+        context_binding
+            .as_ref()
+            .map(|binding| (&**binding, event_source)),
         m,
     )?;
     let mut affected_roots: Vec<String> = vec![];
@@ -818,10 +841,11 @@ fn prepare(
     let new_prices = if reverse {
         pricing::PricedInstructions::empty()
     } else {
-        pricing::work(
+        pricing::work_operational(
             program,
             activity_name,
             (&replacement_facts, &operands.binding["accepted_context"]),
+            Some((&operands.binding, event_source)),
             m,
         )?
     };

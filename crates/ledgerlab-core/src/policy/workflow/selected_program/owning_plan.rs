@@ -402,6 +402,9 @@ pub(super) fn build(
         };
         if full_predicates {
             rule.when.visit_operands(m, &mut |operand, m| {
+                if matches!(operand, super::model::Operand::Context { .. }) {
+                    return Ok(());
+                }
                 let (names, text) = match operand {
                     super::model::Operand::Fact { fact } => (&mut field_names, fact.as_str()),
                     super::model::Operand::BindingFact { binding_fact } => (

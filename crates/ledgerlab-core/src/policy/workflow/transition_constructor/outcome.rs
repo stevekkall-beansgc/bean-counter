@@ -113,6 +113,21 @@ pub(super) fn local_ordinary_head_count(
     let context = conditional_binding
         .as_ref()
         .map_or(&empty_context, |v| &v["accepted_context"]);
+    let source_work = if program.uses_policy_context_recipe() {
+        Some(r.get(
+            m,
+            &c.key,
+            work_ref,
+            "workflow-work",
+            "ledger-workflow-work-record/1",
+        )?)
+    } else {
+        None
+    };
+    let operational = match (conditional_binding.as_ref(), source_work.as_ref()) {
+        (Some(binding), Some(work)) => Some((&**binding, shape::text(m, &work["key"], "source")?)),
+        _ => None,
+    };
     let mut ordinary = 0usize;
     for (i, head) in heads.iter().enumerate() {
         m.visit("outcome.local_ordinary_head")?;
@@ -128,7 +143,7 @@ pub(super) fn local_ordinary_head_count(
         let mut sibling = false;
         super::input_selection::head_rows(
             program,
-            (work_payload, context),
+            (work_payload, context, operational),
             instantiation,
             m,
             &mut |slot, family, m| {
@@ -1893,13 +1908,19 @@ pub(super) fn verify_original_actions(
             true,
         )?;
     }
-    let prices = pricing::work(
+    let event_source = if program.uses_policy_context_recipe() {
+        shape::text(m, &work["key"], "source")?
+    } else {
+        ""
+    };
+    let prices = pricing::work_operational(
         program,
         activity,
         (
             facts.canonical_value(),
             &operands.binding["accepted_context"],
         ),
+        Some((&operands.binding, event_source)),
         m,
     )?;
     if m.representation_arena().is_some() {

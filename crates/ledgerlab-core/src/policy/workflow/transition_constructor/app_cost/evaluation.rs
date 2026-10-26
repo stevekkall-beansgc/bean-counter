@@ -49,13 +49,21 @@ pub(super) fn price(
 ) -> Result<pricing::PricedInstruction> {
     let activity = shape::text(m, &original.work["payload"], "activity")?;
     let component = shape::text(m, original.declaration, "component_key")?;
-    let mut prices = pricing::app_final_cost(
+    let event_source = if program.uses_policy_context_recipe() {
+        shape::text(m, &original.work["key"], "source")?
+    } else {
+        ""
+    };
+    let mut prices = pricing::app_final_cost_operational(
         program,
         activity,
         component,
         (
-            &original.work["payload"]["facts"],
-            &original.terms.binding["accepted_context"],
+            (
+                &original.work["payload"]["facts"],
+                &original.terms.binding["accepted_context"],
+            ),
+            Some((&original.terms.binding, event_source)),
         ),
         eligible,
         m,

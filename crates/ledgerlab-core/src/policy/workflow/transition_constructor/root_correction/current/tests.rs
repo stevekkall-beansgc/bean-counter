@@ -23,11 +23,19 @@ fn reference(kind: &str, prefix: &str, digit: char) -> ExactRef {
 }
 #[test]
 fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_steps() {
+    for operational in [false, true] {
+        retained_quantity_predicate_flips(operational);
+    }
+}
+fn retained_quantity_predicate_flips(operational: bool) {
     let compiled_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
     let mut session = OriginalAuditSession::for_resource_profile_v2(&compiled_arena).unwrap();
-    let support =
+    let support = if operational {
+        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut session)
+    } else {
         SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut session)
-            .unwrap();
+    }
+    .unwrap();
     let fixture: Value = serde_json::from_slice(include_bytes!(
         "../../../selected_program/fixtures/local-first-policy-input.json"
     ))
@@ -37,6 +45,9 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
     docs[5]["rules"][0]["formula"] = json!({"kind":"unit","quantity_field":"support:quantity","unit":"support:request","rate":"0.37"});
     docs[5]["rules"][0]["when"] =
         json!({"op":"ge","field":{"fact":"support:quantity"},"value":"2"});
+    if operational {
+        docs[5]["rules"][0]["when"] = json!({"op":"all","args":[docs[5]["rules"][0]["when"],{"op":"eq","field":{"context":"source"},"value":"original-worker"},{"op":"eq","field":{"context":"funding_mode"},"value":"customer_local"}]});
+    }
     let digest = document_digest("ledger-workflow-policy/4", &docs[5]).unwrap();
     let root = DefinitionRef::new(
         "workflow-policy",
@@ -65,7 +76,12 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
         key: OperationKey {
             logical_store_id: "store".into(),
             scope: ["tenant".into(), "project".into()],
-            source: "worker".into(),
+            source: if operational {
+                "current-corrector"
+            } else {
+                "worker"
+            }
+            .into(),
             operation_id: "later-reverse".into(),
         },
         actor: "worker".into(),
@@ -89,7 +105,12 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
     let payload = json!({"activity":"support:complete","policy_ref":p.root_policy_ref(),"binding_ref":binding_ref,"fact_schema_ref":schema_ref,"facts":{"support:quantity":"3"},"fact_proofs":[]});
     let work = RecordBody::owned(
         &arena,
-        arena.clone_value(&json!({"payload":payload}), m).unwrap(),
+        arena
+            .clone_value(
+                &json!({"payload":payload,"key":{"source":"original-worker"}}),
+                m,
+            )
+            .unwrap(),
         m,
     )
     .unwrap();
@@ -100,7 +121,7 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
         let terms = authority::Terms {
             binding: value(
                 m,
-                json!({"agreement_id":"agreement","accepted_context":context}),
+                json!({"agreement_id":"agreement","accepted_context":context,"bindings":[{"slot":"support:retail"}],"funding_legs":[{"name":"support:aaa-platform","mode":"platform"},{"name":"support:customer","mode":"customer_local"}]}),
             ),
             accepted: value(m, json!({})),
             _activation: value(m, json!({})),
@@ -137,10 +158,22 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
         (3, "2", 740_000_000_000_000_000),
     ] {
         let facts = json!({"support:quantity":quantity});
-        let prices = pricing::work(&p, "support:complete", (&facts, &context), m).unwrap();
+        let prices = pricing::work_operational(
+            &p,
+            "support:complete",
+            (&facts, &context),
+            Some((&operands.binding, "original-worker")),
+            m,
+        )
+        .unwrap();
         assert_eq!(prices[0].atoms, atoms);
         let key = OperationKey {
             operation_id: format!("revision-{revision}"),
+            source: if operational && revision == 1 {
+                "original-worker".into()
+            } else {
+                c.key.source.clone()
+            },
             ..c.key.clone()
         };
         let mut steps = Vec::new();
@@ -223,7 +256,14 @@ fn retained_quantity_predicate_flips_verify_immediate_inverse_and_replacement_st
         let current = decisions[i].decoded(m, 4194304).unwrap();
         let original = decisions[0].decoded(m, 4194304).unwrap();
         let facts = json!({"support:quantity":quantity});
-        let prices = pricing::work(&p, "support:complete", (&facts, &context), m).unwrap();
+        let prices = pricing::work_operational(
+            &p,
+            "support:complete",
+            (&facts, &context),
+            Some((&operands.binding, "original-worker")),
+            m,
+        )
+        .unwrap();
         let mut plan = RootPlan {
             work_ref: work_ref.clone(),
             work: work.clone(),

@@ -238,10 +238,20 @@ pub(super) fn work(
     inputs: (&Value, &Value),
     m: &mut CoreMeter,
 ) -> Result<PricedInstructions> {
+    work_operational(program, activity, inputs, None, m)
+}
+pub(super) fn work_operational(
+    program: &SelectedProgram,
+    activity: &str,
+    inputs: (&Value, &Value),
+    operational: Option<(&Value, &str)>,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
     let (normalized_facts, context) = inputs;
-    let condition = program
-        .uses_conditional_work_recipe()
-        .then_some((program, context));
+    let condition =
+        program
+            .uses_conditional_work_recipe()
+            .then_some((program, context, operational));
     let instructions = program.compiled_plan().canonical_value()["typed_instructions"]
         .as_array()
         .ok_or_else(|| fail("compiled instructions"))?;
@@ -305,7 +315,10 @@ pub(super) fn work_exposure_bound(
         activity,
         inputs.0,
         m,
-        (Some(CostSelection::AppDeferred), Some((program, inputs.1))),
+        (
+            Some(CostSelection::AppDeferred),
+            Some((program, inputs.1, None)),
+        ),
         true,
     )
 }
@@ -341,9 +354,15 @@ enum CostSelection<'a> {
     },
 }
 
+// Concrete borrowed inputs to the same instruction evaluator. They own no
+// grants, prices or identity capability and never outlive the accepted terms.
+type SelectedCondition<'a> = (&'a SelectedProgram, &'a Value, Option<(&'a Value, &'a str)>);
+type PricingSelections<'a> = (Option<CostSelection<'a>>, Option<SelectedCondition<'a>>);
+
 /// Actual attributable amount and original WorkRecord facts enter the SAME
 /// original instruction evaluator. There is no supplier selection or payable.
 /// Evidence/source/lineage eligibility is established by the app executor.
+#[cfg(test)]
 pub(super) fn app_final_cost(
     program: &SelectedProgram,
     activity: &str,
@@ -352,6 +371,24 @@ pub(super) fn app_final_cost(
     eligible_atoms: &BigInt,
     m: &mut CoreMeter,
 ) -> Result<PricedInstructions> {
+    app_final_cost_operational(
+        program,
+        activity,
+        component_key,
+        (original_inputs, None),
+        eligible_atoms,
+        m,
+    )
+}
+pub(super) fn app_final_cost_operational(
+    program: &SelectedProgram,
+    activity: &str,
+    component_key: &str,
+    original_inputs: ((&Value, &Value), Option<(&Value, &str)>),
+    eligible_atoms: &BigInt,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    let (original_inputs, operational) = original_inputs;
     if !program.uses_app_owned_cost_recipe() {
         return Err(Error::new(
             "ORIGINAL_VERIFIER_UNAVAILABLE",
@@ -359,9 +396,10 @@ pub(super) fn app_final_cost(
         ));
     }
     let (original_facts, context) = original_inputs;
-    let condition = program
-        .uses_conditional_work_recipe()
-        .then_some((program, context));
+    let condition =
+        program
+            .uses_conditional_work_recipe()
+            .then_some((program, context, operational));
     let instructions = shape::array(
         m,
         program.compiled_plan().canonical_value(),
@@ -399,10 +437,7 @@ fn price_instructions_selected(
     activity: &str,
     normalized_facts: &Value,
     m: &mut CoreMeter,
-    selections: (
-        Option<CostSelection<'_>>,
-        Option<(&SelectedProgram, &Value)>,
-    ),
+    selections: PricingSelections<'_>,
 ) -> Result<PricedInstructions> {
     price_instructions_selected_mode(
         instructions,
@@ -420,10 +455,7 @@ fn price_instructions_selected_mode(
     activity: &str,
     normalized_facts: &Value,
     m: &mut CoreMeter,
-    selections: (
-        Option<CostSelection<'_>>,
-        Option<(&SelectedProgram, &Value)>,
-    ),
+    selections: PricingSelections<'_>,
     exposure_bound: bool,
 ) -> Result<PricedInstructions> {
     let (selection, condition) = selections;
@@ -534,13 +566,19 @@ fn price_instructions_selected_mode(
             "true"
         } else {
             match condition {
-                Some((program, context)) => program.evaluate_rule_condition(
-                    m,
-                    &rule["when"],
-                    activity,
-                    normalized_facts,
-                    context,
-                )?,
+                Some((program, context, operational)) => {
+                    let slot = shape::text(m, rule, "binding_slot")?;
+                    program.evaluate_rule_condition_operational(
+                        m,
+                        &rule["when"],
+                        activity,
+                        normalized_facts,
+                        (
+                            context,
+                            operational.map(|(binding, source)| (binding, source, slot)),
+                        ),
+                    )?
+                }
                 None => "true",
             }
         };
@@ -570,12 +608,12 @@ fn price_instructions_selected_mode(
                         .ok_or_else(|| fail("quantity field"))?;
                     m.visit("pricing.fact_lookup")?;
                     let quantity = if formula.get("normalize_to").is_some() {
-                        let (program, _) = condition.ok_or_else(|| {
+                        let (program, _, _) = condition.ok_or_else(|| {
                             fail("unit normalization needs exact selected Product")
                         })?;
                         normalized_quantity(program, formula, normalized_facts, m)?
                     } else if condition
-                        .is_some_and(|(program, _)| program.uses_policy_semantics_recipe())
+                        .is_some_and(|(program, _, _)| program.uses_policy_semantics_recipe())
                     {
                         let raw = shape::text(m, normalized_facts, field)?;
                         arithmetic::decimal(m, raw)?

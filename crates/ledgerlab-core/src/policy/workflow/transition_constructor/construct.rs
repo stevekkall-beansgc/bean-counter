@@ -700,10 +700,11 @@ fn execute_parsed<'inv, 'raw>(
             &json!([claim_id, "work"]),
         )?
     };
-    let prices = pricing::work(
+    let prices = pricing::work_operational(
         program,
         activity_name,
         (&p["facts"], &a.binding["accepted_context"]),
+        Some((&a.binding, &c.key.source)),
         m,
     )?;
     super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, activity_name, &p["facts"])?;
