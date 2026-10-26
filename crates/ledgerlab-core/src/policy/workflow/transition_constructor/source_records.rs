@@ -203,7 +203,7 @@ pub fn produce_initial_source_records(
         ceiling,
         installation_mode,
         actor,
-        (accepted_at, root_ref),
+        (accepted_at, root_ref, "ledger-workflow-source-enroll/1"),
         session,
     );
     if result.is_err() {
@@ -211,16 +211,44 @@ pub fn produce_initial_source_records(
     }
     result
 }
+/// Registered-source /2 output correspondence only. The authenticated host
+/// verifies the exact /2 management recipe and actor/target distinction; this
+/// factory supplies no authority and leaves all original /1 behavior intact.
+pub fn produce_initial_registered_source_records(
+    key_and_payload: (&OperationKey, &Value),
+    ceiling: &Value,
+    installation_mode: &str,
+    actor: &str,
+    accepted_at: &str,
+    root_ref: &ExactRef,
+    session: &mut OriginalAuditSession,
+) -> Result<InitialSourceRecords> {
+    let (key, payload) = key_and_payload;
+    let result = produce(
+        key,
+        payload,
+        ceiling,
+        installation_mode,
+        actor,
+        (accepted_at, root_ref, "ledger-workflow-source-enroll/2"),
+        session,
+    );
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+
 fn produce(
     key: &OperationKey,
     p: &Value,
     ceiling: &Value,
     mode: &str,
     actor: &str,
-    selected_operands: (&str, &ExactRef),
+    selected_operands: (&str, &ExactRef, &str),
     s: &mut OriginalAuditSession,
 ) -> Result<InitialSourceRecords> {
-    let (at, root) = selected_operands;
+    let (at, root, payload_schema) = selected_operands;
     let a = s.arena().shared_handle();
     let m = s.meter_mut();
     // Retained Ref strings, return/move controls and hash/ID temporaries coexist
@@ -238,7 +266,7 @@ fn produce(
     }
     let mode = a.string_value(mode, m)?;
     let schema = shape::text(m, p, "schema")?;
-    if !shape::same_text(m, schema, "ledger-workflow-source-enroll/1")? {
+    if !shape::same_text(m, schema, payload_schema)? {
         return Err(shape::fail("initial source production payload"));
     }
     let id = shape::field(m, p, "enrollment_id")?;
@@ -366,6 +394,84 @@ fn produce(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn registered_source_producer_keeps_exact_recipe_and_actor_target_distinction() {
+        let (_, c, _, records) = super::super::first_work_tests::test_inputs();
+        let retained = records
+            .iter()
+            .find(|r| r.reference == c.authorities[0].enrollment_ref)
+            .unwrap();
+        let enrollment: Value = serde_json::from_slice(&retained.canonical_body).unwrap();
+        let root: ExactRef = serde_json::from_value(enrollment["authority_ref"].clone()).unwrap();
+        let mut key = c.key.clone();
+        key.source = "urn:example:administrator".into();
+        let payload = json!({"schema":"ledger-workflow-source-enroll/2","enrollment_id":enrollment["enrollment_id"],"customer_refs":enrollment["customer_refs"],"evidence_ref":enrollment["evidence_ref"]});
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let actual = produce_initial_registered_source_records(
+            (&key, &payload),
+            &enrollment["ceiling"],
+            enrollment["installation_mode"].as_str().unwrap(),
+            "authenticated-operator",
+            enrollment["enrolled_at"].as_str().unwrap(),
+            &root,
+            &mut s,
+        )
+        .unwrap();
+        let grant: Value = serde_json::from_slice(actual.grant().canonical_body()).unwrap();
+        let state: Value = serde_json::from_slice(actual.state().canonical_body()).unwrap();
+        let output: Value = serde_json::from_slice(actual.enrollment().canonical_body()).unwrap();
+        assert_eq!(grant["source"], enrollment["ceiling"]["source"]);
+        assert_ne!(grant["source"], state["operation_key"]["source"]);
+        assert_eq!(state["operation_key"]["source"], key.source);
+        assert_eq!(output["enrolled_by"], "authenticated-operator");
+        // Same authoritative inputs and old /1 literal retain exact outputs.
+        let mut old = payload.clone();
+        old["schema"] = json!("ledger-workflow-source-enroll/1");
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let old = produce_initial_source_records(
+            (&key, &old),
+            &enrollment["ceiling"],
+            enrollment["installation_mode"].as_str().unwrap(),
+            "authenticated-operator",
+            enrollment["enrolled_at"].as_str().unwrap(),
+            &root,
+            &mut s,
+        )
+        .unwrap();
+        for (a, b) in [
+            (actual.enrollment(), old.enrollment()),
+            (actual.grant(), old.grant()),
+            (actual.state(), old.state()),
+        ] {
+            assert_eq!(a.reference(), b.reference());
+            assert_eq!(a.canonical_body(), b.canonical_body());
+        }
+        for registered in [false, true] {
+            let mut wrong = payload.clone();
+            if registered {
+                wrong["schema"] = json!("ledger-workflow-source-enroll/1");
+            }
+            let arena = AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let factory = if registered {
+                produce_initial_registered_source_records
+            } else {
+                produce_initial_source_records
+            };
+            assert!(factory(
+                (&key, &wrong),
+                &enrollment["ceiling"],
+                enrollment["installation_mode"].as_str().unwrap(),
+                "authenticated-operator",
+                enrollment["enrolled_at"].as_str().unwrap(),
+                &root,
+                &mut s
+            )
+            .is_err());
+        }
+    }
     #[test]
     fn shared_original_source_producer_matches_retained_triple_and_refuses_missing_fields() {
         let (_, c, _, records) = super::super::first_work_tests::test_inputs();
