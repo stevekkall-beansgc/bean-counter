@@ -174,6 +174,7 @@ fn produce(
         before.value(),
         ("accepted_at", actor.value(), Some(source.value())),
     )?;
+    literal(m, &root_body, "verified_at", &c.accepted_at)?;
     literal(
         m,
         &root_body["basis"],
@@ -331,6 +332,10 @@ fn produce(
         m,
     )?;
     let snapshot = body::document_borrowed(m, "workflow-economic-authority", snapshot.value())?;
+    let fresh_root = body::document_borrowed(m, "workflow-authority", &root_body)?;
+    if !shape::same_ref(m, &fresh_root.reference, root)? {
+        return Err(shape::fail("cost enrollment exact fresh root output"));
+    }
     let mut account_enrollments = Vec::new();
     account_enrollments
         .try_reserve_exact(accounts.len())
@@ -351,9 +356,9 @@ fn produce(
     }
     let mut introduced = Vec::new();
     introduced
-        .try_reserve_exact(3)
+        .try_reserve_exact(4)
         .map_err(|_| shape::fail("account result allocation"))?;
-    for e in [activation, authority, snapshot] {
+    for e in [activation, authority, snapshot, fresh_root] {
         let value = e.decoded(m, 4194304)?;
         let schema = shape::text(m, &value, "schema")?;
         let schema = copy(m, schema)?;
@@ -365,7 +370,7 @@ fn produce(
     }
     let mut result_refs = Vec::new();
     result_refs
-        .try_reserve_exact(3)
+        .try_reserve_exact(4)
         .map_err(|_| shape::fail("cost result refs"))?;
     for e in &introduced {
         result_refs.push(reference(m, e.reference())?);
@@ -383,6 +388,9 @@ fn produce(
         .try_reserve_exact(consumed.len())
         .map_err(|_| shape::fail("account consumed allocation"))?;
     for v in consumed {
+        if shape::same_ref(m, v, root)? {
+            continue;
+        }
         consumed_refs.push(reference(m, v)?);
     }
     let key = OperationKey {
@@ -498,6 +506,9 @@ mod tests {
         };
         let basis = json!({"schema":"ledger-workflow-local-authority-basis/1","logical_store_id":"store","scope":["scope","test"],"principal_id":"owner","source":"urn:admin","canonical_economic_namespace":"urn:admin","rights":["admin","read"],"source_grant_revision":"1"});
         let root = json!({"schema":"ledger-workflow-local-authority-snapshot/1","basis":basis,"basis_digest":hash("local-authority-basis",&basis),"verification_profile":"local-private-directory-owner/1","verified_at":at});
+        let mut prior_root = root.clone();
+        prior_root["verified_at"] = json!("2026-10-26T11:59:59Z");
+        let (prior_ref, prior_root) = document("workflow-authority", &prior_root);
         let (root_ref, root) = document("workflow-authority", &root);
         let account = json!({"provider_namespace":"urn:provider","provider_account_id":"account","environment":"test"});
         let statement = json!({"statement":"local_owner_controls_provider_accounts","principal_id":"owner","logical_store_id":"store","provider_account_identities":[account]});
@@ -506,9 +517,13 @@ mod tests {
             .encode_base64_representation(content.as_slice(), RepresentationKind::EvidenceContent)
             .unwrap();
         let text = std::str::from_utf8(encoded.bytes()).unwrap();
-        let evidence = json!({"schema":"ledger-workflow-retained-evidence/1","authority_ref":root_ref,"content_base64":text,"content_sha256":canonical::hex(&Sha256::digest(content.as_slice())),"installation_mode":"isolated_synthetic","media_type":"text/plain;charset=utf-8","metadata":{"resource_owner":"platform","payer":"platform","mode":"platform"},"purpose":"funding","retained_at":at,"retained_by":"owner","subject":{"customer":"customer","agreement_id":"agreement"}});
+        let evidence = json!({"schema":"ledger-workflow-retained-evidence/1","authority_ref":prior_ref,"content_base64":text,"content_sha256":canonical::hex(&Sha256::digest(content.as_slice())),"installation_mode":"isolated_synthetic","media_type":"text/plain;charset=utf-8","metadata":{"resource_owner":"platform","payer":"platform","mode":"platform"},"purpose":"funding","retained_at":"2026-10-26T11:59:59Z","retained_by":"owner","subject":{"customer":"customer","agreement_id":"agreement"}});
         let (evidence_ref, evidence) = document("workflow-evidence", &evidence);
         let inputs = [
+            EconomicRecordView {
+                reference: &prior_ref,
+                canonical_body: prior_root.as_slice(),
+            },
             EconomicRecordView {
                 reference: &root_ref,
                 canonical_body: root.as_slice(),
@@ -534,7 +549,9 @@ mod tests {
         .unwrap();
         let (candidate, evidence) = output.into_parts();
         assert_eq!(candidate.result_metadata().result_kind(), "administrative");
-        assert_eq!(candidate.introduced().len(), 3);
+        assert_eq!(candidate.introduced().len(), 4);
+        assert!(!candidate.consumed_refs().contains(&root_ref));
+        assert!(candidate.consumed_refs().contains(&prior_ref));
         assert_eq!(candidate.account_enrollments().len(), 1);
         assert!(candidate.heads().is_empty());
         assert_eq!(
