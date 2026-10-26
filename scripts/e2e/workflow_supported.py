@@ -409,7 +409,7 @@ class Journey:
         role_ref, catalog_ref = reference("workflow-roles", role), reference("workflow-slot-catalog", catalog)
         instantiation = {"schema": "ledger-workflow-slot-instantiation/1", "customer": self.customer, "agreement_id": self.agreement,
             "revision": "1", "catalog_ref": catalog_ref, "template_ref": source_ref("workflow-slot-template"),
-            "component_map": [{"slot_id": n, "template_key": n} for n in ["support:model-retail", "support:service"]],
+            "component_map": self.business.get("component_map", [{"slot_id": n, "template_key": n} for n in ["support:model-retail", "support:service"]]),
             "family_map": [{"slot_id": "support:quality", "template_key": "support:quality"}]}
         terms = {**self.business["terms"], "source_grant_refs": self.accepted_grants(), "role_ref": role_ref,
                  "app_cost_terms": self.policy["app_delayed_costs"]}
