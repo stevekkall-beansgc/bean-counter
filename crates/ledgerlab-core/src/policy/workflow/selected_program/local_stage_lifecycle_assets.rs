@@ -109,5 +109,6 @@ pub(super) const ARTIFACTS:&[(&str,&[u8])]=&[
     ("work-lifecycle-01/stage-identities.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-identities.json")),
     ("work-lifecycle-01/stage-lifecycle.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-lifecycle.schema.json")),
     ("work-lifecycle-01/stage-registry.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-registry.json")),
+    ("work-lifecycle-01/stage-successor.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-successor.schema.json")),
     ("workflow.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/workflow.schema.json")),
 ];
