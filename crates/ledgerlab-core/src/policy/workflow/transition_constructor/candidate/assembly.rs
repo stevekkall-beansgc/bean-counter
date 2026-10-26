@@ -89,7 +89,9 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(
     for (s, kind) in [
         ("ledger-workflow-work/1", "work.accept"),
         ("ledger-workflow-outcome/1", "outcome.submit"),
+        ("ledger-workflow-outcome/2", "outcome.submit"),
         ("ledger-workflow-outcome-correction/1", "outcome.correct"),
+        ("ledger-workflow-outcome-correction/2", "outcome.correct"),
         ("ledger-workflow-outcome-close/2", "outcome.close"),
         ("ledger-workflow-quantity-correction/2", "quantity.correct"),
         ("ledger-workflow-work-reverse/2", "work.reverse"),

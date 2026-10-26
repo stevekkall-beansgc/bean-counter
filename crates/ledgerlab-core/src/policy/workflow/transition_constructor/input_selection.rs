@@ -60,12 +60,15 @@ impl<'a> WorkSourceLocator<'a> {
 pub struct WorkInputSeeds<'a> {
     source: WorkSourceLocator<'a>,
     records: OwnedConsumed,
+    predecessor: Option<WorkHeadLocators>,
     _ownership: ExternalBufferLease,
 }
 impl<'a> WorkInputSeeds<'a> {
     pub fn source(&self) -> &WorkSourceLocator<'a> {
         &self.source
     }
+    pub fn into_predecessor_work_heads(self) -> Option<WorkHeadLocators> { self.predecessor }
+    pub fn predecessor_work_heads(&self) -> Option<&WorkHeadLocators> { self.predecessor.as_ref() }
     pub fn direct_refs(&self) -> &[ExactRef] {
         &self.records.references
     }
@@ -358,11 +361,18 @@ pub fn select_work_input_seeds<'a>(
             "workflow-source-grant",
             "ledger-workflow-source-grant/1",
         )?;
+        let predecessor = if program.uses_declared_work_link_recipe() {
+            match super::declared_links::validate_inputs(m, program, p.value())? {
+                Some(input) => Some(retained_work_heads(program, m, &mut r, capture.key, &input["predecessor"])?),
+                None => None,
+            }
+        } else { None };
         let owner = arena.reserve_external_payload(mem::size_of::<WorkInputSeeds>(), m)?;
         m.write_bytes(mem::size_of::<WorkInputSeeds>())?;
         Ok(WorkInputSeeds {
             source,
             records: r.into_consumed_owned(),
+            predecessor,
             _ownership: owner,
         })
     })();
@@ -574,6 +584,27 @@ pub fn select_work_head_locators(
 }
 
 // SAME owning identity producer, also used by targeted local non-work DATA acquisition.
+/// DATA derivation for one exact retained Work; the consuming child repeats
+/// scope/claim/authority/currentness checks. No temporal or source substitution.
+pub(super) fn retained_work_heads(program: &SelectedProgram, m: &mut CoreMeter, r: &mut Records, key: &OperationKey, reference: &Value) -> Result<WorkHeadLocators> {
+    let reference = shape::reference(m, reference)?;
+    let work = r.get(m, key, &reference, "workflow-work", "ledger-workflow-work-record/1")?;
+    let original_key = super::working_value::WorkingKey::parse(m, &work["key"])?;
+    for (actual, expected) in [(&original_key.logical_store_id, &key.logical_store_id), (&original_key.scope[0], &key.scope[0]), (&original_key.scope[1], &key.scope[1])] {
+        if !shape::same_text(m, actual, expected)? { return Err(shape::fail("retained relation Work scope")); }
+    }
+    let payload = shape::field(m, &work, "payload")?;
+    let binding_ref = shape::reference(m, &payload["binding_ref"])?;
+    let binding = r.get(m, key, &binding_ref, "workflow-binding", "ledger-workflow-binding/2")?;
+    let inst_ref = shape::reference(m, &binding["slot_instantiation_ref"])?;
+    let inst = r.get(m, key, &inst_ref, "workflow-slot-instantiation", "ledger-workflow-slot-instantiation/1")?;
+    let namespace = shape::text(m, &work, "source_namespace")?;
+    let heads = derive_work_head_locators(program, &original_key, namespace, payload, &binding, &inst, m)?;
+    let claim_id = shape::text(m, &work, "claim_id")?;
+    if !shape::same_text(m, heads.work_event_id(), &reference.id)? || !shape::same_text(m, heads.work_claim_id(), claim_id)? { return Err(shape::fail("retained relation Work identity")); }
+    Ok(heads)
+}
+
 pub(super) fn derive_work_head_locators(
     program: &SelectedProgram,
     key: &super::OperationKey,

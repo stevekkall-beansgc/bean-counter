@@ -169,7 +169,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
             }
         } else if shape::same_text(m, &reference.kind, "workflow-outcome-claim")? {
             let s = shape::text(m, &value, "schema")?;
-            if !shape::same_text(m, s, "ledger-workflow-outcome-claim/1")? {
+            if !shape::same_text(m, s, "ledger-workflow-outcome-claim/1")? && !shape::same_text(m, s, "ledger-workflow-outcome-claim/2")? {
                 return Err(shape::fail("outcome claim effect schema"));
             }
             let target = shape::field(m, &value, "target_ref")?;

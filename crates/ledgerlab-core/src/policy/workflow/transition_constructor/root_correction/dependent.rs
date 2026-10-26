@@ -61,7 +61,7 @@ pub(super) fn build(
             c,
             &old["subject_ref"],
             "workflow-outcome-claim",
-            "ledger-workflow-outcome-claim/1",
+            if program.uses_declared_work_link_recipe() { "ledger-workflow-outcome-claim/2" } else { "ledger-workflow-outcome-claim/1" },
         )?;
         shape::closed(
             m,
@@ -210,6 +210,9 @@ pub(super) fn build(
                 return Err(Error::new("CLOCK_REGRESSION", "causal dependent history"));
             }
         }
+        let report = super::super::declared_links::report_path(m, r, c, program, &p, (&root.work_ref, &f.family), None)?;
+        if let Some(report) = &report { super::super::declared_links::verify_report_original(m, r, c, program, report, &operands.terms)?; }
+        let selector_start = report.as_ref().map_or(&root.work_ref, |v| &v.reference);
         // The immutable link identity is derived, then its body is resolved;
         // no caller's current link index can choose a different effect basis.
         let lid = body::semantic_id(
@@ -221,7 +224,7 @@ pub(super) fn build(
                 claim_ref,
                 p["product_ref"],
                 f.family["target_link_slot"],
-                root.work_ref
+                selector_start
             ]),
         )?;
         let (lr, link) =
@@ -249,22 +252,14 @@ pub(super) fn build(
             ("product_ref", p["product_ref"].clone()),
             ("binding_ref", p["binding_ref"].clone()),
             ("slot", f.family["target_link_slot"].clone()),
-            ("predecessor", json!(root.work_ref)),
+            ("predecessor", json!(selector_start)),
             ("classification", json!("monetary")),
         ] {
             equal(m, &link[k], &v)?;
         }
         let link_ref = lr;
         let root_slot = text(m, &f.target, "root_component_slot")?;
-        let effect = outcome::original_family_effect(
-            m,
-            &c.key.scope,
-            &f.target["agreement_id"],
-            root_slot,
-            &root.claim_ref,
-            &f.prior["family_slot"],
-            &link_ref,
-        )?;
+        let effect = outcome::original_family_effect_path(m, &c.key.scope, &f.target["agreement_id"], root_slot, &root.claim_ref, &f.prior["family_slot"], (&link_ref, report.as_ref().map(|v| &v.link)))?;
         let net_raw = text(m, &f.target["original_net"], "atoms")?;
         let net = arithmetic::integer(m, net_raw, true)?;
         let mut basis = vec![];

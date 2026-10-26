@@ -56,6 +56,7 @@ pub(super) fn check(
     p: &Policy,
     docs: &[SelectedDocument],
     schemas: &[(DefinitionRef, FactSchema)],
+    declared_link: bool,
 ) -> Result<()> {
     count(
         m,
@@ -141,7 +142,7 @@ pub(super) fn check(
     count(
         m,
         family.selector.path.len(),
-        1,
+        if declared_link { 2 } else { 1 },
         "supported local outcome requires a direct link",
     )?;
     require!(
@@ -165,9 +166,17 @@ pub(super) fn check(
     count(
         m,
         activities.len(),
-        2,
+        if declared_link { 3 } else { 2 },
         "supported local recipe requires work and outcome activities",
     )?;
+    let links = shape::array(m, product, "links")?;
+    let report = if declared_link {
+        let first = shape::named(m, links, "name", &family.selector.path[0])?;
+        let predecessors = shape::array(m, first, "predecessor_activities")?;
+        count(m, predecessors.len(), 1, "one report predecessor")?;
+        Some(predecessors[0].as_str().ok_or_else(|| unsupported("report activity name"))?)
+    } else { None };
+    let mut report_seen = false;
     let mut work_seen = false;
     let mut outcome_seen = false;
     for activity in activities {
@@ -226,6 +235,10 @@ pub(super) fn check(
                     "unsupported local outcome fact purpose"
                 )?;
             }
+        } else if report.is_some() && same_literal(m, report.unwrap_or(""), name)? {
+            require!(m, !report_seen && same_literal(m, primitive, "work")?, "unpriced report Work")?;
+            report_seen = true;
+            count(m, fields.len(), 0, "unpriced report has no quantity or facts")?;
         } else {
             return Err(unsupported("unsupported local product activity"));
         }
@@ -235,7 +248,26 @@ pub(super) fn check(
         work_seen && outcome_seen,
         "supported local work/outcome pair"
     )?;
-    let links = shape::array(m, product, "links")?;
+    if declared_link {
+        require!(m, report_seen, "report Work activity missing")?;
+        count(m, links.len(), 2, "exact declared outcome/report path")?;
+        let report = report.ok_or_else(|| unsupported("report activity"))?;
+        for (i, (child, predecessor, primitive)) in [(family.trigger_activity.as_str(), report, "outcome"), (report, base.activity.as_str(), "work")].iter().enumerate() {
+            let link = shape::named(m, links, "name", &family.selector.path[i])?;
+            for (field, expected) in [("child_activity", *child), ("child_primitive", *primitive), ("predecessor_primitive", "work"), ("minimum", "1"), ("maximum", "1"), ("binding_relation", "same_binding"), ("on_missing", "refuse")] {
+                require!(m, field_is(m, link, field, expected)?, "declared single same-binding path")?;
+            }
+            let depth = shape::text(m, link, "max_depth")?;
+            let depth = crate::policy::workflow::facts::counter_with_work(depth, m)?;
+            require!(m, crate::validation_work::compare(m, depth, (2 - i) as u64)?.is_ge(), "declared path depth")?;
+            let predecessors = shape::array(m, link, "predecessor_activities")?;
+            count(m, predecessors.len(), 1, "one declared predecessor")?;
+            let predecessor_name = predecessors[0].as_str().ok_or_else(|| unsupported("predecessor activity text"))?;
+            require!(m, same_literal(m, predecessor_name, predecessor)?, "declared predecessor activity")?;
+        }
+        require!(m, same_literal(m, &family.selector.path[0], &family.target_link_slot)?, "outcome selector first slot")?;
+        return Ok(());
+    }
     count(
         m,
         links.len(),
@@ -384,7 +416,7 @@ mod tests {
                 &mut m,
                 &unit_only,
                 program.source_documents(),
-                program.fact_schemas()
+                program.fact_schemas(), false
             )
             .unwrap_err()
             .code,
@@ -439,7 +471,7 @@ mod tests {
                 &mut m,
                 &changed,
                 program.source_documents(),
-                program.fact_schemas()
+                program.fact_schemas(), false
             )
             .unwrap_err()
             .code,
@@ -452,7 +484,7 @@ mod tests {
                 &mut m,
                 &changed,
                 program.source_documents(),
-                program.fact_schemas()
+                program.fact_schemas(), false
             )
             .unwrap_err()
             .code,
@@ -468,7 +500,7 @@ mod tests {
             &mut m,
             &changed,
             program.source_documents(),
-            program.fact_schemas(),
+            program.fact_schemas(), false,
         )
         .unwrap();
         let mut changed = p.clone();
@@ -478,7 +510,7 @@ mod tests {
                 &mut m,
                 &changed,
                 program.source_documents(),
-                program.fact_schemas()
+                program.fact_schemas(), false
             )
             .unwrap_err()
             .code,
@@ -491,7 +523,7 @@ mod tests {
                 &mut m,
                 &changed,
                 program.source_documents(),
-                program.fact_schemas()
+                program.fact_schemas(), false
             )
             .unwrap_err()
             .code,

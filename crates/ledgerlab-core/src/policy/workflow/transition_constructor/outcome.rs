@@ -210,26 +210,9 @@ pub(super) fn execute<'inv, 'raw>(
     )>,
 ) -> Result<Construction<'inv, 'raw>> {
     entry::context_selected(m, c, program)?;
-    shape::closed(
-        m,
-        &p,
-        &[
-            "schema",
-            "target_ref",
-            "family_slot",
-            "business_outcome_token",
-            "activity",
-            "product_ref",
-            "policy_ref",
-            "fact_schema_ref",
-            "binding_ref",
-            "facts",
-            "fact_proofs",
-            "evidence_refs",
-            "occurred_at",
-        ],
-        &[],
-    )?;
+    super::correction::dictionary_outcome(m, &p)?;
+    let linked = program.uses_declared_work_link_recipe();
+    equal(m, &p["schema"], &json!(if linked { "ledger-workflow-outcome/2" } else { "ledger-workflow-outcome/1" }))?;
     for key in ["family_slot", "business_outcome_token"] {
         let text = shape::text(m, &p, key)?;
         if !call!(meter::cmp, m, &text.len().into(), &0.into())?.is_gt()
@@ -259,7 +242,7 @@ pub(super) fn execute<'inv, 'raw>(
     }
     if !meter::cmp(m, &state.work_claims.len().into(), &0.into())?.is_eq()
         || !meter::cmp(m, &state.outcome_claims.len().into(), &0.into())?.is_eq()
-        || !meter::cmp(m, &state.links.len().into(), &0.into())?.is_eq()
+        || !linked && !meter::cmp(m, &state.links.len().into(), &0.into())?.is_eq()
     {
         return Err(unsupported(
             "noninitial selected outcome claim/link composition",
@@ -438,7 +421,7 @@ pub(super) fn execute<'inv, 'raw>(
     } else {
         state.decision_heads.len()
     };
-    if !call!(meter::cmp, m, &ordinary_heads.into(), &1.into())?.is_eq() {
+    if !call!(meter::cmp, m, &ordinary_heads.into(), &if linked { 2 } else { 1 }.into())?.is_eq() {
         return Err(unsupported("extra outcome decision selection"));
     }
     let mut basis_owner = None;
@@ -614,16 +597,9 @@ pub(super) fn execute<'inv, 'raw>(
         call!(shape::field, m, &family["selector"], "target_activity")?,
         call!(shape::field, m, work_payload, "activity")?
     )?;
-    if !call!(
-        meter::cmp,
-        m,
-        &shape::array(m, &family["selector"], "path")?.len().into(),
-        &1.into(),
-    )?
-    .is_eq()
-    {
-        return Err(unsupported("non-direct selected outcome path"));
-    }
+    if !call!(meter::cmp, m, &shape::array(m, &family["selector"], "path")?.len().into(), &if linked { 2 } else { 1 }.into())?.is_eq() { return Err(unsupported("selected outcome path length")); }
+    let report = super::declared_links::report_path(m, &mut r, c, program, &p, (&work_ref, family), Some(state))?;
+    let selector_start = report.as_ref().map_or(&work_ref, |v| &v.reference);
     call!(
         equal,
         m,
@@ -893,6 +869,7 @@ pub(super) fn execute<'inv, 'raw>(
         &work_ref,
         (&work, &claim_ref, &root_decision_ref, &root_decision),
     )?;
+    if let Some(report) = &report { super::declared_links::verify_report_original(m, &mut r, c, program, report, &operands.terms)?; }
     let code_field = shape::text(m, family, "code_field")?;
     let code = shape::text(m, &p["facts"], code_field)?;
     let price = pricing::outcome(program, family_key, code, &net, m)?;
@@ -919,7 +896,7 @@ pub(super) fn execute<'inv, 'raw>(
     }
     let (claim, link) = if let Some(arena) = m.representation_arena() {
         let constants=m.parse_owned_representation(&arena,
-            br#"{"claim":"ledger-workflow-outcome-claim/1","link":"ledger-workflow-link/1","classification":"monetary"}"#,
+            br#"{"claim":"ledger-workflow-outcome-claim/1","claim2":"ledger-workflow-outcome-claim/2","link":"ledger-workflow-link/1","classification":"monetary"}"#,
             crate::validation_work::RepresentationKind::SourceDefinition)?;
         let key = super::cost_postings::operation_key(m, &arena, c)?;
         let family_slot = arena.string_value(family_slot, m)?;
@@ -940,7 +917,7 @@ pub(super) fn execute<'inv, 'raw>(
         let accepted = arena.string_value(&c.accepted_at, m)?;
         let value = arena.object_from_fields(
             &[
-                ("schema", &constants.value()["claim"]),
+                ("schema", &constants.value()[if linked { "claim2" } else { "claim" }]),
                 ("scope", &key.value()["scope"]),
                 ("agreement_id", &target["agreement_id"]),
                 ("family_slot", family_slot.value()),
@@ -955,7 +932,7 @@ pub(super) fn execute<'inv, 'raw>(
         )?;
         let claim = body::record_borrowed(m, &c.key, "workflow-outcome-claim", id, value.value())?;
         let child = super::working_value::owning_reference(m, &arena, &claim.reference)?;
-        let work = super::working_value::owning_reference(m, &arena, &work_ref)?;
+        let work = super::working_value::owning_reference(m, &arena, selector_start)?;
         let authority =
             super::working_value::owning_reference(m, &arena, &operands.authority.reference)?;
         let tuple = arena.array_from_values(
@@ -1026,7 +1003,9 @@ pub(super) fn execute<'inv, 'raw>(
         )?;
         (claim, link)
     };
-    let effect_id = if m.representation_arena().is_some() {
+    let effect_id = if let Some(report) = &report {
+        original_family_effect_path(m, &c.key.scope, &target["agreement_id"], root_slot, &claim_ref, &target_family["family_slot"], (&link.reference, Some(&report.link)))?
+    } else if m.representation_arena().is_some() {
         original_family_effect(
             m,
             &c.key.scope,
@@ -1047,7 +1026,7 @@ pub(super) fn execute<'inv, 'raw>(
             &link.reference,
         )?
     };
-    let (step, actions) = if let Some(arena) = m.representation_arena() {
+    let (mut step, actions) = if let Some(arena) = m.representation_arena() {
         let root = arena.string_value(root_slot, m)?;
         let family = arena.string_value(family_slot, m)?;
         let posting = super::cost_postings::family_posting(
@@ -1102,6 +1081,10 @@ pub(super) fn execute<'inv, 'raw>(
         }
         (super::working_value::WorkingValue::Legacy(step), actions)
     };
+    if let Some(report) = &report {
+        let proof = super::declared_links::evaluation_basis(m, &basis_value, report, &link.reference)?;
+        step = step.with_fields(m, &[("basis_refs", proof.value())])?;
+    }
     let (evaluation, decision) = if let Some(arena) = m.representation_arena() {
         let constants=m.parse_owned_representation(&arena,
             br#"{"evaluation":"ledger-workflow-evaluation-proof/1","decision":"ledger-workflow-decision-revision/1","revision":"1","kind":"outcome","transition":"initial","status":"active"}"#,
@@ -1299,7 +1282,15 @@ pub(super) fn execute<'inv, 'raw>(
         return Err(Error::new("CAPACITY_EXCEEDED", "chain event ceiling"));
     }
     let chain = if let Some(arena) = m.representation_arena() {
-        let links = super::app_cost::reference_set(m, &arena, &[&link.reference])?;
+        let count = crate::validation_work::usize_add(m, state.links.len(), 1)?;
+        let bytes = count * std::mem::size_of::<&ExactRef>();
+        let _owner = arena.reserve_external_payload(bytes, m)?;
+        m.write_bytes(bytes)?;
+        let mut refs = Vec::new();
+        refs.try_reserve_exact(count).map_err(|_| shape::fail("outcome complete Link set"))?;
+        refs.extend(state.links.iter());
+        refs.push(&link.reference);
+        let links = super::app_cost::reference_set(m, &arena, &refs)?;
         let root = records::hash(m, "workflow-link-set", links.value())?;
         let root = arena.string_value(&root, m)?;
         let key = super::cost_postings::operation_key(m, &arena, c)?;
@@ -1752,7 +1743,9 @@ pub(super) fn verify_original_actions(
     shape::reference(m, authority_ref)?;
     let evaluation_ref = shape::field(m, decision, "evaluation_ref")?;
     shape::reference(m, evaluation_ref)?;
-    let unsupported_inputs: &[&str] = if program.uses_local_execution_recipe() {
+    let unsupported_inputs: &[&str] = if program.uses_declared_work_link_recipe() {
+        &["invocation_refs"]
+    } else if program.uses_local_execution_recipe() {
         &["links", "invocation_refs"]
     } else {
         &["fact_proofs", "links", "invocation_refs"]
@@ -1768,6 +1761,9 @@ pub(super) fn verify_original_actions(
         {
             return Err(unsupported("original work proof/link/invocation recipe"));
         }
+    }
+    if program.uses_declared_work_link_recipe() && !shape::array(m, p, "links")?.is_empty() {
+        super::declared_links::retained_work(m, r, c, program, work_ref, work)?;
     }
     m.visit("outcome.original_stage")?;
     if p.get("stage_instance_ref").is_some() {
@@ -2670,6 +2666,33 @@ pub(super) fn original_family_effect(
             ]),
         )
     }
+}
+
+/// The selector tuple retains both exact path edge identities in traversal
+/// order. Old direct recipes delegate to their unchanged one-edge encoding.
+pub(super) fn original_family_effect_path(
+    m: &mut CoreMeter,
+    scope: &[String; 2],
+    agreement: &Value,
+    root_slot: &str,
+    work_claim: &ExactRef,
+    family_slot: &Value,
+    links: (&ExactRef, Option<&ExactRef>),
+) -> Result<String> {
+    let Some(second) = links.1 else { return original_family_effect(m, scope, agreement, root_slot, work_claim, family_slot, links.0); };
+    let arena = m.representation_arena().ok_or_else(|| shape::fail("owning declared selector effect"))?;
+    let a = arena.string_value(&scope[0], m)?;
+    let b = arena.string_value(&scope[1], m)?;
+    let scope = arena.array_from_values(&[a.value(), b.value()], m)?;
+    let root = arena.string_value(root_slot, m)?;
+    let claim = arena.string_value(&work_claim.id, m)?;
+    let first = arena.string_value(&links.0.id, m)?;
+    let second = arena.string_value(&second.id, m)?;
+    let path = arena.array_from_values(&[first.value(), second.value()], m)?;
+    let family = arena.array_from_values(&[family_slot, path.value(), root.value()], m)?;
+    let original = arena.string_value("original", m)?;
+    let tuple = arena.array_from_values(&[scope.value(), agreement, root.value(), claim.value(), family.value(), original.value()], m)?;
+    body::semantic_id(m, "weffect_", "workflow-effect", tuple.value())
 }
 
 #[cfg(test)]

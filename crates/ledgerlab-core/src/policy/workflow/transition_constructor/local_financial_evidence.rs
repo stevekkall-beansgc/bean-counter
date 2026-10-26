@@ -18,7 +18,7 @@ use crate::{
 };
 use serde_json::Value;
 use std::mem;
-const REGISTRY: &str = "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
+
 
 /// Owned DATA retained by the local operation framer through the transaction.
 pub struct LocalFinancialRequestEvidence {
@@ -243,8 +243,9 @@ fn frame(
     request: &Value,
     payload: &Value,
     anchors: &Anchors,
-    descriptors: &Value,
+    descriptor_identity: (&Value, &str),
 ) -> Result<LocalFinancialRequestEvidence> {
+    let (descriptors, registry) = descriptor_identity;
     let locators = anchors.locators.array(m, a)?;
     let anchors = anchors.anchors.array(m, a)?;
     let kind = shape::field(m, request, "kind")?;
@@ -258,7 +259,7 @@ fn frame(
         &[tuple.bytes()],
     )?;
     let tag = string(m, a, "ledger-operation-descriptors/8")?;
-    let registry = string(m, a, REGISTRY)?;
+    let registry = string(m, a, registry)?;
     let profile = string(m, a, "ledger-operation-normalization/2")?;
     let fields = [
         ("anchors", anchors.value()),
@@ -711,7 +712,7 @@ pub fn produce_local_financial_request_evidence<'a>(
             request.value(),
             payload.value(),
             &anchors,
-            descriptors.value(),
+            (descriptors.value(), program.execution_registry().ok_or_else(|| shape::fail("local request registry"))?),
         )
     })();
     if result.is_err() {
@@ -767,7 +768,8 @@ fn selected_anchor(
             ("target", "original_target", 1, false)
         }
         ("workflow-work-claim", "ledger-workflow-work-claim/1")
-        | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/1") => {
+        | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/1")
+        | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/2") => {
             ("claim", "original_claim", 1, false)
         }
         ("workflow-cost", "ledger-workflow-app-cost-claim/1") => {
@@ -997,7 +999,7 @@ fn collect_subject_schema<'a>(
             needed_schema_refs(m, a, set, original)?;
             None
         }
-        "ledger-workflow-outcome-claim/1" => {
+        "ledger-workflow-outcome-claim/1" | "ledger-workflow-outcome-claim/2" => {
             needed_schema_refs(m, a, set, &body.value()["original_payload"])?;
             None
         }
@@ -1114,7 +1116,7 @@ mod tests {
             &request,
             &payload,
             &anchors,
-            &descriptors,
+            (&descriptors, "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"),
         )
         .unwrap();
         let actual = evidence.value();

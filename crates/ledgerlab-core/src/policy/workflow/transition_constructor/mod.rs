@@ -26,6 +26,7 @@ mod body;
 mod close;
 mod construct;
 mod correction;
+mod declared_links;
 mod cost;
 mod cost_postings;
 mod input_selection;
