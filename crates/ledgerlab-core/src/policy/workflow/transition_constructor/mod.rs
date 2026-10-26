@@ -2,6 +2,10 @@
 //! authenticated host capability or future-correction capacity certificate.
 mod fact_references;
 pub use fact_references::{select_fact_reference_inputs, FactReferenceInput, FactReferenceInputs};
+mod lifecycle_edges;
+pub use lifecycle_edges::{
+    select_lifecycle_input_edges, LifecycleInputEdges, LifecycleRecordIdentity,
+};
 mod input_edges;
 pub use input_edges::{
     select_local_input_edges, select_resolved_inputs9_edges, validate_local_record_reference,

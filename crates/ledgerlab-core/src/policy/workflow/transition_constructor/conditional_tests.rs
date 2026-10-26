@@ -1134,3 +1134,121 @@ fn lifecycle_failed_work_uses_real_status_zero_steps_and_no_promised_heads() {
         }
     }
 }
+
+#[test]
+fn lifecycle_input_edges_own_fixed_birth_and_named_revision_locators() {
+    use super::super::{body, select_lifecycle_input_edges, EconomicRecordView, OperationKey};
+    let (_arena, mut s) = session();
+    let support =
+        SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
+    let p = compile_selected_publication(policy_context_input(&support), &support, &mut s).unwrap();
+    // Compilation consumes its own original phase. Selection runs in a fresh
+    // parent original frame under the same owning arena, before its child.
+    let mut s = OriginalAuditSession::for_resource_profile_v2(&_arena).unwrap();
+    let mut producer = super::super::CoreMeter::new(65536).unwrap();
+    let key = OperationKey {
+        logical_store_id: "store".into(),
+        scope: ["company".into(), "scope".into()],
+        source: "urn:example:worker".into(),
+        operation_id: "fixed-identities".into(),
+    };
+    let claim = format!("wclaim_{}", "a".repeat(64));
+    let decision = format!("wdecision_{}", "b".repeat(64));
+    // Canonical framing DATA, not original receipt/member or relation proof.
+    let work = body::record(
+        &mut producer,
+        &key,
+        "workflow-work",
+        format!("wevent_{}", "c".repeat(64)),
+        json!({"schema":"ledger-workflow-work-record/1","claim_id":claim,"payload":{"facts":{}}}),
+    )
+    .unwrap();
+    let selected = select_lifecycle_input_edges(
+        &p,
+        &key,
+        EconomicRecordView {
+            reference: &work.reference,
+            canonical_body: &work.canonical_body,
+        },
+        &mut s,
+    )
+    .unwrap();
+    drop(work);
+    assert_eq!(selected.record_identities().len(), 1);
+    let birth = &selected.record_identities()[0];
+    assert_eq!(
+        (birth.kind(), birth.id(), birth.schemas(), birth.role()),
+        (
+            "workflow-work-claim",
+            claim.as_str(),
+            &["ledger-workflow-work-claim/1"][..],
+            "work_birth_claim"
+        )
+    );
+    for posting in ["original", "inverse"] {
+        let inverse_ref = json!({"kind":"workflow-action","id":format!("waction_{}","d".repeat(64)),"digest":format!("sha256:{}","e".repeat(64))});
+        let mut value = json!({"schema":"ledger-workflow-action/1","decision_id":decision,"revision":"2","posting_role":posting});
+        if posting == "inverse" {
+            value["inverse_of"] = inverse_ref.clone();
+        }
+        let action = body::record(
+            &mut producer,
+            &key,
+            "workflow-action",
+            format!("waction_{}", "f".repeat(64)),
+            value,
+        )
+        .unwrap();
+        let selected = select_lifecycle_input_edges(
+            &p,
+            &key,
+            EconomicRecordView {
+                reference: &action.reference,
+                canonical_body: &action.canonical_body,
+            },
+            &mut s,
+        )
+        .unwrap();
+        drop(action);
+        let expected = body::semantic_id(
+            &mut producer,
+            "wdrev_",
+            "workflow-decision-revision",
+            &json!([decision, "2"]),
+        )
+        .unwrap();
+        let revision = &selected.record_identities()[0];
+        assert_eq!(
+            (revision.kind(), revision.id(), revision.role()),
+            (
+                "workflow-decision",
+                expected.as_str(),
+                "action_named_decision_revision"
+            )
+        );
+        assert_eq!(revision.schemas().len(), 3);
+        let refs = selected.direct_refs().collect::<Vec<_>>();
+        assert_eq!(refs.len(), usize::from(posting == "inverse"));
+        if posting == "inverse" {
+            assert_eq!(serde_json::to_value(refs[0]).unwrap(), inverse_ref);
+        }
+    }
+    let invalid = body::record(
+        &mut producer,
+        &key,
+        "workflow-action",
+        format!("waction_{}", "f".repeat(64)),
+        json!({"schema":"ledger-workflow-action/1","decision_id":decision,"revision":"0"}),
+    )
+    .unwrap();
+    assert!(select_lifecycle_input_edges(
+        &p,
+        &key,
+        EconomicRecordView {
+            reference: &invalid.reference,
+            canonical_body: &invalid.canonical_body
+        },
+        &mut s
+    )
+    .is_err());
+}
