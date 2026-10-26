@@ -291,16 +291,17 @@ pub(in super::super) async fn observe(
                 }
             }
             pool.complete(tx, key, observed.before, session).await?;
-            if observed
-                .original
-                .publication
-                .program()
-                .uses_declared_work_link_recipe()
-            {
+            let program = observed.original.publication.program();
+            if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
                 let mut links = chain_links::acquire(
                     tx,
                     key,
                     chain_links::Selection {
+                        recipe: if program.uses_policy_semantics_recipe() {
+                            chain_links::ClaimRecipe::Policy
+                        } else {
+                            chain_links::ClaimRecipe::Declared
+                        },
                         binding: observed.original.acceptance.binding.reference(),
                         customer: check::text(payload, "customer", session)?,
                         chain: check::text(payload, "chain", session)?,

@@ -434,11 +434,8 @@ pub(in super::super::super) async fn observe(
     }
     drop(assertion_storage);
     pool.complete(tx, key, o.before, s).await?;
-    if o.original
-        .publication
-        .program()
-        .uses_declared_work_link_recipe()
-    {
+    let program = o.original.publication.program();
+    if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
         if let Some(head) = &state.financial.chain_head {
             let chain = s
                 .parse_representation(pool.body(head)?, RepresentationKind::Record)
@@ -447,6 +444,11 @@ pub(in super::super::super) async fn observe(
                 tx,
                 key,
                 super::chain_links::Selection {
+                    recipe: if program.uses_policy_semantics_recipe() {
+                        super::chain_links::ClaimRecipe::Policy
+                    } else {
+                        super::chain_links::ClaimRecipe::Declared
+                    },
                     binding: o.original.acceptance.binding.reference(),
                     customer: check::text(chain.value(), "customer", s)?,
                     chain: check::text(chain.value(), "chain", s)?,

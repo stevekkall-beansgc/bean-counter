@@ -255,7 +255,13 @@ async fn retain_work_claim(
     pool.add(claim.reference(), s)
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ClaimRecipe {
+    Declared,
+    Policy,
+}
 pub(super) struct Selection<'a> {
+    pub(super) recipe: ClaimRecipe,
     pub(super) binding: &'a ExactRef,
     pub(super) customer: &'a str,
     pub(super) chain: &'a str,
@@ -381,10 +387,25 @@ pub(super) async fn acquire(
             origin.require_member(child.value(), s)?;
             result_member(origin.wrappers().receipt(), link_ref.value(), s)?;
             result_member(origin.wrappers().receipt(), child.value(), s)?;
+            let evidence = check::field(origin.wrappers().operation(), "request_evidence", s)?;
+            let normalized = check::field(evidence, "normalized_request", s)?;
+            let normalized_payload = check::field(normalized, "payload", s)?;
             let child_kind = check::text(child.value(), "kind", s)?;
             let (schema, operation) = match child_kind {
                 "workflow-work" => ("ledger-workflow-work-record/1", "work.accept"),
-                "workflow-outcome-claim" => ("ledger-workflow-outcome-claim/2", "outcome.submit"),
+                "workflow-outcome-claim" => (
+                    match (
+                        selected.recipe,
+                        check::text(normalized_payload, "schema", s)?,
+                    ) {
+                        (ClaimRecipe::Policy, "ledger-workflow-outcome/1") => {
+                            "ledger-workflow-outcome-claim/1"
+                        }
+                        (_, "ledger-workflow-outcome/2") => "ledger-workflow-outcome-claim/2",
+                        _ => return Err(ServiceError::IntegrityFailure),
+                    },
+                    "outcome.submit",
+                ),
                 _ => return Err(ServiceError::IntegrityFailure),
             };
             let child_body = source::retained_local_record(
@@ -401,8 +422,6 @@ pub(super) async fn acquire(
                 operation,
                 s,
             )?;
-            let evidence = check::field(origin.wrappers().operation(), "request_evidence", s)?;
-            let normalized = check::field(evidence, "normalized_request", s)?;
             equal(
                 check::field(normalized, "key", s)?,
                 check::field(link.body(), "operation_key", s)?,
@@ -468,6 +487,35 @@ pub(super) async fn acquire(
                     }
                 }
                 require(matches == 1, "INTEGRITY_FAILURE")?;
+            } else if schema == "ledger-workflow-outcome-claim/1" {
+                let target = source::retained_local_record(
+                    tx,
+                    key,
+                    check::field(child_payload, "target_ref", s)?,
+                    ("workflow-target", "ledger-workflow-component-target/1"),
+                    selected.before,
+                    s,
+                )
+                .await?;
+                prefix::verify_selected_association(
+                    tx,
+                    key,
+                    target.reference(),
+                    selected.before,
+                    s,
+                )
+                .await?;
+                equal(
+                    check::field(target.body(), "work_ref", s)?,
+                    check::field(link.body(), "predecessor", s)?,
+                    s,
+                )?;
+                equal(
+                    check::field(target.body(), "binding_ref", s)?,
+                    binding.value(),
+                    s,
+                )?;
+                pool.add(target.reference(), s)?;
             } else {
                 equal(
                     check::field(child_payload, "selector_start_work_ref", s)?,

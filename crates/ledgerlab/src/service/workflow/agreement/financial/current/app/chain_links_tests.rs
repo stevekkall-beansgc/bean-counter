@@ -61,6 +61,7 @@ async fn first_nonempty_declared_chain_uses_economic_record_provenance() {
                 tx,
                 &key,
                 Selection {
+                    recipe: ClaimRecipe::Declared,
                     binding: &binding,
                     customer: request["payload"]["customer"].as_str().unwrap(),
                     chain: request["payload"]["chain"].as_str().unwrap(),
