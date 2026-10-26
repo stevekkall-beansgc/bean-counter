@@ -22,6 +22,8 @@ mod policy_context_assets;
 mod work_lifecycle_assets;
 #[path = "local_shared_namespace_assets.rs"]
 mod shared_namespace_assets;
+#[path = "local_stage_lifecycle_assets.rs"]
+mod stage_lifecycle_assets;
 #[path = "local_operator_assets.rs"]
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
@@ -41,6 +43,9 @@ const DECLARED_LINK_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/c
 pub(super) const LOCAL_WORK_LIFECYCLE_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const LOCAL_WORK_LIFECYCLE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-work-lifecycle-compiler8-data.json");
 const LOCAL_WORK_LIFECYCLE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-work-lifecycle-contract-profile.json");
+pub(super) const LOCAL_STAGE_LIFECYCLE_REGISTRY: &str = "sha256:8a00745406ad38d69b6683aa3b73c9ec0561d93741eb5c2d1294f74538399398";
+pub(super) const LOCAL_STAGE_LIFECYCLE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-compiler8-data.json");
+const LOCAL_STAGE_LIFECYCLE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-contract-profile.json");
 pub(super) const LOCAL_SHARED_NAMESPACE_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const LOCAL_SHARED_NAMESPACE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-compiler8-data.json");
 const LOCAL_SHARED_NAMESPACE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-contract-profile.json");
@@ -125,6 +130,12 @@ pub fn local_shared_namespace_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
     compiler_descriptor(s, LOCAL_SHARED_NAMESPACE_DESCRIPTOR, LOCAL_SHARED_NAMESPACE_MANIFEST, shared_namespace_assets::ARTIFACTS)
+}
+/// Exact fixed-stage lifecycle support DATA; selected consumers supply authority.
+pub fn local_stage_lifecycle_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(s, LOCAL_STAGE_LIFECYCLE_DESCRIPTOR, LOCAL_STAGE_LIFECYCLE_MANIFEST, stage_lifecycle_assets::ARTIFACTS)
 }
 #[cfg(test)]
 pub(super) fn legacy_descriptor_for_test(s: &mut OriginalAuditSession) -> Result<SelectedDocument> {
