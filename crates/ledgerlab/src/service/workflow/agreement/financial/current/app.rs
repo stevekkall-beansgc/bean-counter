@@ -7,6 +7,9 @@ mod nonwork;
 mod work_capture;
 mod work_heads;
 use ledgerlab_core::validation_work::ValidationVisit;
+use ledgerlab_core::policy::workflow::transition_constructor::{
+    select_fact_reference_inputs, FactReferenceInputs,
+};
 
 pub(in super::super) struct ObservedAppBinding {
     pub(in super::super) original: prefix::LocatedAppAcceptance,
@@ -41,6 +44,8 @@ pub(in super::super) struct ObservedAppBinding {
     // Ref/vector owners follow the work_state that holds their moved Refs.
     _chain_storage: Option<chain_links::ChainLinks>,
     _relation_head: Option<work_heads::RelationDecision>,
+    // Retain the paid typed-field selection separately from copied pool Refs.
+    _fact_reference_inputs: Option<FactReferenceInputs>,
 }
 /// Newly emitted management DATA; neither row establishes admission.
 pub(in super::super) struct ActivationAdmissionRecords {
@@ -248,6 +253,30 @@ pub(in super::super) async fn observe(
                 pool.add(active.activation.reference(), session)?;
             }
             pool.payload_refs(payload, session)?;
+            if observed
+                .original
+                .publication
+                .program()
+                .uses_work_lifecycle_recipe()
+            {
+                observed._fact_reference_inputs = Some(
+                    select_fact_reference_inputs(
+                        observed.original.publication.program(),
+                        check::field(payload, "fact_schema_ref", session)?,
+                        check::field(payload, "facts", session)?,
+                        session,
+                    )
+                    .map_err(core_error)?,
+                );
+                for input in observed
+                    ._fact_reference_inputs
+                    .as_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .entries()
+                {
+                    pool.add(input.reference(), session)?;
+                }
+            }
             let proofs = check::field(payload, "fact_proofs", session)?
                 .as_array()
                 .ok_or(ServiceError::IntegrityFailure)?;
@@ -705,6 +734,7 @@ async fn observe_binding(
             _verification_storage: None,
             _chain_storage: None,
             _relation_head: None,
+            _fact_reference_inputs: None,
         })
     }
     .await;
