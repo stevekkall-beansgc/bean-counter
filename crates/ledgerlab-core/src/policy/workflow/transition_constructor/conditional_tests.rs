@@ -798,3 +798,90 @@ fn policy_decimal_slot_bounds_and_current_quantities_use_original_numeric_schema
     )
     .is_err());
 }
+
+#[test]
+fn policy_causal_declarations_do_not_substitute_a_current_operation_role() {
+    let (_arena, mut s) = session();
+    let support =
+        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s).unwrap();
+    let program =
+        compile_selected_publication(policy_context_input(&support), &support, &mut s).unwrap();
+    let binding = json!({"source_slots":[{"name":"support:assessor"}]});
+    let catalog = json!({"families":[{"slot_id":"support:quality","target_component_slot":"support:service"}]});
+    let terms = json!({"schema":"ledger-workflow-slot-binding-terms/7","causal_reversal_clauses":[{"root_component_slot":"support:service","family_slot":"support:quality","correction_source_slot":"support:assessor","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}]});
+    let grant = json!({"customer_scope":["customer-B"],"operations":["evidence.retain"],"permissions":["read","submit"],"source_slots":["support:meter"],"activity_selectors":[{"names":["support:complete"]}],"product_selectors":[{"names":["support:product"]}]});
+    super::super::inventory::slots::validate_selected_causal_clauses(
+        s.meter_mut(),
+        &program,
+        &binding,
+        &catalog,
+        &terms,
+        &grant,
+    )
+    .unwrap();
+    // Declaration projection supplies neither current retention permission nor
+    // causal correction rights. Actual selected grant coverage remains closed.
+    super::super::authority::grant_coverage(
+        s.meter_mut(),
+        &grant,
+        &json!("customer-B"),
+        "support:complete",
+        "support:product",
+        "support:meter",
+        ("evidence.retain", &["read", "submit"]),
+    )
+    .unwrap();
+    assert!(super::super::authority::grant_coverage(
+        s.meter_mut(),
+        &grant,
+        &json!("customer-B"),
+        "support:complete",
+        "support:product",
+        "support:assessor",
+        ("quantity.correct", &["correct", "read"])
+    )
+    .is_err());
+    assert!(super::super::authority::grant_coverage(
+        s.meter_mut(),
+        &grant,
+        &json!("customer-B"),
+        "support:complete",
+        "support:product",
+        "support:assessor",
+        ("evidence.retain", &["read", "submit"]),
+    )
+    .is_err());
+    let mut no_retention = grant.clone();
+    no_retention["operations"] = json!([]);
+    assert!(super::super::authority::grant_coverage(
+        s.meter_mut(),
+        &no_retention,
+        &json!("customer-B"),
+        "support:complete",
+        "support:product",
+        "support:meter",
+        ("evidence.retain", &["read", "submit"]),
+    )
+    .is_err());
+    for (part, value) in [
+        ("root_component_slot", "support:other"),
+        ("family_slot", "support:other"),
+        ("correction_source_slot", "support:other"),
+        ("mode", "waive"),
+    ] {
+        let mut bad = terms.clone();
+        bad["causal_reversal_clauses"][0][part] = json!(value);
+        assert!(
+            super::super::inventory::slots::validate_selected_causal_clauses(
+                s.meter_mut(),
+                &program,
+                &binding,
+                &catalog,
+                &bad,
+                &grant
+            )
+            .is_err(),
+            "{part}"
+        );
+    }
+}

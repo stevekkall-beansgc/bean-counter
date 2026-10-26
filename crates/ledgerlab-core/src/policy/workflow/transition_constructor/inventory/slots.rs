@@ -495,8 +495,25 @@ fn validate_data(
         }
     }
     match current_grant {
-        Some(grant) => validate_causal_clauses(m, b, catalog, t, grant),
+        Some(grant) => validate_selected_causal_clauses(m, program, b, catalog, t, grant),
         None => validate_causal_projection(m, b, catalog, t, None),
+    }
+}
+pub(in crate::policy::workflow::transition_constructor) fn validate_selected_causal_clauses(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    b: &Value,
+    catalog: &Value,
+    t: &Value,
+    current_grant: &Value,
+) -> Result<()> {
+    if program.uses_policy_semantics_recipe() {
+        // Accepted clauses describe ORIGINAL future authority, not the role
+        // of the current operation. Every actual current operation/dependent
+        // still resolves its selected slot and rights in source_authority.
+        validate_causal_projection(m, b, catalog, t, None)
+    } else {
+        validate_causal_clauses(m, b, catalog, t, current_grant)
     }
 }
 fn validate_causal_clauses(
