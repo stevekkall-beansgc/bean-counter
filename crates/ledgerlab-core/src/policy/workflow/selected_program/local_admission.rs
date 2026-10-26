@@ -58,7 +58,7 @@ pub(super) fn check(
     schemas: &[(DefinitionRef, FactSchema)],
     declared_link: bool,
 ) -> Result<()> {
-    check_inner(m, p, docs, schemas, (declared_link, false))
+    check_inner(m, p, docs, schemas, (declared_link, false, false))
 }
 pub(super) fn check_policy(
     m: &mut CoreMeter,
@@ -67,28 +67,39 @@ pub(super) fn check_policy(
     schemas: &[(DefinitionRef, FactSchema)],
     declared_link: bool,
 ) -> Result<()> {
-    check_inner(m, p, docs, schemas, (declared_link, true))
+    check_inner(m, p, docs, schemas, (declared_link, true, false))
+}
+pub(super) fn check_lifecycle(
+    m: &mut CoreMeter,
+    p: &Policy,
+    docs: &[SelectedDocument],
+    schemas: &[(DefinitionRef, FactSchema)],
+    declared_link: bool,
+) -> Result<()> {
+    check_inner(m, p, docs, schemas, (declared_link, true, true))
 }
 fn check_inner(
     m: &mut CoreMeter,
     p: &Policy,
     docs: &[SelectedDocument],
     schemas: &[(DefinitionRef, FactSchema)],
-    recipe: (bool, bool),
+    recipe: (bool, bool, bool),
 ) -> Result<()> {
-    let (declared_link, full_policy) = recipe;
+    let (declared_link, full_policy, lifecycle) = recipe;
     count(
         m,
         p.binding_slots.len(),
         1,
         "supported local recipe requires one retail binding",
     )?;
-    count(
-        m,
-        p.rules.len(),
-        2,
-        "supported local recipe requires service and app cost",
-    )?;
+    if !lifecycle {
+        count(
+            m,
+            p.rules.len(),
+            2,
+            "supported local recipe requires service and app cost",
+        )?;
+    }
     count(
         m,
         p.families.len(),
@@ -118,8 +129,18 @@ fn check_inner(
             // Unit field/unit/rate typing is the existing compiler's work.
             // This gate retains the same app and direct-family obligations.
             Formula::Fixed { .. } | Formula::Unit { .. } => {
-                require!(m, base.is_none(), "supported local service producer")?;
-                base = Some(rule);
+                let selected = if lifecycle {
+                    let family = &p.families[0];
+                    same_literal(m, &rule.activity, &family.selector.target_activity)?
+                        && same_literal(m, &rule.component_key, &family.selector.component_key)?
+                        && same_literal(m, &rule.binding_slot, &family.selector.binding_slot)?
+                } else {
+                    true
+                };
+                if selected {
+                    require!(m, base.is_none(), "supported local service producer")?;
+                    base = Some(rule);
+                }
             }
             Formula::AppFinalCost { .. } => {
                 require!(m, app.is_none(), "supported local app producer")?;
@@ -182,12 +203,14 @@ fn check_inner(
     }
     let product = product.ok_or_else(|| unsupported("supported local product missing"))?;
     let activities = shape::array(m, product, "activities")?;
-    count(
-        m,
-        activities.len(),
-        if declared_link { 3 } else { 2 },
-        "supported local recipe requires work and outcome activities",
-    )?;
+    if !lifecycle {
+        count(
+            m,
+            activities.len(),
+            if declared_link { 3 } else { 2 },
+            "supported local recipe requires work and outcome activities",
+        )?;
+    }
     let links = shape::array(m, product, "links")?;
     let report = if declared_link {
         let first = shape::named(m, links, "name", &family.selector.path[0])?;
@@ -286,6 +309,34 @@ fn check_inner(
                 0,
                 "unpriced report has no quantity or facts",
             )?;
+        } else if lifecycle {
+            require!(
+                m,
+                same_literal(m, primitive, "work")?,
+                "additional priced Work activity"
+            )?;
+            let mut producer = false;
+            for rule in &p.rules {
+                m.visit("local.additional_work_rule")?;
+                if same_literal(m, &rule.activity, name)?
+                    && matches!(rule.formula, Formula::Fixed { .. } | Formula::Unit { .. })
+                {
+                    producer = true;
+                }
+            }
+            require!(
+                m,
+                producer,
+                "additional Work requires declared ordinary producer"
+            )?;
+            for field in fields {
+                require!(
+                    m,
+                    field_is(m, &field["provenance"], "kind", "caller")?
+                        || field_is(m, &field["provenance"], "kind", "attested")?,
+                    "additional Work field provenance"
+                )?;
+            }
         } else {
             return Err(unsupported("unsupported local product activity"));
         }

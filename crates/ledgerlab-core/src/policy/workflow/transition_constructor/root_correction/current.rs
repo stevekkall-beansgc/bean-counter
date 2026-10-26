@@ -130,6 +130,16 @@ pub(super) fn verify(
     let normalized =
         super::super::working_value::NormalizedInput::normalize(m, schema, &old_eval["facts"])?;
     equal(m, normalized.canonical_value(), &old_eval["facts"])?;
+    let prior_at = text(m, &prior, "accepted_at")?;
+    super::super::fact_relations::facts(
+        m,
+        r,
+        &c.key,
+        program,
+        &plan.payload,
+        &old_eval["facts"],
+        prior_at,
+    )?;
     let activity = text(m, &plan.payload, "activity")?;
     let instructions = shape::array(
         m,

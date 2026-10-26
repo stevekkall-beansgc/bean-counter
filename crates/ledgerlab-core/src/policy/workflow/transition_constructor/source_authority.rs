@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{canonical::audit_arena::ExternalBufferLease, validation_work as w, Error, Result};
 use serde_json::{json, Value};
+#[derive(Clone, Copy)]
 pub(super) struct OriginalSourceSubject<'a> {
     pub binding_ref: &'a ExactRef,
     pub binding: &'a Value,
@@ -16,6 +17,7 @@ pub(super) struct OriginalSourceSubject<'a> {
     pub payload: &'a Value,
 }
 pub(super) struct SourceSelection {
+    pub frame_index: usize,
     pub _enrollment: RecordBody,
     pub registered: RecordBody,
     pub source_slot: String,
@@ -73,7 +75,7 @@ pub(super) fn source(
         program,
         selected,
         source_slot,
-        (mode, !program.uses_local_execution_recipe()),
+        (mode, !program.uses_local_execution_recipe(), None),
     )
 }
 
@@ -84,9 +86,9 @@ pub(super) fn source_data(
     program: &SelectedProgram,
     selected: OriginalSourceSubject<'_>,
     source_slot: &str,
-    selected_operands: (EconomicMode, bool),
+    selected_operands: (EconomicMode, bool, Option<&Value>),
 ) -> Result<SourceSelection> {
-    let (mode, audit_observation) = selected_operands;
+    let (mode, audit_observation, dependent) = selected_operands;
     if audit_observation {
         inventory::entry::context(m, c)?;
     } else {
@@ -97,7 +99,26 @@ pub(super) fn source_data(
         .ok_or_else(|| shape::fail("owning supplier authority"))?;
     let size = w::usize_add(m, std::mem::size_of::<SourceSelection>(), 16384)?;
     let ownership = arena.reserve_external_payload(size, m)?;
-    let a = &c.authorities[0];
+    let frame_index = match dependent {
+        Some(evidence) if program.uses_work_lifecycle_recipe() => {
+            select_dependent(m, r, c, program, (selected, source_slot, mode, evidence))?
+        }
+        _ => 0,
+    };
+    let a = &c.authorities[frame_index];
+    if dependent.is_some() && program.uses_work_lifecycle_recipe() {
+        let primary = &c.authorities[0];
+        if !shape::same_ref(
+            m,
+            &a.accepted_agreement_ref,
+            &primary.accepted_agreement_ref,
+        )? || !shape::same_ref(m, &a.activation_ref, &primary.activation_ref)?
+        {
+            return Err(shape::fail(
+                "dependent original acceptance/activation association",
+            ));
+        }
+    }
     if !shape::same_ref(m, &a.binding_ref, selected.binding_ref)?
         || (!program.uses_app_owned_cost_recipe()
             && !shape::same_text(m, &a.source_slot, source_slot)?)
@@ -258,7 +279,7 @@ pub(super) fn source_data(
     let product = product.ok_or_else(|| shape::fail("supplier original product"))?;
     let product_id = shape::text(m, product, "product_id")?;
     let activity = shape::text(m, selected.payload, "activity")?;
-    r.source_grant(
+    r.source_grant_identity(
         m,
         &token,
         &a.current_grant_ref,
@@ -273,12 +294,20 @@ pub(super) fn source_data(
             source_slot,
             &at.into(),
         ),
-        mode,
+        (
+            mode,
+            dependent.is_some() && program.uses_work_lifecycle_recipe(),
+        ),
     )?;
     let nominations = shape::array(m, selected.binding, "source_slots")?;
     let nomination = shape::named(m, nominations, "name", source_slot)?;
     let sources = shape::array(m, nomination, "sources")?;
-    if !shape::member(m, sources, &json!(c.key.source))? {
+    let nominated = if dependent.is_some() && program.uses_work_lifecycle_recipe() {
+        shape::member(m, sources, &current["source"])?
+    } else {
+        shape::member(m, sources, &json!(c.key.source))?
+    };
+    if !nominated {
         return Err(shape::fail("supplier source absent original nomination"));
     }
     let terms_grants = shape::array(m, selected.terms, "source_grant_refs")?;
@@ -300,11 +329,16 @@ pub(super) fn source_data(
         if !shape::member(m, binding_grants, value)? {
             return Err(shape::fail("supplier grant absent original Binding"));
         }
+        let selected_source = if dependent.is_some() && program.uses_work_lifecycle_recipe() {
+            shape::text(m, &current, "source")?
+        } else {
+            &c.key.source
+        };
         let matches = if m.representation_arena().is_some() {
             super::input_selection::source_grant_matches(
                 m,
                 &grant,
-                &c.key.source,
+                selected_source,
                 &c.actor,
                 &a.enrollment_ref,
             )?
@@ -317,7 +351,7 @@ pub(super) fn source_data(
         if !matches {
             continue;
         }
-        r.source_grant(
+        r.source_grant_identity(
             m,
             &token,
             &reference,
@@ -332,7 +366,10 @@ pub(super) fn source_data(
                 source_slot,
                 &at.into(),
             ),
-            mode,
+            (
+                mode,
+                dependent.is_some() && program.uses_work_lifecycle_recipe(),
+            ),
         )?;
         original_refs.push(reference);
     }
@@ -348,6 +385,7 @@ pub(super) fn source_data(
         m.scan_bytes(source_slot.len())?;
         m.write_bytes(source_slot.len())?;
         return Ok(SourceSelection {
+            frame_index,
             _enrollment: enrollment,
             registered,
             source_slot: source_slot.to_owned(),
@@ -421,6 +459,7 @@ pub(super) fn source_data(
     m.write_bytes(source_slot.len())?;
     let source_slot = source_slot.to_owned();
     Ok(SourceSelection {
+        frame_index,
         _enrollment: enrollment,
         registered,
         source_slot,
@@ -432,4 +471,442 @@ pub(super) fn source_data(
         _root: Some(root),
         _ownership: ownership,
     })
+}
+
+/// A causal dependent keeps the actual initiating key/actor. Only the selected
+/// nominated role's grant/enrollment/namespace changes, through the same full
+/// source interpreter after bounded DATA selection.
+pub(super) fn dependent(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: OriginalSourceSubject<'_>,
+    purpose: (&str, EconomicMode, &Value),
+) -> Result<SourceSelection> {
+    let (slot, mode, evidence) = purpose;
+    source_data(
+        m,
+        r,
+        c,
+        program,
+        selected,
+        slot,
+        (mode, !program.uses_local_execution_recipe(), Some(evidence)),
+    )
+}
+fn select_dependent(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: (OriginalSourceSubject<'_>, &str, EconomicMode, &Value),
+) -> Result<usize> {
+    let (subject, slot, mode, evidence) = selected;
+    let at = crate::domain::Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
+    let hints = evidence
+        .as_array()
+        .ok_or_else(|| shape::fail("dependent evidence array"))?;
+    let mut selected = None;
+    let mut hinted = None;
+    let mut count = 0usize;
+    let nominations = shape::array(m, subject.binding, "source_slots")?;
+    let nomination = shape::named(m, nominations, "name", slot)?;
+    let sources = shape::array(m, nomination, "sources")?;
+    let mut product = None;
+    for doc in program.source_documents() {
+        let reference = super::working_value::owning_definition(
+            m,
+            &m.representation_arena()
+                .ok_or_else(|| shape::fail("dependent source product owner"))?,
+            doc.reference(),
+        )?;
+        if shape::same(m, reference.value(), &subject.payload["product_ref"])? {
+            product = Some(doc.canonical_value());
+        }
+    }
+    let product = product.ok_or_else(|| shape::fail("dependent original Product"))?;
+    let product_name = shape::text(m, product, "product_id")?;
+    let activity = shape::text(m, subject.payload, "activity")?;
+    for (i, frame) in c.authorities.iter().enumerate() {
+        m.visit("source.dependent_candidate")?;
+        if !shape::same_text(m, &frame.source_slot, slot)?
+            || !shape::same_ref(m, &frame.binding_ref, subject.binding_ref)?
+        {
+            continue;
+        }
+        let current = r.get(
+            m,
+            &c.key,
+            &frame.current_grant_ref,
+            "workflow-source-grant",
+            "ledger-workflow-source-grant/1",
+        )?;
+        let enrollment = r.get(
+            m,
+            &c.key,
+            &frame.enrollment_ref,
+            "workflow-source-enrollment",
+            "ledger-workflow-source-enrollment/1",
+        )?;
+        let state = r.get(
+            m,
+            &c.key,
+            &frame.current_state_ref,
+            "workflow-source-state",
+            "ledger-workflow-source-state/1",
+        )?;
+        let status = shape::text(m, &state, "status")?;
+        if !shape::same_text(m, status, "active")? {
+            continue;
+        }
+        let principal = shape::text(m, &current, "principal_id")?;
+        if !shape::same_text(m, principal, &c.actor)?
+            || !shape::member(m, sources, &current["source"])?
+        {
+            continue;
+        }
+        let ceiling = shape::field(m, &enrollment, "ceiling")?;
+        super::authority::grant_selected_identity(m, &current, ceiling, c)?;
+        if !super::authority::grant_covers(
+            m,
+            &current,
+            (
+                &subject.binding["customer"],
+                activity,
+                product_name,
+                slot,
+                (mode.operation(), mode.rights()),
+                at,
+            ),
+        )? || !super::authority::grant_covers(
+            m,
+            ceiling,
+            (
+                &subject.binding["customer"],
+                activity,
+                product_name,
+                slot,
+                (mode.operation(), mode.rights()),
+                at,
+            ),
+        )? {
+            continue;
+        }
+        let mut originals = 0usize;
+        let mut original_eligible = true;
+        let mut hint = false;
+        let accepted = shape::array(m, subject.binding, "authority_refs")?;
+        for reference in &frame.original_grant_refs {
+            let value = super::working_value::owning_reference(
+                m,
+                &m.representation_arena()
+                    .ok_or_else(|| shape::fail("dependent original Ref owner"))?,
+                reference,
+            )?;
+            if !shape::member(m, accepted, value.value())? {
+                return Err(shape::fail("dependent original grant not accepted"));
+            }
+            let grant = r.get(
+                m,
+                &c.key,
+                reference,
+                "workflow-source-grant",
+                "ledger-workflow-source-grant/1",
+            )?;
+            eq(m, &grant["source"], &current["source"])?;
+            super::authority::grant_selected_identity(m, &grant, ceiling, c)?;
+            original_eligible &= super::authority::grant_covers(
+                m,
+                &grant,
+                (
+                    &subject.binding["customer"],
+                    activity,
+                    product_name,
+                    slot,
+                    (mode.operation(), mode.rights()),
+                    at,
+                ),
+            )?;
+            originals = w::usize_add(m, originals, 1)?;
+            if shape::member(m, hints, value.value())? {
+                hint = true;
+            }
+        }
+        if !original_eligible || !w::compare(m, originals, 0usize)?.is_gt() {
+            continue;
+        }
+        let current_ref = super::working_value::owning_reference(
+            m,
+            &m.representation_arena()
+                .ok_or_else(|| shape::fail("dependent current Ref owner"))?,
+            &frame.current_grant_ref,
+        )?;
+        if shape::member(m, hints, current_ref.value())? {
+            hint = true;
+        }
+        count = w::usize_add(m, count, 1)?;
+        selected = Some(i);
+        if hint && hinted.replace(i).is_some() {
+            return Err(Error::new(
+                "AUTHORITY_REQUIRED",
+                "ambiguous explicit dependent source grants",
+            ));
+        }
+    }
+    if let Some(i) = hinted {
+        return Ok(i);
+    }
+    if w::compare(m, count, 1usize)?.is_eq() {
+        return selected.ok_or_else(|| shape::fail("dependent source selection"));
+    }
+    Err(Error::new(
+        "AUTHORITY_REQUIRED",
+        "unique current/original dependent source required",
+    ))
+}
+
+#[cfg(test)]
+mod role_tests {
+    use super::*;
+    use crate::{
+        canonical::audit_arena::AuditArena,
+        validation_work::{OriginalAuditSession, ResourceLimits},
+    };
+    #[test]
+    fn lifecycle_dependent_selection_keeps_actual_root_and_uses_exact_original_current_role() {
+        let a = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let program = super::super::lifecycle_consumer_tests::program(&a);
+        let business: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-work-lifecycle/business.json"
+        ))
+        .unwrap();
+        let mut producer = CoreMeter::for_compile(1_048_576).unwrap();
+        let mut rows = Vec::new();
+        let mut frames = Vec::new();
+        let binding_ref = ExactRef {
+            kind: "workflow-binding".into(),
+            id: format!("wdoc_{}", "a".repeat(64)),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        };
+        for (name, slot) in [
+            ("corrector", "support:corrector"),
+            ("dependent", "support:cost-source"),
+            ("source", "support:admin"),
+        ] {
+            let ceiling = &business[format!("{name}_ceiling")];
+            let enrollment = body::document(
+                &mut producer,
+                "workflow-source-enrollment",
+                json!({"schema":"ledger-workflow-source-enrollment/1","ceiling":ceiling}),
+            )
+            .unwrap();
+            let mut grant = ceiling.clone();
+            grant["schema"] = json!("ledger-workflow-source-grant/1");
+            grant["original_ceiling_ref"] = json!(enrollment.reference);
+            grant["grant_id"] = json!(format!("{name}-enrollment"));
+            grant["revision"] = json!("1");
+            let grant = body::document(&mut producer, "workflow-source-grant", grant).unwrap();
+            let state_key = OperationKey {
+                logical_store_id: "store".into(),
+                scope: ["example-company".into(), "local".into()],
+                source: "urn:example:work".into(),
+                operation_id: format!("enroll-{name}"),
+            };
+            let state_id = body::semantic_id(
+                &mut producer,
+                "wsource_",
+                "workflow-source-state",
+                &json!([
+                    state_key.logical_store_id,
+                    state_key.scope,
+                    format!("{name}-enrollment"),
+                    "1"
+                ]),
+            )
+            .unwrap();
+            let state=body::record(&mut producer,&state_key,"workflow-source-state",state_id,json!({"schema":"ledger-workflow-source-state/1","status":"active","enrollment_ref":enrollment.reference,"revision":"1","current_grant_ref":grant.reference,"operation_key":state_key,"actor":"example-operator","accepted_at":"2026-10-26T00:00:00.000000Z"})).unwrap();
+            frames.push(AuthorityContextData {
+                source_slot: slot.into(),
+                enrollment_ref: enrollment.reference.clone(),
+                current_state_ref: state.reference.clone(),
+                current_grant_ref: grant.reference.clone(),
+                original_grant_refs: vec![grant.reference.clone()],
+                binding_ref: binding_ref.clone(),
+                accepted_agreement_ref: binding_ref.clone(),
+                activation_ref: binding_ref.clone(),
+                authority_observation_ref: None,
+            });
+            if name == "source" {
+                frames.pop();
+            }
+            rows.extend([enrollment, grant, state]);
+        }
+        let key = OperationKey {
+            logical_store_id: "store".into(),
+            scope: ["example-company".into(), "local".into()],
+            source: business["corrector_source"].as_str().unwrap().into(),
+            operation_id: "root-reverse".into(),
+        };
+        let c = DraftContextData {
+            key: key.clone(),
+            actor: "example-operator".into(),
+            canonical_economic_namespace: key.source.clone(),
+            installation_mode: "isolated_synthetic".into(),
+            received_at: "2026-10-26T00:00:00.000000Z".into(),
+            accepted_at: "2026-10-26T00:00:00.000000Z".into(),
+            authorities: frames,
+            source_observation_inputs: vec![],
+        };
+        let binding = json!({"customer":"customer-B","authority_refs":[rows[1].reference,rows[4].reference,rows[7].reference],"source_slots":[{"name":"support:corrector","sources":[business["corrector_source"]]},{"name":"support:cost-source","sources":[business["dependent_source"]]}]});
+        let payload = json!({"product_ref":program.product_ref(),"activity":"support:complete"});
+        let terms = json!({});
+        let evidence = json!([rows[1].reference, rows[4].reference]);
+        let views: Vec<_> = rows
+            .iter()
+            .map(|r| EconomicRecordView {
+                reference: &r.reference,
+                canonical_body: &r.canonical_body,
+            })
+            .collect();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let arena = s.arena().shared_handle();
+        let m = s.meter_mut();
+        let mut r = Records::borrowed_parent_app(m, &arena, &key, &views).unwrap();
+        let subject = OriginalSourceSubject {
+            binding_ref: &binding_ref,
+            binding: &binding,
+            terms: &terms,
+            payload: &payload,
+        };
+        let selected = select_dependent(
+            m,
+            &mut r,
+            &c,
+            &program,
+            (
+                subject,
+                "support:cost-source",
+                EconomicMode::CostCorrect,
+                &evidence,
+            ),
+        )
+        .unwrap();
+        assert_eq!(selected, 1);
+        assert_eq!(c.key, key);
+        assert_eq!(c.canonical_economic_namespace, key.source);
+        let g = r
+            .get(
+                m,
+                &key,
+                &rows[4].reference,
+                "workflow-source-grant",
+                "ledger-workflow-source-grant/1",
+            )
+            .unwrap();
+        let enrollment = r
+            .get(
+                m,
+                &key,
+                &rows[3].reference,
+                "workflow-source-enrollment",
+                "ledger-workflow-source-enrollment/1",
+            )
+            .unwrap();
+        // This SAME per-use check admits explicit dependent identity and refuses
+        // treating its grant as the initiating C grant. It grants no origin.
+        super::super::authority::grant_selected_identity(m, &g, &enrollment["ceiling"], &c)
+            .unwrap();
+        assert!(
+            super::super::authority::grant_identity(m, &g, &enrollment["ceiling"], &c).is_err()
+        );
+        assert!(select_dependent(
+            m,
+            &mut r,
+            &c,
+            &program,
+            (
+                subject,
+                "support:cost-source",
+                EconomicMode::Work,
+                &evidence
+            )
+        )
+        .is_err());
+        drop(r);
+        let values: Vec<Value> = rows
+            .iter()
+            .map(|row| serde_json::from_slice(&row.canonical_body).unwrap())
+            .collect();
+        let originals: Vec<_> = [1usize, 4, 7]
+            .iter()
+            .map(|i| {
+                vec![super::super::source_projection::NominatedSourceGrant {
+                    reference: &rows[*i].reference,
+                    body: &values[*i],
+                }]
+            })
+            .collect();
+        let accepted_frames: Vec<_> = [0usize, 3, 6]
+            .iter()
+            .enumerate()
+            .map(
+                |(i, n)| super::super::source_projection::NominatedSourceFrame {
+                    enrollment_ref: &rows[*n].reference,
+                    enrollment: &values[*n],
+                    current_state_ref: &rows[*n + 2].reference,
+                    current_state: &values[*n + 2],
+                    current_grant_ref: &rows[*n + 1].reference,
+                    current_grant: &values[*n + 1],
+                    original_grants: &originals[i],
+                },
+            )
+            .collect();
+        let mut shape_session = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        super::super::source_projection::validate_app_local_source_shape(
+            &program,
+            &binding,
+            &accepted_frames,
+            &mut shape_session,
+        )
+        .unwrap();
+        let mut r = Records::borrowed_parent_app(m, &arena, &key, &views).unwrap();
+        let mut no_current = c.clone();
+        no_current.authorities.pop();
+        assert_eq!(
+            select_dependent(
+                m,
+                &mut r,
+                &no_current,
+                &program,
+                (
+                    subject,
+                    "support:cost-source",
+                    EconomicMode::CostCorrect,
+                    &evidence
+                )
+            )
+            .unwrap_err()
+            .code,
+            "AUTHORITY_REQUIRED"
+        );
+        let mut no_original_binding = binding.clone();
+        no_original_binding["authority_refs"] = json!([rows[1].reference]);
+        assert!(select_dependent(
+            m,
+            &mut r,
+            &c,
+            &program,
+            (
+                OriginalSourceSubject {
+                    binding: &no_original_binding,
+                    ..subject
+                },
+                "support:cost-source",
+                EconomicMode::CostCorrect,
+                &evidence
+            )
+        )
+        .is_err());
+    }
 }

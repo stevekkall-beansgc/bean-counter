@@ -58,11 +58,21 @@ pub(super) fn value(
         m.parse_owned_representation(&arena, rights, RepresentationKind::SourceDefinition)?;
     let operation = arena.string_value(operation, m)?;
     let actor = arena.string_value(&c.actor, m)?;
-    let source = arena.string_value(&c.key.source, m)?;
-    let namespace = arena.string_value(&c.canonical_economic_namespace, m)?;
+    let source_value = if program.uses_work_lifecycle_recipe() {
+        shape::text(m, &source_selection.current, "source")?
+    } else {
+        &c.key.source
+    };
+    let source = arena.string_value(source_value, m)?;
+    let namespace_value = if program.uses_work_lifecycle_recipe() {
+        shape::text(m, &source_selection.current, "canonical_economic_namespace")?
+    } else {
+        &c.canonical_economic_namespace
+    };
+    let namespace = arena.string_value(namespace_value, m)?;
     let installation = arena.string_value(&c.installation_mode, m)?;
     let at = arena.string_value(&c.accepted_at, m)?;
-    let frame = &c.authorities[0];
+    let frame = &c.authorities[source_selection.frame_index];
     let slot = arena.string_value(&source_selection.source_slot, m)?;
     let enrollment = owning_reference(m, &arena, &frame.enrollment_ref)?;
     let state = owning_reference(m, &arena, &frame.current_state_ref)?;

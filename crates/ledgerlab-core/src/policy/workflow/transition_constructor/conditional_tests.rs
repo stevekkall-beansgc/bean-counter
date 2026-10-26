@@ -1174,7 +1174,11 @@ fn lifecycle_input_edges_own_fixed_birth_and_named_revision_locators() {
     )
     .unwrap();
     drop(work);
-    assert_eq!(selected.record_identities().len(), 1);
+    assert_eq!(selected.record_identities().len(), 2);
+    assert_eq!(
+        selected.record_identities()[1].role(),
+        "work_initial_decision"
+    );
     let birth = &selected.record_identities()[0];
     assert_eq!(
         (birth.kind(), birth.id(), birth.schemas(), birth.role()),

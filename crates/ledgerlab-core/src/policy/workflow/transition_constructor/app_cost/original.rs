@@ -576,8 +576,37 @@ impl OriginalApp<'_> {
         slot: &str,
         mode: EconomicMode,
     ) -> Result<SourceSelection> {
-        let (binding, terms, source) =
-            super::binding::resolve(m, r, c, &self.work["payload"], program, mode, slot)?;
+        self.source_role(m, r, c, program, (slot, mode, None))
+    }
+    pub(super) fn source_dependent(
+        &self,
+        m: &mut CoreMeter,
+        r: &mut Records,
+        c: &DraftContextData,
+        program: &SelectedProgram,
+        purpose: (&str, EconomicMode, &Value),
+    ) -> Result<SourceSelection> {
+        let (slot, mode, evidence) = purpose;
+        self.source_role(m, r, c, program, (slot, mode, Some(evidence)))
+    }
+    fn source_role(
+        &self,
+        m: &mut CoreMeter,
+        r: &mut Records,
+        c: &DraftContextData,
+        program: &SelectedProgram,
+        purpose: (&str, EconomicMode, Option<&Value>),
+    ) -> Result<SourceSelection> {
+        let (slot, mode, evidence) = purpose;
+        let (binding, terms, source) = super::binding::resolve_role(
+            m,
+            r,
+            c,
+            &self.work["payload"],
+            program,
+            (mode, slot),
+            evidence,
+        )?;
         if !shape::same_ref(m, &binding, &self.binding_ref)?
             || !shape::same_ref(m, &terms.slot_terms_ref, &self.terms.slot_terms_ref)?
         {

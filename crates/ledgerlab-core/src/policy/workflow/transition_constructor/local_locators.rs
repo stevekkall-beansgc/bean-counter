@@ -43,6 +43,7 @@ pub struct LocalOperationLocators {
     claims: Vec<PermanentClaimKey>,
     outcome_links: Vec<(ExactRef, String)>,
     required_slots: Vec<String>,
+    base_required_slots: usize,
     current_root_predecessor: Option<OwnedExactRef>,
     _copies: Vec<ExternalBufferLease>,
     _ownership: ExternalBufferLease,
@@ -116,6 +117,7 @@ impl LocalOperationLocators {
         program: &SelectedProgram,
         key: &OperationKey,
         heads: &[DecisionHead],
+        capacity_heads: &[CapacityHead],
         inputs: &[EconomicRecordView<'_>],
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
@@ -173,6 +175,16 @@ impl LocalOperationLocators {
             if !shape::same_text(m, kind, "work")? {
                 return Err(shape::fail("retained root kind"));
             }
+            if program.uses_work_lifecycle_recipe() {
+                self.refine_app_authority_slots(
+                    program,
+                    m,
+                    &a,
+                    &mut r,
+                    key,
+                    (&current, heads, capacity_heads),
+                )?;
+            }
             let prior = if shape::same_text(m, &head.revision, "1")? {
                 None
             } else {
@@ -186,6 +198,197 @@ impl LocalOperationLocators {
             s.invalidate();
         }
         result
+    }
+    fn refine_app_authority_slots(
+        &mut self,
+        program: &SelectedProgram,
+        m: &mut CoreMeter,
+        a: &AuditArena,
+        r: &mut Records,
+        key: &OperationKey,
+        held: (&Value, &[DecisionHead], &[CapacityHead]),
+    ) -> Result<()> {
+        let (current, heads, capacity_heads) = held;
+        if !w::compare(m, self.required_slots.len(), self.base_required_slots)?.is_gt() {
+            return Ok(());
+        }
+        let status = txt(m, current, "status")?;
+        if shape::same_text(m, status, "reversed")? {
+            self.required_slots.truncate(self.base_required_slots);
+            return Ok(());
+        }
+        let work_ref = self
+            .subject
+            .original_work_ref()
+            .ok_or_else(|| shape::fail("app role Work"))?;
+        let work = r.get(
+            m,
+            key,
+            work_ref,
+            "workflow-work",
+            "ledger-workflow-work-record/1",
+        )?;
+        let binding_ref = self.subject.original_binding_ref();
+        let binding = r.get(
+            m,
+            key,
+            binding_ref,
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let (_, inst) = load_ref(
+            m,
+            a,
+            r,
+            key,
+            &binding["slot_instantiation_ref"],
+            "workflow-slot-instantiation",
+            "ledger-workflow-slot-instantiation/1",
+        )?;
+        let root = txt(m, current, "decision_id")?;
+        let mut capacity_head = None;
+        for head in capacity_heads {
+            if shape::same_text(m, &head.root_decision_id, root)?
+                && capacity_head.replace(head).is_some()
+            {
+                return Err(shape::fail("duplicate app role Capacity head"));
+            }
+        }
+        let head = capacity_head.ok_or_else(|| shape::fail("app role Capacity head absent"))?;
+        let capacity = r.get(
+            m,
+            key,
+            &head.reference,
+            "workflow-correction-capacity",
+            "ledger-correction-capacity/2",
+        )?;
+        let revision = txt(m, &capacity, "revision")?;
+        if !shape::same_text(m, revision, &head.revision)? {
+            return Err(shape::fail("app role Capacity revision"));
+        }
+        let initial = initial_id(m, a, root)?;
+        let (initial_ref, _) = r.by_identity(
+            m,
+            key,
+            "workflow-decision",
+            &initial,
+            "ledger-workflow-decision-revision/1",
+        )?;
+        let initial = super::working_value::owning_reference(m, a, &initial_ref)?;
+        shape::equal(m, &capacity["root_ref"], initial.value())?;
+        let binding_value = super::working_value::owning_reference(m, a, binding_ref)?;
+        let mut index = self.base_required_slots;
+        while w::compare(m, index, self.required_slots.len())?.is_lt() {
+            let slot = &self.required_slots[index];
+            let mut needed = false;
+            for declaration in
+                shape::array(m, program.original_policy_value(), "app_delayed_costs")?
+            {
+                let declared_slot = txt(m, declaration, "correction_source_slot")?;
+                if !shape::same_text(m, declared_slot, slot)?
+                    || !shape::same(m, &declaration["activity"], &work["payload"]["activity"])?
+                {
+                    continue;
+                }
+                let components = shape::array(m, &inst, "component_map")?;
+                let component = txt(m, declaration, "component_key")?;
+                let mapping = shape::named(m, components, "template_key", component)?;
+                let work_id = a.string_value(&work_ref.id, m)?;
+                let discriminator = a.string_value("app_cost", m)?;
+                let seed = a.array_from_values(
+                    &[
+                        &work["key"]["scope"],
+                        work_id.value(),
+                        &mapping["slot_id"],
+                        discriminator.value(),
+                    ],
+                    m,
+                )?;
+                let dependent =
+                    super::body::semantic_id(m, "wdecision_", "workflow-decision", seed.value())?;
+                let mut closed = false;
+                let mut seen = false;
+                for head in heads {
+                    if !shape::same_text(m, &head.decision_id, &dependent)? {
+                        continue;
+                    }
+                    if seen {
+                        return Err(shape::fail("duplicate app role Decision"));
+                    }
+                    seen = true;
+                    let decision = r.get_schemas(
+                        m,
+                        key,
+                        &head.reference,
+                        "workflow-decision",
+                        &[
+                            "ledger-workflow-decision-revision/1",
+                            "ledger-workflow-decision-revision/3",
+                        ],
+                    )?;
+                    let revision = txt(m, &decision, "revision")?;
+                    if !shape::same_text(m, revision, &head.revision)? {
+                        return Err(shape::fail("app role Decision revision"));
+                    }
+                    let status = txt(m, &decision, "status")?;
+                    closed = shape::same_text(m, status, "reversed")?;
+                }
+                let dependent = a.string_value(&dependent, m)?;
+                let root = a.string_value(root, m)?;
+                let seed = a.array_from_values(
+                    &[root.value(), dependent.value(), binding_value.value()],
+                    m,
+                )?;
+                let dependency =
+                    super::body::semantic_id(m, "wdep_", "workflow-dependency", seed.value())?;
+                let (dependency_ref, _) = r.by_identity(
+                    m,
+                    key,
+                    "workflow-dependency",
+                    &dependency,
+                    "ledger-workflow-dependency/2",
+                )?;
+                let expected = super::working_value::owning_reference(m, a, &dependency_ref)?;
+                let mut retired = false;
+                for value in shape::array(m, &capacity, "retirement_refs")? {
+                    let (_, retirement) = load_ref(
+                        m,
+                        a,
+                        r,
+                        key,
+                        value,
+                        "workflow-capacity-retirement",
+                        "ledger-workflow-capacity-retirement/1",
+                    )?;
+                    if shape::same(m, &retirement["dependency_ref"], expected.value())? {
+                        retired = true;
+                    }
+                }
+                // This is only acquisition pruning. The child reconstructs the
+                // exact original claim/terminal lineage or retirement/custody.
+                needed |= !closed && !retired;
+            }
+            if needed {
+                index = w::usize_add(m, index, 1)?;
+            } else {
+                crate::validation_work::ValidationWork::arithmetic(
+                    m,
+                    w::ArithmeticOperation::Multiply,
+                    &[
+                        &self.required_slots.len().into(),
+                        &mem::size_of::<String>().into(),
+                    ],
+                )?;
+                m.write_bytes(
+                    self.required_slots
+                        .len()
+                        .checked_mul(mem::size_of::<String>())
+                        .ok_or_else(|| shape::fail("app slot removal metadata"))?,
+                )?;
+                self.required_slots.remove(index);
+            }
+        }
+        Ok(())
     }
     /// Add original link locators from the actual held closed-family heads.
     /// Permanent closure does not remove immutable links from the chain root.
@@ -738,7 +941,7 @@ pub fn select_local_operation_locators(
             v,
             (&subject, &mut copies),
         )?;
-        let required_slots = authority_slots(
+        let (required_slots, base_required_slots) = authority_slots(
             program,
             m,
             &a,
@@ -756,6 +959,7 @@ pub fn select_local_operation_locators(
             claims,
             outcome_links,
             required_slots,
+            base_required_slots,
             current_root_predecessor: None,
             _copies: copies,
             _ownership: ownership,
@@ -851,18 +1055,24 @@ fn authority_slots(
     key: &OperationKey,
     request: &Value,
     selected_operands: (&LocalSubjectBinding, &mut Vec<ExternalBufferLease>),
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, usize)> {
     let (subject, owners) = selected_operands;
     let schema = txt(m, request, "schema")?;
     let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
         || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
     if !root && !close {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     }
     let count = if root {
         let closures = shape::array(m, request, "family_closures")?;
-        w::usize_add(m, closures.len(), 1)?
+        let base = w::usize_add(m, closures.len(), 1)?;
+        if program.uses_work_lifecycle_recipe() {
+            let apps = shape::array(m, program.original_policy_value(), "app_delayed_costs")?;
+            w::usize_add(m, base, apps.len())?
+        } else {
+            base
+        }
     } else {
         1
     };
@@ -989,7 +1199,21 @@ fn authority_slots(
         let source_slot = txt(m, &family["no_success_close"], "close_source_slot")?;
         push_authority_slot(m, a, owners, &mut out, source_slot)?;
     }
-    Ok(out)
+    let base = out.len();
+    if root && program.uses_work_lifecycle_recipe() {
+        let status = txt(m, &work["payload"], "status")?;
+        if shape::same_text(m, status, "succeeded")? {
+            for declaration in
+                shape::array(m, program.original_policy_value(), "app_delayed_costs")?
+            {
+                if shape::same(m, &declaration["activity"], &work["payload"]["activity"])? {
+                    let slot = txt(m, declaration, "correction_source_slot")?;
+                    push_authority_slot(m, a, owners, &mut out, slot)?;
+                }
+            }
+        }
+    }
+    Ok((out, base))
 }
 
 fn reserve_outcome_links(
@@ -1789,7 +2013,7 @@ mod correction_lookup_tests {
             (&subject, &mut owners),
         )
         .unwrap();
-        assert_eq!(slots, ["root:corrector", "support:assessor"]);
+        assert_eq!(slots.0, ["root:corrector", "support:assessor"]);
         let mut quantity = reverse.clone();
         quantity["schema"] = json!("ledger-workflow-quantity-correction/2");
         let quantity_subject = subject_refs(m, &a, &mut r, &key, &quantity).unwrap();
@@ -1831,7 +2055,8 @@ mod correction_lookup_tests {
                 &close,
                 (&subject, &mut owners)
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             ["support:assessor"]
         );
         let mut wrong = reverse.clone();
@@ -1979,6 +2204,7 @@ mod correction_lookup_tests {
             claims: Vec::new(),
             outcome_links: Vec::new(),
             required_slots: Vec::new(),
+            base_required_slots: 0,
             current_root_predecessor: None,
             _copies: owners,
             _ownership: ownership,

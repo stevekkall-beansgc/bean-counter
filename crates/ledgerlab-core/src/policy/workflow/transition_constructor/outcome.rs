@@ -1594,6 +1594,8 @@ pub(super) fn verify_original_actions(
         &[],
     )?;
     let p = shape::field(m, work, "payload")?;
+    let original_at = shape::text(m, work, "accepted_at")?;
+    super::fact_relations::facts(m, r, &c.key, program, p, &p["facts"], original_at)?;
     if m.representation_arena().is_some() {
         let namespace = shape::text(m, work, "source_namespace")?;
         let original_claim = r.get(

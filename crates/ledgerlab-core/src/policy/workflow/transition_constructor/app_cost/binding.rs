@@ -66,6 +66,18 @@ pub(super) fn resolve(
     mode: EconomicMode,
     source_slot: &str,
 ) -> Result<(ExactRef, authority::Terms, SourceSelection)> {
+    resolve_role(m, r, c, payload, program, (mode, source_slot), None)
+}
+pub(super) fn resolve_role(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    purpose: (EconomicMode, &str),
+    dependent: Option<&Value>,
+) -> Result<(ExactRef, authority::Terms, SourceSelection)> {
+    let (mode, source_slot) = purpose;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app binding"))?;
@@ -116,6 +128,14 @@ pub(super) fn resolve(
     literal(m, &accepted, "terms_digest", &digest)?;
     let owner = InvocationToken::new();
     inventory::publication::validate(m, r, c, &owner, program, &binding, (&accepted, &acceptance))?;
+    super::super::fact_relations::context(
+        m,
+        r,
+        &c.key,
+        program,
+        (&payload["binding_ref"], &binding),
+        &c.accepted_at,
+    )?;
     let activation = r.get(
         m,
         &c.key,
@@ -242,20 +262,18 @@ pub(super) fn resolve(
         eq(m, &role[field], &slot_terms[field])?;
     }
     has(m, &binding, "roles_refs", &slot_terms["role_ref"])?;
-    let source = source_authority::source(
-        m,
-        r,
-        c,
-        program,
-        OriginalSourceSubject {
-            binding_ref: &reference,
-            binding: &binding,
-            terms: &slot_terms,
-            payload,
-        },
-        source_slot,
-        mode,
-    )?;
+    let subject = OriginalSourceSubject {
+        binding_ref: &reference,
+        binding: &binding,
+        terms: &slot_terms,
+        payload,
+    };
+    let source = match dependent {
+        Some(evidence) if program.uses_work_lifecycle_recipe() => {
+            source_authority::dependent(m, r, c, program, subject, (source_slot, mode, evidence))?
+        }
+        _ => source_authority::source(m, r, c, program, subject, source_slot, mode)?,
+    };
     inventory::slots::validate(
         m,
         program,
@@ -459,8 +477,40 @@ pub(in crate::policy::workflow::transition_constructor) fn resolved(
     mode: EconomicMode,
     selected_operands: (&str, &[ExactRef], &str),
 ) -> Result<authority::ResolvedOperands> {
+    resolved_role(m, r, c, payload, program, (mode, None), selected_operands)
+}
+pub(in crate::policy::workflow::transition_constructor) fn resolved_dependent(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    mode: EconomicMode,
+    selected_operands: (&str, &[ExactRef], &str),
+) -> Result<authority::ResolvedOperands> {
+    resolved_role(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        (mode, Some(&payload["evidence_refs"])),
+        selected_operands,
+    )
+}
+fn resolved_role(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    purpose: (EconomicMode, Option<&Value>),
+    selected_operands: (&str, &[ExactRef], &str),
+) -> Result<authority::ResolvedOperands> {
+    let (mode, dependent) = purpose;
     let (source_slot, verified_facts, original_namespace) = selected_operands;
-    let (binding_ref, terms, source) = resolve(m, r, c, payload, program, mode, source_slot)?;
+    let (binding_ref, terms, source) =
+        resolve_role(m, r, c, payload, program, (mode, source_slot), dependent)?;
     let original = shape::text(m, &terms.binding, "source_namespace")?;
     if !shape::same_text(m, original, original_namespace)? {
         return Err(shape::fail("app historical subject namespace"));
@@ -483,13 +533,23 @@ pub(in crate::policy::workflow::transition_constructor) fn resolved(
         m.parse_owned_representation(&arena, rights, RepresentationKind::SourceDefinition)?;
     let operation = arena.string_value(operation, m)?;
     let actor = arena.string_value(&c.actor, m)?;
-    let source_name = arena.string_value(&c.key.source, m)?;
-    let namespace = arena.string_value(&c.canonical_economic_namespace, m)?;
+    let source_value = if dependent.is_some() && program.uses_work_lifecycle_recipe() {
+        shape::text(m, &source.current, "source")?
+    } else {
+        &c.key.source
+    };
+    let source_name = arena.string_value(source_value, m)?;
+    let namespace_value = if dependent.is_some() && program.uses_work_lifecycle_recipe() {
+        shape::text(m, &source.current, "canonical_economic_namespace")?
+    } else {
+        &c.canonical_economic_namespace
+    };
+    let namespace = arena.string_value(namespace_value, m)?;
     let mode = arena.string_value(&c.installation_mode, m)?;
     let at = arena.string_value(&c.accepted_at, m)?;
     let slot = arena.string_value(source_slot, m)?;
     let key = cost_postings::operation_key(m, &arena, c)?;
-    let frame = &c.authorities[0];
+    let frame = &c.authorities[source.frame_index];
     let enrollment = owning_reference(m, &arena, &frame.enrollment_ref)?;
     let current = owning_reference(m, &arena, &frame.current_state_ref)?;
     let grant = owning_reference(m, &arena, &frame.current_grant_ref)?;
@@ -622,6 +682,43 @@ fn future_source_shape(
     terms: &Value,
     program: &SelectedProgram,
 ) -> Result<()> {
+    if program.uses_work_lifecycle_recipe() {
+        for value in shape::array(m, terms, "source_grant_refs")? {
+            let reference = shape::reference(m, value)?;
+            let grant = r.get(
+                m,
+                &c.key,
+                &reference,
+                "workflow-source-grant",
+                "ledger-workflow-source-grant/1",
+            )?;
+            if super::super::work_proofs::source::proof_only_nominee(
+                m,
+                program,
+                binding,
+                &grant["source"],
+            )? {
+                continue;
+            }
+            let principal = shape::text(m, &grant, "principal_id")?;
+            if !shape::same_text(m, principal, &c.actor)? {
+                return Err(Error::new(
+                    "UNSUPPORTED_COMPOSITION",
+                    "future monetary source must use actual same principal",
+                ));
+            }
+            let enrollment_ref = shape::reference(m, &grant["original_ceiling_ref"])?;
+            let enrollment = r.get(
+                m,
+                &c.key,
+                &enrollment_ref,
+                "workflow-source-enrollment",
+                "ledger-workflow-source-enrollment/1",
+            )?;
+            super::super::authority::grant_selected_identity(m, &grant, &enrollment["ceiling"], c)?;
+        }
+        return Ok(());
+    }
     for nomination in shape::array(m, binding, "source_slots")? {
         m.visit("app.promise_source_nomination")?;
         if program.uses_policy_semantics_recipe() {

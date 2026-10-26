@@ -389,6 +389,28 @@ pub(super) fn grant_identity(
     }
     Ok(())
 }
+/// Dependent purpose retains initiating actor/key while its independently
+/// selected source/namespace must exactly match its original enrollment.
+pub(super) fn grant_selected_identity(
+    m: &mut CoreMeter,
+    g: &Value,
+    ceiling: &Value,
+    c: &DraftContextData,
+) -> Result<()> {
+    for name in ["source", "canonical_economic_namespace", "principal_id"] {
+        let actual = shape::field(m, g, name)?;
+        let expected = shape::field(m, ceiling, name)?;
+        shape::equal(m, actual, expected)?;
+    }
+    let principal = shape::text(m, g, "principal_id")?;
+    if !shape::same_text(m, principal, &c.actor)? {
+        return Err(crate::Error::new(
+            "SOURCE_AUTHORITY_DENIED",
+            "dependent principal must match actual initiating actor",
+        ));
+    }
+    Ok(())
+}
 pub(super) fn grant_shape(m: &mut CoreMeter, g: &Value) -> Result<()> {
     closed(
         m,
@@ -507,6 +529,39 @@ fn selector_allows(m: &mut CoreMeter, g: &Value, field: &str, name: &str) -> Res
         let names = shape::array(m, selector, "names")?;
         covered |= shape::member(m, names, &json!(name))?;
     }
+    Ok(covered)
+}
+/// Bounded candidate DATA for a dependent's actual purpose. The selected role
+/// still runs grant_shape/intersection/coverage, identity and original/current
+/// custody below; this predicate neither merges grants nor emits authority.
+pub(super) fn grant_covers(
+    m: &mut CoreMeter,
+    g: &Value,
+    selected: (&Value, &str, &str, &str, (&str, &[&str]), i64),
+) -> Result<bool> {
+    let (customer, activity, product, slot, purpose, at) = selected;
+    let mut covered = true;
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| fail("dependent scope owner"))?;
+    let customers = shape::array(m, g, "customer_scope")?;
+    covered &= shape::member(m, customers, customer)?;
+    for (field, want) in [("operations", purpose.0), ("source_slots", slot)] {
+        let want = a.string_value(want, m)?;
+        let values = shape::array(m, g, field)?;
+        covered &= shape::member(m, values, want.value())?;
+    }
+    let permissions = shape::array(m, g, "permissions")?;
+    for right in purpose.1 {
+        let right = a.string_value(right, m)?;
+        covered &= shape::member(m, permissions, right.value())?;
+    }
+    covered &= selector_allows(m, g, "activity_selectors", activity)?;
+    covered &= selector_allows(m, g, "product_selectors", product)?;
+    let starts = Timestamp::parse_with_work(shape::text(m, g, "starts_at")?, m)?.micros();
+    let ends = Timestamp::parse_with_work(shape::text(m, g, "ends_at")?, m)?.micros();
+    covered &= !meter::cmp(m, &at.into(), &starts.into())?.is_lt()
+        && meter::cmp(m, &at.into(), &ends.into())?.is_lt();
     Ok(covered)
 }
 /// SAME closed deadline permission/selector/time predicate. Identity is checked

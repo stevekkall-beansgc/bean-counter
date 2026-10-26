@@ -88,9 +88,12 @@ pub fn select_lifecycle_input_edges(
         {
             return Err(shape::fail("lifecycle implicit identity record kind"));
         }
-        let count = usize::from(work || action);
+        let count = if work { 2 } else { usize::from(action) };
         let id_bytes = if work {
-            name(m, &v, "claim_id")?.len()
+            {
+                let n = name(m, &v, "claim_id")?.len();
+                w::usize_add(m, n, 70)?
+            }
         } else if action {
             70
         } else {
@@ -100,11 +103,9 @@ pub fn select_lifecycle_input_edges(
         let bytes = w::usize_add(
             m,
             bytes,
-            if count == 1 {
-                mem::size_of::<LifecycleRecordIdentity>()
-            } else {
-                0
-            },
+            count
+                .checked_mul(mem::size_of::<LifecycleRecordIdentity>())
+                .ok_or_else(|| shape::fail("identity controls"))?,
         )?;
         let ownership = a.reserve_external_payload(bytes, m)?;
         m.write_bytes(bytes)?;
@@ -121,6 +122,19 @@ pub fn select_lifecycle_input_edges(
                 id: id.to_owned(),
                 schemas: &["ledger-workflow-work-claim/1"],
                 role: "work_birth_claim",
+            });
+            // Work's initial revision is an immutable birth, not a current head.
+            let _scratch = a.reserve_external_payload(1024, m)?;
+            let decision = super::work_keys::decision(m, id)?;
+            let decision = a.string_value(&decision, m)?;
+            let one = a.string_value("1", m)?;
+            let tuple = a.array_from_values(&[decision.value(), one.value()], m)?;
+            let id = body::semantic_id(m, "wdrev_", "workflow-decision-revision", tuple.value())?;
+            identities.push(LifecycleRecordIdentity {
+                kind: "workflow-decision",
+                id,
+                schemas: &["ledger-workflow-decision-revision/1"],
+                role: "work_initial_decision",
             });
         } else if action {
             let decision = name(m, &v, "decision_id")?;

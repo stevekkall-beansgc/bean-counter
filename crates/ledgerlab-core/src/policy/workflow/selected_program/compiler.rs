@@ -195,7 +195,9 @@ impl SelectedProgram {
         if !self.uses_local_execution_recipe() {
             return Err(err("supported local admission requires local recipe"));
         }
-        let check = if self.uses_policy_semantics_recipe() {
+        let check = if self.uses_work_lifecycle_recipe() {
+            super::local_admission::check_lifecycle
+        } else if self.uses_policy_semantics_recipe() {
             super::local_admission::check_policy
         } else {
             super::local_admission::check
@@ -830,7 +832,9 @@ pub fn compile_selected_program(
         // Compilation also exposes non-owning DATA for source/plan comparison.
         // Check its supported structure here. Actual promise admission still
         // calls require_local_admission and requires this attempt's owner.
-        let check = if program.uses_policy_semantics_recipe() {
+        let check = if program.uses_work_lifecycle_recipe() {
+            super::local_admission::check_lifecycle
+        } else if program.uses_policy_semantics_recipe() {
             super::local_admission::check_policy
         } else {
             super::local_admission::check
@@ -1482,6 +1486,10 @@ fn compile_selected_recipe(
                             &["enum", "integer", "timestamp"]
                         };
                         allowed.contains(&field["type"]["kind"].as_str().unwrap_or(""))
+                            || (matches!(recipe, SelectedRecipe::LocalWorkLifecycle1)
+                                && field["type"]["kind"].as_str() == Some("reference")
+                                && field["type"]["record_kind"].as_str() == Some("workflow-work")
+                                && field["type"]["relation"].as_str() == Some("same_binding"))
                     })? {
                         return Err(err("selected fact type"));
                     }

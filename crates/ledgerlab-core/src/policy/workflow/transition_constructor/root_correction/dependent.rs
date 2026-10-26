@@ -31,7 +31,11 @@ pub(super) fn build(
     already: &[ConstructedEnvelope],
 ) -> Result<ClosedFamily> {
     let source_slot = text(m, &f.family, "correction_source_slot")?.to_owned();
-    let local = slot_context(m, r, c, &source_slot, already)?;
+    let local = if program.uses_work_lifecycle_recipe() {
+        context::selected_local_roles(m, c, &c.authorities[0])?
+    } else {
+        slot_context(m, r, c, &source_slot, already)?
+    };
     entry::context_selected(m, &local, program)?;
     let product = original_product(m, program, &root.payload["product_ref"])?;
     let activities = shape::array(m, product, "activities")?;
@@ -150,7 +154,23 @@ pub(super) fn build(
         EconomicMode::QuantityCorrect
     };
     let namespace = text(m, &root.work, "source_namespace")?;
-    let operands = if m.representation_arena().is_some() {
+    let operands = if program.uses_work_lifecycle_recipe() {
+        let resolved = super::super::app_cost::binding_resolved_dependent(
+            m,
+            r,
+            &local,
+            &p,
+            program,
+            mode,
+            (&source_slot, &[], namespace),
+        )?;
+        let authority = resolved.authority_document(m, None)?;
+        authority::Operands {
+            terms: resolved.terms,
+            authority,
+            introduced: resolved.introduced,
+        }
+    } else if m.representation_arena().is_some() {
         authority::economic_original(
             m,
             r,
@@ -189,9 +209,17 @@ pub(super) fn build(
     outcome::original_target_association(m, &operands, &f.target, &f.declaration, &f.family)?;
     // Root permission does not replace dependent-slot permission. Both sets
     // must be applicable retained evidence under these exact original terms.
-    evidence_membership(m, r, &local, &operands, &f.evidence)?;
+    if program.uses_work_lifecycle_recipe() {
+        emitted_evidence(m, &operands, &f.evidence)?;
+    } else {
+        evidence_membership(m, r, &local, &operands, &f.evidence)?;
+    }
     let dependent_refs = causal::references(m, &p["evidence_refs"], 1, 16)?;
-    evidence_membership(m, r, &local, &operands, &dependent_refs)?;
+    if program.uses_work_lifecycle_recipe() {
+        emitted_evidence(m, &operands, &dependent_refs)?;
+    } else {
+        evidence_membership(m, r, &local, &operands, &dependent_refs)?;
+    }
     let mut records = vec![];
     let mut steps = vec![];
     let decision = if let (Some((old_ref, old, _)), Some((claim_ref, _claim))) =
@@ -587,4 +615,41 @@ impl ClosedFamily {
             revision,
         ))
     }
+}
+
+fn emitted_evidence(m: &mut CoreMeter, o: &authority::Operands, refs: &[ExactRef]) -> Result<()> {
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("dependent evidence owner"))?;
+    let authority = m.parse_owned_representation(
+        &a,
+        &o.authority.canonical_body,
+        crate::validation_work::RepresentationKind::Record,
+    )?;
+    evidence_values(m, &o.binding, authority.value(), refs)
+}
+pub(super) fn evidence_values(
+    m: &mut CoreMeter,
+    binding: &Value,
+    authority: &Value,
+    refs: &[ExactRef],
+) -> Result<()> {
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("dependent evidence owner"))?;
+    for reference in refs {
+        let value = super::super::working_value::owning_reference(m, &a, reference)?;
+        let assents = shape::array(m, binding, "assent_refs")?;
+        let originals = shape::array(m, authority, "original_grant_refs")?;
+        if !shape::member(m, assents, value.value())?
+            && !shape::member(m, originals, value.value())?
+            && !shape::same(m, value.value(), &authority["current_grant_ref"])?
+        {
+            return Err(Error::new(
+                "AUTHORITY_REQUIRED",
+                "evidence absent from actual selected dependent role",
+            ));
+        }
+    }
+    Ok(())
 }

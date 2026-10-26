@@ -513,6 +513,15 @@ fn prepare(
     let normalized =
         super::working_value::NormalizedInput::normalize(m, schema, &evaluation["facts"])?;
     equal(m, normalized.canonical_value(), &evaluation["facts"])?;
+    super::fact_relations::facts(
+        m,
+        r,
+        &c.key,
+        program,
+        &payload,
+        &evaluation["facts"],
+        &c.accepted_at,
+    )?;
     let proof_namespace = text(m, &work, "source_namespace")?;
     let mut proofs = if !program.uses_local_execution_recipe()
         || normalized.required_proof_fields().is_empty()
@@ -629,6 +638,15 @@ fn prepare(
             super::working_value::NormalizedInput::normalize(m, schema, &replacement_facts)?;
         replacement_facts =
             super::working_value::WorkingValue::copy(m, normalized.canonical_value())?;
+        super::fact_relations::facts(
+            m,
+            r,
+            &c.key,
+            program,
+            &payload,
+            &replacement_facts,
+            &c.accepted_at,
+        )?;
         request.replace(
             m,
             "replacement_quantity",
@@ -1738,7 +1756,34 @@ fn root_context(
         },
     )?;
     let slot = text(m, &terms, "correction_source_slot")?;
-    slot_context(m, r, c, slot, &[])
+    if program.uses_work_lifecycle_recipe() {
+        let mut selected = None;
+        for frame in &c.authorities {
+            if !shape::same_text(m, &frame.source_slot, slot)? {
+                continue;
+            }
+            let grant = r.get(
+                m,
+                &c.key,
+                &frame.current_grant_ref,
+                "workflow-source-grant",
+                "ledger-workflow-source-grant/1",
+            )?;
+            let source = text(m, &grant, "source")?;
+            if shape::same_text(m, source, &c.key.source)? && selected.replace(frame).is_some() {
+                return Err(shape::fail("ambiguous initiating correction source"));
+            }
+        }
+        let frame = selected.ok_or_else(|| {
+            Error::new(
+                "AUTHORITY_REQUIRED",
+                "actual initiating correction source missing",
+            )
+        })?;
+        context::selected_local_roles(m, c, frame)
+    } else {
+        slot_context(m, r, c, slot, &[])
+    }
 }
 /// Both entry modes use this same original-term interpreter. The return value
 /// remains noncommittable DATA until candidate resource/capacity/funding and
@@ -1892,7 +1937,9 @@ fn execute_with_state<'inv, 'raw>(
     } else {
         None
     };
-    dependent::evidence_membership(m, &mut r, &local, &plan.operands, &evidence)?;
+    if !program.uses_work_lifecycle_recipe() {
+        dependent::evidence_membership(m, &mut r, &local, &plan.operands, &evidence)?;
+    }
     let active = active_actions(m, &mut r, &local, &plan)?;
     let current_capacity = if program.uses_app_owned_cost_recipe() {
         let complete = complete_state
@@ -1978,6 +2025,69 @@ fn execute_with_state<'inv, 'raw>(
     let mut closures = vec![];
     let mut checks = vec![];
     let mut used_slots = vec![local.authorities[0].source_slot.clone()];
+    if program.uses_work_lifecycle_recipe() {
+        // Every root evidence Ref must belong to the initiating role or an
+        // actually affected pending app role, never an unrelated supplied frame.
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| shape::fail("root evidence partition owner"))?;
+        let root_authority = plan.operands.app_authority_value(m, &[])?;
+        for reference in &evidence {
+            let one = std::slice::from_ref(reference);
+            let root_ok =
+                dependent::evidence_values(m, &plan.operands.binding, root_authority.value(), one);
+            match root_ok {
+                Ok(()) => continue,
+                Err(e) if e.code == "AUTHORITY_REQUIRED" => {}
+                Err(e) => return Err(e),
+            }
+            let mut found = false;
+            if let Some(batch) = &app_closures {
+                for pending in &batch.pending {
+                    let authority = m.parse_owned_representation(
+                        &arena,
+                        &pending.authority.canonical_body,
+                        crate::validation_work::RepresentationKind::Record,
+                    )?;
+                    match dependent::evidence_values(
+                        m,
+                        &plan.operands.binding,
+                        authority.value(),
+                        one,
+                    ) {
+                        Ok(()) => found = true,
+                        Err(e) if e.code == "AUTHORITY_REQUIRED" => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            if !found {
+                return Err(Error::new(
+                    "AUTHORITY_REQUIRED",
+                    "root evidence is not applicable to an affected role",
+                ));
+            }
+        }
+        if let Some(batch) = &app_closures {
+            for slot in batch
+                .finalized
+                .iter()
+                .map(|v| &v._source_slot)
+                .chain(batch.pending.iter().map(|v| &v._source_slot))
+            {
+                let mut found = false;
+                for prior in &used_slots {
+                    if shape::same_text(m, prior, slot)? {
+                        found = true;
+                    }
+                }
+                if !found {
+                    used_slots.push(slot.clone());
+                }
+            }
+        }
+    }
+
     for family in families {
         m.visit("root.close_original_family")?;
         let closed = dependent::build(m, &mut r, c, program, &plan, family, &introduced)?;
@@ -2008,7 +2118,9 @@ fn execute_with_state<'inv, 'raw>(
             return Err(shape::fail("unused correction authority nomination"));
         }
     }
-    if !meter::cmp(m, &c.authorities.len().into(), &used_slots.len().into())?.is_eq() {
+    if !program.uses_work_lifecycle_recipe()
+        && !meter::cmp(m, &c.authorities.len().into(), &used_slots.len().into())?.is_eq()
+    {
         return Err(shape::fail("duplicate correction authority nomination"));
     }
     for supplied in &c.source_observation_inputs {

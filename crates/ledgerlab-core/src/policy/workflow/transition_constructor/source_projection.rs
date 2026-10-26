@@ -482,6 +482,19 @@ pub fn validate_app_nominated_sources(
                 slot,
                 ("outcome.correct", &["correct", "read"]),
             )?;
+            if program.uses_work_lifecycle_recipe() {
+                for operation in ["quantity.correct", "work.reverse"] {
+                    requirement(
+                        m,
+                        binding,
+                        frames,
+                        activity,
+                        product_name,
+                        slot,
+                        (operation, &["correct", "read"]),
+                    )?;
+                }
+            }
             if let Some(close) = family.get("no_success_close") {
                 let slot = shape::text(m, close, "close_source_slot")?;
                 requirement(
@@ -554,7 +567,7 @@ pub fn validate_app_nominated_sources(
                     used = true;
                 }
             }
-            if !used {
+            if !used && !(program.uses_work_lifecycle_recipe() && admission_only(m, frame)?) {
                 return Err(shape::fail("unassociated nominated source frame"));
             }
         }
@@ -566,6 +579,95 @@ pub fn validate_app_nominated_sources(
     result
 }
 
+fn admission_only(m: &mut CoreMeter, frame: &NominatedSourceFrame<'_>) -> Result<bool> {
+    for grant in frame
+        .original_grants
+        .iter()
+        .map(|v| v.body)
+        .chain(std::iter::once(frame.current_grant))
+    {
+        let slots = shape::array(m, grant, "source_slots")?;
+        if !w::compare(m, slots.len(), 0usize)?.is_eq() {
+            return Ok(false);
+        }
+        for op in shape::array(m, grant, "operations")? {
+            let op = op
+                .as_str()
+                .ok_or_else(|| shape::fail("admission-only operation"))?;
+            if !shape::same_text(m, op, "agreement.accept")?
+                && !shape::same_text(m, op, "agreement.activate")?
+                && !shape::same_text(m, op, "agreement.revoke")?
+                && !shape::same_text(m, op, "authority.change")?
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+fn lifecycle_shape(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    binding: &Value,
+    frames: &[NominatedSourceFrame<'_>],
+) -> Result<()> {
+    let mut actor = None;
+    let mut financial_count = 0usize;
+    for frame in frames {
+        let name = source(m, frame)?;
+        let mut nominated_here = false;
+        for row in shape::array(m, binding, "source_slots")? {
+            let slot = shape::text(m, row, "name")?;
+            if nominated(m, binding, slot, name)? {
+                nominated_here = true;
+            }
+        }
+        if !nominated_here {
+            if admission_only(m, frame)? {
+                continue;
+            }
+            return Err(shape::fail(
+                "lifecycle source neither nominated nor admission-only",
+            ));
+        }
+        let first = frame
+            .original_grants
+            .first()
+            .ok_or_else(|| shape::fail("original lifecycle grants"))?;
+        if super::work_proofs::source::proof_only_nominee(
+            m,
+            program,
+            binding,
+            &first.body["source"],
+        )? {
+            continue;
+        }
+        financial_count = w::usize_add(m, financial_count, 1)?;
+        let principal = shape::text(m, first.body, "principal_id")?;
+        if let Some(prior) = actor {
+            if !shape::same_text(m, prior, principal)? {
+                return Err(crate::Error::new(
+                    "UNSUPPORTED_COMPOSITION",
+                    "lifecycle monetary roles require actual same principal",
+                ));
+            }
+        } else {
+            actor = Some(principal);
+        }
+        for grant in frame.original_grants {
+            let actual = shape::text(m, grant.body, "source")?;
+            let person = shape::text(m, grant.body, "principal_id")?;
+            if !shape::same_text(m, actual, name)? || !shape::same_text(m, person, principal)? {
+                return Err(shape::fail("lifecycle original source identity"));
+            }
+            ref_value(m, &grant.body["original_ceiling_ref"], frame.enrollment_ref)?;
+        }
+    }
+    if !w::compare(m, financial_count, 0usize)?.is_gt() {
+        return Err(shape::fail("lifecycle monetary source absent"));
+    }
+    Ok(())
+}
 /// Local future-promise shape after full nominated-frame validation. Proof-only
 /// issuers retain their separate historical enrollment and retention rights;
 /// every monetary or mixed-use nominee still shares one original financial
@@ -581,6 +683,9 @@ pub fn validate_app_local_source_shape(
             return Err(shape::fail("policy source shape requires selected recipe"));
         }
         let m = session.meter_mut();
+        if program.uses_work_lifecycle_recipe() {
+            return lifecycle_shape(m, program, binding, frames);
+        }
         let mut financial = None;
         for frame in frames {
             m.visit("accept.local_financial_frame")?;

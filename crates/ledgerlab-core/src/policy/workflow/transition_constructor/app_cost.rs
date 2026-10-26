@@ -4,6 +4,7 @@ mod binding;
 mod consent;
 mod original;
 pub(super) use binding::resolved as binding_resolved;
+pub(super) use binding::resolved_dependent as binding_resolved_dependent;
 pub(super) use binding::work as work_operands;
 pub(super) use consent::current as check_current_consent;
 

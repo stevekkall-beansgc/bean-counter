@@ -765,6 +765,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     /// Reuse only a fully checked immutable grant intersection from this
     /// inventory. Source/principal/namespace identity and requested operation,
     /// slot/activity/product/rights are STILL checked at every consuming use.
+    #[cfg(test)]
     pub(super) fn source_grant(
         &mut self,
         m: &mut CoreMeter,
@@ -783,8 +784,29 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         ),
         mode: super::authority::EconomicMode,
     ) -> Result<()> {
+        self.source_grant_identity(m, owner, reference, g, selected_operands, (mode, false))
+    }
+    pub(super) fn source_grant_identity(
+        &mut self,
+        m: &mut CoreMeter,
+        owner: &super::representation::InvocationToken,
+        reference: &ExactRef,
+        g: &Value,
+        selected_operands: (
+            &ExactRef,
+            &Value,
+            &super::data::DraftContextData,
+            &Value,
+            &str,
+            &str,
+            &str,
+            &num_bigint::BigInt,
+        ),
+        purpose: (super::authority::EconomicMode, bool),
+    ) -> Result<()> {
         let (enrollment_ref, enrollment, c, customer, activity, product, slot, at) =
             selected_operands;
+        let (mode, dependent) = purpose;
         m.visit("source.grant_exact_instant")?;
         let instant = i64::try_from(at).map_err(|_| invalid("source grant timestamp integer"))?;
         let ceiling = super::shape::field(m, enrollment, "ceiling")?;
@@ -814,7 +836,11 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         if !reusable {
             super::authority::grant_shape(m, g)?;
         }
-        super::authority::grant_identity(m, g, ceiling, c)?;
+        if dependent {
+            super::authority::grant_selected_identity(m, g, ceiling, c)?;
+        } else {
+            super::authority::grant_identity(m, g, ceiling, c)?;
+        }
         if !reusable {
             super::authority::grant_intersection(m, owner, g, ceiling, at)?;
         }

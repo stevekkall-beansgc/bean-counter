@@ -4,6 +4,10 @@ mod fact_reference_groups;
 pub use fact_reference_groups::{
     select_work_fact_reference_inputs, OperationFactReferenceGroup, OperationFactReferenceInputs,
 };
+mod fact_relations;
+#[cfg(test)]
+mod lifecycle_consumer_tests;
+pub use fact_relations::validate_lifecycle_context_references;
 mod fact_references;
 pub use fact_references::{select_fact_reference_inputs, FactReferenceInput, FactReferenceInputs};
 mod lifecycle_edges;

@@ -488,6 +488,7 @@ fn execute_parsed<'inv, 'raw>(
                 .map_or(&[], |v| v.references.as_slice()),
         ),
     )?;
+    super::fact_relations::facts(m, &mut r, &c.key, program, &p, &p["facts"], &c.accepted_at)?;
     m.visit("draft.original_plan")?;
     if !shape::same(
         m,

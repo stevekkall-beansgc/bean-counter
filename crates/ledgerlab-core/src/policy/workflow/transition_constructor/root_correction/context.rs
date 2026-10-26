@@ -269,6 +269,76 @@ pub(super) fn selected_local(
     })
 }
 
+/// Preserve sibling causal role DATA under simultaneous ownership. The selected
+/// initiating frame is first; its operation key/actor/namespace are unchanged.
+pub(super) fn selected_local_roles(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    frame: &AuthorityContextData,
+) -> Result<RootContext> {
+    if !c.source_observation_inputs.is_empty() {
+        return Err(shape::fail("local role observations"));
+    }
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("local role owner"))?;
+    if w::compare(m, c.authorities.len(), 32usize)?.is_gt() {
+        return Err(shape::fail("local role frame bound"));
+    }
+    let mut bytes = mem::size_of::<RootContext>();
+    for value in [
+        &c.key.logical_store_id,
+        &c.key.scope[0],
+        &c.key.scope[1],
+        &c.key.source,
+        &c.key.operation_id,
+        &c.actor,
+        &c.canonical_economic_namespace,
+        &c.installation_mode,
+        &c.received_at,
+        &c.accepted_at,
+    ] {
+        size_text(m, &mut bytes, value)?;
+    }
+    let mut position = None;
+    for (i, row) in c.authorities.iter().enumerate() {
+        if row.authority_observation_ref.is_some() {
+            return Err(shape::fail("local role experimental observation"));
+        }
+        bytes = add(m, bytes, mem::size_of::<AuthorityContextData>())?;
+        size_text(m, &mut bytes, &row.source_slot)?;
+        for reference in [
+            &row.enrollment_ref,
+            &row.current_state_ref,
+            &row.current_grant_ref,
+            &row.binding_ref,
+            &row.accepted_agreement_ref,
+            &row.activation_ref,
+        ] {
+            size_ref(m, &mut bytes, reference)?;
+        }
+        for reference in &row.original_grant_refs {
+            bytes = add(m, bytes, mem::size_of::<ExactRef>())?;
+            size_ref(m, &mut bytes, reference)?;
+        }
+        if shape::same_ref(m, &row.enrollment_ref, &frame.enrollment_ref)?
+            && shape::same_text(m, &row.source_slot, &frame.source_slot)?
+            && position.replace(i).is_some()
+        {
+            return Err(shape::fail("duplicate initiating role lineage"));
+        }
+    }
+    let position = position.ok_or_else(|| shape::fail("initiating role not captured"))?;
+    let ownership = a.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    let mut value = c.clone();
+    value.authorities.swap(0, position);
+    Ok(RootContext {
+        value,
+        _ownership: Some(ownership),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

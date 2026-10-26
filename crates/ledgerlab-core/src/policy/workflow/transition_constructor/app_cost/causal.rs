@@ -267,7 +267,21 @@ fn finalized(
         &final_cost.pair.attestation["cost_revision"],
     )?;
     let slot = shape::text(m, original.declaration, "correction_source_slot")?;
-    let source = original.source(m, r, c, program, slot, EconomicMode::CostCorrect)?;
+    let source = if program.uses_work_lifecycle_recipe() {
+        original.source_dependent(
+            m,
+            r,
+            c,
+            program,
+            (
+                slot,
+                EconomicMode::CostCorrect,
+                &reversal["authority_evidence_refs"],
+            ),
+        )?
+    } else {
+        original.source(m, r, c, program, slot, EconomicMode::CostCorrect)?
+    };
     super::consent::current(
         program,
         m,
@@ -489,7 +503,11 @@ fn finalized(
     )?;
     let revision = body::document_borrowed(m, "workflow-cost", value.value())?;
     let original_grants = super::authority::grant_refs(m, &source.original_grant_refs)?;
-    let current_grant = owning_reference(m, &arena, &c.authorities[0].current_grant_ref)?;
+    let current_grant = owning_reference(
+        m,
+        &arena,
+        &c.authorities[source.frame_index].current_grant_ref,
+    )?;
     let source_slot = arena.string_value(slot, m)?;
     let check = arena.object_from_fields(
         &[
@@ -547,9 +565,9 @@ fn pending(
     program: &SelectedProgram,
     original: &OriginalApp,
     dependent_id: &str,
-    selected_operands: (&ExactRef, &str, &EconomicStateData),
+    selected_operands: (&ExactRef, &str, &EconomicStateData, &Value),
 ) -> Result<PendingClosure> {
-    let (root_ref, root_operation, state) = selected_operands;
+    let (root_ref, root_operation, state, evidence) = selected_operands;
     if !program.uses_app_cost_causal_recipe() {
         return Err(shape::fail("app pending causal recipe"));
     }
@@ -619,7 +637,17 @@ fn pending(
         return Err(shape::fail("app pending root operation"));
     }
     let slot = shape::text(m, original.declaration, "correction_source_slot")?;
-    let source = original.source(m, r, c, program, slot, EconomicMode::CostCorrect)?;
+    let source = if program.uses_work_lifecycle_recipe() {
+        original.source_dependent(
+            m,
+            r,
+            c,
+            program,
+            (slot, EconomicMode::CostCorrect, evidence),
+        )?
+    } else {
+        original.source(m, r, c, program, slot, EconomicMode::CostCorrect)?
+    };
     super::consent::current(
         program,
         m,
@@ -828,7 +856,11 @@ fn pending(
     let authority_value = owning_reference(m, &arena, &authority.reference)?;
     let binding = owning_reference(m, &arena, &original.binding_ref)?;
     let grants = super::authority::grant_refs(m, &source.original_grant_refs)?;
-    let current = owning_reference(m, &arena, &c.authorities[0].current_grant_ref)?;
+    let current = owning_reference(
+        m,
+        &arena,
+        &c.authorities[source.frame_index].current_grant_ref,
+    )?;
     let source_slot = arena.string_value(slot, m)?;
     let check = arena.object_from_fields(
         &[
@@ -1163,7 +1195,7 @@ pub(in crate::policy::workflow::transition_constructor) fn prepare(
                     program,
                     &original,
                     &dependent_id,
-                    (root_ref, root_operation, state),
+                    (root_ref, root_operation, state, &request["evidence_refs"]),
                 )?);
             }
         }
