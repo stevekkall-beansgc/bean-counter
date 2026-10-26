@@ -2,7 +2,8 @@
 //! check. This grouping creates no authority, merged grant or completion flag.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    validate_app_nominated_sources, ExactRef, NominatedSourceFrame, NominatedSourceGrant,
+    validate_app_local_source_shape, validate_app_nominated_sources, ExactRef,
+    NominatedSourceFrame, NominatedSourceGrant,
 };
 
 struct Grants<'a> {
@@ -243,7 +244,16 @@ fn validate_selected(
         )
         .map_err(core_error)?;
         if local_admission {
-            require_local_source_shape(binding, &frames.values, s)?;
+            if publication.program().uses_policy_semantics_recipe() {
+                // All frames already passed exact original/current grant,
+                // enrollment and per-purpose coverage above. The shared pure
+                // projection distinguishes proof-only nominations from the
+                // still-single financial source/principal promise.
+                validate_app_local_source_shape(publication.program(), binding, &frames.values, s)
+                    .map_err(core_error)?;
+            } else {
+                require_local_source_shape(binding, &frames.values, s)?;
+            }
             let catalog =
                 documents.body(request_wrapper::field(binding, "slot_catalog_ref", s)?, s)?;
             let families = request_wrapper::field(catalog, "families", s)?
