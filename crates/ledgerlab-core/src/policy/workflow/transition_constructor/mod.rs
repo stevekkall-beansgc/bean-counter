@@ -40,7 +40,7 @@ mod app_cost;
 mod authority;
 pub use alias_authority::{construct_local_work_alias_authority, LocalWorkAliasAuthority};
 pub use candidate::{
-    construct_local_cost_authority_enrollment, construct_local_work_alias_candidate,
+    construct_local_cost_authority_enrollment, normalize_local_cost_authority_enrollment_intent, construct_local_work_alias_candidate,
     CostAuthorityEnrollmentState, LocalCostAuthorityEnrollment,
 };
 mod invocation;

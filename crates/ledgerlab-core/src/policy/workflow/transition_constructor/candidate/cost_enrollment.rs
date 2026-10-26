@@ -58,6 +58,99 @@ fn literal(m: &mut CoreMeter, v: &serde_json::Value, k: &str, want: &str) -> Res
     }
     Ok(())
 }
+fn normalized_request(m: &mut CoreMeter, raw: &[u8]) -> Result<(WorkingValue, WorkingValue)> {
+    let request = WorkingValue::parse(m, raw)?;
+    shape::closed(
+        m,
+        &request,
+        &["schema", "key", "kind", "contract", "payload"],
+        &[],
+    )?;
+    literal(m, &request, "schema", "ledger-operation/1")?;
+    literal(m, &request, "contract", "workflow/1")?;
+    literal(m, &request, "kind", "authority.change")?;
+    let key = shape::field(m, &request, "key")?;
+    shape::closed(
+        m,
+        key,
+        &["logical_store_id", "scope", "source", "operation_id"],
+        &[],
+    )?;
+    for field in ["logical_store_id", "source", "operation_id"] {
+        inventory::binding::id(m, &key[field], if field == "source" { 256 } else { 128 })?;
+    }
+    let scope = shape::array(m, key, "scope")?;
+    if !w::compare(m, scope.len(), 2usize)?.is_eq() {
+        return Err(shape::fail("cost enrollment key scope"));
+    }
+    for value in scope {
+        inventory::binding::id(m, value, 128)?;
+    }
+    let mut p = WorkingValue::copy(m, &request["payload"])?;
+    shape::closed(
+        m,
+        &p,
+        &[
+            "schema",
+            "authority_id",
+            "provider_account_identities",
+            "evidence_refs",
+        ],
+        &[],
+    )?;
+    literal(m, &p, "schema", "ledger-cost-authority-enroll/1")?;
+    inventory::binding::id(m, &p["authority_id"], 128)?;
+    p.normalize_set(m, "provider_account_identities", false)?;
+    p.normalize_set(m, "evidence_refs", false)?;
+    let accounts = shape::array(m, &p, "provider_account_identities")?;
+    if w::compare(m, accounts.len(), 1usize)?.is_lt()
+        || w::compare(m, accounts.len(), 16usize)?.is_gt()
+    {
+        return Err(shape::fail("supplier account enrollment bound"));
+    }
+    for v in accounts {
+        m.visit("cost.enrollment_account")?;
+        shape::closed(
+            m,
+            v,
+            &["provider_namespace", "provider_account_id", "environment"],
+            &[],
+        )?;
+        for k in ["provider_namespace", "provider_account_id", "environment"] {
+            inventory::binding::id(m, &v[k], if k == "provider_namespace" { 256 } else { 128 })?;
+        }
+    }
+    let evidence = shape::array(m, &p, "evidence_refs")?;
+    if w::compare(m, evidence.len(), 1usize)?.is_lt()
+        || w::compare(m, evidence.len(), 16usize)?.is_gt()
+    {
+        return Err(shape::fail("account enrollment evidence bound"));
+    }
+    for value in evidence {
+        shape::reference(m, value)?;
+    }
+    Ok((request, p))
+}
+/// Exact enrollment intent syntax and set normalization. This owning DATA
+/// neither checks current accounts/evidence nor grants administration authority.
+pub fn normalize_local_cost_authority_enrollment_intent(
+    raw: &[u8],
+    s: &mut OriginalAuditSession,
+) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+    let result = (|| {
+        let (_request, payload) = normalized_request(s.meter_mut(), raw)?;
+        let arena = s.arena().shared_handle();
+        s.meter_mut().canonical_owned_representation(
+            &arena,
+            &payload,
+            RepresentationKind::OriginalRequest,
+        )
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
 fn produce(
     c: &DraftContextData,
     raw: &[u8],
@@ -104,61 +197,10 @@ fn produce(
     if w::compare(m, received, accepted)?.is_gt() {
         return Err(shape::fail("cost enrollment trusted time order"));
     }
-    let request = WorkingValue::parse(m, raw)?;
-    shape::closed(
-        m,
-        &request,
-        &["schema", "key", "kind", "contract", "payload"],
-        &[],
-    )?;
-    literal(m, &request, "schema", "ledger-operation/1")?;
-    literal(m, &request, "contract", "workflow/1")?;
-    literal(m, &request, "kind", "authority.change")?;
+    let (request, p) = normalized_request(m, raw)?;
     let key = super::super::cost_postings::operation_key(m, &a, c)?;
     shape::equal(m, &request["key"], key.value())?;
-    let mut p = WorkingValue::copy(m, &request["payload"])?;
-    shape::closed(
-        m,
-        &p,
-        &[
-            "schema",
-            "authority_id",
-            "provider_account_identities",
-            "evidence_refs",
-        ],
-        &[],
-    )?;
-    literal(m, &p, "schema", "ledger-cost-authority-enroll/1")?;
-    inventory::binding::id(m, &p["authority_id"], 128)?;
-    p.normalize_set(m, "provider_account_identities", false)?;
-    p.normalize_set(m, "evidence_refs", false)?;
     let accounts = shape::array(m, &p, "provider_account_identities")?;
-    if w::compare(m, accounts.len(), 1usize)?.is_lt()
-        || w::compare(m, accounts.len(), 16usize)?.is_gt()
-    {
-        return Err(shape::fail("supplier account enrollment bound"));
-    }
-    for v in accounts {
-        m.visit("cost.enrollment_account")?;
-        shape::closed(
-            m,
-            v,
-            &["provider_namespace", "provider_account_id", "environment"],
-            &[],
-        )?;
-        for k in ["provider_namespace", "provider_account_id", "environment"] {
-            inventory::binding::id(m, &v[k], if k == "provider_namespace" { 256 } else { 128 })?;
-        }
-    }
-    let evidence = shape::array(m, &p, "evidence_refs")?;
-    if w::compare(m, evidence.len(), 1usize)?.is_lt()
-        || w::compare(m, evidence.len(), 16usize)?.is_gt()
-    {
-        return Err(shape::fail("account enrollment evidence bound"));
-    }
-    for value in evidence {
-        shape::reference(m, value)?;
-    }
     let mut records = Records::borrowed_app(m, &a, &c.key, inputs, &[])?;
     let root_value = owning_reference(m, &a, root)?;
     let actor = a.string_value(&c.actor, m)?;
@@ -581,6 +623,14 @@ mod tests {
         changed["payload"]["provider_account_identities"][0]["provider_account_id"] =
             json!("another-account");
         let changed = CanonicalBytes::from_value(&changed).unwrap();
+        let mut intent = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let original_intent =
+            normalize_local_cost_authority_enrollment_intent(raw.as_slice(), &mut intent).unwrap();
+        assert_eq!(original_intent.bytes(), candidate.normalized_payload());
+        let different_intent =
+            normalize_local_cost_authority_enrollment_intent(changed.as_slice(), &mut intent)
+                .unwrap();
+        assert_ne!(original_intent.bytes(), different_intent.bytes());
         let mut mismatch = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
         assert!(construct_local_cost_authority_enrollment(
             &support,
