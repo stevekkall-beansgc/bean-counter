@@ -105,6 +105,7 @@ pub(super) const ARTIFACTS:&[(&str,&[u8])]=&[
     ("supplier-scoped-consent-01/supplier-scoped-consent.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/supplier-scoped-consent.schema.json")),
     ("work-lifecycle-01/SPEC.md",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/SPEC.md")),
     ("work-lifecycle-01/STAGE-SPEC.md",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/STAGE-SPEC.md")),
+    ("work-lifecycle-01/stage-authorization.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-authorization.schema.json")),
     ("work-lifecycle-01/stage-identities.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-identities.json")),
     ("work-lifecycle-01/stage-lifecycle.schema.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-lifecycle.schema.json")),
     ("work-lifecycle-01/stage-registry.json",include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/work-lifecycle-01/stage-registry.json")),
