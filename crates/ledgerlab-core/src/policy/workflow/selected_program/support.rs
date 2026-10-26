@@ -58,6 +58,16 @@ impl SelectedCompilerSupport {
             execution_registry: Some(super::local::DECLARED_LINK_REGISTRY),
         })
     }
+    /// Exact code-owned scalar/unit profile, preserving every prior recipe.
+    pub fn local_policy_semantics_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_policy_semantics_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::POLICY_SEMANTICS_REGISTRY),
+        })
+    }
     #[cfg(test)]
     pub(super) fn legacy_local_for_test(
         session: &mut crate::validation_work::OriginalAuditSession,
