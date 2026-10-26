@@ -42,6 +42,94 @@ fn copy(v: &str, s: &mut OriginalAuditSession) -> Result<String> {
     s.semantic_work().write_bytes(v.len()).map_err(core_error)?;
     Ok(v.to_owned())
 }
+struct SecondaryOriginals {
+    source_index: usize,
+    references: Vec<ExactRef>,
+    _payload: ExternalBufferLease,
+    _control: ExternalBufferLease,
+}
+fn secondary_originals(
+    observed: &ObservedAppBinding,
+    primary: usize,
+    s: &mut OriginalAuditSession,
+) -> Result<(Vec<SecondaryOriginals>, ExternalBufferLease)> {
+    let control = storage(
+        observed.sources.len(),
+        mem::size_of::<SecondaryOriginals>(),
+        s,
+    )?;
+    let mut groups: Vec<SecondaryOriginals> = Vec::new();
+    groups
+        .try_reserve_exact(observed.sources.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    let primary = observed
+        .sources
+        .get(primary)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    for (index, source) in observed.sources.iter().enumerate() {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        if source.current_grant_body().is_none()
+            || same_reference(source.enrollment_ref(), primary.enrollment_ref(), s)?
+        {
+            continue;
+        }
+        let mut duplicate = false;
+        for group in &groups {
+            if same_reference(
+                source.enrollment_ref(),
+                observed.sources[group.source_index].enrollment_ref(),
+                s,
+            )? {
+                duplicate = true;
+            }
+        }
+        if duplicate {
+            continue;
+        }
+        let mut bytes = 0usize;
+        let mut count = 0usize;
+        for original in &observed.sources {
+            if same_reference(source.enrollment_ref(), original.enrollment_ref(), s)? {
+                count = add(count, 1, s)?;
+                let r = original.original_grant_ref();
+                for text in [&r.kind, &r.id, &r.digest] {
+                    bytes = add(bytes, text.len(), s)?;
+                }
+            }
+        }
+        let payload = s.reserve_external_payload(bytes).map_err(core_error)?;
+        let controls = storage(count, mem::size_of::<ExactRef>(), s)?;
+        let mut references = Vec::new();
+        references
+            .try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for original in &observed.sources {
+            if same_reference(source.enrollment_ref(), original.enrollment_ref(), s)? {
+                let r = original.original_grant_ref();
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<ExactRef>())
+                    .map_err(core_error)?;
+                references.push(ExactRef {
+                    kind: copy(&r.kind, s)?,
+                    id: copy(&r.id, s)?,
+                    digest: copy(&r.digest, s)?,
+                });
+            }
+        }
+        s.semantic_work()
+            .write_bytes(mem::size_of::<SecondaryOriginals>())
+            .map_err(core_error)?;
+        groups.push(SecondaryOriginals {
+            source_index: index,
+            references,
+            _payload: payload,
+            _control: controls,
+        });
+    }
+    Ok((groups, control))
+}
 pub(super) fn with_capture<T>(
     observed: &ObservedAppBinding,
     key: &OperationKey,
@@ -154,13 +242,45 @@ pub(super) fn with_capture<T>(
         .arithmetic(Op::Compare, &[&slots.len().into(), &32usize.into()])
         .map_err(core_error)?;
     require(slots.len() <= 32, "INVALID_SHAPE")?;
-    let _frame_owner = storage(slots.len(), mem::size_of::<SourceAuthorityCapture<'_>>(), s)?;
+    // Exact operation-derived original slots are DATA from the same owning
+    // locator. The final interpreter independently rechecks every authority.
+    let required_slots = observed
+        .local_locators
+        .as_ref()
+        .map(|l| l.required_authority_slots())
+        .filter(|slots| !slots.is_empty());
+    let lifecycle_roles = observed
+        .original
+        .publication
+        .program()
+        .uses_work_lifecycle_recipe()
+        && required_slots.is_some();
+    let secondary = if lifecycle_roles {
+        Some(secondary_originals(observed, source_index, s)?)
+    } else {
+        None
+    };
+    let frame_capacity = if observed
+        .original
+        .publication
+        .program()
+        .uses_work_lifecycle_recipe()
+    {
+        32
+    } else {
+        slots.len()
+    };
+    let _frame_owner = storage(
+        frame_capacity,
+        mem::size_of::<SourceAuthorityCapture<'_>>(),
+        s,
+    )?;
     let _capture_owner = s
         .reserve_external_payload(mem::size_of::<EconomicCapture<'_>>())
         .map_err(core_error)?;
     let mut frames = Vec::new();
     frames
-        .try_reserve_exact(slots.len())
+        .try_reserve_exact(frame_capacity)
         .map_err(|_| ServiceError::Unavailable)?;
     let selected_slot = observed
         .work_source_slot
@@ -172,13 +292,6 @@ pub(super) fn with_capture<T>(
         .transpose()?;
     let payload_schema = check::text(payload, "schema", s)?;
     let selecting_work = payload_schema == "ledger-workflow-work/1" && selected_slot.is_none();
-    // Exact operation-derived original slots are DATA from the same owning
-    // locator. The final interpreter independently rechecks every authority.
-    let required_slots = observed
-        .local_locators
-        .as_ref()
-        .map(|l| l.required_authority_slots())
-        .filter(|slots| !slots.is_empty());
     let mut fact_slot = None;
     if payload_schema == "ledger-workflow-fact-attest/1" {
         let att = check::field(payload, "attestation", s)?;
@@ -262,36 +375,113 @@ pub(super) fn with_capture<T>(
                 nominated = true
             }
         }
-        if !nominated {
-            continue;
+        if nominated {
+            require(frames.len() < frame_capacity, "UNSUPPORTED_COMPOSITION")?;
+            s.semantic_work()
+                .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
+                .map_err(core_error)?;
+            if required_slots.is_none() && !selecting_work && !frames.is_empty() {
+                continue;
+            }
+            frames.push(SourceAuthorityCapture {
+                source_slot: name,
+                source: &key.source,
+                principal: actor,
+                canonical_economic_namespace: namespace,
+                enrollment_ref: source.enrollment_ref(),
+                current_state_ref: source.state_ref(),
+                current_grant_ref: source
+                    .current_grant_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?,
+                original_grant_refs: &originals,
+                binding_ref: observed.original.acceptance.binding.reference(),
+                accepted_agreement_ref: observed.original.acceptance.accepted_reference(),
+                activation_ref: activation.activation.reference(),
+            });
         }
-        s.semantic_work()
-            .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
-            .map_err(core_error)?;
-        if required_slots.is_none() && !selecting_work && !frames.is_empty() {
-            continue;
+        if lifecycle_roles {
+            if let Some((groups, _)) = &secondary {
+                for group in groups {
+                    let other = &observed.sources[group.source_index];
+                    let grant = other
+                        .current_grant_body()
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let actual_source = check::text(grant, "source", s)?;
+                    let mut eligible_nominee = false;
+                    for nominee in nominees {
+                        if equal(
+                            nominee.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                            actual_source,
+                            s,
+                        )? {
+                            eligible_nominee = true;
+                        }
+                    }
+                    if !eligible_nominee {
+                        continue;
+                    }
+                    require(frames.len() < frame_capacity, "UNSUPPORTED_COMPOSITION")?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
+                        .map_err(core_error)?;
+                    frames.push(SourceAuthorityCapture {
+                        source_slot: name,
+                        source: actual_source,
+                        principal: actor,
+                        canonical_economic_namespace: check::text(
+                            grant,
+                            "canonical_economic_namespace",
+                            s,
+                        )?,
+                        enrollment_ref: other.enrollment_ref(),
+                        current_state_ref: other.state_ref(),
+                        current_grant_ref: other
+                            .current_grant_ref()
+                            .ok_or(ServiceError::IntegrityFailure)?,
+                        original_grant_refs: &group.references,
+                        binding_ref: observed.original.acceptance.binding.reference(),
+                        accepted_agreement_ref: observed.original.acceptance.accepted_reference(),
+                        activation_ref: activation.activation.reference(),
+                    });
+                }
+            }
         }
-        frames.push(SourceAuthorityCapture {
-            source_slot: name,
-            source: &key.source,
-            principal: actor,
-            canonical_economic_namespace: namespace,
-            enrollment_ref: source.enrollment_ref(),
-            current_state_ref: source.state_ref(),
-            current_grant_ref: source
-                .current_grant_ref()
-                .ok_or(ServiceError::IntegrityFailure)?,
-            original_grant_refs: &originals,
-            binding_ref: observed.original.acceptance.binding.reference(),
-            accepted_agreement_ref: observed.original.acceptance.accepted_reference(),
-            activation_ref: activation.activation.reference(),
-        });
     }
     if let Some(required) = required_slots {
         s.semantic_work()
             .arithmetic(Op::Compare, &[&frames.len().into(), &required.len().into()])
             .map_err(core_error)?;
-        require(frames.len() == required.len(), "AUTHORITY_REQUIRED")?;
+        if lifecycle_roles {
+            for wanted in required {
+                let mut found = false;
+                for frame in &frames {
+                    if equal(frame.source_slot, wanted, s)? {
+                        found = true;
+                    }
+                }
+                require(found, "AUTHORITY_REQUIRED")?;
+            }
+        } else {
+            require(frames.len() == required.len(), "AUTHORITY_REQUIRED")?;
+        }
+    }
+    if lifecycle_roles {
+        // The initiating snapshot remains primary even when a dependent slot
+        // sorts before its correction slot. Role selection never uses this
+        // order to choose a secondary nominee.
+        let mut primary_count = 0usize;
+        for index in 0..frames.len() {
+            if equal(frames[index].source, &key.source, s)? {
+                if index != primary_count {
+                    s.semantic_work()
+                        .write_bytes(2 * mem::size_of::<SourceAuthorityCapture<'_>>())
+                        .map_err(core_error)?;
+                    frames.swap(index, primary_count);
+                }
+                primary_count = add(primary_count, 1, s)?;
+            }
+        }
+        require(primary_count > 0, "AUTHORITY_REQUIRED")?;
     }
     let capture = EconomicCapture {
         key: &core_key,
@@ -415,6 +605,45 @@ pub(super) fn source_index(
     }
 
     representative.ok_or_else(|| reject("AUTHORITY_REQUIRED"))
+}
+
+/// Current canonical registrations for the operation's actual nominated roles.
+/// This point-read stage never selects a nominee or grants its role rights.
+pub(super) async fn required_role_registrations(
+    observed: &ObservedAppBinding,
+    locators: &ledgerlab_core::policy::workflow::transition_constructor::LocalOperationLocators,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    if !observed.original.publication.program().uses_work_lifecycle_recipe() {
+        return Ok(());
+    }
+    let binding = observed._parsed_binding.value();
+    let slots = check::field(binding, "source_slots", s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+    for source in &observed.sources {
+        s.semantic_work().visit(ValidationVisit::Element).map_err(core_error)?;
+        let Some(grant) = source.current_grant_body() else { continue; };
+        let name = check::text(grant, "source", s)?;
+        let mut relevant = false;
+        for required in locators.required_authority_slots() {
+            for slot in slots {
+                if !equal(check::text(slot, "name", s)?, required, s)? { continue; }
+                for nominee in check::field(slot, "sources", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
+                    if equal(nominee.as_str().ok_or(ServiceError::IntegrityFailure)?, name, s)? { relevant = true; }
+                }
+            }
+        }
+        if !relevant { continue; }
+        check::same_text(check::text(grant, "principal_id", s)?, &observed.setup.operator, s)?;
+        check::same_text(check::text(grant, "canonical_economic_namespace", s)?, name, s)?;
+        require(tx.workflow_financial_registered_source(
+            &key.logical_store_id, &key.scope,
+            check::text(source.enrollment_record().body(), "enrollment_id", s)?,
+            &source.enrollment_ref().id, name, s,
+        ).await.map_err(prefix::read_error)?, "AUTHORITY_REQUIRED")?;
+    }
+    Ok(())
 }
 pub(super) struct InputPool<'a> {
     pub(super) rows: Vec<EconomicRecordView<'a>>,

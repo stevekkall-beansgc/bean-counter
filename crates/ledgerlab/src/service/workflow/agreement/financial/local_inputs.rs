@@ -9,7 +9,7 @@ use ledgerlab_core::{
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
 mod lifecycle;
-pub(super) use lifecycle::retain_work_claim;
+pub(super) use lifecycle::{core_key_with_owner, retain_work_claim};
 
 struct Row {
     reference: ExactRef,

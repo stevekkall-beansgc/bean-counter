@@ -288,6 +288,7 @@ pub(in super::super::super) async fn observe(
                 o.original.publication.program(),
                 &ck,
                 &state.financial.decision_heads,
+                &state.capacities,
                 &pool.views(),
                 s,
             )
@@ -500,6 +501,7 @@ pub(in super::super::super) async fn observe(
         pool.complete_lifecycle(program, tx, key, o.before, s)
             .await?;
     }
+    work_capture::required_role_registrations(&o, &locators, tx, key, s).await?;
     o.work_state = Some(state);
     o.local_input_bodies = Some(pool);
     o.work_source_index = Some(index);

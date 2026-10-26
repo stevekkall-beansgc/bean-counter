@@ -322,7 +322,13 @@ pub(in super::super) async fn reconstruct(
                             .flat_map(current::source::ObservedSource::record_refs),
                     )
                     .chain(consents.selected_refs())
-                    .chain(head_records.prior_ref()),
+                    .chain(head_records.prior_ref())
+                    .chain(
+                        original
+                            .context_references
+                            .iter()
+                            .flat_map(lifecycle::ContextReferences::references),
+                    ),
                 s,
             )
             .await?
@@ -650,5 +656,11 @@ impl ReplayedAcceptance {
                 }
             })
             .chain(self.private_documents.record_views())
+            .chain(
+                self.original
+                    .context_references
+                    .iter()
+                    .flat_map(lifecycle::ContextReferences::views),
+            )
     }
 }

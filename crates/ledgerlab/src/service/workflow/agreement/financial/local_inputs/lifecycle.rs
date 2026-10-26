@@ -164,6 +164,29 @@ impl LocalInputs {
                     .checked_wrappers(tx, s)
                     .await?;
                 retain_work_claim(tx, key, before, &work, &origin, self, s).await?;
+                let initial = unique_result(origin.wrappers().receipt(), "workflow-decision", s)?;
+                origin.require_member(initial, s)?;
+                let initial = source::retained_local_record(
+                    tx,
+                    key,
+                    initial,
+                    ("workflow-decision", "ledger-workflow-decision-revision/1"),
+                    before,
+                    s,
+                )
+                .await?;
+                check::same_text(check::text(initial.body(), "revision", s)?, "1", s)?;
+                equal(
+                    check::field(initial.body(), "subject_ref", s)?,
+                    value.value(),
+                    s,
+                )?;
+                equal(
+                    check::field(initial.body(), "operation_key", s)?,
+                    check::field(work.body(), "key", s)?,
+                    s,
+                )?;
+                self.add(initial.reference(), s)?;
             }
             self.rows[index].lifecycle_processed = true;
             self.complete(tx, key, before, s).await?;
@@ -172,7 +195,7 @@ impl LocalInputs {
         Ok(())
     }
 }
-fn core_key_with_owner(
+pub(super) fn core_key_with_owner(
     key: &OperationKey,
     s: &mut OriginalAuditSession,
 ) -> Result<(CoreKey, ExternalBufferLease)> {

@@ -159,6 +159,12 @@ impl TargetedAcceptance {
             canonical_body: self.accepted.canonical_body(),
         }))
         .chain(self.private_documents.record_views())
+        .chain(
+            self.original
+                .context_references
+                .iter()
+                .flat_map(lifecycle::ContextReferences::views),
+        )
     }
     pub(in super::super) fn require_local_admission_sources(
         &self,

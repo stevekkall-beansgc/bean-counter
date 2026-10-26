@@ -11,6 +11,7 @@ mod consent;
 pub(super) use consent::CurrentPlatformConsents;
 mod customer;
 mod emit;
+mod lifecycle;
 mod local;
 mod nominations;
 mod private;
@@ -774,6 +775,7 @@ pub(super) struct ReconstructedAcceptance {
     _stored_terms: crate::store::sqlite::workflow::financial::RetainedDocument,
     at: Timestamp,
     _time_storage: ExternalBufferLease,
+    context_references: Option<lifecycle::ContextReferences>,
 }
 pub(super) async fn reconstruct(
     tx: &mut SqliteTx,
@@ -931,6 +933,16 @@ async fn reconstruct_inner(
         session,
     )?;
     same_bytes(stored_binding.body.bytes(), binding.bytes(), session)?;
+    let context_references = lifecycle::acquire(
+        tx,
+        origin.key(),
+        publication,
+        &binding,
+        origin.wrappers().sequence(),
+        at.as_str(),
+        session,
+    )
+    .await?;
     Ok(ReconstructedAcceptance {
         input,
         binding,
@@ -938,6 +950,7 @@ async fn reconstruct_inner(
         _stored_terms: retained,
         at,
         _time_storage,
+        context_references,
     })
 }
 
@@ -963,6 +976,7 @@ pub(super) struct PendingAppAcceptance {
     normalized: request::NormalizedAcceptance,
     _prefix: Option<prefix::FoldedInventory>,
     local_members: Option<prefix::ResolvedMembers>,
+    _context_references: Option<lifecycle::ContextReferences>,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
@@ -1283,6 +1297,16 @@ async fn prepare_selected(
             &consents,
             session,
         )?;
+        let context_references = lifecycle::acquire(
+            tx,
+            incoming.key(),
+            &publication,
+            &binding,
+            before,
+            at.as_str(),
+            session,
+        )
+        .await?;
         let local_members = if local {
             Some(
                 prefix::ResolvedMembers::local_selected(
@@ -1310,7 +1334,12 @@ async fn prepare_selected(
                                 .flat_map(current::source::ObservedSource::record_refs),
                         )
                         .chain(consents.selected_refs())
-                        .chain(head_records.prior_ref()),
+                        .chain(head_records.prior_ref())
+                        .chain(
+                            context_references
+                                .iter()
+                                .flat_map(lifecycle::ContextReferences::references),
+                        ),
                     session,
                 )
                 .await?,
@@ -1336,6 +1365,7 @@ async fn prepare_selected(
             normalized,
             _prefix: prefix,
             local_members,
+            _context_references: context_references,
             _sources_storage: sources_storage,
             _time_storage: time_storage,
         })
