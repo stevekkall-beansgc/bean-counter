@@ -46,6 +46,8 @@ pub use candidate::{
 mod invocation;
 pub use invocation::{select_invocation_operation_locators, InvocationOperationLocators};
 mod stage;
+mod stage_locators;
+pub use stage_locators::{select_stage_operation_locators, StageOperationLocators, StageExpectedHeadLocator};
 pub use stage::{
     select_stage_work_head_locator, select_work_invocation_head_locators, StageWorkHeadLocator,
     WorkInvocationHeadLocator, WorkInvocationHeadLocators,
