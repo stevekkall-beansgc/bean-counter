@@ -341,6 +341,50 @@ pub fn normalize_local_saved_intent(
     result
 }
 
+/// Comparison DATA for a fresh-key Work alias under its authenticated ORIGINAL
+/// program. Current write/read and the new alias journal remain host/core gates.
+/// Only the transport event label is replaced; every economic field/proof stays.
+pub fn normalize_local_work_alias_intent(
+    program: &SelectedProgram,
+    original_normalized_payload: &[u8],
+    incoming_raw: &[u8],
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let result = (|| {
+        session.check_cancelled()?;
+        program.require_attempt_owner(session.meter_mut())?;
+        if !program.uses_shared_namespace_recipe() {
+            return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "exact shared Work alias recipe"));
+        }
+        let normalized = normalize_local_saved_intent(program, original_normalized_payload, incoming_raw, session)?;
+        let original = session.parse_representation(original_normalized_payload, RepresentationKind::OriginalRequest)?;
+        let mut incoming = session.parse_representation(normalized.bytes(), RepresentationKind::OriginalRequest)?;
+        for value in [original.value(), incoming.value()] {
+            let schema = shape::text(session.meter_mut(), value, "schema")?;
+            if !shape::same_text(session.meter_mut(), schema, "ledger-workflow-work/1")? {
+                return Err(conflict());
+            }
+            let event = shape::text(session.meter_mut(), value, "external_event_id")?;
+            if !w::compare(session.meter_mut(), event.len(), 0usize)?.is_gt()
+                || w::compare(session.meter_mut(), event.len(), 128usize)?.is_gt() {
+                return Err(shape::fail("alias transport event bound"));
+            }
+            session.meter_mut().scan_bytes(event.len())?;
+            for ch in event.chars() {
+                session.meter_mut().visit("alias.transport_character")?;
+                if ch.is_control() { return Err(shape::fail("alias transport control character")); }
+            }
+        }
+        let arena = session.arena().shared_handle();
+        let event = shape::field(session.meter_mut(), original.value(), "external_event_id")?;
+        let event = arena.clone_value(event, session.meter_mut())?;
+        incoming.replace_existing_owned("external_event_id", event, session.meter_mut())?;
+        session.canonical_representation(incoming.value(), RepresentationKind::OriginalRequest)
+    })();
+    if result.is_err() { session.invalidate(); }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

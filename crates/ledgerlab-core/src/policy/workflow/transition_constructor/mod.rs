@@ -72,7 +72,7 @@ pub use financial_observation::audit_stream::{
 mod family_context;
 mod funding;
 mod intent;
-pub use intent::{normalize_local_saved_intent, normalize_saved_intent};
+pub use intent::{normalize_local_saved_intent, normalize_local_work_alias_intent, normalize_saved_intent};
 mod emitted_record;
 #[cfg(test)]
 mod legacy_original_compatibility;
