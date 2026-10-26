@@ -142,11 +142,18 @@ pub(in super::super::super) async fn observe(
         let held =
             work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)
                 .await?;
+        o._relation_head = Some(held);
         let seed = s
-            .parse_representation(held.seed.bytes(), RepresentationKind::Record)
+            .parse_representation(
+                o._relation_head
+                    .as_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .seed
+                    .bytes(),
+                RepresentationKind::Record,
+            )
             .map_err(core_error)?;
         pool.payload_refs(seed.value(), s)?;
-        o._relation_head = Some(held);
     }
     for identity in locators.record_identities() {
         if let Some(row) = tx

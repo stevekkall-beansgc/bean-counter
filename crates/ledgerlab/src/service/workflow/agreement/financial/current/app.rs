@@ -199,11 +199,19 @@ pub(in super::super) async fn observe(
                     session,
                 )
                 .await?;
+                observed._relation_head = Some(held);
                 let seed = session
-                    .parse_representation(held.seed.bytes(), RepresentationKind::Record)
+                    .parse_representation(
+                        observed
+                            ._relation_head
+                            .as_ref()
+                            .ok_or(ServiceError::IntegrityFailure)?
+                            .seed
+                            .bytes(),
+                        RepresentationKind::Record,
+                    )
                     .map_err(core_error)?;
                 pool.payload_refs(seed.value(), session)?;
-                observed._relation_head = Some(held);
             }
             pool.payload_refs(parsed_seeds.value(), session)?;
             pool.payload_refs(parsed_heads.value(), session)?;
