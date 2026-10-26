@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).with_name("e2e")))
 import workflow_metered as metered
 import workflow_attested as attested
 import workflow_conditional as conditional
+import workflow_declared_link as declared
 import workflow_supported as supported
 
 
@@ -305,6 +306,26 @@ class TotalObserverTests(unittest.TestCase):
             self.put(action_ref, changed)
             with self.assertRaises(AssertionError):
                 self.journey.total("main", 2)
+
+    def test_outcome_claim_shape_requires_exact_observer_recipe(self):
+        target_ref, claim_ref = ref("target", "workflow-target"), ref("claim", "workflow-outcome-claim")
+        target = {"schema": "ledger-workflow-component-target/1", "work_ref": self.work,
+                  "binding_ref": self.binding, "scope": self.key["scope"]}
+        claim = {"schema": "ledger-workflow-outcome-claim/2", "target_ref": target_ref,
+                 "scope": self.key["scope"], "original_payload": {
+                     "target_ref": target_ref, "binding_ref": self.binding,
+                     "selector_start_work_ref": ref("report", "workflow-work")}}
+        self.put(target_ref, target)
+        self.put(claim_ref, claim)
+        self.put(ref("outcome"), dict(self.decision, subject_ref=claim_ref, decision_id="outcome"))
+        with self.assertRaises(AssertionError):
+            self.journey.total("main", 0)
+        self.journey.outcome_claim_schema = declared.DeclaredLinkJourney.outcome_claim_schema
+        self.journey.total("main", 0)
+        claim["schema"] = "ledger-workflow-outcome-claim/1"
+        self.put(claim_ref, claim)
+        with self.assertRaises(AssertionError):
+            self.journey.total("main", 0)
 
 
 if __name__ == "__main__":

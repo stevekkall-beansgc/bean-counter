@@ -16,7 +16,7 @@ mod effects;
 mod family;
 mod heads;
 mod work;
-pub(crate) use binding_links::{BindingLinkCursor, BindingLinkLocator};
+pub(crate) use binding_links::BindingLinkCursor;
 pub(crate) use family::FamilyIdentityHead;
 mod source;
 pub(crate) use source::SourceHeadLocator;

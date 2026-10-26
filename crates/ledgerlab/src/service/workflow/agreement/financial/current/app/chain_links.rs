@@ -134,6 +134,22 @@ fn result_member(receipt: &Value, reference: &Value, s: &mut OriginalAuditSessio
     }
     require(count == 1, "INTEGRITY_FAILURE")
 }
+fn unique_result<'a>(
+    receipt: &'a Value,
+    kind: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<&'a Value> {
+    let mut selected = None;
+    for reference in check::field(receipt, "result_refs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        if check::text(reference, "kind", s)? == kind {
+            require(selected.replace(reference).is_none(), "INTEGRITY_FAILURE")?;
+        }
+    }
+    selected.ok_or(ServiceError::IntegrityFailure)
+}
 pub(super) struct Selection<'a> {
     pub(super) binding: &'a ExactRef,
     pub(super) customer: &'a str,
@@ -224,11 +240,9 @@ pub(super) async fn acquire(
             )
             .map_err(core_error)?;
         if customer == selected.customer && chain == selected.chain {
+            let producer_key = check::field(link.body(), "operation_key", s)?;
             let identity = s
-                .canonical_representation(
-                    check::field(link.body(), "operation_key", s)?,
-                    RepresentationKind::Record,
-                )
+                .canonical_representation(producer_key, RepresentationKind::Record)
                 .map_err(core_error)?;
             let origin = prefix::target(tx, key, identity, s)
                 .await?
@@ -290,7 +304,47 @@ pub(super) async fn acquire(
                 check::field(child_body.body(), "original_payload", s)?
             };
             equal(check::field(normalized, "payload", s)?, child_payload, s)?;
+            let initial = unique_result(origin.wrappers().receipt(), "workflow-decision", s)?;
+            let initial_body = source::retained_record(
+                tx,
+                key,
+                initial,
+                "workflow-decision",
+                "ledger-workflow-decision-revision/1",
+                selected.before,
+                s,
+            )
+            .await?;
+            equal(
+                check::field(initial_body.body(), "subject_ref", s)?,
+                child.value(),
+                s,
+            )?;
+            equal(
+                check::field(initial_body.body(), "authority_ref", s)?,
+                check::field(link.body(), "authority_ref", s)?,
+                s,
+            )?;
+            check::same_text(check::text(initial_body.body(), "revision", s)?, "1", s)?;
+            pool.add(initial_body.reference(), s)?;
             if child_kind == "workflow-work" {
+                let claim = unique_result(origin.wrappers().receipt(), "workflow-work-claim", s)?;
+                let claim_body = source::retained_record(
+                    tx,
+                    key,
+                    claim,
+                    "workflow-work-claim",
+                    "ledger-workflow-work-claim/1",
+                    selected.before,
+                    s,
+                )
+                .await?;
+                equal(
+                    check::field(claim_body.body(), "work_ref", s)?,
+                    child.value(),
+                    s,
+                )?;
+                pool.add(claim_body.reference(), s)?;
                 let mut matches = 0usize;
                 for input in check::field(child_payload, "links", s)?
                     .as_array()

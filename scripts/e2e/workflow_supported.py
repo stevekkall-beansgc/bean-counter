@@ -69,6 +69,7 @@ def material(text):
 class Journey:
     fixture_directory = FIXTURES
     quantity = "20"
+    outcome_claim_schema = "ledger-workflow-outcome-claim/1"
 
     def source_documents(self):
         return json.loads((self.fixture_directory / "source.json").read_bytes())["documents"]
@@ -272,7 +273,7 @@ class Journey:
                 subject_work = subject
             elif subject["kind"] == "workflow-outcome-claim":
                 claim = self.document(subject)
-                assert claim["schema"] == "ledger-workflow-outcome-claim/1"
+                assert claim["schema"] == self.outcome_claim_schema
                 target = self.document(claim["target_ref"])
                 assert target["schema"] == "ledger-workflow-component-target/1"
                 subject_work = target["work_ref"]
