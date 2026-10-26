@@ -203,6 +203,24 @@ pub fn construct_local_work_alias_candidate(
             "ledger-workflow-work-record/1",
         )?;
         let op = canonical_view(operation_view, s)?;
+        shape::closed(
+            s.meter_mut(),
+            op.value(),
+            &[
+                "schema",
+                "key",
+                "kind",
+                "contract",
+                "request_evidence",
+                "authority_snapshot",
+                "received_at",
+                "accepted_at",
+                "commit_sequence",
+                "result_refs",
+                "closure_profile",
+            ],
+            &[],
+        )?;
         literal(
             s.meter_mut(),
             op.value(),
@@ -210,6 +228,7 @@ pub fn construct_local_work_alias_candidate(
             "ledger-workflow-economic-operation/10",
         )?;
         literal(s.meter_mut(), op.value(), "kind", "work.accept")?;
+        literal(s.meter_mut(), op.value(), "contract", "workflow/1")?;
         literal(
             s.meter_mut(),
             op.value(),
@@ -227,6 +246,9 @@ pub fn construct_local_work_alias_candidate(
         let scope = super::super::work_keys::scope(s.meter_mut(), original_key)?;
         shape::equal(s.meter_mut(), &work.value()["key"]["scope"], scope.value())?;
         shape::equal(s.meter_mut(), &op.value()["key"], &work.value()["key"])?;
+        for k in ["received_at", "accepted_at"] {
+            shape::equal(s.meter_mut(), &op.value()[k], &work.value()[k])?;
+        }
         if !shape::same_text(
             s.meter_mut(),
             &original_key.logical_store_id,
@@ -254,6 +276,51 @@ pub fn construct_local_work_alias_candidate(
             s.meter_mut(),
             original_payload.bytes(),
             original.normalized_payload(),
+        )?;
+        let mut original_authority = None;
+        for row in original.introduced() {
+            s.meter_mut()
+                .visit("alias.original_authority_introduction")?;
+            if shape::same_ref(
+                s.meter_mut(),
+                row.reference(),
+                original.result_metadata().authority_ref(),
+            )? {
+                if original_authority.is_some() {
+                    return Err(shape::fail("ambiguous original alias authority"));
+                }
+                original_authority = Some(row);
+            }
+        }
+        let original_authority =
+            original_authority.ok_or_else(|| shape::fail("missing original alias authority"))?;
+        let original_authority = s.parse_representation(
+            original_authority.canonical_body(),
+            RepresentationKind::Authority,
+        )?;
+        shape::equal(
+            s.meter_mut(),
+            &op.value()["authority_snapshot"],
+            original_authority.value(),
+        )?;
+        let constants = s.parse_representation(
+            br#"{"schema":"ledger-operation/1","kind":"work.accept","contract":"workflow/1"}"#,
+            RepresentationKind::SourceDefinition,
+        )?;
+        let normalized = a.object_from_fields(
+            &[
+                ("schema", &constants.value()["schema"]),
+                ("key", &work.value()["key"]),
+                ("kind", &constants.value()["kind"]),
+                ("contract", &constants.value()["contract"]),
+                ("payload", &work.value()["payload"]),
+            ],
+            s.meter_mut(),
+        )?;
+        shape::equal(
+            s.meter_mut(),
+            &op.value()["request_evidence"]["normalized_request"],
+            normalized.value(),
         )?;
         let mut matched = false;
         for row in original.introduced() {

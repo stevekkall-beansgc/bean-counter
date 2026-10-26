@@ -295,7 +295,12 @@ pub fn reconstruct_original_candidate<'a>(
                 digest,
             )?;
         }
-        let mut child = session.meter_mut().original_economic_meter()?;
+        let local_parent_budget = local && program.uses_local_parent_budget_recipe();
+        let mut child = if local_parent_budget {
+            session.meter_mut().local_economic_meter()?
+        } else {
+            session.meter_mut().original_economic_meter()?
+        };
         let construction = construct::execute_complete(
             program,
             c,
@@ -306,7 +311,9 @@ pub fn reconstruct_original_candidate<'a>(
         )?;
         let assembly =
             Assembly::derive(&mut child, c, program, saved.original_state, construction)?;
-        assembly.require_complete_capacity_and_resources(&mut child)?;
+        if !local {
+            assembly.require_complete_capacity_and_resources(&mut child)?;
+        }
         let candidate = if local {
             assembly.into_local(c, &mut child)?
         } else {
@@ -314,7 +321,11 @@ pub fn reconstruct_original_candidate<'a>(
                 .ok_or_else(|| unfinished("completed original AUTH03 witness stream is missing"))?;
             assembly.into_complete(c, audit, &mut child)?
         };
-        session.meter_mut().finish_original_economic(child)?;
+        if local_parent_budget {
+            session.meter_mut().finish_local_economic(child)?;
+        } else {
+            session.meter_mut().finish_original_economic(child)?;
+        }
         // Only historical N/wrapper comparison belongs to the original parent.
         // The SAME constructor/capacity/owning assembly stays inside the consuming
         // economic child in both fresh and saved entry points.
