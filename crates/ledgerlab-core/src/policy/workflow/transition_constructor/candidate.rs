@@ -10,6 +10,11 @@ pub(super) mod introductions;
 pub(super) mod reservations;
 
 pub enum FinancialHeadKey {
+    Stage {
+        agreement: String,
+        chain: String,
+        stage: String,
+    },
     Decision {
         decision_id: String,
     },

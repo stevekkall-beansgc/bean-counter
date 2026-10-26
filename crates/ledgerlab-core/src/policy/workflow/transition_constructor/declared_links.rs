@@ -998,6 +998,7 @@ mod tests {
                     reference: decision.reference.clone(),
                 }],
                 family_heads: vec![],
+                stage_heads: vec![],
                 work_claims: vec![],
                 outcome_claims: vec![],
                 links: vec![],

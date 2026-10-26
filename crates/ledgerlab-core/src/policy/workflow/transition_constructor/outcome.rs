@@ -3013,6 +3013,7 @@ mod local_head_view_tests {
                 },
             ],
             family_heads: vec![],
+            stage_heads: vec![],
             work_claims: vec![],
             outcome_claims: vec![],
             links: vec![],

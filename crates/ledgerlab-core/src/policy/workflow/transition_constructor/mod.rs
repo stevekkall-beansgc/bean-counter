@@ -32,7 +32,8 @@ pub use data::{
     AppStateData, AuthorityContextData, CapacityHead, CostHead, CostOwnerHead, DecisionHead,
     DraftContextData, DraftEnvelope, DraftStateData, DraftTransition, EconomicObservationInput,
     EconomicRecordView, EconomicStateData, ExactRef, FamilyHead, InvocationHead, OperationKey,
-    PartyAuthorizationHead, ProposedHeads, RecordInput, SavedFinancialInput, SupplierStateData,
+    PartyAuthorizationHead, ProposedHeads, RecordInput, SavedFinancialInput, StageHead,
+    SupplierStateData,
 };
 mod app_cost;
 mod authority;

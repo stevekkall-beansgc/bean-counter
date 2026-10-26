@@ -246,6 +246,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             )
     }
     pub(in crate::policy::workflow) fn uses_local_operator_resource_recipe(&self) -> bool {
@@ -258,6 +259,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             )
     }
     pub(in crate::policy::workflow) fn uses_conditional_work_recipe(&self) -> bool {
@@ -268,6 +270,7 @@ impl SelectedProgram {
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         )
     }
     pub fn uses_declared_work_link_recipe(&self) -> bool {
@@ -279,16 +282,25 @@ impl SelectedProgram {
             SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         )
     }
     pub fn uses_policy_context_recipe(&self) -> bool {
         matches!(
             self.recipe,
-            SelectedRecipe::LocalPolicySemantics2 | SelectedRecipe::LocalWorkLifecycle1
+            SelectedRecipe::LocalPolicySemantics2
+                | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         )
     }
+    pub fn uses_shared_namespace_recipe(&self) -> bool {
+        matches!(self.recipe, SelectedRecipe::LocalWorkLifecycle2)
+    }
     pub fn uses_work_lifecycle_recipe(&self) -> bool {
-        matches!(self.recipe, SelectedRecipe::LocalWorkLifecycle1)
+        matches!(
+            self.recipe,
+            SelectedRecipe::LocalWorkLifecycle1 | SelectedRecipe::LocalWorkLifecycle2
+        )
     }
     /// Only the new exact code-owned descriptor admits this pretyped enum
     /// equality. The accepted immutable context is supplied by each consumer.
@@ -864,6 +876,7 @@ enum SelectedRecipe {
     LocalPolicySemantics1,
     LocalPolicySemantics2,
     LocalWorkLifecycle1,
+    LocalWorkLifecycle2,
 }
 impl SelectedRecipe {
     fn policy_schema(self) -> &'static str {
@@ -876,7 +889,8 @@ impl SelectedRecipe {
             | Self::LocalDeclaredLink1
             | Self::LocalPolicySemantics1
             | Self::LocalPolicySemantics2
-            | Self::LocalWorkLifecycle1 => "ledger-workflow-policy/4",
+            | Self::LocalWorkLifecycle1
+            | Self::LocalWorkLifecycle2 => "ledger-workflow-policy/4",
             Self::AppOwnedCost1 => "ledger-workflow-policy/3",
             Self::FamilyClose1 | Self::OwnerLocalCost1 | Self::SupplierScopedConsent1 => {
                 "ledger-workflow-policy/2"
@@ -893,7 +907,8 @@ impl SelectedRecipe {
             | Self::LocalDeclaredLink1
             | Self::LocalPolicySemantics1
             | Self::LocalPolicySemantics2
-            | Self::LocalWorkLifecycle1 => "ledger-workflow-compiled-plan/8",
+            | Self::LocalWorkLifecycle1
+            | Self::LocalWorkLifecycle2 => "ledger-workflow-compiled-plan/8",
             Self::LocalParentBudget1 => "ledger-workflow-compiled-plan/7",
             Self::AppCostCausal1 => "ledger-workflow-compiled-plan/6",
             Self::AppOwnedCost1 => "ledger-workflow-compiled-plan/5",
@@ -912,7 +927,8 @@ impl SelectedRecipe {
             | Self::LocalDeclaredLink1
             | Self::LocalPolicySemantics1
             | Self::LocalPolicySemantics2
-            | Self::LocalWorkLifecycle1 => "ledger-policy-compiler/app-cost-causal-1",
+            | Self::LocalWorkLifecycle1
+            | Self::LocalWorkLifecycle2 => "ledger-policy-compiler/app-cost-causal-1",
             Self::AppOwnedCost1 => "ledger-policy-compiler/app-owned-cost-1",
             Self::SupplierScopedConsent1 => "ledger-policy-compiler/supplier-scoped-consent-1",
         }
@@ -937,6 +953,7 @@ fn declared_link_usage(m: &mut CoreMeter, recipe: SelectedRecipe, policy: &Polic
         SelectedRecipe::LocalPolicySemantics1
             | SelectedRecipe::LocalPolicySemantics2
             | SelectedRecipe::LocalWorkLifecycle1
+            | SelectedRecipe::LocalWorkLifecycle2
     ) {
         return Ok(matches!(recipe, SelectedRecipe::LocalDeclaredLink1));
     }
@@ -978,7 +995,10 @@ fn normalize_policy_predicates(
             .activity_with_work(&rule.activity, m)?
             .ok_or_else(|| err("predicate activity"))?;
         let schema = predicate_schema(m, schemas, activity.fact_schema_id())?;
-        if matches!(recipe, SelectedRecipe::LocalWorkLifecycle1) {
+        if matches!(
+            recipe,
+            SelectedRecipe::LocalWorkLifecycle1 | SelectedRecipe::LocalWorkLifecycle2
+        ) {
             predicate::normalize_work_lifecycle(m, &mut rule.when, schema, context, &mut nodes)?;
         } else {
             predicate::normalize_with_operational(
@@ -1128,6 +1148,16 @@ fn require_selected_recipe(
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
 ) -> Result<SelectedRecipe> {
+    if super::support::same_bytes(
+        m,
+        support.canonical_bytes(),
+        super::local::LOCAL_SHARED_NAMESPACE_DESCRIPTOR,
+    )? {
+        if support.execution_registry() != Some(super::local::LOCAL_SHARED_NAMESPACE_REGISTRY) {
+            return Err(err("shared namespace compiler registry"));
+        }
+        return Ok(SelectedRecipe::LocalWorkLifecycle2);
+    }
     if super::support::same_bytes(
         m,
         support.canonical_bytes(),
@@ -1473,6 +1503,7 @@ fn compile_selected_recipe(
                             SelectedRecipe::LocalPolicySemantics1
                                 | SelectedRecipe::LocalPolicySemantics2
                                 | SelectedRecipe::LocalWorkLifecycle1
+                                | SelectedRecipe::LocalWorkLifecycle2
                         ) {
                             &[
                                 "boolean",
@@ -1486,8 +1517,11 @@ fn compile_selected_recipe(
                             &["enum", "integer", "timestamp"]
                         };
                         allowed.contains(&field["type"]["kind"].as_str().unwrap_or(""))
-                            || (matches!(recipe, SelectedRecipe::LocalWorkLifecycle1)
-                                && field["type"]["kind"].as_str() == Some("reference")
+                            || (matches!(
+                                recipe,
+                                SelectedRecipe::LocalWorkLifecycle1
+                                    | SelectedRecipe::LocalWorkLifecycle2
+                            ) && field["type"]["kind"].as_str() == Some("reference")
                                 && field["type"]["record_kind"].as_str() == Some("workflow-work")
                                 && field["type"]["relation"].as_str() == Some("same_binding"))
                     })? {
@@ -1517,6 +1551,7 @@ fn compile_selected_recipe(
                         SelectedRecipe::LocalPolicySemantics1
                             | SelectedRecipe::LocalPolicySemantics2
                             | SelectedRecipe::LocalWorkLifecycle1
+                            | SelectedRecipe::LocalWorkLifecycle2
                     ) {
                         continue;
                     }
@@ -1554,6 +1589,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalPolicySemantics1
                         | SelectedRecipe::LocalPolicySemantics2
                         | SelectedRecipe::LocalWorkLifecycle1
+                        | SelectedRecipe::LocalWorkLifecycle2
                 ) && body.get("app_delayed_costs").is_some()
                 {
                     return Err(err("old policy dictionary has no app declarations"));
@@ -1569,6 +1605,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalPolicySemantics1
                         | SelectedRecipe::LocalPolicySemantics2
                         | SelectedRecipe::LocalWorkLifecycle1
+                        | SelectedRecipe::LocalWorkLifecycle2
                 ) {
                     for declaration in body["app_delayed_costs"]
                         .as_array()
@@ -1686,6 +1723,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ) {
             continue;
         }
@@ -1736,6 +1774,7 @@ fn compile_selected_recipe(
             SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ) {
             continue;
         }
@@ -1759,6 +1798,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             ) {
                 return Err(err("predicate capability"));
             }
@@ -1814,6 +1854,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             ) {
                 policy
                     .app_delayed_costs
@@ -1835,6 +1876,7 @@ fn compile_selected_recipe(
         SelectedRecipe::LocalPolicySemantics1
             | SelectedRecipe::LocalPolicySemantics2
             | SelectedRecipe::LocalWorkLifecycle1
+            | SelectedRecipe::LocalWorkLifecycle2
     ) {
         normalize_policy_predicates(m, &mut policy, &product, &schemas, recipe)?;
     }
@@ -1854,6 +1896,7 @@ fn compile_selected_recipe(
             SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ),
     )?;
     for rule in &mut policy.rules {
@@ -1922,6 +1965,7 @@ fn compile_selected_recipe(
                         SelectedRecipe::LocalPolicySemantics1
                             | SelectedRecipe::LocalPolicySemantics2
                             | SelectedRecipe::LocalWorkLifecycle1
+                            | SelectedRecipe::LocalWorkLifecycle2
                     )
                 {
                     return Err(err("selected terminal unit"));
@@ -1947,6 +1991,7 @@ fn compile_selected_recipe(
                     SelectedRecipe::LocalPolicySemantics1
                         | SelectedRecipe::LocalPolicySemantics2
                         | SelectedRecipe::LocalWorkLifecycle1
+                        | SelectedRecipe::LocalWorkLifecycle2
                 ) {
                     if let Some(to) = normalize_to {
                         let target = product
@@ -2017,6 +2062,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalPolicySemantics1
                         | SelectedRecipe::LocalPolicySemantics2
                         | SelectedRecipe::LocalWorkLifecycle1
+                        | SelectedRecipe::LocalWorkLifecycle2
                 ) {
                     return Err(err("app cost compiler recipe"));
                 }
@@ -2042,13 +2088,17 @@ fn compile_selected_recipe(
         SelectedRecipe::LocalPolicySemantics1
             | SelectedRecipe::LocalPolicySemantics2
             | SelectedRecipe::LocalWorkLifecycle1
+            | SelectedRecipe::LocalWorkLifecycle2
     ) {
         prove_policy_predicates(
             m,
             &policy,
             &product,
             &schemas,
-            matches!(recipe, SelectedRecipe::LocalWorkLifecycle1),
+            matches!(
+                recipe,
+                SelectedRecipe::LocalWorkLifecycle1 | SelectedRecipe::LocalWorkLifecycle2
+            ),
         )?;
     }
     for family in &policy.families {
@@ -2256,6 +2306,7 @@ fn compile_selected_recipe(
                     SelectedRecipe::LocalPolicySemantics1
                         | SelectedRecipe::LocalPolicySemantics2
                         | SelectedRecipe::LocalWorkLifecycle1
+                        | SelectedRecipe::LocalWorkLifecycle2
                 ),
             ),
         )?;
@@ -2403,6 +2454,7 @@ fn compile_selected_recipe(
                 SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             ) {
                 rule.when.visit_operands(m, &mut |operand, m| {
                     if matches!(operand, super::model::Operand::Context { .. }) {
@@ -2439,6 +2491,7 @@ fn compile_selected_recipe(
                 SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             ) {
                 for slot in &slots {
                     if slot["schema_ref"] == json!(policy.context_schema_ref)
@@ -2478,6 +2531,7 @@ fn compile_selected_recipe(
                 SelectedRecipe::LocalPolicySemantics1
                     | SelectedRecipe::LocalPolicySemantics2
                     | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
             ) {
                 let mut names: Vec<Value> = fields.into_iter().map(Value::String).collect();
                 for binding in binding_names {
@@ -2559,6 +2613,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ) {
             plan["limits_profile"] = json!("workflow-local-limits/1");
             plan["worst_case"]
@@ -2574,6 +2629,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ) {
             plan["limits_profile"] = json!("workflow-local-operator-limits/1");
             for field in ["compile_work", "loaded_refs", "bytes"] {
@@ -2676,6 +2732,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -2687,6 +2744,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ),
         app_owned_cost_recipe: matches!(
             recipe,
@@ -2699,6 +2757,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalPolicySemantics1
                 | SelectedRecipe::LocalPolicySemantics2
                 | SelectedRecipe::LocalWorkLifecycle1
+                | SelectedRecipe::LocalWorkLifecycle2
         ),
         supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
         owner_local_cost_recipe: matches!(

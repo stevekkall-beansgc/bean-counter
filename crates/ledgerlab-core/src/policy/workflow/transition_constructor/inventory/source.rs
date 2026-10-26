@@ -226,6 +226,68 @@ pub(in crate::policy::workflow::transition_constructor) fn birth(
     selected_operands: (&Value, &Value, &ExactRef, &ExactRef, &ExactRef),
 ) -> Result<RecordBody> {
     let (grant, customer, enrollment_ref, state_ref, grant_ref) = selected_operands;
+    birth_recipe(
+        m,
+        r,
+        c,
+        o,
+        enrollment,
+        state,
+        (grant, customer, enrollment_ref, state_ref, grant_ref, None),
+    )
+}
+pub(in crate::policy::workflow::transition_constructor) fn birth_selected(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    o: &InvocationToken,
+    enrollment: &Value,
+    state: &Value,
+    selected: (
+        &Value,
+        &Value,
+        &ExactRef,
+        &ExactRef,
+        &ExactRef,
+        &super::super::super::selected_program::SelectedProgram,
+    ),
+) -> Result<RecordBody> {
+    let (grant, customer, enrollment_ref, state_ref, grant_ref, program) = selected;
+    birth_recipe(
+        m,
+        r,
+        c,
+        o,
+        enrollment,
+        state,
+        (
+            grant,
+            customer,
+            enrollment_ref,
+            state_ref,
+            grant_ref,
+            Some(program),
+        ),
+    )
+}
+fn birth_recipe(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    o: &InvocationToken,
+    enrollment: &Value,
+    state: &Value,
+    selected: (
+        &Value,
+        &Value,
+        &ExactRef,
+        &ExactRef,
+        &ExactRef,
+        Option<&super::super::super::selected_program::SelectedProgram>,
+    ),
+) -> Result<RecordBody> {
+    let (grant, customer, enrollment_ref, state_ref, grant_ref, program) = selected;
+    shared_namespace_owner(m, r, c, o, (enrollment, enrollment_ref, customer, program))?;
     let checked = r.source_birth_facts(
         m,
         c,
@@ -255,6 +317,138 @@ pub(in crate::policy::workflow::transition_constructor) fn birth(
     )?;
     r.remember_source_birth(m, c, &checked, &registered)?;
     Ok(registered)
+}
+fn shared_namespace_owner(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    o: &InvocationToken,
+    selected: (
+        &Value,
+        &ExactRef,
+        &Value,
+        Option<&super::super::super::selected_program::SelectedProgram>,
+    ),
+) -> Result<()> {
+    let (target, target_ref, customer, program) = selected;
+    let owner_ref = r.source_namespace_owner(m, target_ref)?;
+    let shared = program.is_some_and(|p| p.uses_shared_namespace_recipe());
+    if owner_ref.is_some() && !shared {
+        return Err(crate::Error::new(
+            "UNSUPPORTED_COMPOSITION",
+            "shared source producer requires exact shared namespace recipe",
+        ));
+    }
+    if !shared {
+        return Ok(());
+    }
+    let ceiling = shape::field(m, target, "ceiling")?;
+    let source = shape::text(m, ceiling, "source")?;
+    let namespace = shape::text(m, ceiling, "canonical_economic_namespace")?;
+    let alias = !shape::same_text(m, source, namespace)?;
+    if !alias {
+        if owner_ref.is_some() {
+            return Err(shape::fail(
+                "shared enrollment cannot be its own canonical owner",
+            ));
+        }
+        return Ok(());
+    }
+    let owner_ref =
+        owner_ref.ok_or_else(|| shape::fail("shared source lacks exact original owner input"))?;
+    if r.source_namespace_owner(m, owner_ref.reference())?
+        .is_some()
+    {
+        return Err(shape::fail("namespace owner cannot be an alias"));
+    }
+    let owner = r.get(
+        m,
+        &c.key,
+        owner_ref.reference(),
+        "workflow-source-enrollment",
+        "ledger-workflow-source-enrollment/1",
+    )?;
+    let original = shape::field(m, &owner, "ceiling")?;
+    for field in ["source", "canonical_economic_namespace"] {
+        let actual = shape::text(m, original, field)?;
+        if !shape::same_text(m, actual, namespace)? {
+            return Err(shape::fail(
+                "namespace owner must be exact canonical source",
+            ));
+        }
+    }
+    shape::equal(m, &original["principal_id"], &ceiling["principal_id"])?;
+    shape::equal(m, &owner["scope"], &target["scope"])?;
+    shape::equal(m, &owner["installation_mode"], &target["installation_mode"])?;
+    before_owned(m, o, &owner, "enrolled_at", target, "enrolled_at")?;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("shared owner input lifetime"))?;
+    let _scratch = arena.reserve_external_payload(1024, m)?;
+    let store = arena.string_value(&c.key.logical_store_id, m)?;
+    let scope = super::super::work_keys::scope(m, &c.key)?;
+    let one = arena.string_value("1", m)?;
+    let seed = arena.array_from_values(
+        &[
+            store.value(),
+            scope.value(),
+            &owner["enrollment_id"],
+            one.value(),
+        ],
+        m,
+    )?;
+    let id = body::semantic_id(m, "wsource_", "workflow-source-state", seed.value())?;
+    let (state_ref, state) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-source-state",
+        &id,
+        "ledger-workflow-source-state/1",
+    )?;
+    let grant_ref =
+        super::super::working_value::parse_owned_reference(m, &arena, &state["current_grant_ref"])?;
+    let grant = r.get(
+        m,
+        &c.key,
+        grant_ref.reference(),
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+    )?;
+    // One fixed canonical owner birth, not a recursive mapping traversal. Its
+    // historical customer/evidence/root still uses the same full interpreter.
+    let check = r.source_birth_facts(
+        m,
+        c,
+        &owner,
+        &state,
+        &grant,
+        (
+            customer,
+            owner_ref.reference(),
+            &state_ref,
+            grant_ref.reference(),
+        ),
+    )?;
+    if check.registered.is_none() {
+        let registered = initial_data(
+            m,
+            r,
+            c,
+            o,
+            &owner,
+            &state,
+            (
+                &grant,
+                customer,
+                owner_ref.reference(),
+                &state_ref,
+                grant_ref.reference(),
+                check.outputs,
+            ),
+        )?;
+        r.remember_source_birth(m, c, &check, &registered)?;
+    }
+    Ok(())
 }
 fn initial_data(
     m: &mut CoreMeter,

@@ -96,6 +96,14 @@ pub struct CapacityHead {
     pub reference: ExactRef,
 }
 #[derive(Clone, Debug)]
+pub struct StageHead {
+    pub agreement: String,
+    pub chain: String,
+    pub stage: String,
+    pub revision: String,
+    pub reference: ExactRef,
+}
+#[derive(Clone, Debug)]
 pub struct InvocationHead {
     pub invocation_id: String,
     pub revision: String,
@@ -172,6 +180,7 @@ pub struct DraftStateData {
     pub chain_head: Option<ExactRef>,
     pub decision_heads: Vec<DecisionHead>,
     pub family_heads: Vec<FamilyHead>,
+    pub stage_heads: Vec<StageHead>,
     pub work_claims: Vec<ExactRef>,
     pub outcome_claims: Vec<ExactRef>,
     pub links: Vec<ExactRef>,

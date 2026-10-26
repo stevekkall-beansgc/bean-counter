@@ -248,6 +248,7 @@ struct SourceGrantFacts {
     accepted_len: usize,
 }
 struct SourceOutputFacts {
+    namespace_owner: Option<super::working_value::OwnedExactRef>,
     bytes: [u8; 285],
     _ownership: ExternalBufferLease,
 }
@@ -623,12 +624,56 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             bytes[71..142].copy_from_slice(parts[1].as_bytes());
             bytes[142..213].copy_from_slice(parts[2].as_bytes());
             bytes[213..].copy_from_slice(parts[3].as_bytes());
+            let namespace_owner = if let Some(reference) = fact.namespace_owner_enrollment_ref() {
+                let value = super::working_value::owning_reference(m, arena, reference)?;
+                Some(super::working_value::parse_owned_reference(
+                    m,
+                    arena,
+                    value.value(),
+                )?)
+            } else {
+                None
+            };
             self.operands[position].initial_source_outputs = Some(Box::new(SourceOutputFacts {
+                namespace_owner,
                 bytes,
                 _ownership: ownership,
             }));
         }
         Ok(())
+    }
+    /// Exact producer input DATA retained with the matching enrollment triple.
+    /// Host original normalized-request/member custody is still independent.
+    pub(super) fn source_namespace_owner(
+        &self,
+        m: &mut CoreMeter,
+        enrollment: &ExactRef,
+    ) -> Result<Option<super::working_value::OwnedExactRef>> {
+        let Some(arena) = self.arena.as_ref() else {
+            return Ok(None);
+        };
+        let Some(position) = self
+            .index
+            .find_exact(m, enrollment, |i| &self.operands[i].reference)?
+        else {
+            return Ok(None);
+        };
+        let reference = self.operands[position]
+            .initial_source_outputs
+            .as_ref()
+            .and_then(|facts| facts.namespace_owner.as_ref());
+        match reference {
+            None => Ok(None),
+            Some(reference) => {
+                let value =
+                    super::working_value::owning_reference(m, arena, reference.reference())?;
+                Ok(Some(super::working_value::parse_owned_reference(
+                    m,
+                    arena,
+                    value.value(),
+                )?))
+            }
+        }
     }
     fn initial_source_outputs(
         &self,

@@ -201,7 +201,7 @@ pub(super) fn source_data(
         "ledger-workflow-source-grant/1",
     )?;
     let token = InvocationToken::new();
-    let registered = inventory::source::birth(
+    let registered = inventory::source::birth_selected(
         m,
         r,
         c,
@@ -214,6 +214,7 @@ pub(super) fn source_data(
             &a.enrollment_ref,
             &birth_ref,
             &birth_grant_ref,
+            program,
         ),
     )?;
     if w::compare(m, revision_value, 1u64)?.is_eq() {

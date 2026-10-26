@@ -888,41 +888,44 @@ fn policy_causal_declarations_do_not_substitute_a_current_operation_role() {
 
 #[test]
 fn lifecycle_exact_factory_and_saved_reload_preserve_recipe_identity_under_source_hold() {
-    let (_arena, mut s) = session();
-    let support =
-        SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
-    let input = policy_context_input(&support);
-    let p = compile_selected_publication(input, &support, &mut s).unwrap();
-    assert!(p.uses_work_lifecycle_recipe());
-    assert!(p.uses_policy_context_recipe());
-    assert!(p.execution_registry().is_some());
-    let (_arena, mut reloading) = session();
-    let restored = load_local_selected_execution(
-        policy_context_input(&support),
-        p.compiled_plan().canonical_bytes(),
-        p.compiled_plan().reference(),
-        &mut reloading,
-    )
-    .unwrap();
-    assert!(restored.uses_work_lifecycle_recipe());
-    assert_eq!(restored.execution_registry(), p.execution_registry());
-    assert_eq!(
-        restored.compiled_plan().canonical_bytes(),
-        p.compiled_plan().canonical_bytes()
-    );
-    let (_arena, mut old) = session();
-    let old_support =
-        SelectedCompilerSupport::local_policy_context_execution_with_session(&mut old).unwrap();
-    let original =
-        compile_selected_publication(policy_context_input(&old_support), &old_support, &mut old)
-            .unwrap();
-    assert!(!original.uses_work_lifecycle_recipe());
-    assert_ne!(
-        original.compiled_plan().canonical_bytes(),
-        p.compiled_plan().canonical_bytes()
-    );
-    // This proves exact recipe dispatch/reload only. Failed/Reference/current
-    // lifecycle input and original consumer completion are still SOURCE_HOLD.
+    let mut plans = Vec::new();
+    for profile in 0..3 {
+        let (_arena, mut s) = session();
+        let support = match profile {
+            0 => SelectedCompilerSupport::local_policy_context_execution_with_session(&mut s),
+            1 => SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s),
+            _ => SelectedCompilerSupport::local_shared_namespace_execution_with_session(&mut s),
+        }
+        .unwrap();
+        let input = policy_context_input(&support);
+        let p = compile_selected_publication(input, &support, &mut s).unwrap();
+        assert_eq!(p.uses_work_lifecycle_recipe(), profile != 0);
+        assert_eq!(p.uses_shared_namespace_recipe(), profile == 2);
+        assert!(p.uses_policy_context_recipe());
+        assert!(p.execution_registry().is_some());
+        assert_eq!(p.compiler_descriptor_ref(), support.reference());
+        let (_arena, mut reloading) = session();
+        let restored = load_local_selected_execution(
+            policy_context_input(&support),
+            p.compiled_plan().canonical_bytes(),
+            p.compiled_plan().reference(),
+            &mut reloading,
+        )
+        .unwrap();
+        assert_eq!(restored.uses_work_lifecycle_recipe(), profile != 0);
+        assert_eq!(restored.uses_shared_namespace_recipe(), profile == 2);
+        assert_eq!(restored.execution_registry(), p.execution_registry());
+        assert_eq!(
+            restored.compiled_plan().canonical_bytes(),
+            p.compiled_plan().canonical_bytes()
+        );
+        assert!(plans
+            .iter()
+            .all(|prior: &Vec<u8>| prior.as_slice() != p.compiled_plan().canonical_bytes()));
+        plans.push(p.compiled_plan().canonical_bytes().to_vec());
+    }
+    // Exact recipe dispatch/reload only. Owner mapping/Reference/current
+    // lifecycle authority and consumer completion remain SOURCE_HOLD.
 }
 
 #[test]
