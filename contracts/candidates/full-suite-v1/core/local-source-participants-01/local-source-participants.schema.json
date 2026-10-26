@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Same-principal canonical local source administration inputs",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/SourceEnroll2"
+    },
+    {
+      "$ref": "#/$defs/SourceRestrict2"
+    },
+    {
+      "$ref": "#/$defs/SourceRevoke2"
+    }
+  ],
+  "$defs": {
+    "SourceEnroll2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-source-enroll/2"
+        },
+        "action": {
+          "const": "source.enroll"
+        },
+        "expected_revision": {
+          "const": "0"
+        },
+        "enrollment_id": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Id"
+        },
+        "customer_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "../agreement-ready.schema.json#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "ceiling": {
+          "$ref": "../agreement-ready.schema.json#/$defs/SourceCeiling"
+        },
+        "evidence_ref": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Ref"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "expected_revision",
+        "enrollment_id",
+        "customer_refs",
+        "ceiling",
+        "evidence_ref"
+      ],
+      "additionalProperties": false
+    },
+    "SourceRestrict2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-source-restrict/2"
+        },
+        "action": {
+          "const": "source.restrict"
+        },
+        "enrollment_ref": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Counter"
+        },
+        "replacement_ceiling": {
+          "$ref": "../agreement-ready.schema.json#/$defs/SourceCeiling"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "enrollment_ref",
+        "expected_revision",
+        "replacement_ceiling"
+      ],
+      "additionalProperties": false
+    },
+    "SourceRevoke2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-source-revoke/2"
+        },
+        "action": {
+          "const": "source.revoke"
+        },
+        "enrollment_ref": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "../agreement-ready.schema.json#/$defs/Counter"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "enrollment_ref",
+        "expected_revision",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

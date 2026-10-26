@@ -69,10 +69,14 @@ def material(text):
 class Journey:
     fixture_directory = FIXTURES
     quantity = "20"
+    quantity_unit = "support:request"
     outcome_claim_schema = "ledger-workflow-outcome-claim/1"
 
     def source_documents(self):
         return json.loads((self.fixture_directory / "source.json").read_bytes())["documents"]
+
+    def accepted_grants(self):
+        return [self.grant]
 
     def accepted_context(self):
         return {"fact_schema_ref": self.fact_refs["support:context"], "facts": {}}
@@ -407,7 +411,7 @@ class Journey:
             "revision": "1", "catalog_ref": catalog_ref, "template_ref": source_ref("workflow-slot-template"),
             "component_map": [{"slot_id": n, "template_key": n} for n in ["support:model-retail", "support:service"]],
             "family_map": [{"slot_id": "support:quality", "template_key": "support:quality"}]}
-        terms = {**self.business["terms"], "source_grant_refs": [self.grant], "role_ref": role_ref,
+        terms = {**self.business["terms"], "source_grant_refs": self.accepted_grants(), "role_ref": role_ref,
                  "app_cost_terms": self.policy["app_delayed_costs"]}
         terms_ref = reference("workflow-slot-terms", terms)
         binding = {**self.business["binding"], "accepted_context": self.accepted_context(),
@@ -438,7 +442,7 @@ class Journey:
         platform_assent = {"schema": "ledger-workflow-party-assent/2", "consent": consent, "mode": "real", "evidence_ref": ev,
             "operator": self.operator, "operator_attestation_ref": att}
         assents = sorted([reference("workflow-assent", customer_assent), reference("workflow-assent", platform_assent)], key=canonical)
-        binding = {**normalized["binding_inputs"], "assent_refs": assents, "authority_refs": sorted([self.grant, auth], key=canonical)}
+        binding = {**normalized["binding_inputs"], "assent_refs": assents, "authority_refs": sorted([*self.accepted_grants(), auth], key=canonical)}
         accepted = self.submit("acceptance", "agreement.accept", {"schema": "ledger-workflow-agreement-accept/9", "agreement_id": self.agreement,
             "expected_revision": "0", "publication_ref": pub_ref, "slot_catalog_ref": catalog_ref,
             "slot_instantiation_ref": binding["slot_instantiation_ref"], "binding_inputs": binding,
@@ -473,7 +477,7 @@ class Journey:
         observation = self.submit(prefix + "-observation", "evidence.retain", {"schema": "ledger-workflow-app-observe/1",
             "attestation": {"schema": "ledger-workflow-app-observation/1", "attestation_id": prefix + "-observation", "source": self.source,
                 "evidence_kind": "app_usage", "subject": self.app_subject(w), "usage_field": "support:quantity", "quantity": self.quantity,
-                "unit": "support:request", "observed_at": self.document(w["work_ref"])["payload"]["occurred_at"],
+                "unit": self.quantity_unit, "observed_at": self.document(w["work_ref"])["payload"]["occurred_at"],
                 "provider_key": {"provider": "synthetic-provider", "account": "synthetic-account", "request_id": prefix + "-provider-call"},
                 "material": material("Synthetic same-call usage")}})
         w["observation"] = proof(observation)
@@ -498,7 +502,7 @@ class Journey:
             "source": self.source, "evidence_kind": "app_final_cost", "subject": self.app_subject(w),
             "observation_ref": w["observation"]["attestation_ref"], "cost_revision": str(revision),
             "finality": "final_attributable_amount", "amount": {"currency": "USD", "scale": 18, "atoms": str(atoms)},
-            "quantity_comparison": {"kind": "comparable", "quantity": self.quantity, "unit": "support:request"},
+            "quantity_comparison": {"kind": "comparable", "quantity": self.quantity, "unit": self.quantity_unit},
             "issued_at": now(), "material": material("Synthetic exact same-call attributable final cost")}
         if revision > 1:
             attestation["prior_final_evidence_ref"] = w["final_evidence"]["attestation_ref"]

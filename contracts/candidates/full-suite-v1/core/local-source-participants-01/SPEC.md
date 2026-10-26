@@ -1,0 +1,15 @@
+# Same-principal local source participants
+
+This additive encoding implements existing local OS-owner administration of multiple sources (Current Requirements authority/isolation; S12 §3.3; Agreement Ready §3). It extends only Agreement Ready's initial one-configured-source implementation subset. The existing source-enroll/restrict/revoke `/1` variants and their original Setup-source rule remain unchanged.
+
+`ledger-workflow-source-enroll/2`, `ledger-workflow-source-restrict/2`, and `ledger-workflow-source-revoke/2` have exactly their corresponding `/1` closed field sets, action literals, scalar/reference bounds and normalization. Their new literal tuples select the code-owned registry in this directory under `authority.change`. SourceEnrollment1, SourceGrant1, SourceState1, local root, manifest, receipt and operation-key record encodings are unchanged.
+
+The authenticated local Setup operator P, using its existing administrative source A and same held transaction, may explicitly register canonical source B with namespace B. Require ceiling principal P, source==canonical namespace, original registered customers, exact source-enrollment evidence naming B/P, verified retained evidence origin, installation mode, original root custody and absent permanent enrollment. B does not become an administrator. A source name, caller grant, changed configuration, another principal, alias or remote delivery is not registration authority.
+
+Restriction or revocation `/2` requires the exact target enrollment's authenticated original producing request to be source-enroll/2. The original principal/namespace/source/customers stay immutable; current head/revision/CAS, active state, original/current subset and permanent mapping checks remain mandatory. A `/1` enrollment continues through `/1` changes. Administration records retain A's actual operation key and P's actor/root separately from target B.
+
+Only the policy-semantics financial recipe may consume the separate same-principal B registration in this increment. A B evidence-retention request must resolve its committed enrollment and current state/grant, exact original accepted nomination and declared FieldDef source slot, source B, actor P, subject, Product/activity/customer/scope/rights and trusted time under the same owner. No append occurs before these checks. Administrative entry and old financial recipes retain their existing A source rule.
+
+Original STATUS and exact-key retry select the saved `/1` or `/2` recipe and reconstruct its original root/evidence/customers/ceiling, absent enrollment or original prior head, source results, journal and complete member set. They do not apply today's admission or require the target source to remain current. A retained proof is consumed with its authentic historical issuer grant/enrollment and original accepted nomination, while the consuming worker/corrector's current authority is separate.
+
+No new service, credential, source alias, remote principal, admission limit or resource guarantee is introduced.
