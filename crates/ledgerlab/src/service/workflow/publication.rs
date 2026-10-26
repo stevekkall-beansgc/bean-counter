@@ -167,6 +167,9 @@ pub(super) fn evidence(
             _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
         },
         "ledger-workflow-policy-publication/6" => match sources.execution_registry() {
+            Some("sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d") => {
+                include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/declared-work-link-01/registry.json")
+            }
             Some("sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a") => {
                 include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/local-execution-01/registry.json")
             }

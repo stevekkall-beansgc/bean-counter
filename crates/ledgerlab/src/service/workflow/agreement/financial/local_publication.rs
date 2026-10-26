@@ -18,14 +18,16 @@ where
     F: FnOnce(&Value, &mut OriginalAuditSession) -> Result<SelectedCompilerSupport>,
 {
     let prepared = publication_prepare::prepare_new(ledger, tx, raw, fresh_support, s).await?;
-    request_wrapper::same_text(
-        prepared
-            .compiled
-            .program
-            .execution_registry()
-            .ok_or(ServiceError::Unavailable)?,
-        wrappers::LOCAL_REGISTRY,
-        s,
+    require(
+        wrappers::is_local_registry(
+            prepared
+                .compiled
+                .program
+                .execution_registry()
+                .ok_or(ServiceError::Unavailable)?,
+            s,
+        )?,
+        "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let incoming = PublicationRequest::parse(raw)?;
     let key = incoming.key();
@@ -139,7 +141,7 @@ pub(super) async fn verify_original(
     }
     let evidence = request_wrapper::field(original.wrappers().operation(), "request_evidence", s)?;
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
-    if request_wrapper::text(resolution, "registry_digest", s)? != wrappers::LOCAL_REGISTRY {
+    if !wrappers::is_local_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)? {
         return Ok(None);
     }
     let publication = original.recompile_publication(tx, s).await?;

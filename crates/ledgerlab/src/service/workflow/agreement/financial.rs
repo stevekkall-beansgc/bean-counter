@@ -56,8 +56,10 @@ pub(super) async fn local_selected_origin(
         let op = old.wrappers().operation();
         let ev = request_wrapper::field(op, "request_evidence", &mut s)?;
         let resolution = request_wrapper::field(ev, "descriptor_resolution", &mut s)?;
-        if request_wrapper::text(resolution, "registry_digest", &mut s)? != wrappers::LOCAL_REGISTRY
-        {
+        if !wrappers::is_local_registry(
+            request_wrapper::text(resolution, "registry_digest", &mut s)?,
+            &mut s,
+        )? {
             return Ok(false);
         }
         let value = serde_json::to_value(reference).map_err(|_| ServiceError::IntegrityFailure)?;

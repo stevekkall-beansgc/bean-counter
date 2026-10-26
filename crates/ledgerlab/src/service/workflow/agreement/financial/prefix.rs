@@ -844,8 +844,10 @@ async fn acceptance_for_mode(
             request_wrapper::field(origin.wrappers().operation(), "request_evidence", session)?;
         let resolution = request_wrapper::field(evidence, "descriptor_resolution", session)?;
         if !certify_original
-            && request_wrapper::text(resolution, "registry_digest", session)?
-                == wrappers::LOCAL_REGISTRY
+            && wrappers::is_local_registry(
+                request_wrapper::text(resolution, "registry_digest", session)?,
+                session,
+            )?
         {
             let publication = publication_for(
                 tx,
@@ -1548,9 +1550,8 @@ async fn folded_publication(
         .await?;
     let evidence = request_wrapper::field(original.wrappers().operation(), "request_evidence", s)?;
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
-    let loaded = if acceptance::same_recipe_text(
+    let loaded = if wrappers::is_local_registry(
         request_wrapper::text(resolution, "registry_digest", s)?,
-        wrappers::LOCAL_REGISTRY,
         s,
     )? {
         // LOCAL has no second compiler or compilation key. The exact original

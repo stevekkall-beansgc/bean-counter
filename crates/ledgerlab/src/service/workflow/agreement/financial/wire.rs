@@ -923,10 +923,12 @@ fn frame_inner<'a>(
     require(!results.refs.is_empty(), "INTEGRITY_FAILURE")?;
     let results_bytes = results.encode(session)?;
     let audit_fields = if metadata.is_local_execution() {
-        request::same_text(
-            request::text(resolution, "registry_digest", session)?,
-            wrappers::LOCAL_REGISTRY,
-            session,
+        require(
+            wrappers::is_local_registry(
+                request::text(resolution, "registry_digest", session)?,
+                session,
+            )?,
+            "INTEGRITY_FAILURE",
         )?;
         request::same_text(
             recipe.operation,

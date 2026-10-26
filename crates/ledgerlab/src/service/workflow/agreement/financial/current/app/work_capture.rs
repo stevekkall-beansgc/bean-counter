@@ -319,7 +319,12 @@ pub(super) fn select(
     source_index: usize,
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
-) -> Result<(AuditedBytes, AuditedBytes, WorkHeadLocators)> {
+) -> Result<(
+    AuditedBytes,
+    AuditedBytes,
+    WorkHeadLocators,
+    Option<WorkHeadLocators>,
+)> {
     with_capture(
         observed,
         key,
@@ -352,7 +357,8 @@ pub(super) fn select(
                 s,
             )
             .map_err(core_error)?;
-            Ok((slot, refs, heads))
+            let predecessor = located.into_predecessor_work_heads();
+            Ok((slot, refs, heads, predecessor))
         },
     )
 }
@@ -458,6 +464,11 @@ fn input_pool<'a>(
             .work_locator_records()
             .chain(o.sources.iter().flat_map(|source| source.records()))
             .chain(fixed)
+            .chain(
+                o.local_input_bodies
+                    .iter()
+                    .flat_map(|pool| pool.iter_views()),
+            )
     };
     s.semantic_work()
         .scan_bytes(2 * mem::size_of_val(&fixed))

@@ -459,9 +459,8 @@ async fn recompile_inner(
     let saved_evidence = request_wrapper::field(op, "request_evidence", session)?;
     let saved_resolution =
         request_wrapper::field(saved_evidence, "descriptor_resolution", session)?;
-    let local = text_is(
+    let local = wrappers::is_local_registry(
         request_wrapper::text(saved_resolution, "registry_digest", session)?,
-        wrappers::LOCAL_REGISTRY,
         session,
     )?;
     let results = request_wrapper::field(op, "result_refs", session)?
@@ -1821,7 +1820,8 @@ fn validate_descriptors(
             }
             "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"
             | "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276"
-            | "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a" => {
+            | "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"
+            | "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d" => {
                 "ledger-workflow-policy-publication/6"
             }
             _ => return Err(reject("HISTORICAL_VERIFIER_UNAVAILABLE")),

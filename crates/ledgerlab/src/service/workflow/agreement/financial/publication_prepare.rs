@@ -116,11 +116,17 @@ pub(super) fn local_support(
     drop(old);
     let conditional =
         SelectedCompilerSupport::local_conditional_execution_with_session(s).map_err(core_error)?;
+    if same_support(reference, &conditional, s)? {
+        return Ok(conditional);
+    }
+    drop(conditional);
+    let declared = SelectedCompilerSupport::local_declared_link_execution_with_session(s)
+        .map_err(core_error)?;
     require(
-        same_support(reference, &conditional, s)?,
+        same_support(reference, &declared, s)?,
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    Ok(conditional)
+    Ok(declared)
 }
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],
@@ -334,7 +340,7 @@ where
         let registry = program
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
-        if !acceptance::same_recipe_text(registry, wrappers::LOCAL_REGISTRY, s)? {
+        if !wrappers::is_local_registry(registry, s)? {
             request_wrapper::same_text(registry, REGISTRY, s)?;
         }
         request_wrapper::same_text(

@@ -90,7 +90,7 @@ pub(super) async fn verify_original(
     }
     let evidence = request_wrapper::field(w.operation(), "request_evidence", s)?;
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
-    if request_wrapper::text(resolution, "registry_digest", s)? != wrappers::LOCAL_REGISTRY {
+    if !wrappers::is_local_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)? {
         return Ok(false);
     }
     let saved = ingress::IncomingRequest::parse(w.original_request().raw(), s)?;

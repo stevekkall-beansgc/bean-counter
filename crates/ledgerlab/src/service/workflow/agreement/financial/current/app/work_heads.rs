@@ -775,3 +775,100 @@ pub(super) fn unattached_state(
         _storage: storage,
     })
 }
+
+/// The extra predecessor/report head is a current eligibility observation,
+/// never a permanent-claim collision hit for the operation being admitted.
+pub(super) struct RelationDecision {
+    pub(super) seed: AuditedBytes,
+    _projection: HeadLocator,
+    _claim: AppClaimLocator,
+    _storage: ExternalBufferLease,
+}
+pub(super) async fn observe_relation_decision(
+    tx: &mut SqliteTx,
+    prefix: &mut prefix::LocatedAppAcceptance,
+    key: &OperationKey,
+    keys: &WorkHeadLocators,
+    state: &mut OwnedWorkState,
+    s: &mut OriginalAuditSession,
+) -> Result<RelationDecision> {
+    use ledgerlab_core::policy::workflow::transition_constructor::DecisionHead;
+    let decision_id = keys.root_decision_id();
+    let head = tx
+        .workflow_financial_head(
+            &key.logical_store_id,
+            &key.scope,
+            HeadKey::Decision(decision_id),
+            s,
+        )
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    check::same_text(text(head.kind.bytes(), s)?, "workflow-decision", s)?;
+    let root = reference(head.kind.bytes(), head.id.bytes(), head.digest.bytes(), s)?;
+    prefix.require_held_reference(root.bytes(), "workflow-decision", s)?;
+    let claim = tx
+        .workflow_work_claim(keys.work_claim_key(), s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    check::same_text(text(claim.kind.bytes(), s)?, "workflow-work-claim", s)?;
+    let claim_ref = reference(
+        claim.kind.bytes(),
+        claim.id.bytes(),
+        claim.digest.bytes(),
+        s,
+    )?;
+    prefix.require_held_reference(claim_ref.bytes(), "workflow-work-claim", s)?;
+    let _fields = s
+        .reserve_external_payload(2 * mem::size_of::<[(&str, &[u8]); 2]>())
+        .map_err(core_error)?;
+    let seed = wire::object(
+        &[("claim", claim_ref.bytes()), ("decision", root.bytes())],
+        262144,
+        s,
+    )?;
+    for old in &state.financial.decision_heads {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(old.decision_id.len() + decision_id.len())
+            .map_err(core_error)?;
+        require(old.decision_id != decision_id, "INTEGRITY_FAILURE")?;
+    }
+    let count = add(state.financial.decision_heads.len(), 1, s)?;
+    let controls = product(count, mem::size_of::<DecisionHead>(), s)?;
+    let mut bytes = add(controls, mem::size_of::<RelationDecision>(), s)?;
+    output_ref_bytes(
+        &mut bytes,
+        &[
+            decision_id.as_bytes(),
+            head.kind.bytes(),
+            head.id.bytes(),
+            head.digest.bytes(),
+            head.revision.bytes(),
+        ],
+        s,
+    )?;
+    let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let decision = DecisionHead {
+        decision_id: copied(decision_id, s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?,
+        reference: copied_ref(&head, s)?,
+    };
+    let mut heads = Vec::new();
+    heads
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    heads.append(&mut state.financial.decision_heads);
+    heads.push(decision);
+    state.financial.decision_heads = heads;
+    Ok(RelationDecision {
+        seed,
+        _projection: head,
+        _claim: claim,
+        _storage: storage,
+    })
+}

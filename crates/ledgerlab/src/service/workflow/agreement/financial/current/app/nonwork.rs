@@ -138,6 +138,16 @@ pub(in super::super::super) async fn observe(
         work_heads::unattached_state(o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?, s)?
     };
     state.financial.work_claims.clear();
+    if let Some(report) = locators.selector_start_work_heads() {
+        let held =
+            work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)
+                .await?;
+        let seed = s
+            .parse_representation(held.seed.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        pool.payload_refs(seed.value(), s)?;
+        o._relation_head = Some(held);
+    }
     for identity in locators.record_identities() {
         if let Some(row) = tx
             .workflow_local_record_identity(
@@ -405,6 +415,32 @@ pub(in super::super::super) async fn observe(
     }
     drop(assertion_storage);
     pool.complete(tx, key, o.before, s).await?;
+    if o.original
+        .publication
+        .program()
+        .uses_declared_work_link_recipe()
+    {
+        if let Some(head) = &state.financial.chain_head {
+            let chain = s
+                .parse_representation(pool.body(head)?, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let mut links = super::chain_links::acquire(
+                tx,
+                key,
+                super::chain_links::Selection {
+                    binding: o.original.acceptance.binding.reference(),
+                    customer: check::text(chain.value(), "customer", s)?,
+                    chain: check::text(chain.value(), "chain", s)?,
+                    before: o.before,
+                },
+                &mut pool,
+                s,
+            )
+            .await?;
+            state.financial.links = std::mem::take(&mut links.references);
+            o._chain_storage = Some(links);
+        }
+    }
     o.work_state = Some(state);
     o.local_input_bodies = Some(pool);
     o.work_source_index = Some(index);

@@ -2,6 +2,7 @@
 //! Acquiring DATA does not establish activation, original custody or eligibility.
 use super::super::request_wrapper as check;
 use super::*;
+mod chain_links;
 mod nonwork;
 mod work_capture;
 mod work_heads;
@@ -37,6 +38,9 @@ pub(in super::super) struct ObservedAppBinding {
     // Declaration Refs live in work_state; drop their retained payload leases
     // after that state and keep the lease-vector allocation owned as well.
     _verification_storage: Option<(Vec<ExternalBufferLease>, ExternalBufferLease)>,
+    // Ref/vector owners follow the work_state that holds their moved Refs.
+    _chain_storage: Option<chain_links::ChainLinks>,
+    _relation_head: Option<work_heads::RelationDecision>,
 }
 /// Newly emitted management DATA; neither row establishes admission.
 pub(in super::super) struct ActivationAdmissionRecords {
@@ -142,7 +146,18 @@ pub(in super::super) async fn observe(
         observed.work_source_birth = Some(birth);
         let root = work_capture::retained_root(&mut observed, tx, key, index, session).await?;
         observed.work_root = Some(root);
-        let (slot, seeds, heads) =
+        if observed
+            .original
+            .publication
+            .program()
+            .uses_declared_work_link_recipe()
+        {
+            let mut direct = super::super::local_inputs::LocalInputs::new(session)?;
+            direct.payload_refs(payload, session)?;
+            direct.complete(tx, key, observed.before, session).await?;
+            observed.local_input_bodies = Some(direct);
+        }
+        let (slot, seeds, heads, predecessor) =
             work_capture::select(&observed, key, payload, index, &received_at, session)?;
         let observed_heads = work_heads::observe(
             tx,
@@ -170,7 +185,26 @@ pub(in super::super) async fn observe(
             .program()
             .uses_local_execution_recipe()
         {
-            let mut pool = super::super::local_inputs::LocalInputs::new(session)?;
+            let mut pool = match observed.local_input_bodies.take() {
+                Some(pool) => pool,
+                None => super::super::local_inputs::LocalInputs::new(session)?,
+            };
+            if let Some(predecessor) = predecessor.as_ref() {
+                let held = work_heads::observe_relation_decision(
+                    tx,
+                    &mut observed.original,
+                    key,
+                    predecessor,
+                    &mut state,
+                    session,
+                )
+                .await?;
+                let seed = session
+                    .parse_representation(held.seed.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                pool.payload_refs(seed.value(), session)?;
+                observed._relation_head = Some(held);
+            }
             pool.payload_refs(parsed_seeds.value(), session)?;
             pool.payload_refs(parsed_heads.value(), session)?;
             for r in observed
@@ -249,6 +283,28 @@ pub(in super::super) async fn observe(
                 }
             }
             pool.complete(tx, key, observed.before, session).await?;
+            if observed
+                .original
+                .publication
+                .program()
+                .uses_declared_work_link_recipe()
+            {
+                let mut links = chain_links::acquire(
+                    tx,
+                    key,
+                    chain_links::Selection {
+                        binding: observed.original.acceptance.binding.reference(),
+                        customer: check::text(payload, "customer", session)?,
+                        chain: check::text(payload, "chain", session)?,
+                        before: observed.before,
+                    },
+                    &mut pool,
+                    session,
+                )
+                .await?;
+                state.financial.links = std::mem::take(&mut links.references);
+                observed._chain_storage = Some(links);
+            }
             observed.local_input_bodies = Some(pool);
         } else {
             let explicit = observed.original.work_explicit_inputs(
@@ -622,6 +678,8 @@ async fn observe_binding(
             _source_storage: source_storage,
             _time_storage: time_storage,
             _verification_storage: None,
+            _chain_storage: None,
+            _relation_head: None,
         })
     }
     .await;

@@ -196,14 +196,14 @@ impl LocalInputs {
             .ok_or(ServiceError::IntegrityFailure)
     }
     pub(super) fn views(&self) -> Vec<EconomicRecordView<'_>> {
-        self.rows
-            .iter()
-            .filter_map(|r| {
-                r.body.as_ref().map(|b| EconomicRecordView {
-                    reference: &r.reference,
-                    canonical_body: b.bytes(),
-                })
+        self.iter_views().collect()
+    }
+    pub(super) fn iter_views(&self) -> impl Iterator<Item = EconomicRecordView<'_>> {
+        self.rows.iter().filter_map(|r| {
+            r.body.as_ref().map(|b| EconomicRecordView {
+                reference: &r.reference,
+                canonical_body: b.bytes(),
             })
-            .collect()
+        })
     }
 }

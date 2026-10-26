@@ -228,7 +228,7 @@ pub(super) async fn selected(
                 .await?;
             let e = request_wrapper::field(old.wrappers().operation(), "request_evidence", s)?;
             let d = request_wrapper::field(e, "descriptor_resolution", s)?;
-            return Ok(request_wrapper::text(d, "registry_digest", s)? == wrappers::LOCAL_REGISTRY);
+            return wrappers::is_local_registry(request_wrapper::text(d, "registry_digest", s)?, s);
         }
         let (reference, _lease) = current::source::from_value(r, "workflow-binding", s)?;
         let stored = tx

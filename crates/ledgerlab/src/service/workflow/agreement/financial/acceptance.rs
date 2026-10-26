@@ -42,6 +42,7 @@ pub(super) struct AppAcceptanceInput {
     expected_revision: u64,
     commitment: bool,
     local: bool,
+    selected_registry: &'static str,
 }
 impl AppAcceptanceInput {
     /// `program` must come from the actual completed original publication. Its
@@ -68,7 +69,7 @@ impl AppAcceptanceInput {
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
         let commitment = assents::equal(registry, APP_COMMITMENT, session)?
-            || assents::equal(registry, wrappers::LOCAL_REGISTRY, session)?;
+            || wrappers::is_local_registry(registry, session)?;
         if !commitment {
             request_wrapper::same_text(registry, APP_CAUSAL, session)?;
         }
@@ -231,18 +232,12 @@ impl AppAcceptanceInput {
             authorities,
             expected_revision,
             commitment,
-            local: registry == wrappers::LOCAL_REGISTRY,
+            local: wrappers::is_local_registry(registry, session)?,
+            selected_registry: registry,
         })
     }
     fn registry(&self) -> &'static str {
-        if self.local {
-            return wrappers::LOCAL_REGISTRY;
-        }
-        if self.commitment {
-            APP_COMMITMENT
-        } else {
-            APP_CAUSAL
-        }
+        self.selected_registry
     }
     fn party_assent_schema(&self) -> &'static str {
         if self.commitment {

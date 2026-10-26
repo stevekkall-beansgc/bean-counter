@@ -82,7 +82,7 @@ pub(super) async fn verify_original(
     let evidence = request_wrapper::field(operation, "request_evidence", s)?;
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
     let registry = request_wrapper::text(resolution, "registry_digest", s)?;
-    if registry != wrappers::LOCAL_REGISTRY {
+    if !wrappers::is_local_registry(registry, s)? {
         return Ok(false);
     }
     let normalized = request_wrapper::field(evidence, "normalized_request", s)?;

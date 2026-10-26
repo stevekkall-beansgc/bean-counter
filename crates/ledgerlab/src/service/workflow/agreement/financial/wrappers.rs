@@ -867,6 +867,36 @@ fn supplier_recipe(
 }
 pub(super) const LOCAL_REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
+pub(super) const DECLARED_LINK_REGISTRY: &str =
+    "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d";
+pub(super) fn is_local_registry(value: &str, s: &mut OriginalAuditSession) -> Result<bool> {
+    Ok(equal_text(value, LOCAL_REGISTRY, s)? || equal_text(value, DECLARED_LINK_REGISTRY, s)?)
+}
+fn declared_link_recipe(
+    kind: &str,
+    payload: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<(Recipe, &'static str)>> {
+    // Only these new closed payloads reuse the adopted unchanged wrapper
+    // dictionary. This branch is selected by the exact new registry alone.
+    for (k, p) in [
+        ("outcome.submit", "ledger-workflow-outcome/2"),
+        ("outcome.correct", "ledger-workflow-outcome-correction/2"),
+    ] {
+        if equal_text(kind, k, s)? && equal_text(payload, p, s)? {
+            return Ok(Some((
+                Recipe {
+                    operation: "ledger-workflow-economic-operation/10",
+                    manifest: "ledger-workflow-economic-manifest/10",
+                    closure: "ledger-local-selected-inputs/1",
+                    authority: "ledger-workflow-economic-authority/8",
+                },
+                "ledger-operation-descriptors/8",
+            )));
+        }
+    }
+    local_recipe(kind, payload, s)
+}
 // Exact adopted local-execution-01 dispatch. Historical registries retain
 // their original tuples; recognition here does not certify an executor.
 fn local_recipe(
@@ -1095,6 +1125,11 @@ pub(super) fn descriptor_schema(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
+    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+        return declared_link_recipe(kind, payload, session)?
+            .map(|(_, descriptor)| descriptor)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, LOCAL_REGISTRY, session)? {
         return local_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
@@ -1181,6 +1216,11 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+        return declared_link_recipe(kind, payload, session)?
+            .map(|(recipe, _)| recipe)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, LOCAL_REGISTRY, session)? {
         return local_recipe(kind, payload, session)?
             .map(|(recipe, _)| recipe)
@@ -1954,9 +1994,8 @@ pub(super) async fn validate_frame(
         // These are the already-existing administrative WIRE shapes, not a
         // registry-support grant. Each dedicated semantic handler must still
         // reproduce its own original descriptor/normalization/alias recipe.
-        let consent = if equal_text(
+        let consent = if is_local_registry(
             request::text(descriptors, "registry_digest", session)?,
-            LOCAL_REGISTRY,
             session,
         )? {
             Some(
@@ -2234,6 +2273,25 @@ pub(super) async fn validate_frame(
 
 #[cfg(test)]
 mod recipe_tests {
+    #[test]
+    fn declared_link_payloads_require_the_exact_additive_registry() {
+        for (kind, payload) in [
+            ("outcome.submit", "ledger-workflow-outcome/2"),
+            ("outcome.correct", "ledger-workflow-outcome-correction/2"),
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let selected = recipe(kind, payload, DECLARED_LINK_REGISTRY, &mut s).unwrap();
+            assert_eq!(selected.operation, "ledger-workflow-economic-operation/10");
+            assert_eq!(selected.authority, "ledger-workflow-economic-authority/8");
+            assert_eq!(
+                descriptor_schema(kind, payload, DECLARED_LINK_REGISTRY, &mut s).unwrap(),
+                "ledger-operation-descriptors/8"
+            );
+            assert!(recipe(kind, payload, LOCAL_REGISTRY, &mut s).is_err());
+        }
+    }
+
     #[test]
     fn commitment_dispatch_matches_frozen_rows_and_keeps_old_versions_separate() {
         let table: Value = serde_json::from_slice(include_bytes!(concat!(
