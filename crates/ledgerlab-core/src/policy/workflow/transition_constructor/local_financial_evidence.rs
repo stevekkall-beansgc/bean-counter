@@ -1226,3 +1226,52 @@ mod tests {
             .is_err());
     }
 }
+
+/// Fixed pre-policy management tuple, from the SAME sealed account enrollment
+/// producer. No context/Binding descriptor or caller registry is invented.
+pub(super) fn cost_enrollment(
+    support: &super::super::selected_program::SelectedCompilerSupport,
+    raw: &[u8],
+    candidate: &EconomicCandidate,
+    inputs: &[EconomicRecordView<'_>],
+    s: &mut OriginalAuditSession,
+) -> Result<LocalFinancialRequestEvidence> {
+    let a = s.arena().shared_handle();
+    let request = s.parse_representation(raw, Kind::OriginalRequest)?;
+    let payload = s.parse_representation(candidate.normalized_payload(), Kind::OriginalRequest)?;
+    let m = s.meter_mut();
+    let k = key(m, &a, candidate.key())?;
+    shape::equal(m, &request.value()["key"], k.value())?;
+    let descriptor = owning_definition(m, &a, support.reference())?;
+    let descriptors = descriptor_array(m, &a, &[descriptor.value()])?;
+    let empty = a.array_from_values(&[], m)?;
+    let mut anchors = Anchors::new(m, &a)?;
+    for r in candidate.consumed_refs() {
+        let row = row_for(m, r, inputs)?;
+        let value = checked_body(m, &a, candidate.key(), row)?;
+        let reference = owning_reference(m, &a, r)?;
+        let schema = shape::text(m, value.value(), "schema")?;
+        let (role, relation) = match (r.kind.as_str(), schema) {
+            ("workflow-authority", "ledger-workflow-local-authority-snapshot/1") => {
+                ("authority", "direct")
+            }
+            ("workflow-evidence", "ledger-workflow-retained-evidence/1") => {
+                ("evidence", "evidence_input")
+            }
+            _ => return Err(shape::fail("cost enrollment exact supporting operand")),
+        };
+        anchors.add(m, &a, role, relation, reference.value(), empty.value())?;
+    }
+    let registry = support
+        .execution_registry()
+        .ok_or_else(|| shape::fail("code-owned management registry required"))?;
+    frame(
+        m,
+        &a,
+        raw,
+        request.value(),
+        payload.value(),
+        &anchors,
+        (descriptors.value(), registry),
+    )
+}
