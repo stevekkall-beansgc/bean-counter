@@ -423,6 +423,16 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
 
     /// The existing stable-Invocation identity index is selected only by the
     /// exact Stage recipe. Other local profiles retain their original index.
+    pub(super) fn borrowed_parent_stage(
+        m: &mut CoreMeter,
+        arena: &AuditArena,
+        key: &'raw OperationKey,
+        inputs: &'raw [EconomicRecordView<'raw>],
+    ) -> Result<Self> {
+        let mut result = Self::borrowed_mode(m, arena, key, inputs, &[], true, true)?;
+        result.app_records = true;
+        Ok(result)
+    }
     pub(super) fn borrowed_parent_selected(
         m: &mut CoreMeter,
         arena: &AuditArena,

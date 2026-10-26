@@ -642,6 +642,9 @@ pub fn select_local_operation_locators(
         let m = s.meter_mut();
         super::codec::validate_selected_types(m, p.value())?;
         let _schema = txt(m, p.value(), "schema")?;
+        if stage_subject(p.value()) && !program.uses_stage_lifecycle_recipe() {
+            return Err(shape::fail("exact Stage locator recipe required"));
+        }
         super::candidate::assembly::operation(m, p.value())?;
         let mut r = Records::borrowed_parent_selected(m, &a, capture.key, inputs, program)?;
         let header = mem::size_of::<LocalOperationLocators>()
@@ -1061,10 +1064,13 @@ fn authority_slots(
     let root = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
         || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
-    if !root && !close {
+    let stage = program.uses_stage_lifecycle_recipe() && stage_subject(request);
+    if !root && !close && !stage {
         return Ok((Vec::new(), 0));
     }
-    let count = if root {
+    let count = if stage {
+        32
+    } else if root {
         let closures = shape::array(m, request, "family_closures")?;
         let base = w::usize_add(m, closures.len(), 1)?;
         if program.uses_work_lifecycle_recipe() {
@@ -1107,6 +1113,69 @@ fn authority_slots(
     let mut out = Vec::new();
     out.try_reserve_exact(count)
         .map_err(|_| shape::fail("authority slot allocation"))?;
+    if stage {
+        match schema {
+            "ledger-workflow-invocation-authorize/1" => {
+                let slot = txt(m, request, "source_slot")?;
+                push_authority_slot(m, a, owners, &mut out, slot)?;
+            }
+            "ledger-workflow-invocation-close/1" => {
+                let (_, invocation) = load_ref(
+                    m,
+                    a,
+                    r,
+                    key,
+                    &request["invocation_ref"],
+                    "workflow-invocation",
+                    "ledger-workflow-invocation/1",
+                )?;
+                let slot = txt(m, &invocation, "source_slot")?;
+                push_authority_slot(m, a, owners, &mut out, slot)?;
+            }
+            "ledger-workflow-stage-authorize/1" | "ledger-workflow-stage-close/1" => {
+                let name = if schema == "ledger-workflow-stage-authorize/1" {
+                    txt(m, &request["stage_instance"], "stage_name")?
+                } else {
+                    txt(m, request, "stage")?
+                };
+                let definitions = shape::array(m, program.original_policy_value(), "stages")?;
+                let def = shape::named(m, definitions, "name", name)?;
+                let slot = txt(
+                    m,
+                    def,
+                    if schema == "ledger-workflow-stage-authorize/1" {
+                        "authorization_source_slot"
+                    } else {
+                        "closure_source_slot"
+                    },
+                )?;
+                let binding = r.get(
+                    m,
+                    key,
+                    subject.original_binding_ref(),
+                    "workflow-binding",
+                    "ledger-workflow-binding/2",
+                )?;
+                let nominations = shape::array(m, &binding, "source_slots")?;
+                if w::compare(m, nominations.len(), 32usize)?.is_gt() {
+                    return Err(shape::fail("Stage source nomination bound"));
+                }
+                shape::named(m, nominations, "name", slot)?;
+                push_authority_slot(m, a, owners, &mut out, slot)?;
+                if schema == "ledger-workflow-stage-authorize/1" {
+                    for invocation in shape::array(m, request, "invocation_inputs")? {
+                        let slot = txt(m, invocation, "source_slot")?;
+                        shape::named(m, nominations, "name", slot)?;
+                        push_authority_slot(m, a, owners, &mut out, slot)?;
+                    }
+                }
+            }
+            "ledger-workflow-fact-attest/1" => {}
+            _ => return Err(shape::fail("Stage authority locator recipe")),
+        }
+        let n = out.len();
+        return Ok((out, n));
+    }
     let work_ref = subject
         .original_work_ref()
         .ok_or_else(|| shape::fail("authority slot original work"))?;
@@ -1667,6 +1736,18 @@ impl LocalSubjectBinding {
         self.binding_ref.reference()
     }
 }
+fn stage_subject(p: &Value) -> bool {
+    matches!(
+        p["schema"].as_str(),
+        Some(
+            "ledger-workflow-invocation-authorize/1"
+                | "ledger-workflow-invocation-close/1"
+                | "ledger-workflow-stage-authorize/1"
+                | "ledger-workflow-stage-close/1"
+        )
+    ) || (p["schema"].as_str() == Some("ledger-workflow-fact-attest/1")
+        && p["attestation"]["subject"]["kind"].as_str() == Some("stage"))
+}
 fn subject_refs(
     m: &mut CoreMeter,
     a: &AuditArena,
@@ -1678,6 +1759,76 @@ fn subject_refs(
     m.write_bytes(mem::size_of::<LocalSubjectBinding>())?;
     let schema = txt(m, p, "schema")?;
     super::candidate::assembly::operation(m, p)?;
+    let direct = match schema {
+        "ledger-workflow-invocation-authorize/1" => {
+            Some(parse_owned_reference(m, a, &p["binding_ref"])?)
+        }
+        "ledger-workflow-invocation-close/1" => {
+            let (_, invocation) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &p["invocation_ref"],
+                "workflow-invocation",
+                "ledger-workflow-invocation/1",
+            )?;
+            Some(parse_owned_reference(
+                m,
+                a,
+                &invocation["original_binding_ref"],
+            )?)
+        }
+        "ledger-workflow-stage-authorize/1" => Some(parse_owned_reference(
+            m,
+            a,
+            &p["stage_instance"]["binding_ref"],
+        )?),
+        "ledger-workflow-stage-close/1" => {
+            let (_, instance) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &p["stage_instance_ref"],
+                "workflow-stage-instance",
+                "ledger-workflow-stage-instance/1",
+            )?;
+            shape::equal(m, &instance["binding_ref"], &p["binding_ref"])?;
+            Some(parse_owned_reference(m, a, &instance["binding_ref"])?)
+        }
+        "ledger-workflow-fact-attest/1"
+            if p["attestation"]["subject"]["kind"].as_str() == Some("stage") =>
+        {
+            let subject = &p["attestation"]["subject"];
+            let (_, instance) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &subject["stage_instance_ref"],
+                "workflow-stage-instance",
+                "ledger-workflow-stage-instance/1",
+            )?;
+            shape::equal(m, &instance["binding_ref"], &subject["binding_ref"])?;
+            Some(parse_owned_reference(m, a, &instance["binding_ref"])?)
+        }
+        _ => None,
+    };
+    if let Some(binding_ref) = direct {
+        if !shape::same_text(m, &binding_ref.reference().kind, "workflow-binding")? {
+            return Err(shape::fail("Stage original subject Binding kind"));
+        }
+        return Ok(LocalSubjectBinding {
+            work_ref: None,
+            selector_ref: None,
+            target_ref: None,
+            binding_ref,
+            family_slot: None,
+            component_slot: None,
+            _ownership: owner,
+        });
+    }
     let mut family_slot = None;
     let mut component_slot = None;
     let mut work_ref = None;
@@ -1846,7 +1997,11 @@ pub fn locate_local_subject_binding(
         let p = s.parse_representation(raw, RepresentationKind::OriginalRequest)?;
         let m = s.meter_mut();
         super::codec::validate_selected_types(m, p.value())?;
-        let mut r = Records::borrowed_parent_app(m, &a, key, inputs)?;
+        let mut r = if stage_subject(p.value()) {
+            Records::borrowed_parent_stage(m, &a, key, inputs)?
+        } else {
+            Records::borrowed_parent_app(m, &a, key, inputs)?
+        };
         subject_refs(m, &a, &mut r, key, p.value())
     })();
     if result.is_err() {

@@ -190,6 +190,13 @@ fn walk(
     }
     let schema = shape::text(m, payload, "schema")?;
     match schema {
+        "ledger-workflow-stage-close/1" if program.uses_stage_lifecycle_recipe() => {
+            facts(m, "new_stage", payload, emit)?
+        }
+        "ledger-workflow-invocation-authorize/1"
+        | "ledger-workflow-invocation-close/1"
+        | "ledger-workflow-stage-authorize/1"
+            if program.uses_stage_lifecycle_recipe() => {}
         "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" => {
             facts(m, "new_outcome", payload, emit)?
         }

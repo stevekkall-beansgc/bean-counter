@@ -223,7 +223,11 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
         )?;
         let kind = operation(m, payload.value())?;
         let local = program.uses_local_execution_recipe();
-        if local && !shape::same_text(m, kind, "evidence.retain")? {
+        let invocation_transition = program.uses_stage_lifecycle_recipe()
+            && matches!(kind, "invocation.authorize" | "invocation.close");
+        // Invocation producers validate their own held conservation. No Work
+        // decision/root is fabricated for these administrative transitions.
+        if local && !shape::same_text(m, kind, "evidence.retain")? && !invocation_transition {
             capacity::local::produce(m, c, program, state, &mut t)?;
         }
         if !local
@@ -501,7 +505,14 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
         }
         let actual_members = capacity::actual_members(m, &t)?;
         Ok(Self {
-            result_kind: if local && program.uses_stage_lifecycle_recipe() && matches!(kind,"invocation.authorize"|"invocation.close") {super::CandidateResultKind::Administrative} else {super::CandidateResultKind::Economic},
+            result_kind: if local
+                && program.uses_stage_lifecycle_recipe()
+                && matches!(kind, "invocation.authorize" | "invocation.close")
+            {
+                super::CandidateResultKind::Administrative
+            } else {
+                super::CandidateResultKind::Economic
+            },
             construction: t,
             schemas,
             result_refs,
