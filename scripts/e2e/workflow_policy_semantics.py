@@ -21,7 +21,7 @@ class PolicyJourney(AttestedJourney):
     fixture_directory = FIXTURES
     quantity = "90"
     quantity_unit = "support:second"
-    issuer_operations = {"main-quantity-proof", "main-quantity-replacement-proof"}
+    issuer_operations = {"main-quantity-proof", "main-quantity-replacement-proof", "revoked-issuer-retain"}
 
     def __init__(self, args):
         Journey.__init__(self, args)
@@ -87,6 +87,10 @@ class PolicyJourney(AttestedJourney):
         self.meta["historical_issuer"] = {"original_grant_ref": self.issuer_grant,
             "revoked_state_ref": unique(revoked, "workflow-source-state"),
             "worker_current_rights_remain_separate": True}
+        denied = json.loads((self.root / "main-quantity-proof.request.json").read_bytes())
+        denied["key"] = self.key("revoked-issuer-retain")
+        denied["payload"]["attestation"].update(attestation_id="revoked-new-proof", issued_at=now())
+        refuse(self, "revoked-issuer-retain", denied, "AUTHORITY_REQUIRED")
         payload = {"schema": "ledger-workflow-work/1", "external_event_id": prefix + "-delivery",
             "business_operation_id": prefix + "-service", "customer": self.customer,
             "chain": prefix + "-app-chain", "activity": "support:complete",
@@ -104,6 +108,20 @@ class PolicyJourney(AttestedJourney):
     def quantity_payload(self, work):
         return {"schema": "ledger-workflow-quantity-correction/2", **self.closure_inputs(work),
                 "field": "support:quantity", "replacement_quantity": "60", "fact_proofs": [self.replacement_proof]}
+
+    def reopen_retry(self, operations):
+        super().reopen_retry(operations)
+        for name in operations:
+            original = json.loads((self.root / (name + ".committed.json")).read_bytes())
+            responses = {}
+            for suffix in ["status", "retry"]:
+                command = next(c for c in reversed(self.meta["commands"]) if c["name"] == name + "-" + suffix)
+                responses[suffix] = json.loads((self.root / command["stdout"]).read_bytes())
+            assert responses["status"]["schema"] == "ledger-operation-status/1"
+            assert responses["retry"]["schema"] == "ledger-operation-result/1"
+            assert responses["status"]["status"] == responses["retry"]["status"] == "committed"
+            assert responses["retry"]["duplicate_kind"] == "identity"
+            assert responses["status"]["request_evidence"] == original["request_evidence"] == responses["retry"]["request_evidence"]
 
     def proof_negatives(self):
         # Genuine issuer receipts and all sidecars are copied. These two refused
