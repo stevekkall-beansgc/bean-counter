@@ -122,11 +122,17 @@ pub(super) fn local_support(
     drop(conditional);
     let declared = SelectedCompilerSupport::local_declared_link_execution_with_session(s)
         .map_err(core_error)?;
+    if same_support(reference, &declared, s)? {
+        return Ok(declared);
+    }
+    drop(declared);
+    let policy = SelectedCompilerSupport::local_policy_semantics_execution_with_session(s)
+        .map_err(core_error)?;
     require(
-        same_support(reference, &declared, s)?,
+        same_support(reference, &policy, s)?,
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    Ok(declared)
+    Ok(policy)
 }
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],
@@ -526,7 +532,7 @@ mod support_selection_tests {
     use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
 
     #[test]
-    fn local_support_selects_only_two_exact_binary_owned_descriptors() {
+    fn local_support_selects_only_exact_binary_owned_descriptors() {
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let old = SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap();
@@ -534,8 +540,15 @@ mod support_selection_tests {
         let conditional =
             SelectedCompilerSupport::local_conditional_execution_with_session(&mut s).unwrap();
         let new_ref = serde_json::to_value(conditional.reference()).unwrap();
+        let declared =
+            SelectedCompilerSupport::local_declared_link_execution_with_session(&mut s).unwrap();
+        let declared_ref = serde_json::to_value(declared.reference()).unwrap();
+        let policy =
+            SelectedCompilerSupport::local_policy_semantics_execution_with_session(&mut s).unwrap();
+        let policy_ref = serde_json::to_value(policy.reference()).unwrap();
         assert_ne!(old_ref, new_ref);
-        for reference in [&old_ref, &new_ref] {
+        assert_ne!(declared_ref, policy_ref);
+        for reference in [&old_ref, &new_ref, &declared_ref, &policy_ref] {
             let selected = local_support(reference, &mut s).unwrap();
             assert_eq!(
                 serde_json::to_value(selected.reference()).unwrap(),

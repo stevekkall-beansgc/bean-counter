@@ -53,10 +53,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (conditional, false)
         } else {
             drop(conditional);
-            (
-                SelectedCompilerSupport::local_declared_link_execution_with_session(&mut session)?,
-                true,
-            )
+            let declared =
+                SelectedCompilerSupport::local_declared_link_execution_with_session(&mut session)?;
+            if policy["compiler_ref"] == serde_json::to_value(declared.reference())? {
+                (declared, true)
+            } else {
+                drop(declared);
+                (
+                    SelectedCompilerSupport::local_policy_semantics_execution_with_session(
+                        &mut session,
+                    )?,
+                    input.join("report-facts.json").is_file(),
+                )
+            }
         }
     };
     if policy["compiler_ref"] != serde_json::to_value(support.reference())? {

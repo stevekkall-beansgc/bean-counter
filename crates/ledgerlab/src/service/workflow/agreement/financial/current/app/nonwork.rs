@@ -280,6 +280,22 @@ pub(in super::super::super) async fn observe(
         payload_schema,
         "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2"
     ) {
+        // Only the new scalar policy recipe needs one immediate prior root
+        // to authenticate its current inverse/replacement prefix. This is an
+        // immutable exact-Ref read, never another mutable head or history walk.
+        locators
+            .retain_current_root_predecessor(
+                o.original.publication.program(),
+                &ck,
+                &state.financial.decision_heads,
+                &pool.views(),
+                s,
+            )
+            .map_err(core_error)?;
+        if let Some(prior) = locators.current_root_predecessor_ref() {
+            pool.add(prior, s)?;
+            pool.complete(tx, key, o.before, s).await?;
+        }
         locators
             .retain_current_family_outcome_links(
                 o.original.publication.program(),
