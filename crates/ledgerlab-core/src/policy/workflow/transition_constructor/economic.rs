@@ -115,39 +115,79 @@ pub fn reconstruct_original_candidate<'a>(
             return Err(shape::fail("noncanonical original operation"));
         }
         let m = session.meter_mut();
-        shape::closed(
-            m,
-            op.value(),
-            &[
-                "schema",
-                "key",
-                "kind",
-                "contract",
-                "request_evidence",
-                "authority_snapshot",
-                "received_at",
-                "accepted_at",
-                "commit_sequence",
-                "result_refs",
+        let schema = shape::text(m, op.value(), "schema")?;
+        let local = shape::same_text(m, schema, "ledger-workflow-economic-operation/10")?;
+        if local {
+            if !program.uses_local_execution_recipe() {
+                return Err(shape::fail("local original requires exact local program"));
+            }
+            if saved.original_state.audit.is_some()
+                || saved.original_state.observation.is_some()
+                || !c.source_observation_inputs.is_empty()
+            {
+                return Err(shape::fail(
+                    "local original cannot fabricate experimental witnesses",
+                ));
+            }
+            shape::closed(
+                m,
+                op.value(),
+                &[
+                    "schema",
+                    "key",
+                    "kind",
+                    "contract",
+                    "request_evidence",
+                    "authority_snapshot",
+                    "received_at",
+                    "accepted_at",
+                    "commit_sequence",
+                    "result_refs",
+                    "closure_profile",
+                ],
+                &[],
+            )?;
+            same_text(
+                m,
+                op.value(),
                 "closure_profile",
-                "source_observation_refs",
-                "financial_observation_ref",
-                "combined_audit_digest",
-            ],
-            &[],
-        )?;
-        same_text(
-            m,
-            op.value(),
-            "schema",
-            "ledger-workflow-economic-operation/9",
-        )?;
-        same_text(
-            m,
-            op.value(),
-            "closure_profile",
-            "ledger-economic-resolved-inputs/9",
-        )?;
+                "ledger-local-selected-inputs/1",
+            )?;
+        } else {
+            shape::closed(
+                m,
+                op.value(),
+                &[
+                    "schema",
+                    "key",
+                    "kind",
+                    "contract",
+                    "request_evidence",
+                    "authority_snapshot",
+                    "received_at",
+                    "accepted_at",
+                    "commit_sequence",
+                    "result_refs",
+                    "closure_profile",
+                    "source_observation_refs",
+                    "financial_observation_ref",
+                    "combined_audit_digest",
+                ],
+                &[],
+            )?;
+            same_text(
+                m,
+                op.value(),
+                "schema",
+                "ledger-workflow-economic-operation/9",
+            )?;
+            same_text(
+                m,
+                op.value(),
+                "closure_profile",
+                "ledger-economic-resolved-inputs/9",
+            )?;
+        }
         same_text(m, op.value(), "contract", "workflow/1")?;
         let expected_key = key(m, c)?;
         shape::equal(m, &op.value()["key"], expected_key.value())?;
@@ -267,9 +307,13 @@ pub fn reconstruct_original_candidate<'a>(
         let assembly =
             Assembly::derive(&mut child, c, program, saved.original_state, construction)?;
         assembly.require_complete_capacity_and_resources(&mut child)?;
-        let audit = audit
-            .ok_or_else(|| unfinished("completed original AUTH03 witness stream is missing"))?;
-        let candidate = assembly.into_complete(c, audit, &mut child)?;
+        let candidate = if local {
+            assembly.into_local(c, &mut child)?
+        } else {
+            let audit = audit
+                .ok_or_else(|| unfinished("completed original AUTH03 witness stream is missing"))?;
+            assembly.into_complete(c, audit, &mut child)?
+        };
         session.meter_mut().finish_original_economic(child)?;
         // Only historical N/wrapper comparison belongs to the original parent.
         // The SAME constructor/capacity/owning assembly stays inside the consuming
@@ -363,12 +407,15 @@ fn compare_saved(
         m,
     )?;
     shape::equal(m, &evidence["normalized_request"], normalized.value())?;
-    let audit = a
-        .result_metadata()
-        .experimental_audit()
-        .ok_or_else(|| shape::fail("experimental wrapper requires actual audit metadata"))?;
+    let audit = a.result_metadata().experimental_audit();
+    let local = a.result_metadata().is_local_execution();
+    if !local && audit.is_none() {
+        return Err(shape::fail(
+            "experimental wrapper requires actual audit metadata",
+        ));
+    }
     let results = a.result_metadata().result_refs().len();
-    let sources = audit.source_observations().len();
+    let sources = audit.map_or(0, |audit| audit.source_observations().len());
     let n = if w::compare(m, results, sources)?.is_gt() {
         results
     } else {
@@ -393,6 +440,10 @@ fn compare_saved(
     }
     let result = super::app_cost::reference_set(m, &arena, &borrowed)?;
     shape::equal(m, &op["result_refs"], result.value())?;
+    if local {
+        return Ok(());
+    }
+    let audit = audit.ok_or_else(|| shape::fail("original experimental audit metadata"))?;
     borrowed.clear();
     for pair in audit.source_observations() {
         m.visit("original.actual_source_observation_reference")?;

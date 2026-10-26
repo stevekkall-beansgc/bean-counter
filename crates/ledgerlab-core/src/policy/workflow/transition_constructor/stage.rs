@@ -616,11 +616,11 @@ pub(super) fn work(
         shape::equal(m, &decision["authority_ref"], &old["authority_ref"])?;
         shape::equal(m, &decision["accepted_at"], &first["accepted_at"])?;
         same(m, &decision, "revision", "1")?;
-        let initial = shape::reference(m, &old["prior_ref"])?;
+        let initial_ref = shape::reference(m, &old["prior_ref"])?;
         let initial = r.get(
             m,
             &c.key,
-            &initial,
+            &initial_ref,
             "workflow-stage-state",
             "ledger-workflow-stage-state/1",
         )?;
@@ -641,6 +641,11 @@ pub(super) fn work(
         same(m, &initial, "revision", "1")?;
         same(m, &initial, "state", "declared")?;
         shape::equal(m, &initial["stage_instance_ref"], instance_value.value())?;
+        shape::equal(m, &initial["accepted_at"], &instance["declared_at"])?;
+        let expected_initial = state_id(m, &c.key, reference.reference(), &initial["revision"])?;
+        if !shape::same_text(m, &initial_ref.id, &expected_initial)? {
+            return Err(shape::fail("Stage original declared state identity"));
+        }
         let first_at = Timestamp::parse_with_work(shape::text(m, &first, "accepted_at")?, m)?;
         if w::compare(m, first_at.micros(), declared.micros())?.is_lt()
             || w::compare(m, first_at.micros(), now.micros())?.is_gt()
@@ -678,6 +683,7 @@ pub(super) fn work(
         &[],
     )?;
     same(m, &old, "revision", "1")?;
+    shape::equal(m, &old["accepted_at"], &instance["declared_at"])?;
     let duration = shape::text(m, &def["window"], "activation_deadline_us")?;
     let duration = super::arithmetic::integer(m, duration, false)?;
     if super::meter::cmp(m, &duration, &0.into())?.is_lt() {

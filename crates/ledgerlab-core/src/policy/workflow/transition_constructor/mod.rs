@@ -39,6 +39,7 @@ mod alias_authority;
 mod app_cost;
 mod authority;
 pub use alias_authority::{construct_local_work_alias_authority, LocalWorkAliasAuthority};
+pub use candidate::construct_local_work_alias_candidate;
 mod stage;
 pub use stage::{
     select_stage_work_head_locator, select_work_invocation_head_locators, StageWorkHeadLocator,

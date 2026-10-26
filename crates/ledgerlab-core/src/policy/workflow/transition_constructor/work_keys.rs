@@ -97,7 +97,7 @@ pub(super) fn claim_facts_digest(m: &mut CoreMeter, p: &Value, tuple: &Value) ->
     let fields = tuple
         .as_array()
         .ok_or_else(|| shape::fail("Work claim tuple"))?;
-    if fields.len() > 13 {
+    if crate::validation_work::compare(m, fields.len(), 13usize)?.is_gt() {
         return Err(shape::fail("Work claim fixed tuple dimension"));
     }
     let a = arena(m)?;
@@ -112,4 +112,42 @@ pub(super) fn claim_facts_digest(m: &mut CoreMeter, p: &Value, tuple: &Value) ->
     let count = crate::validation_work::usize_add(m, fields.len(), 1)?;
     let value = a.array_from_values(&selected[..count], m)?;
     super::records::hash(m, "workflow-claim-facts", value.value())
+}
+
+#[cfg(test)]
+mod staged_claim_tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    use serde_json::json;
+    #[test]
+    fn staged_claim_extends_only_present_stage_and_original_consumer_repeats_it() {
+        let a = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let m = s.meter_mut();
+        let mut p = json!({"customer":"customer","chain":"chain","status":"succeeded","activity":"test:work","product_ref":{},"policy_ref":{},"fact_schema_ref":{},"facts":{},"links":[],"binding_ref":{},"invocation_refs":[],"evidence_refs":[],"business_operation_id":"business"});
+        let tuple = json!([
+            p["customer"],
+            p["chain"],
+            p["status"],
+            p["activity"],
+            p["product_ref"],
+            p["policy_ref"],
+            p["fact_schema_ref"],
+            p["facts"],
+            p["links"],
+            p["binding_ref"],
+            p["invocation_refs"],
+            p["evidence_refs"]
+        ]);
+        let unstaged = super::super::records::hash(m, "workflow-claim-facts", &tuple).unwrap();
+        assert_eq!(claim_facts_digest(m, &p, &tuple).unwrap(), unstaged);
+        p["stage_instance_ref"] = json!({"kind":"workflow-stage-instance","id":format!("wstage_{}","1".repeat(64)),"digest":format!("sha256:{}","2".repeat(64))});
+        let staged = claim_facts_digest(m, &p, &tuple).unwrap();
+        assert_ne!(staged, unstaged);
+        let claim = json!({"business_operation_id":"business","facts_digest":staged});
+        let work = json!({"payload":p});
+        super::super::outcome::original_claim_association(m, &claim, &work).unwrap();
+        let wrong = json!({"business_operation_id":"business","facts_digest":unstaged});
+        assert!(super::super::outcome::original_claim_association(m, &wrong, &work).is_err());
+    }
 }

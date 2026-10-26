@@ -4,10 +4,12 @@
 //! are separate obligations. The connected factory refuses until complete derivation closes.
 use super::data::{ExactRef, OperationKey};
 use crate::canonical::audit_arena::ExternalBufferLease;
+pub(super) mod alias;
 pub(super) mod assembly;
 pub(super) mod heads;
 pub(super) mod introductions;
 pub(super) mod reservations;
+pub use alias::construct_local_work_alias_candidate;
 
 pub enum FinancialHeadKey {
     Stage {
@@ -407,12 +409,14 @@ impl CandidateEnvelope {
 pub enum CandidateResultKind {
     Economic,
     Administrative,
+    SemanticAlias,
 }
 impl CandidateResultKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Economic => "economic",
             Self::Administrative => "administrative",
+            Self::SemanticAlias => "semantic_alias",
         }
     }
 }
@@ -499,9 +503,17 @@ pub struct EconomicCandidate {
     funding: Vec<CustomerLocalFundingEffect>,
     account_enrollments: Vec<AccountEnrollmentEffect>,
     result: CandidateResultMetadata,
-    _ownership: assembly::CandidateOwnership,
+    // Ordinary construction owns its actual Assembly. A semantic alias owns
+    // the actual sealed original instead; no public conversion/ready flag.
+    _ownership: Option<assembly::CandidateOwnership>,
+    _alias_origin: Option<Box<EconomicCandidate>>,
+    _alias_ownership: Option<ExternalBufferLease>,
+    inline_authority: Option<CandidateEnvelope>,
 }
 impl EconomicCandidate {
+    pub fn inline_authority(&self) -> Option<&CandidateEnvelope> {
+        self.inline_authority.as_ref()
+    }
     pub fn account_enrollments(&self) -> &[AccountEnrollmentEffect] {
         &self.account_enrollments
     }

@@ -13,6 +13,7 @@ use crate::{
 pub struct LocalWorkAliasAuthority {
     snapshot: AuditedValue,
     normalized: AuditedBytes,
+    consumed: super::records::OwnedConsumed,
 }
 impl LocalWorkAliasAuthority {
     pub fn authority_snapshot(&self) -> &serde_json::Value {
@@ -20,6 +21,9 @@ impl LocalWorkAliasAuthority {
     }
     pub fn normalized_payload(&self) -> &[u8] {
         self.normalized.bytes()
+    }
+    pub(super) fn into_parts(self) -> (AuditedValue, AuditedBytes, super::records::OwnedConsumed) {
+        (self.snapshot, self.normalized, self.consumed)
     }
 }
 fn same(m: &mut CoreMeter, left: &[u8], right: &[u8]) -> Result<()> {
@@ -109,6 +113,7 @@ pub fn construct_local_work_alias_authority(
         Ok(LocalWorkAliasAuthority {
             snapshot,
             normalized,
+            consumed: records.into_consumed_owned(),
         })
     })();
     if result.is_err() {

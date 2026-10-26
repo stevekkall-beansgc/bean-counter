@@ -690,7 +690,7 @@ impl Assembly<'_, '_> {
             funding: funding_effects,
             account_enrollments: Vec::new(),
             result,
-            _ownership: CandidateOwnership {
+            _ownership: Some(CandidateOwnership {
                 _heads: heads,
                 _introductions: introductions,
                 _funding: funding,
@@ -700,7 +700,10 @@ impl Assembly<'_, '_> {
                 _reservations: reservations,
                 _head_transfer: head_transfer,
                 _financial_reservations: construction.financial_reservations.take(),
-            },
+            }),
+            _alias_origin: None,
+            _alias_ownership: None,
+            inline_authority: None,
         })
     }
 }
