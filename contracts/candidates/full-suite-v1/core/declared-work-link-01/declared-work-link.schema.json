@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:candidate:full-suite-v1:declared-work-link:1",
+  "$defs": {
+    "OutcomeSubmit2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome/2"
+        },
+        "target_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+        },
+        "family_slot": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Id"
+        },
+        "business_outcome_token": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Id"
+        },
+        "activity": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Name"
+        },
+        "product_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/DocRef"
+        },
+        "policy_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/DocRef"
+        },
+        "fact_schema_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/DocRef"
+        },
+        "binding_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+        },
+        "facts": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Facts"
+        },
+        "fact_proofs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/FactProof"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "occurred_at": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Time"
+        },
+        "selector_start_work_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+        }
+      },
+      "required": [
+        "schema",
+        "target_ref",
+        "family_slot",
+        "business_outcome_token",
+        "activity",
+        "product_ref",
+        "policy_ref",
+        "fact_schema_ref",
+        "binding_ref",
+        "facts",
+        "fact_proofs",
+        "evidence_refs",
+        "occurred_at",
+        "selector_start_work_ref"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeClaim2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome-claim/2"
+        },
+        "scope": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Scope"
+        },
+        "agreement_id": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Id"
+        },
+        "family_slot": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Id"
+        },
+        "target_ref": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Ref"
+        },
+        "source_namespace": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/SourceId"
+        },
+        "business_outcome_token": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Id"
+        },
+        "original_payload": {
+          "$ref": "#/$defs/OutcomeSubmit2"
+        },
+        "received_at": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Time"
+        },
+        "accepted_at": {
+          "$ref": "https://bean-counter.invalid/contracts/candidate/economic-boundary-01.schema.json#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "agreement_id",
+        "family_slot",
+        "target_ref",
+        "source_namespace",
+        "business_outcome_token",
+        "original_payload",
+        "received_at",
+        "accepted_at"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeCorrect2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome-correction/2"
+        },
+        "original_claim_ref": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Counter"
+        },
+        "replacement": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OutcomeSubmit2"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "none"
+                },
+                "evidence_refs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "urn:bean-counter:candidate:full-suite-v1:core:workflow:1#/$defs/Ref"
+                  },
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "uniqueItems": true
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "kind",
+                "evidence_refs",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "original_claim_ref",
+        "expected_revision",
+        "replacement"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/OutcomeSubmit2"
+    },
+    {
+      "$ref": "#/$defs/OutcomeClaim2"
+    },
+    {
+      "$ref": "#/$defs/OutcomeCorrect2"
+    }
+  ]
+}

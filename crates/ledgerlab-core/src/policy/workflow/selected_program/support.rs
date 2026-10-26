@@ -48,6 +48,16 @@ impl SelectedCompilerSupport {
             execution_registry: Some(super::local::REGISTRY),
         })
     }
+    /// Binary-owned declared-link recipe, preserving all prior identities.
+    pub fn local_declared_link_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_declared_link_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::DECLARED_LINK_REGISTRY),
+        })
+    }
     #[cfg(test)]
     pub(super) fn legacy_local_for_test(
         session: &mut crate::validation_work::OriginalAuditSession,

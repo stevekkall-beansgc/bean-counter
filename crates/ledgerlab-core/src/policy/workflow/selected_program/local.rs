@@ -12,18 +12,24 @@ use sha2::{Digest, Sha256};
 mod assets;
 #[path = "local_conditional_assets.rs"]
 mod conditional_assets;
+#[path = "local_declared_link_assets.rs"]
+mod declared_link_assets;
 #[path = "local_operator_assets.rs"]
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
 mod parent_assets;
 pub(super) const REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
+pub(super) const DECLARED_LINK_REGISTRY: &str =
+    "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d";
 pub(super) const DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler6-data.json");
 pub(super) const PARENT_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler7-data.json");
 pub(super) const OPERATOR_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-compiler8-data.json");
 const OPERATOR_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile3.json");
 pub(super) const CONDITIONAL_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-compiler8-data.json");
 const CONDITIONAL_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-contract-profile.json");
+pub(super) const DECLARED_LINK_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-declared-link-compiler8-data.json");
+const DECLARED_LINK_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-declared-link-contract-profile.json");
 #[cfg(test)]
 const MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile.json");
 const PARENT_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-contract-profile2.json");
@@ -57,6 +63,18 @@ pub fn local_conditional_compiler_descriptor_with_session(
         CONDITIONAL_DESCRIPTOR,
         CONDITIONAL_MANIFEST,
         conditional_assets::ARTIFACTS,
+    )
+}
+/// Exact additive two-hop support. Retained old descriptors remain DATA with
+/// their own original recipe; this factory never selects a caller catalog.
+pub fn local_declared_link_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(
+        s,
+        DECLARED_LINK_DESCRIPTOR,
+        DECLARED_LINK_MANIFEST,
+        declared_link_assets::ARTIFACTS,
     )
 }
 #[cfg(test)]
