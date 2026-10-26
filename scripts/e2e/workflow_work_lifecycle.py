@@ -294,7 +294,19 @@ class LifecycleJourney(MeteredJourney):
         cause = closed["causal_closure"]
         assert cause["root_decision_ref"] == rounded["root_decision_ref"] and cause["root_expected_revision"] == "1"
         authority = self.document(cause["authority_ref"])
-        assert authority["source"] == self.dependent and authority["operation"] == "work.reverse"
+        assert authority["source"] == self.corrector and authority["operation"] == "work.reverse"
+        terms = [row["binding_ref"] for row in self.binding["bindings"] if row["slot"] == "support:retail"]
+        assert len(terms) == 1
+        checks = [check for check in authority["causal_closure_checks"]
+                  if check["family_state_ref"] == prior_ref and check["expected_revision"] == "1"
+                  and check["family_slot"] == "support:quality" and check["original_slot_terms_ref"] == terms[0]
+                  and check["root_component_slot"] == "support:service"]
+        assert len(checks) == 1 and checks[0]["authority_evidence_refs"] == [self.dependent_grant]
+        dependent_authority = self.document(checks[0]["dependent_authority_ref"])
+        assert dependent_authority["source"] == self.dependent and dependent_authority["operation"] == "work.reverse"
+        assert dependent_authority["source_slot"] == "support:assessor"
+        assert dependent_authority["current_grant_ref"] == self.dependent_grant
+        assert dependent_authority["original_grant_refs"] == [self.dependent_grant]
         _, capacity = self.head("capacity", root_id)
         capacity = self.document(capacity)
         assert len(capacity["retirement_refs"]) == 1
