@@ -1252,3 +1252,100 @@ fn lifecycle_input_edges_own_fixed_birth_and_named_revision_locators() {
     )
     .is_err());
 }
+
+#[test]
+fn lifecycle_fact_groups_select_real_wrappers_and_field_subset() {
+    use super::super::{
+        body, select_local_operation_locators, select_work_fact_reference_inputs, DraftStateData,
+        EconomicCapture, EconomicRecordView, EconomicStateData, OperationKey,
+    };
+    let (arena, mut compile) = session();
+    let support =
+        SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut compile).unwrap();
+    let p = compile_selected_publication(policy_context_input(&support), &support, &mut compile)
+        .unwrap();
+    let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut producer = super::super::CoreMeter::new(65536).unwrap();
+    let key = OperationKey {
+        logical_store_id: "store".into(),
+        scope: ["company".into(), "scope".into()],
+        source: "urn:example:worker".into(),
+        operation_id: "fact-groups".into(),
+    };
+    let context = json!({"fact_schema_ref":p.context_schema_ref(),"facts":{"support:service-eligibility":"support:billable"}});
+    let binding = body::document(
+        &mut producer,
+        "workflow-binding",
+        json!({"schema":"ledger-workflow-binding/2","accepted_context":context}),
+    )
+    .unwrap();
+    let product = p
+        .source_documents()
+        .iter()
+        .find(|d| d.reference().kind() == "workflow-product")
+        .unwrap();
+    let activity = product.canonical_value()["activities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "support:complete")
+        .unwrap();
+    let payload = json!({"schema":"ledger-workflow-work/1","activity":"support:complete","product_ref":product.reference(),"binding_ref":binding.reference,"fact_schema_ref":activity["fact_schema"],"facts":{"support:quantity":"90","support:approved":true}});
+    let raw = canonical::CanonicalBytes::from_value(&payload).unwrap();
+    let view = EconomicRecordView {
+        reference: &binding.reference,
+        canonical_body: &binding.canonical_body,
+    };
+    let selected =
+        select_work_fact_reference_inputs(&p, &key, raw.as_slice(), view, &mut s).unwrap();
+    assert_eq!(
+        selected
+            .groups()
+            .iter()
+            .map(|g| g.role())
+            .collect::<Vec<_>>(),
+        vec!["new_work", "accepted_context"]
+    );
+    assert!(selected
+        .groups()
+        .iter()
+        .all(|g| g.inputs().entries().is_empty()));
+    // A field assertion exists before its future Work; selecting it must not
+    // require a fabricated complete Work fact map or an original Work body.
+    let attestation = json!({"schema":"ledger-workflow-fact-attest/1","attestation":{"source":key.source,"attestation_id":"claim-subset","subject":{"kind":"work","binding_ref":binding.reference},"subject_schema_ref":activity["fact_schema"],"claims":[{"field":"support:quantity","value":"90"}]}});
+    let raw = canonical::CanonicalBytes::from_value(&attestation).unwrap();
+    let capture = EconomicCapture {
+        key: &key,
+        actor: "operator",
+        canonical_economic_namespace: &key.source,
+        installation_mode: "local",
+        received_at: "2026-10-26T00:00:00.000000Z",
+        accepted_at: "2026-10-26T00:00:00.000000Z",
+        sources: &[],
+    };
+    let locators =
+        select_local_operation_locators(&p, &capture, raw.as_slice(), &[view], &mut s).unwrap();
+    let state = DraftStateData::default();
+    let selected_state = EconomicStateData {
+        retained_assertion: None,
+        financial: &state,
+        capacity_heads: &[],
+        supplier: None,
+        app: None,
+        current_party_authorizations: &[],
+        observation: None,
+        audit: None,
+        initial_source_correspondences: &[],
+    };
+    let selected = locators
+        .select_fact_reference_inputs(&p, &key, raw.as_slice(), (&selected_state, &[view]), &mut s)
+        .unwrap();
+    assert_eq!(
+        selected
+            .groups()
+            .iter()
+            .map(|g| g.role())
+            .collect::<Vec<_>>(),
+        vec!["accepted_context", "asserted_fields"]
+    );
+}

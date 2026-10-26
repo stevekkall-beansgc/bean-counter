@@ -48,6 +48,27 @@ pub struct LocalOperationLocators {
     _ownership: ExternalBufferLease,
 }
 impl LocalOperationLocators {
+    /// Typed opaque-facts acquisition for the actual held subject/current
+    /// recipe. No caller completeness flag or semantic relationship proof.
+    pub fn select_fact_reference_inputs(
+        &self,
+        program: &SelectedProgram,
+        key: &OperationKey,
+        raw: &[u8],
+        selected: (&EconomicStateData<'_>, &[EconomicRecordView<'_>]),
+        s: &mut OriginalAuditSession,
+    ) -> Result<super::fact_reference_groups::OperationFactReferenceInputs> {
+        let result = (|| {
+            s.arena()
+                .shared_handle()
+                .require_external_owner(&self._ownership, s.meter_mut())?;
+            super::fact_reference_groups::select(self, program, key, raw, selected, s)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
     /// Original declaration slots needed by root correction or close retention.
     /// Lookup DATA only: the child independently authenticates every frame and
     /// rejects missing, duplicate and unused nominations.

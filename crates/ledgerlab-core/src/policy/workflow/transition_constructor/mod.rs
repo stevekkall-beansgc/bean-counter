@@ -1,5 +1,9 @@
 //! Pure selected draft/replay foundation. No output is a financial commit,
 //! authenticated host capability or future-correction capacity certificate.
+mod fact_reference_groups;
+pub use fact_reference_groups::{
+    select_work_fact_reference_inputs, OperationFactReferenceGroup, OperationFactReferenceInputs,
+};
 mod fact_references;
 pub use fact_references::{select_fact_reference_inputs, FactReferenceInput, FactReferenceInputs};
 mod lifecycle_edges;

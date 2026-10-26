@@ -128,6 +128,105 @@ fn select(m: &mut CoreMeter, schema: &FactSchema, facts: &Value) -> Result<FactR
     })
 }
 
+/// Actual assertion claims are a field subset, not a complete future Work.
+/// Inspect only declared Reference fields; retention separately proves all
+/// fields, issuer purpose, subject and original/current authority.
+fn select_claims(
+    m: &mut CoreMeter,
+    schema: &FactSchema,
+    claims: &Value,
+) -> Result<FactReferenceInputs> {
+    use super::super::FactValue;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning reference claims selector"))?;
+    let values = claims
+        .as_array()
+        .ok_or_else(|| shape::fail("reference assertion claims array"))?;
+    let scratch = crate::canonical::audit_arena::value_copy_payload_bound(claims, m)?;
+    // Each temporary typed Ref owns at most the actual three-string input
+    // graph's payload. It is dropped before the next scalar is normalized.
+    let _scratch = arena.reserve_external_payload(scratch, m)?;
+    let walk = |m: &mut CoreMeter,
+                emit: &mut dyn FnMut(
+        &str,
+        &'static str,
+        &crate::policy::workflow::facts::FactReference,
+        &mut CoreMeter,
+    ) -> Result<()>|
+     -> Result<()> {
+        for (index, claim) in values.iter().enumerate() {
+            shape::closed(m, claim, &["field", "value"], &[])?;
+            let name = shape::text(m, claim, "field")?;
+            for prior in &values[..index] {
+                let previous = shape::text(m, prior, "field")?;
+                if shape::same_text(m, name, previous)? {
+                    return Err(shape::fail("duplicate reference assertion field"));
+                }
+            }
+            let Some((_, relation)) = schema.reference_requirement_with_work(name, m)? else {
+                continue;
+            };
+            let value = schema.normalize_attested_field_complete_with_work(
+                name,
+                shape::field(m, claim, "value")?,
+                m,
+            )?;
+            let FactValue::Reference(reference) = value else {
+                return Err(shape::fail("typed reference assertion value"));
+            };
+            emit(name, relation, &reference, m)?;
+        }
+        Ok(())
+    };
+    let mut count = 0usize;
+    let mut bytes = mem::size_of::<FactReferenceInputs>();
+    walk(m, &mut |name, _, reference, m| {
+        count = w::usize_add(m, count, 1)?;
+        bytes = w::usize_add(m, bytes, mem::size_of::<FactReferenceInput>())?;
+        for text in [name, reference.kind(), reference.id(), reference.digest()] {
+            bytes = w::usize_add(m, bytes, text.len())?;
+        }
+        Ok(())
+    })?;
+    let ownership = arena.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    let mut entries = Vec::new();
+    entries
+        .try_reserve_exact(count)
+        .map_err(|_| shape::fail("reference claim input vector"))?;
+    walk(m, &mut |name, relation, reference, m| {
+        entries.push(FactReferenceInput {
+            field: copy(m, name)?,
+            relation,
+            reference: ExactRef {
+                kind: copy(m, reference.kind())?,
+                id: copy(m, reference.id())?,
+                digest: copy(m, reference.digest())?,
+            },
+        });
+        Ok(())
+    })?;
+    Ok(FactReferenceInputs {
+        entries,
+        _ownership: ownership,
+    })
+}
+pub(super) fn select_group(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    schema: &Value,
+    values: &Value,
+    claims: bool,
+) -> Result<FactReferenceInputs> {
+    let schema = original_schema(m, program, schema)?;
+    if claims {
+        select_claims(m, schema, values)
+    } else {
+        select(m, schema, values)
+    }
+}
+
 /// Exact typed seeds for the coordinator's original-cutoff body/producer/member
 /// acquisition. Neither this selection nor caller-supplied completeness can
 /// replace the child's fixed record-kind and declared-relation validation.
@@ -187,5 +286,27 @@ mod tests {
         let mut invalid = json!({"example:ancestor":reference,"example:text":"ordinary"});
         invalid["example:ancestor"]["kind"] = json!("workflow-action");
         assert!(select(session.meter_mut(), &schema, &invalid).is_err());
+    }
+    #[test]
+    fn reference_assertion_subset_does_not_fabricate_unclaimed_required_facts() {
+        let schema = FactSchema::parse(&serde_json::to_vec(&json!({
+            "schema":"ledger-workflow-fact-schema/1", "schema_id":"example:claims", "version":"1", "normalization":"ledger-facts-normalization/1",
+            "fields":[
+                {"name":"example:definition","required":true,"provenance":{"kind":"attested","source_slot":"example:issuer","evidence_kind":"meter_quantity"},"type":{"kind":"reference","record_kind":"workflow-product","relation":"same_binding"}},
+                {"name":"example:quantity","required":true,"provenance":{"kind":"caller"},"type":{"kind":"integer","min":"0","max":"10","unit":"example:unit"}}
+            ]
+        })).unwrap()).unwrap();
+        let reference = json!({"kind":"workflow-product","id":format!("wdoc_{}","a".repeat(64)),"digest":format!("sha256:{}","a".repeat(64))});
+        let claims = json!([{"field":"example:definition","value":reference}]);
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let selected = select_claims(s.meter_mut(), &schema, &claims).unwrap();
+        assert_eq!(selected.entries().len(), 1);
+        assert_eq!(selected.entries()[0].field(), "example:definition");
+        assert_eq!(selected.entries()[0].relation(), "same_binding");
+        assert_eq!(selected.entries()[0].reference().kind, "workflow-product");
+        let wrong = json!([{"field":"example:definition","value":{"kind":"workflow-work","id":format!("wevent_{}","a".repeat(64)),"digest":format!("sha256:{}","a".repeat(64))}}]);
+        assert!(select_claims(s.meter_mut(), &schema, &wrong).is_err());
+        assert!(select_claims(s.meter_mut(), &schema, &json!([claims[0], claims[0]])).is_err());
     }
 }
