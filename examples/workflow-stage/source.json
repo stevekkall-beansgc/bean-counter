@@ -1,0 +1,377 @@
+{
+  "classification": "Synthetic combined shared-namespace Stage cap/share source; not execution qualification",
+  "documents": [
+    {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:stage-work-facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "support:quantity",
+          "required": true,
+          "provenance": {
+            "kind": "caller"
+          },
+          "type": {
+            "kind": "integer",
+            "min": "1",
+            "max": "1",
+            "unit": "support:item"
+          }
+        },
+        {
+          "name": "support:occurred",
+          "required": true,
+          "provenance": {
+            "kind": "attested",
+            "source_slot": "support:worker",
+            "evidence_kind": "occurrence"
+          },
+          "type": {
+            "kind": "timestamp",
+            "min": "2000-01-01T00:00:00.000000Z",
+            "max": "2099-01-01T00:00:00.000000Z"
+          }
+        }
+      ]
+    },
+    {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:stage-close-facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "support:occurred",
+          "required": true,
+          "provenance": {
+            "kind": "attested",
+            "source_slot": "support:closer",
+            "evidence_kind": "occurrence"
+          },
+          "type": {
+            "kind": "timestamp",
+            "min": "2000-01-01T00:00:00.000000Z",
+            "max": "2099-01-01T00:00:00.000000Z"
+          }
+        },
+        {
+          "name": "support:success",
+          "required": true,
+          "provenance": {
+            "kind": "attested",
+            "source_slot": "support:closer",
+            "evidence_kind": "outcome"
+          },
+          "type": {
+            "kind": "boolean"
+          }
+        }
+      ]
+    },
+    {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "support:stage-context",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": []
+    },
+    {
+      "schema": "ledger-workflow-product/1",
+      "profile": "workflow/1",
+      "product_id": "support:stage-product",
+      "version": "1",
+      "grammar": "ledger-policy-grammar/1",
+      "evaluator": "ledger-workflow-evaluator/1",
+      "limits_profile": "workflow-limits/1",
+      "labels": {
+        "title": "Fixed Stage closure"
+      },
+      "units": [
+        {
+          "name": "support:item",
+          "dimension": "support:count",
+          "labels": {
+            "title": "Item"
+          }
+        }
+      ],
+      "fact_schemas": [
+        {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_be79f681caa55b331687d2d78b7b39f7e27726162cfe269968f163088d9201ed",
+          "digest": "sha256:be79f681caa55b331687d2d78b7b39f7e27726162cfe269968f163088d9201ed"
+        },
+        {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+          "digest": "sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67"
+        }
+      ],
+      "activities": [
+        {
+          "name": "support:prepare",
+          "primitive": "work",
+          "source_slot": "support:worker",
+          "fact_schema": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_be79f681caa55b331687d2d78b7b39f7e27726162cfe269968f163088d9201ed",
+            "digest": "sha256:be79f681caa55b331687d2d78b7b39f7e27726162cfe269968f163088d9201ed"
+          },
+          "funding_leg": "support:customer",
+          "labels": {
+            "title": "Prepared Work"
+          }
+        },
+        {
+          "name": "support:close",
+          "primitive": "outcome",
+          "source_slot": "support:closer",
+          "fact_schema": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+            "digest": "sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67"
+          },
+          "labels": {
+            "title": "Stage closure"
+          }
+        }
+      ],
+      "links": [
+        {
+          "name": "support:closes",
+          "child_activity": "support:close",
+          "child_primitive": "outcome",
+          "predecessor_activities": [
+            "support:prepare"
+          ],
+          "predecessor_primitive": "work",
+          "binding_relation": "same_binding",
+          "minimum": "1",
+          "maximum": "1",
+          "max_depth": "1",
+          "on_missing": "refuse"
+        }
+      ]
+    },
+    {
+      "schema": "ledger-workflow-slot-template/1",
+      "template_id": "support:stage-template",
+      "version": "1",
+      "components": [
+        {
+          "key": "support:prior",
+          "aliases": [
+            "support:prior"
+          ],
+          "book": "retail",
+          "role_slot": "support:retail-role",
+          "root_key": "support:prior"
+        },
+        {
+          "key": "support:premium",
+          "aliases": [
+            "support:premium"
+          ],
+          "book": "retail",
+          "role_slot": "support:retail-role",
+          "root_key": "support:premium"
+        },
+        {
+          "key": "support:cap",
+          "aliases": [
+            "support:cap"
+          ],
+          "book": "retail",
+          "role_slot": "support:retail-role",
+          "root_key": "support:premium"
+        },
+        {
+          "key": "support:share",
+          "aliases": [
+            "support:share"
+          ],
+          "book": "supplier",
+          "role_slot": "support:supplier-role",
+          "root_key": "support:share"
+        }
+      ],
+      "families": []
+    },
+    {
+      "schema": "ledger-workflow-policy/4",
+      "policy_id": "policy:shared-worker-stage-cap-share",
+      "version": "1",
+      "product_ref": {
+        "kind": "workflow-product",
+        "id": "wdoc_95d2136ae03daff37a45177d830fdbaee0522a5b19b012faea91e5d19e6574a1",
+        "digest": "sha256:95d2136ae03daff37a45177d830fdbaee0522a5b19b012faea91e5d19e6574a1"
+      },
+      "context_schema_ref": {
+        "kind": "workflow-fact-schema",
+        "id": "wdoc_9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
+        "digest": "sha256:9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369"
+      },
+      "slot_template_ref": {
+        "kind": "workflow-slot-template",
+        "id": "wdoc_a87129bd922812516c6d9c675ee48dc9df2a8a18a3f11148a88da173c9c5dc9e",
+        "digest": "sha256:a87129bd922812516c6d9c675ee48dc9df2a8a18a3f11148a88da173c9c5dc9e"
+      },
+      "compiler_ref": {
+        "kind": "workflow-compiler-descriptor",
+        "id": "wdoc_61f48f08efb961b9a00e10aa820fac1862e378e0d923875b4875e17371e9460e",
+        "digest": "sha256:61f48f08efb961b9a00e10aa820fac1862e378e0d923875b4875e17371e9460e"
+      },
+      "currency": "USD",
+      "scale": 18,
+      "rounding": "nearest_ties_away",
+      "mode": "closure_share",
+      "binding_slots": [
+        {
+          "name": "support:retail",
+          "book": "retail",
+          "funding_leg": "support:customer",
+          "allowed_activities": [
+            "support:prepare",
+            "support:close"
+          ],
+          "correction_source_slot": "support:corrector"
+        },
+        {
+          "name": "support:supplier",
+          "book": "supplier",
+          "funding_leg": "support:provider",
+          "allowed_activities": [
+            "support:prepare",
+            "support:close"
+          ],
+          "correction_source_slot": "support:supplier-authorizer"
+        }
+      ],
+      "rules": [
+        {
+          "rule_id": "support:prior",
+          "activity": "support:prepare",
+          "component_name": "support:prior",
+          "component_key": "support:prior",
+          "binding_slot": "support:retail",
+          "phase": "base",
+          "when": {
+            "op": "eq",
+            "field": {
+              "context": "source"
+            },
+            "value": "urn:example:stage-worker"
+          },
+          "formula": {
+            "kind": "fixed",
+            "amount": "1.35"
+          },
+          "dependency": "on_missing_refuse"
+        },
+        {
+          "rule_id": "support:premium",
+          "activity": "support:close",
+          "component_name": "support:premium",
+          "component_key": "support:premium",
+          "binding_slot": "support:retail",
+          "phase": "premium",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "fixed",
+            "amount": "2"
+          },
+          "dependency": "on_missing_refuse"
+        },
+        {
+          "rule_id": "support:cap",
+          "activity": "support:close",
+          "component_name": "support:cap",
+          "component_key": "support:cap",
+          "binding_slot": "support:retail",
+          "phase": "cap",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "closure_cap",
+            "stage": "support:stage",
+            "basis_component_key": "support:premium",
+            "ceiling": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "3150000000000000000"
+            }
+          },
+          "dependency": "on_missing_refuse"
+        },
+        {
+          "rule_id": "support:share",
+          "activity": "support:close",
+          "component_name": "support:share",
+          "component_key": "support:share",
+          "binding_slot": "support:supplier",
+          "phase": "share",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "closure_share",
+            "basis_component_key": "support:premium",
+            "percent": "25",
+            "ceiling": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "1000000000000000000"
+            },
+            "allocation_view": true
+          },
+          "dependency": "on_missing_refuse"
+        }
+      ],
+      "families": [],
+      "delayed_costs": [],
+      "app_delayed_costs": [],
+      "stages": [
+        {
+          "name": "support:stage",
+          "authorization_source_slot": "support:stage-authorizer",
+          "closure_activity": "support:close",
+          "closure_component_key": "support:premium",
+          "closure_source_slot": "support:closer",
+          "closure_evidence_kind": "outcome",
+          "expected_slots": [
+            {
+              "key": "support:member",
+              "source_slot": "support:worker",
+              "activity": "support:prepare",
+              "component_keys": [
+                "support:prior"
+              ]
+            }
+          ],
+          "window": {
+            "anchor": "verified_predecessor_occurred_at",
+            "anchor_path": [
+              "support:closes"
+            ],
+            "start_offset_us": "0",
+            "occurrence_us": "3600000000",
+            "receipt_grace_us": "60000000",
+            "acceptance_grace_us": "60000000",
+            "activation_deadline_us": "3600000000",
+            "correction_us": "86400000000"
+          }
+        }
+      ]
+    }
+  ],
+  "root_policy_ref": {
+    "kind": "workflow-policy",
+    "id": "wdoc_2477a4631fe1497461059609b1b302585a46b96f7b7cac61b4548b43778e25bf",
+    "digest": "sha256:2477a4631fe1497461059609b1b302585a46b96f7b7cac61b4548b43778e25bf"
+  }
+}

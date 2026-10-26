@@ -9,6 +9,8 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+const SHARED_NAMESPACE_REGISTRY: &str =
+    "sha256:486006021470309c58c9fc18638fab8a21c6e52431dc6aaf4dcb051eadc62996";
 const SOURCE_PARTICIPANT_REGISTRY: &str =
     "sha256:3413b928959d6f114b22ec7390172b7d48058050df3489e3d7a08680b78fe28d";
 const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
@@ -705,7 +707,9 @@ pub(super) fn original_party(
 /// Select the same immutable tuple registry in producer and original reader.
 /// Parsing and complete normalization remain separate mandatory gates.
 fn administration_registry(payload: &Value) -> &'static str {
-    if super::super::source::participant_schema(payload) {
+    if super::super::source::shared_namespace_schema(payload) {
+        SHARED_NAMESPACE_REGISTRY
+    } else if super::super::source::participant_schema(payload) {
         SOURCE_PARTICIPANT_REGISTRY
     } else {
         R1_REGISTRY
@@ -768,7 +772,7 @@ pub(super) fn administration(
             .parse_representation(normalized_payload, Kind::OriginalRequest)
             .map_err(core_error)?;
         let p = payload.value();
-        let mut set = Anchors::<65>::new();
+        let mut set = Anchors::<66>::new();
         let schema = request_wrapper::text(p, "schema", s)?;
         if cmp(req.kind().as_bytes(), b"evidence.retain", s)?.is_eq() {
             request_wrapper::same_text(schema, "ledger-workflow-evidence-retain/1", s)?;
@@ -802,6 +806,7 @@ pub(super) fn administration(
             request_wrapper::same_text(req.kind(), "authority.change", s)?;
             if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq()
                 || cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/2", s)?.is_eq()
+                || cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/3", s)?.is_eq()
             {
                 let refs = request_wrapper::field(p, "customer_refs", s)?
                     .as_array()
@@ -829,6 +834,15 @@ pub(super) fn administration(
                     "workflow-evidence",
                     s,
                 )?;
+                if super::super::source::shared_namespace_schema(p) {
+                    set.add(
+                        "namespace_owner",
+                        "source_enrollment",
+                        request_wrapper::field(p, "namespace_owner_enrollment_ref", s)?,
+                        "workflow-source-enrollment",
+                        s,
+                    )?;
+                }
             } else if cmp(schema.as_bytes(), b"ledger-workflow-customer-register/1", s)?.is_eq() {
                 set.add(
                     "evidence",
@@ -843,8 +857,10 @@ pub(super) fn administration(
                         schema,
                         "ledger-workflow-source-restrict/1"
                             | "ledger-workflow-source-restrict/2"
+                            | "ledger-workflow-source-restrict/3"
                             | "ledger-workflow-source-revoke/1"
                             | "ledger-workflow-source-revoke/2"
+                            | "ledger-workflow-source-revoke/3"
                     ),
                     "INTEGRITY_FAILURE",
                 )?;
@@ -1018,8 +1034,10 @@ mod commitment_tests {
     fn original_administration_binds_literal_version_to_exact_registry() {
         use ledgerlab_core::canonical::audit_arena::AuditArena;
         for action in ["enroll", "restrict", "revoke"] {
-            for version in [1, 2] {
-                let expected = if version == 2 {
+            for version in [1, 2, 3] {
+                let expected = if version == 3 {
+                    SHARED_NAMESPACE_REGISTRY
+                } else if version == 2 {
                     SOURCE_PARTICIPANT_REGISTRY
                 } else {
                     R1_REGISTRY
@@ -1049,7 +1067,7 @@ mod commitment_tests {
                 }
             }
         }
-        let raw = br#"{"schema":"ledger-operation/1","contract":"workflow/1","kind":"authority.change","key":{"logical_store_id":"registry-test","scope":["test","local"],"source":"owner","operation_id":"foreign"},"payload":{"schema":"ledger-workflow-source-enroll/3","action":"source.enroll"}}"#;
+        let raw = br#"{"schema":"ledger-operation/1","contract":"workflow/1","kind":"authority.change","key":{"logical_store_id":"registry-test","scope":["test","local"],"source":"owner","operation_id":"foreign"},"payload":{"schema":"ledger-workflow-source-enroll/4","action":"source.enroll"}}"#;
         let arena = AuditArena::new().unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         assert!(ingress::IncomingRequest::parse_original_administration(raw, &mut s).is_err());

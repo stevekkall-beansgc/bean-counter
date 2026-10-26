@@ -69,24 +69,31 @@ fn source_schema(schema: &str, action: &str, s: &mut OriginalAuditSession) -> Re
         "enroll" => (
             "ledger-workflow-source-enroll/1",
             "ledger-workflow-source-enroll/2",
+            "ledger-workflow-source-enroll/3",
         ),
         "restrict" => (
             "ledger-workflow-source-restrict/1",
             "ledger-workflow-source-restrict/2",
+            "ledger-workflow-source-restrict/3",
         ),
         "revoke" => (
             "ledger-workflow-source-revoke/1",
             "ledger-workflow-source-revoke/2",
+            "ledger-workflow-source-revoke/3",
         ),
         _ => return Err(ServiceError::IntegrityFailure),
     };
-    Ok(same(schema, variants.0, s)? || same(schema, variants.1, s)?)
+    Ok(
+        same(schema, variants.0, s)?
+            || same(schema, variants.1, s)?
+            || same(schema, variants.2, s)?,
+    )
 }
 fn normalize_inner(p: &Value, s: &mut OriginalAuditSession) -> Result<SourceRequest> {
     let schema = request_wrapper::text(p, "schema", s)?;
     if source_schema(schema, "enroll", s)? {
-        request_wrapper::closed(
-            p,
+        let shared = same(schema, "ledger-workflow-source-enroll/3", s)?;
+        let fields: &[&str] = if shared {
             &[
                 "schema",
                 "action",
@@ -95,9 +102,27 @@ fn normalize_inner(p: &Value, s: &mut OriginalAuditSession) -> Result<SourceRequ
                 "customer_refs",
                 "ceiling",
                 "evidence_ref",
-            ],
-            s,
-        )?;
+                "namespace_owner_enrollment_ref",
+            ]
+        } else {
+            &[
+                "schema",
+                "action",
+                "expected_revision",
+                "enrollment_id",
+                "customer_refs",
+                "ceiling",
+                "evidence_ref",
+            ]
+        };
+        request_wrapper::closed(p, fields, s)?;
+        if shared {
+            acceptance::validate_reference(
+                request_wrapper::field(p, "namespace_owner_enrollment_ref", s)?,
+                "workflow-source-enrollment",
+                s,
+            )?;
+        }
         request_wrapper::same_text(request_wrapper::text(p, "action", s)?, "source.enroll", s)?;
         request_wrapper::same_text(request_wrapper::text(p, "expected_revision", s)?, "0", s)?;
         ingress::identifier(request_wrapper::text(p, "enrollment_id", s)?, 128, s)?;
@@ -119,19 +144,37 @@ fn normalize_inner(p: &Value, s: &mut OriginalAuditSession) -> Result<SourceRequ
         let id = value(p, "enrollment_id", s)?;
         let evidence = value(p, "evidence_ref", s)?;
         let schema_value = value(p, "schema", s)?;
-        let payload = wire::object(
-            &[
-                ("action", action.bytes()),
-                ("ceiling", ceiling.canonical_bytes()),
-                ("customer_refs", customers.bytes()),
-                ("enrollment_id", id.bytes()),
-                ("evidence_ref", evidence.bytes()),
-                ("expected_revision", b"\"0\""),
-                ("schema", schema_value.bytes()),
-            ],
-            262144,
-            s,
-        )?;
+        let payload = if shared {
+            let owner = value(p, "namespace_owner_enrollment_ref", s)?;
+            wire::object(
+                &[
+                    ("action", action.bytes()),
+                    ("ceiling", ceiling.canonical_bytes()),
+                    ("customer_refs", customers.bytes()),
+                    ("enrollment_id", id.bytes()),
+                    ("evidence_ref", evidence.bytes()),
+                    ("expected_revision", b"\"0\""),
+                    ("namespace_owner_enrollment_ref", owner.bytes()),
+                    ("schema", schema_value.bytes()),
+                ],
+                262144,
+                s,
+            )?
+        } else {
+            wire::object(
+                &[
+                    ("action", action.bytes()),
+                    ("ceiling", ceiling.canonical_bytes()),
+                    ("customer_refs", customers.bytes()),
+                    ("enrollment_id", id.bytes()),
+                    ("evidence_ref", evidence.bytes()),
+                    ("expected_revision", b"\"0\""),
+                    ("schema", schema_value.bytes()),
+                ],
+                262144,
+                s,
+            )?
+        };
         Ok(SourceRequest {
             payload,
             ceiling: Some(ceiling),
@@ -882,8 +925,160 @@ pub(in super::super) struct InitialSource {
     correspondence:
         Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
     _customers: ExternalBufferLease,
+    namespace_owner: Option<(Box<InitialSource>, ExternalBufferLease)>,
 }
-impl InitialSource {}
+impl InitialSource {
+    pub(in super::super) fn correspondence(&self) -> &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence {
+        &self.correspondence
+    }
+    pub(in super::super) fn namespace_owner_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
+        self.namespace_owner.iter().flat_map(|(owner, _)| owner.input_views())
+    }
+    pub(in super::super) fn input_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
+        use ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView;
+        [
+            EconomicRecordView { reference: self.root.reference(), canonical_body: self.root.canonical_body() },
+            EconomicRecordView { reference: self.evidence.reference(), canonical_body: self.evidence.canonical_body() },
+            EconomicRecordView { reference: self.enrollment.reference(), canonical_body: self.enrollment.bytes() },
+            EconomicRecordView { reference: self.grant.reference(), canonical_body: self.grant.bytes() },
+            EconomicRecordView { reference: self.state.reference(), canonical_body: self.state.bytes() },
+        ].into_iter().chain(self.customers.iter().map(|r| EconomicRecordView { reference: r.reference(), canonical_body: r.canonical_body() }))
+    }
+}
+// Fixed one-hop canonical owner lookup. Source3 cannot anchor another Source3,
+// so this neither follows alias chains nor selects a mutable source head.
+pub(super) async fn canonical_namespace_owner(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    reference: &Value,
+    ceiling: &Value,
+    actor: &str,
+    owner_before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<(Box<InitialSource>, ExternalBufferLease)> {
+    origin.require_member(reference, s)?;
+    let (reference, _reference_owner) = current::source::from_value(reference, "workflow-source-enrollment", s)?;
+    let sequence = tx
+        .workflow_selected_association_sequence(
+            &reference,
+            &origin.key().logical_store_id,
+            &origin.key().scope,
+            owner_before,
+            s,
+        )
+        .await
+        .map_err(read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let previous = sequence
+        .checked_sub(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let producer = next(tx, origin.key(), previous, sequence, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?
+        .checked_wrappers(tx, s)
+        .await?;
+    let saved =
+        request_wrapper::field(producer.wrappers().original_request().value(), "payload", s)?;
+    let schema = request_wrapper::text(saved, "schema", s)?;
+    require(
+        same(schema, "ledger-workflow-source-enroll/1", s)?
+            || same(schema, "ledger-workflow-source-enroll/2", s)?,
+        "INTEGRITY_FAILURE",
+    )?;
+    let owner = Box::pin(initial_inner(tx, &producer, s)).await?;
+    let actual = wire::reference(owner.enrollment.reference(), s)?;
+    let expected = wire::reference(&reference, s)?;
+    same_bytes(actual.bytes(), expected.bytes(), s)?;
+    let original = owner
+        .request
+        .ceiling()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let namespace = request_wrapper::text(original, "source", s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(original, "canonical_economic_namespace", s)?,
+        namespace,
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(ceiling, "canonical_economic_namespace", s)?,
+        namespace,
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(original, "principal_id", s)?,
+        actor,
+        s,
+    )?;
+    super::retained_box(owner, s)
+}
+/// Exact completed administrative birth for a retained enrollment. The result
+/// repeats saved raw/member/root/owner joins at the requested historical cutoff.
+pub(in super::super) async fn initial_for_enrollment(
+    tx: &mut SqliteTx, key: &OperationKey,
+    enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    before: i64, s: &mut OriginalAuditSession,
+) -> Result<(Box<InitialSource>, ExternalBufferLease)> {
+    let sequence = tx.workflow_selected_association_sequence(enrollment, &key.logical_store_id, &key.scope, before, s)
+        .await.map_err(read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    let prior = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
+    let origin = next(tx, key, prior, sequence, s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, s).await?;
+    let source = Box::pin(reconstruct_initial(tx, &origin, s)).await?;
+    let expected = wire::reference(enrollment, s)?;
+    let actual = wire::reference(source.enrollment.reference(), s)?;
+    same_bytes(actual.bytes(), expected.bytes(), s)?;
+    super::retained_box(source, s)
+}
+
+async fn successor_namespace_owner(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    ceiling: &Value,
+    actor: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<(Box<InitialSource>, ExternalBufferLease)> {
+    let sequence = tx
+        .workflow_selected_association_sequence(
+            enrollment,
+            &origin.key().logical_store_id,
+            &origin.key().scope,
+            origin.wrappers().sequence(),
+            s,
+        )
+        .await
+        .map_err(read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let previous = sequence
+        .checked_sub(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let producer = next(tx, origin.key(), previous, sequence, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?
+        .checked_wrappers(tx, s)
+        .await?;
+    let request = original_request(&producer, s)?;
+    let payload = s
+        .parse_representation(
+            request.normalized_payload(),
+            RepresentationKind::OriginalRequest,
+        )
+        .map_err(core_error)?;
+    request_wrapper::same_text(
+        request_wrapper::text(payload.value(), "schema", s)?,
+        "ledger-workflow-source-enroll/3",
+        s,
+    )?;
+    canonical_namespace_owner(
+        tx,
+        origin,
+        request_wrapper::field(payload.value(), "namespace_owner_enrollment_ref", s)?,
+        ceiling,
+        actor,
+        sequence,
+        s,
+    )
+    .await
+}
 fn same_bytes(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<()> {
     s.semantic_work()
         .visit(Visit::MemberCompare)
@@ -906,7 +1101,8 @@ async fn initial_inner(
         .map_err(core_error)?;
     let p = payload.value();
     let schema = request_wrapper::text(p, "schema", s)?;
-    let participant = same(schema, "ledger-workflow-source-enroll/2", s)?;
+    let shared = same(schema, "ledger-workflow-source-enroll/3", s)?;
+    let participant = shared || same(schema, "ledger-workflow-source-enroll/2", s)?;
     require(source_schema(schema, "enroll", s)?, "INTEGRITY_FAILURE")?;
     let management = management(tx, origin, s).await?;
     let root = &management.root;
@@ -917,11 +1113,27 @@ async fn initial_inner(
     let ceiling = request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
     request_wrapper::same_text(request_wrapper::text(ceiling, "principal_id", s)?, actor, s)?;
     let target_source = request_wrapper::text(ceiling, "source", s)?;
-    request_wrapper::same_text(
-        request_wrapper::text(ceiling, "canonical_economic_namespace", s)?,
-        target_source,
-        s,
-    )?;
+    let namespace_owner = if shared {
+        Some(
+            canonical_namespace_owner(
+                tx,
+                origin,
+                request_wrapper::field(p, "namespace_owner_enrollment_ref", s)?,
+                ceiling,
+                actor,
+                origin.wrappers().sequence(),
+                s,
+            )
+            .await?,
+        )
+    } else {
+        request_wrapper::same_text(
+            request_wrapper::text(ceiling, "canonical_economic_namespace", s)?,
+            target_source,
+            s,
+        )?;
+        None
+    };
     if !participant {
         request_wrapper::same_text(target_source, &origin.key().source, s)?;
     }
@@ -1128,6 +1340,7 @@ async fn initial_inner(
         state,
         correspondence,
         _customers: storage,
+        namespace_owner,
     })
 }
 pub(in super::super) async fn reconstruct_initial(
@@ -1156,8 +1369,8 @@ fn produce_birth_records(
     s: &mut OriginalAuditSession,
 ) -> Result<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecords> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
-        produce_initial_registered_source_records, produce_initial_source_records,
-        OperationKey as CoreKey,
+        produce_initial_registered_source_records, produce_initial_shared_namespace_source_records,
+        produce_initial_source_records, OperationKey as CoreKey,
     };
     let ceiling = request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
     request_wrapper::key(key_value, key, s)?;
@@ -1199,7 +1412,9 @@ fn produce_birth_records(
         source: copy(&key.source, s)?,
         operation_id: copy(&key.operation_id, s)?,
     };
-    let produce = if super::super::super::source::participant_schema(p) {
+    let produce = if super::super::super::source::shared_namespace_schema(p) {
+        produce_initial_shared_namespace_source_records
+    } else if super::super::super::source::participant_schema(p) {
         produce_initial_registered_source_records
     } else {
         produce_initial_source_records
@@ -1532,6 +1747,7 @@ pub(in super::super) struct SourceSuccessor<'a> {
     prior_grant: current::source::SourceRecord,
     grant: Option<wire::SourceRecord>,
     state: wire::SourceRecord,
+    namespace_owner: Option<(Box<InitialSource>, ExternalBufferLease)>,
 }
 pub(in super::super) async fn reconstruct_successor<'a>(
     tx: &mut SqliteTx,
@@ -1565,6 +1781,7 @@ async fn successor_inner<'a>(
         require(source_schema(schema, "revoke", s)?, "INTEGRITY_FAILURE")?;
     }
     let participant = super::super::super::source::participant_schema(p);
+    let shared = super::super::super::source::shared_namespace_schema(p);
     let management = management(tx, origin, s).await?;
     let own_before = management.own_before;
     let enrollment_ref = request_wrapper::field(p, "enrollment_ref", s)?;
@@ -1618,11 +1835,13 @@ async fn successor_inner<'a>(
         s,
     )?;
     let target_source = request_wrapper::text(original, "source", s)?;
-    request_wrapper::same_text(
-        request_wrapper::text(original, "canonical_economic_namespace", s)?,
-        target_source,
-        s,
-    )?;
+    if !shared {
+        request_wrapper::same_text(
+            request_wrapper::text(original, "canonical_economic_namespace", s)?,
+            target_source,
+            s,
+        )?;
+    }
     if !participant {
         request_wrapper::same_text(target_source, &origin.key().source, s)?;
     }
@@ -1631,10 +1850,25 @@ async fn successor_inner<'a>(
         origin.key(),
         enrollment.reference(),
         origin.wrappers().sequence(),
-        participant,
+        super::super::super::source::enrollment_schema(p)?,
         s,
     )
     .await?;
+    let namespace_owner = if shared {
+        Some(
+            successor_namespace_owner(
+                tx,
+                origin,
+                enrollment.reference(),
+                original,
+                management.actor,
+                s,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let results = request_wrapper::field(op, "result_refs", s)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?;
@@ -1837,6 +2071,7 @@ async fn successor_inner<'a>(
         prior_grant,
         grant,
         state,
+        namespace_owner,
     })
 }
 fn counter_string(mut n: u64, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
@@ -2158,7 +2393,14 @@ pub(super) async fn fold(
         let customer = value(p.value(), "customer", s)?;
         let key = inventory::StateKey::new("customer", &[customer.bytes()], s)?;
         inventory.absent(&key, s)?;
-        stage(inventory, &r.management.root, &[&r.registration], origin, s)?;
+        stage(
+            inventory,
+            &r.management.root,
+            &[&r.registration],
+            None,
+            origin,
+            s,
+        )?;
         inventory.set_head(&key, r.registration.reference(), s)?;
     } else if source_schema(schema, "enroll", s)? {
         let r = reconstruct_initial(tx, origin, s).await?;
@@ -2174,6 +2416,24 @@ pub(super) async fn fold(
         let permanent = inventory::StateKey::new("enrollment", &[id.bytes()], s)?;
         let head = inventory::StateKey::new("source-head", &[id.bytes()], s)?;
         inventory.absent(&permanent, s)?;
+        let ceiling = r.request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
+        let source = value(ceiling, "source", s)?;
+        let mapping = inventory::StateKey::new("source-mapping", &[source.bytes()], s)?;
+        if let Some((owner, _)) = &r.namespace_owner {
+            inventory.absent(&mapping, s)?;
+            inventory.compare_record(owner.enrollment.reference(), owner.enrollment.bytes(), s)?;
+            custody(owner.root.body(), setup, s)?;
+        } else if let Some(prior) = inventory.head_body(&mapping, s)? {
+            let prior = s
+                .parse_representation(prior.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
+            let prior = request_wrapper::field(prior.value(), "ceiling", s)?;
+            request_wrapper::same_text(
+                request_wrapper::text(prior, "canonical_economic_namespace", s)?,
+                request_wrapper::text(ceiling, "canonical_economic_namespace", s)?,
+                s,
+            )?;
+        }
         for customer in &r.customers {
             s.semantic_work()
                 .visit(Visit::Element)
@@ -2200,10 +2460,14 @@ pub(super) async fn fold(
             inventory,
             &r.root,
             &[&r.enrollment, &r.grant, &r.state],
+            r.namespace_owner
+                .as_ref()
+                .map(|(owner, _)| owner.enrollment.reference()),
             origin,
             s,
         )?;
         inventory.set_head(&permanent, r.enrollment.reference(), s)?;
+        inventory.set_head(&mapping, r.enrollment.reference(), s)?;
         inventory.set_head(&head, r.state.reference(), s)?;
         // All original request/output, evidence/customer/root custody,
         // permanent identity and as-of head checks above have succeeded.
@@ -2213,6 +2477,10 @@ pub(super) async fn fold(
     } else if source_schema(schema, "restrict", s)? || source_schema(schema, "revoke", s)? {
         let r = reconstruct_successor(tx, origin, s).await?;
         custody(r.management.root.body(), setup, s)?;
+        if let Some((owner, _)) = &r.namespace_owner {
+            custody(owner.root.body(), setup, s)?;
+            inventory.compare_record(owner.enrollment.reference(), owner.enrollment.bytes(), s)?;
+        }
         inventory.compare_record(r.enrollment.reference(), r.enrollment.canonical_body(), s)?;
         inventory.compare_record(r.prior_grant.reference(), r.prior_grant.canonical_body(), s)?;
         let id = value(r.enrollment.body(), "enrollment_id", s)?;
@@ -2221,9 +2489,27 @@ pub(super) async fn fold(
         let head = inventory::StateKey::new("source-head", &[id.bytes()], s)?;
         inventory.match_head(&head, r.prior_state.canonical_body(), s)?;
         if let Some(grant) = &r.grant {
-            stage(inventory, &r.management.root, &[grant, &r.state], origin, s)?;
+            stage(
+                inventory,
+                &r.management.root,
+                &[grant, &r.state],
+                r.namespace_owner
+                    .as_ref()
+                    .map(|(owner, _)| owner.enrollment.reference()),
+                origin,
+                s,
+            )?;
         } else {
-            stage(inventory, &r.management.root, &[&r.state], origin, s)?;
+            stage(
+                inventory,
+                &r.management.root,
+                &[&r.state],
+                r.namespace_owner
+                    .as_ref()
+                    .map(|(owner, _)| owner.enrollment.reference()),
+                origin,
+                s,
+            )?;
         }
         inventory.set_head(&head, r.state.reference(), s)?;
     } else if same(schema, "ledger-workflow-evidence-retain/1", s)? {
@@ -2235,7 +2521,7 @@ pub(super) async fn fold(
                 .map_err(core_error)?;
             inventory.compare_record(record.reference(), record.canonical_body(), s)?;
         }
-        stage(inventory, &r.management.root, &[&r.result], origin, s)?;
+        stage(inventory, &r.management.root, &[&r.result], None, origin, s)?;
     } else {
         return Err(ServiceError::Unavailable);
     }
@@ -2282,6 +2568,7 @@ fn stage(
     inventory: &mut inventory::Inventory,
     root: &current::source::SourceRecord,
     records: &[&wire::SourceRecord],
+    extra: Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>,
     origin: &LocatedWrappers,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
@@ -2302,7 +2589,12 @@ fn stage(
             s,
         )?;
     }
-    complete_manifest(inventory, records, origin, s)
+    complete_manifest_references(
+        inventory,
+        records.iter().map(|r| r.reference()).chain(extra),
+        origin,
+        s,
+    )
 }
 /// Only the closed R1 schemas below have the all-immediate Ref traversal used
 /// here. New financial/history/commitment recipes must use their own cuts.
@@ -2446,7 +2738,7 @@ async fn require_enrollment_origin_recipe(
     key: &OperationKey,
     enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
     before: i64,
-    participant: bool,
+    expected_schema: &str,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
     let sequence = tx
@@ -2482,11 +2774,7 @@ async fn require_enrollment_origin_recipe(
         request_wrapper::field(producer.wrappers().original_request().value(), "payload", s)?;
     request_wrapper::same_text(
         request_wrapper::text(payload, "schema", s)?,
-        if participant {
-            "ledger-workflow-source-enroll/2"
-        } else {
-            "ledger-workflow-source-enroll/1"
-        },
+        expected_schema,
         s,
     )?;
     let refs = request_wrapper::field(producer.wrappers().receipt(), "result_refs", s)?

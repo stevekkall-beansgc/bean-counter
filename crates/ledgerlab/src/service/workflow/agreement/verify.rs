@@ -390,6 +390,9 @@ pub(super) async fn locator_dependencies(
     for l in journal::locators(req, payload)? {
         refs.push(parse_ref(&l["ref"])?);
     }
+    if source::shared_namespace_schema(payload) && payload["action"] != "source.enroll" {
+        refs.push(source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?).await?);
+    }
     authenticated_closure(tx, key, &refs).await
 }
 pub(super) fn checked(raw: &[u8], limit: usize) -> Result<Value> {
@@ -533,6 +536,9 @@ async fn retained_local(
     for l in journal::locators(&req, &payload)? {
         seeds.push(parse_ref(&l["ref"])?);
     }
+    if source::shared_namespace_schema(&payload) && payload["action"] != "source.enroll" {
+        seeds.push(source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?).await?);
+    }
     let docs = closure(tx, key, &seeds).await?;
     let root_doc = docs
         .iter()
@@ -593,11 +599,11 @@ async fn retained_local(
                 let enrollment: RecordRef =
                     serde_json::from_value(payload["enrollment_ref"].clone())
                         .map_err(|_| ServiceError::IntegrityFailure)?;
-                source::require_enrollment_recipe(
+                let _ = source::require_enrollment_recipe(
                     tx,
                     key,
                     &enrollment,
-                    source::participant_schema(&payload),
+                    source::enrollment_schema(&payload)?,
                 )
                 .await?;
             }

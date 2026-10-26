@@ -636,12 +636,48 @@ pub(super) async fn required_role_registrations(
         }
         if !relevant { continue; }
         check::same_text(check::text(grant, "principal_id", s)?, &observed.setup.operator, s)?;
-        check::same_text(check::text(grant, "canonical_economic_namespace", s)?, name, s)?;
-        require(tx.workflow_financial_registered_source(
-            &key.logical_store_id, &key.scope,
-            check::text(source.enrollment_record().body(), "enrollment_id", s)?,
-            &source.enrollment_ref().id, name, s,
-        ).await.map_err(prefix::read_error)?, "AUTHORITY_REQUIRED")?;
+        let namespace = check::text(grant, "canonical_economic_namespace", s)?;
+        let enrollment = check::text(source.enrollment_record().body(), "enrollment_id", s)?;
+        let registered = if observed.original.publication.program().uses_shared_namespace_recipe() {
+            tx.workflow_financial_registered_mapping(&key.logical_store_id, &key.scope,
+                enrollment, &source.enrollment_ref().id, name, namespace, s).await
+        } else {
+            check::same_text(namespace, name, s)?;
+            tx.workflow_financial_registered_source(&key.logical_store_id, &key.scope,
+                enrollment, &source.enrollment_ref().id, name, s).await
+        }.map_err(prefix::read_error)?;
+        require(registered, "AUTHORITY_REQUIRED")?;
+    }
+    Ok(())
+}
+/// Retain each actual shared registration's canonical owner's original birth.
+/// No current owner head/rights or namespace inference replaces its certificate.
+pub(super) async fn retain_namespace_birth_inputs(
+    observed: &mut ObservedAppBinding, tx: &mut SqliteTx, key: &OperationKey,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    if !observed.original.publication.program().uses_shared_namespace_recipe() { return Ok(()); }
+    let count = observed.sources.len();
+    observed.namespace_source_births_storage = Some(storage(count, mem::size_of::<prefix::SourceBirthInputs>(), s)?);
+    observed.namespace_source_births.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    for index in 0..count {
+        s.semantic_work().visit(ValidationVisit::Element).map_err(core_error)?;
+        let source = &observed.sources[index];
+        let grant = source.original_grant_body();
+        if equal(check::text(grant, "source", s)?, check::text(grant, "canonical_economic_namespace", s)?, s)? { continue; }
+        if let Some(primary) = &observed.work_source_birth {
+            let enrollment = check::field(primary.state.body(), "enrollment_ref", s)?;
+            if equal(check::text(enrollment, "id", s)?, &source.enrollment_ref().id, s)? { continue; }
+        }
+        let mut duplicate = false;
+        for birth in &observed.namespace_source_births {
+            let enrollment = check::field(birth.state.body(), "enrollment_ref", s)?;
+            if equal(check::text(enrollment, "id", s)?, &source.enrollment_ref().id, s)? { duplicate = true; }
+        }
+        if duplicate { continue; }
+        let birth = observed.original.source_birth_inputs(tx, key, source.enrollment_ref(), observed.before, s).await?;
+        s.semantic_work().write_bytes(mem::size_of::<prefix::SourceBirthInputs>()).map_err(core_error)?;
+        observed.namespace_source_births.push(birth);
     }
     Ok(())
 }
@@ -693,6 +729,12 @@ fn input_pool<'a>(
             .work_locator_records()
             .chain(o.sources.iter().flat_map(|source| source.records()))
             .chain(fixed)
+            .chain(birth.namespace_owner_views())
+            .chain(o.namespace_source_births.iter().flat_map(|b| {
+                [EconomicRecordView { reference: b.state.reference(), canonical_body: b.state.canonical_body() },
+                 EconomicRecordView { reference: b.grant.reference(), canonical_body: b.grant.canonical_body() }]
+                    .into_iter().chain(b.namespace_owner_views())
+            }))
             .chain(
                 o.local_input_bodies
                     .iter()
@@ -728,10 +770,10 @@ fn input_pool<'a>(
             if equal(&previous.reference.kind, &value.reference.kind, s)?
                 && equal(&previous.reference.id, &value.reference.id, s)?
             {
-                require(
-                    equal(&previous.reference.digest, &value.reference.digest, s)?,
-                    "INTEGRITY_FAILURE",
-                )?;
+                if !equal(&previous.reference.digest, &value.reference.digest, s)? {
+                    require(o.original.publication.program().uses_stage_lifecycle_recipe() && value.reference.kind == "workflow-invocation", "INTEGRITY_FAILURE")?;
+                    continue;
+                }
                 s.semantic_work()
                     .visit(ValidationVisit::MemberCompare)
                     .map_err(core_error)?;
@@ -856,6 +898,24 @@ pub(super) async fn retained_root(
     Ok(root)
 }
 
+pub(super) fn source_correspondences<'a>(
+    observed: &'a ObservedAppBinding,
+    s: &mut OriginalAuditSession,
+) -> Result<(Vec<&'a ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>, ExternalBufferLease)> {
+    let count = add(observed.namespace_source_births.len(), usize::from(observed.work_source_birth.is_some()), s)?;
+    let owner = storage(count, mem::size_of::<&ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>(), s)?;
+    let mut refs = Vec::new();
+    refs.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    for birth in observed.work_source_birth.iter().chain(observed.namespace_source_births.iter()) {
+        s.semantic_work().visit(ValidationVisit::Element).map_err(core_error)?;
+        if let Some(correspondence) = birth.correspondence() {
+            s.semantic_work().write_bytes(mem::size_of_val(&correspondence)).map_err(core_error)?;
+            refs.push(correspondence);
+        }
+    }
+    Ok((refs, owner))
+}
+
 pub(super) fn construct_local(
     observed: &ObservedAppBinding,
     key: &OperationKey,
@@ -903,16 +963,20 @@ pub(super) fn construct_local(
                     evidence_consumption_refs: &e.consumed,
                 }
             });
+            let (correspondences, _correspondence_owner) = source_correspondences(observed, s)?;
+            let supplier = ledgerlab_core::policy::workflow::transition_constructor::SupplierStateData {
+                invocation_heads: &state.invocations, cost_heads: &[], cost_consumption_heads: &[], cost_owner_heads: &[],
+            };
             let state = EconomicStateData {
                 retained_assertion: extra.and_then(|e| e.assertion.as_ref()),
                 financial: &state.financial,
                 capacity_heads: &state.capacities,
-                supplier: None,
+                supplier: observed.original.publication.program().uses_stage_lifecycle_recipe().then_some(&supplier),
                 app: app.as_ref(),
                 current_party_authorizations: &state.parties,
                 observation: None,
                 audit: None,
-                initial_source_correspondences: &[],
+                initial_source_correspondences: &correspondences,
             };
             let candidate = construct_local_financial_candidate(
                 observed.original.publication.program(),

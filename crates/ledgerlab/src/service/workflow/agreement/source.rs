@@ -15,6 +15,8 @@ struct Enroll {
     customer_refs: Vec<RecordRef>,
     ceiling: Value,
     evidence_ref: RecordRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    namespace_owner_enrollment_ref: Option<RecordRef>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,7 +51,11 @@ fn revision(s: &str) -> Result<i64> {
 }
 pub(super) fn normalize(payload: &Value) -> Result<Value> {
     match payload["schema"].as_str() {
-        Some("ledger-workflow-source-enroll/1" | "ledger-workflow-source-enroll/2") => {
+        Some(
+            "ledger-workflow-source-enroll/1"
+            | "ledger-workflow-source-enroll/2"
+            | "ledger-workflow-source-enroll/3",
+        ) => {
             let mut p: Enroll =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(
@@ -64,13 +70,27 @@ pub(super) fn normalize(payload: &Value) -> Result<Value> {
             }
             canonical::sort_set(&mut p.customer_refs).map_err(|_| reject("INVALID_SHAPE"))?;
             reference(&p.evidence_ref, "workflow-evidence")?;
+            require(
+                payload.get("namespace_owner_enrollment_ref").is_some()
+                    == shared_namespace_schema(payload)
+                    && p.namespace_owner_enrollment_ref.is_some()
+                        == shared_namespace_schema(payload),
+                "INVALID_SHAPE",
+            )?;
+            if let Some(owner) = &p.namespace_owner_enrollment_ref {
+                reference(owner, "workflow-source-enrollment")?;
+            }
             p.ceiling = SourceCeiling::parse(&records::bytes(&p.ceiling)?)
                 .map_err(typed_error)?
                 .canonical_value()
                 .map_err(typed_error)?;
             serde_json::to_value(p).map_err(|_| ServiceError::IntegrityFailure)
         }
-        Some("ledger-workflow-source-restrict/1" | "ledger-workflow-source-restrict/2") => {
+        Some(
+            "ledger-workflow-source-restrict/1"
+            | "ledger-workflow-source-restrict/2"
+            | "ledger-workflow-source-restrict/3",
+        ) => {
             let mut p: Restrict =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(p.action == "source.restrict", "INVALID_SHAPE")?;
@@ -82,7 +102,11 @@ pub(super) fn normalize(payload: &Value) -> Result<Value> {
                 .map_err(typed_error)?;
             serde_json::to_value(p).map_err(|_| ServiceError::IntegrityFailure)
         }
-        Some("ledger-workflow-source-revoke/1" | "ledger-workflow-source-revoke/2") => {
+        Some(
+            "ledger-workflow-source-revoke/1"
+            | "ledger-workflow-source-revoke/2"
+            | "ledger-workflow-source-revoke/3",
+        ) => {
             let p: Revoke =
                 serde_json::from_value(payload.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
             require(
@@ -221,20 +245,30 @@ pub(super) async fn prepare(
             "SEMANTIC_CONFLICT",
         )?;
         let ceiling = SourceCeiling::parse(&records::bytes(&p.ceiling)?).map_err(typed_error)?;
-        let participant = payload["schema"] == "ledger-workflow-source-enroll/2";
+        let shared = shared_namespace_schema(payload);
+        let participant = participant_schema(payload);
         require(
             ceiling.principal_id() == setup.operator
-                && ceiling.source() == ceiling.canonical_economic_namespace()
+                && (shared || ceiling.source() == ceiling.canonical_economic_namespace())
                 && (participant || ceiling.source() == setup.source),
             "AUTHORITY_REQUIRED",
         )?;
-        if tx
+        let mapping = tx
             .workflow_agreement_namespace(&key.logical_store_id, &key.scope, ceiling.source())
             .await
-            .map_err(crate::service::store_error)?
-            .is_some_and(|n| n != ceiling.canonical_economic_namespace())
-        {
+            .map_err(crate::service::store_error)?;
+        require(!shared || mapping.is_none(), "SEMANTIC_CONFLICT")?;
+        if mapping.is_some_and(|n| n != ceiling.canonical_economic_namespace()) {
             return Err(ServiceError::IntegrityFailure);
+        }
+        if let Some(owner) = &p.namespace_owner_enrollment_ref {
+            let anchor = enrollment(tx, key, owner).await?;
+            require(
+                anchor.ceiling().source() == anchor.ceiling().canonical_economic_namespace()
+                    && anchor.ceiling().source() == ceiling.canonical_economic_namespace()
+                    && anchor.ceiling().principal_id() == setup.operator,
+                "AUTHORITY_REQUIRED",
+            )?;
         }
         let dependencies = verify::authenticated_closure(
             tx,
@@ -243,6 +277,7 @@ pub(super) async fn prepare(
                 .iter()
                 .cloned()
                 .chain(std::iter::once(p.evidence_ref.clone()))
+                .chain(p.namespace_owner_enrollment_ref.iter().cloned())
                 .collect::<Vec<_>>(),
         )
         .await?;
@@ -331,7 +366,8 @@ pub(super) async fn prepare(
             && (participant_schema(payload) || e.ceiling().source() == setup.source),
         "AUTHORITY_REQUIRED",
     )?;
-    require_enrollment_recipe(tx, key, &r, participant_schema(payload)).await?;
+    let namespace_owner =
+        require_enrollment_recipe(tx, key, &r, enrollment_schema(payload)?).await?;
     let b = e
         .canonical_value()
         .map_err(|_| ServiceError::IntegrityFailure)?;
@@ -405,7 +441,8 @@ pub(super) async fn prepare(
             .into(),
         },
     };
-    let seeds = vec![state_doc.reference, grant_doc.reference, r];
+    let mut seeds = vec![state_doc.reference, grant_doc.reference, r];
+    seeds.extend(namespace_owner);
     let mut documents = verify::authenticated_closure(tx, key, &seeds).await?;
     let mut results = vec![new_state.reference.clone()];
     documents.push(new_state);
@@ -616,6 +653,22 @@ pub(super) fn verify_intent(
         return Err(ServiceError::IntegrityFailure);
     }
     if payload["action"] == "source.enroll" {
+        if shared_namespace_schema(payload) {
+            let owner = doc(&map, &payload["namespace_owner_enrollment_ref"])?;
+            require(
+                owner.reference.kind == "workflow-source-enrollment",
+                "INTEGRITY_FAILURE",
+            )?;
+            let anchor = SourceEnrollment::parse(&owner.bytes)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            require(
+                anchor.scope() == e.scope()
+                    && anchor.ceiling().source() == anchor.ceiling().canonical_economic_namespace()
+                    && anchor.ceiling().source() == e.ceiling().canonical_economic_namespace()
+                    && anchor.ceiling().principal_id() == e.ceiling().principal_id(),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
         let body = canonical_body(original)?;
         if e.enrollment_id() != text(payload, "enrollment_id")?
             || body["customer_refs"] != payload["customer_refs"]
@@ -670,7 +723,8 @@ pub(super) fn verify_original(
     let original = canonical_body(doc(&map, &body["enrollment_ref"])?)?;
     let target = &original["ceiling"];
     if target["principal_id"] != authority["principal_id"]
-        || target["source"] != target["canonical_economic_namespace"]
+        || (!shared_namespace_schema(payload)
+            && target["source"] != target["canonical_economic_namespace"])
         || (!participant_schema(payload) && target["source"] != key.source)
     {
         return Err(ServiceError::IntegrityFailure);
@@ -707,6 +761,9 @@ pub(super) fn participant_schema(payload: &Value) -> bool {
             "ledger-workflow-source-enroll/2"
                 | "ledger-workflow-source-restrict/2"
                 | "ledger-workflow-source-revoke/2"
+                | "ledger-workflow-source-enroll/3"
+                | "ledger-workflow-source-restrict/3"
+                | "ledger-workflow-source-revoke/3"
         )
     )
 }
@@ -714,8 +771,8 @@ pub(super) async fn require_enrollment_recipe(
     tx: &mut SqliteTx,
     key: &OperationKey,
     reference: &RecordRef,
-    participant: bool,
-) -> Result<()> {
+    expected_schema: &str,
+) -> Result<Option<RecordRef>> {
     let (identity, kind, _) = tx
         .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
         .await
@@ -732,13 +789,69 @@ pub(super) async fn require_enrollment_recipe(
     let schema = verified["request_evidence"]["normalized_request"]["payload"]["schema"]
         .as_str()
         .ok_or(ServiceError::IntegrityFailure)?;
-    require(
-        schema
-            == if participant {
-                "ledger-workflow-source-enroll/2"
-            } else {
-                "ledger-workflow-source-enroll/1"
-            },
-        "UNSUPPORTED_SCHEMA_PROFILE",
+    require(schema == expected_schema, "UNSUPPORTED_SCHEMA_PROFILE")?;
+    if expected_schema == "ledger-workflow-source-enroll/3" {
+        let reference = serde_json::from_value(
+            verified["request_evidence"]["normalized_request"]["payload"]
+                ["namespace_owner_enrollment_ref"]
+                .clone(),
+        )
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+        Ok(Some(reference))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Immutable acquisition DATA only. The enclosing verifier still completes
+/// this enrollment's original producer and rechecks its literal recipe.
+pub(super) async fn namespace_owner_locator(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    enrollment: &RecordRef,
+) -> Result<RecordRef> {
+    let (identity, kind, _) = tx.workflow_agreement_document_origin(
+        &key.logical_store_id, &key.scope, enrollment,
+    ).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    require(kind == "authority.change", "INTEGRITY_FAILURE")?;
+    let original = tx.workflow_agreement_lookup(&identity).await
+        .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    let saved = canonical::parse_bounded(&original.operation_bytes, 4194304)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let payload = &saved["request_evidence"]["normalized_request"]["payload"];
+    require(payload["schema"] == "ledger-workflow-source-enroll/3", "INTEGRITY_FAILURE")?;
+    let owner: RecordRef = serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    reference(&owner, "workflow-source-enrollment")?;
+    Ok(owner)
+}
+
+/// Exact approved mapping tuples; never an unknown-version fallback.
+pub(super) fn shared_namespace_schema(payload: &Value) -> bool {
+    matches!(
+        payload["schema"].as_str(),
+        Some(
+            "ledger-workflow-source-enroll/3"
+                | "ledger-workflow-source-restrict/3"
+                | "ledger-workflow-source-revoke/3"
+        )
     )
+}
+pub(super) fn enrollment_schema(payload: &Value) -> Result<&'static str> {
+    if shared_namespace_schema(payload) {
+        Ok("ledger-workflow-source-enroll/3")
+    } else if participant_schema(payload) {
+        Ok("ledger-workflow-source-enroll/2")
+    } else if matches!(
+        payload["schema"].as_str(),
+        Some(
+            "ledger-workflow-source-enroll/1"
+                | "ledger-workflow-source-restrict/1"
+                | "ledger-workflow-source-revoke/1"
+        )
+    ) {
+        Ok("ledger-workflow-source-enroll/1")
+    } else {
+        Err(reject("UNSUPPORTED_SCHEMA_PROFILE"))
+    }
 }

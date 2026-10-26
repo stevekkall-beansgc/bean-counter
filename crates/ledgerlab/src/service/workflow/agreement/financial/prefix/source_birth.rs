@@ -7,7 +7,16 @@ pub(in super::super) struct SourceBirthInputs {
     pub(in super::super) state: current::source::SourceRecord,
     pub(in super::super) grant: current::source::SourceRecord,
     pub(in super::super) registered_administration: Option<RegisteredAdministrativeBirth>,
+    completed_source: Option<(Box<super::source::InitialSource>, ExternalBufferLease)>,
     _storage: ExternalBufferLease,
+}
+impl SourceBirthInputs {
+    pub(in super::super) fn correspondence(&self) -> Option<&ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence> {
+        self.completed_source.as_ref().map(|(source, _)| source.correspondence())
+    }
+    pub(in super::super) fn namespace_owner_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
+        self.completed_source.iter().flat_map(|(source, _)| source.input_views().chain(source.namespace_owner_views()))
+    }
 }
 pub(in super::super) struct RegisteredAdministrativeBirth {
     pub(in super::super) root: Option<current::source::SourceRecord>,
@@ -114,7 +123,9 @@ impl LocatedAppAcceptance {
             require(
                 schema == "ledger-workflow-source-enroll/1"
                     || (self.publication.program().uses_policy_semantics_recipe()
-                        && schema == "ledger-workflow-source-enroll/2"),
+                        && schema == "ledger-workflow-source-enroll/2")
+                    || (self.publication.program().uses_shared_namespace_recipe()
+                        && schema == "ledger-workflow-source-enroll/3"),
                 "INTEGRITY_FAILURE",
             )?;
             request_wrapper::same_text(
@@ -208,13 +219,24 @@ impl LocatedAppAcceptance {
             // The registered target B is not the administrative producer A.
             // Preserve the actual authenticated birth root/key/actor for the
             // later held-root adapter; old source/1 keeps its exact route.
-            let registered_administration = if schema == "ledger-workflow-source-enroll/2" {
+            let mut completed_source = None;
+            let registered_administration = if matches!(
+                schema,
+                "ledger-workflow-source-enroll/2" | "ledger-workflow-source-enroll/3"
+            ) {
                 request_wrapper::key(
                     request_wrapper::field(state.body(), "operation_key", s)?,
                     origin.key(),
                     s,
                 )?;
                 let management = super::source::management(tx, &origin, s).await?;
+                if schema == "ledger-workflow-source-enroll/3" {
+                    // Reconstruct the SAME complete administrative original. Its
+                    // correspondence is construction DATA only; this path also
+                    // certifies the saved owner Ref, members, custody and bodies.
+                    let source = Box::pin(super::source::reconstruct_initial(tx, &origin, s)).await?;
+                    completed_source = Some(super::retained_box(source, s)?);
+                }
                 let key = origin.key();
                 let mut payload = 0usize;
                 for text in [
@@ -259,6 +281,7 @@ impl LocatedAppAcceptance {
                 state,
                 grant,
                 registered_administration,
+                completed_source,
                 _storage: storage,
             })
         }

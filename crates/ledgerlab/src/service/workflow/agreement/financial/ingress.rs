@@ -222,10 +222,13 @@ impl IncomingRequest {
                     "ledger-workflow-customer-register/1",
                     "ledger-workflow-source-enroll/1",
                     "ledger-workflow-source-enroll/2",
+                    "ledger-workflow-source-enroll/3",
                     "ledger-workflow-source-restrict/1",
                     "ledger-workflow-source-restrict/2",
+                    "ledger-workflow-source-restrict/3",
                     "ledger-workflow-source-revoke/1",
                     "ledger-workflow-source-revoke/2",
+                    "ledger-workflow-source-revoke/3",
                 ]
             } else {
                 &[

@@ -144,6 +144,38 @@ fn operations(snapshot: &[(String, Vec<String>)]) -> usize {
 }
 
 #[tokio::test]
+#[ignore = "requires the explicit completed lifecycle fixture; reads a private copy only"]
+async fn current_reads_preserve_completed_lifecycle_and_use_actual_owner() {
+    let root=PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").expect("explicit completed lifecycle fixture"));
+    let run:Value=serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
+    assert!(run["classification"].as_str().unwrap().to_ascii_lowercase().contains("synthetic"));
+    let temporary=tempfile::tempdir().unwrap();
+    let installation=temporary.path().canonicalize().unwrap().join("installation");
+    copy_private_tree(&root.join("recovery-completed-quiescent-installation"),&installation);
+    let before=snapshot_tables(&installation,true).await;
+    let config=fs::read(installation.join("billing.json")).unwrap();
+    let ledger=LocalWorkflowLedger::open_local(&installation).await.unwrap();
+    let result=async {
+        for (name,revision,status) in [("fixed-work","1",None),("failed-work","3",Some("reversed")),("rounded-work","2",Some("reversed"))] {
+            let command=run["commands"].as_array().unwrap().iter().find(|v|v["name"]==name).unwrap();
+            let receipt:Value=serde_json::from_slice(&fs::read(root.join(command["stdout"].as_str().unwrap())).unwrap()).unwrap();
+            let subject=receipt["receipt"]["result_refs"].as_array().unwrap().iter().find(|v|v["kind"]=="workflow-work").unwrap();
+            let read=json!({"schema":"ledger-read/1","kind":"work.current","payload":{"subject_ref":subject}});
+            let result=ledger.read(&records::bytes(&read).unwrap()).await?;
+            assert_eq!(result["kind"],"workflow-decision");
+            assert_eq!(result["body"]["subject_ref"],*subject);
+            assert_eq!(result["body"]["revision"],revision);
+            if let Some(status)=status {assert_eq!(result["body"]["status"],status);}
+        }
+        Result::<()>::Ok(())
+    }.await;
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation,true).await,before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(),config);
+    result.unwrap();
+}
+
+#[tokio::test]
 #[ignore = "requires captured build and explicit quiescent maintained synthetic fixture"]
 async fn local10_precommit_cut_leaves_no_partial_financial_append() {
     let (_temporary, path, raw, key, config) = fixture("precommit");

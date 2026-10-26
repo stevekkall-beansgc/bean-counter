@@ -140,11 +140,11 @@ pub(super) fn local_support(
     drop(context);
     let lifecycle = SelectedCompilerSupport::local_work_lifecycle_execution_with_session(s)
         .map_err(core_error)?;
-    require(
-        same_support(reference, &lifecycle, s)?,
-        "UNSUPPORTED_SCHEMA_PROFILE",
-    )?;
-    Ok(lifecycle)
+    if same_support(reference, &lifecycle, s)? { return Ok(lifecycle); }
+    drop(lifecycle);
+    let stage = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s).map_err(core_error)?;
+    require(same_support(reference, &stage, s)?, "UNSUPPORTED_SCHEMA_PROFILE")?;
+    Ok(stage)
 }
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],

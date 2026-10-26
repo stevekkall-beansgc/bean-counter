@@ -89,6 +89,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 15)?.is_eq()
             && !resource_compare(session, version, 16)?.is_eq()
             && !resource_compare(session, version, 17)?.is_eq()
+            && !resource_compare(session, version, 18)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -246,7 +247,7 @@ impl SqliteTx {
             }
             session.check_cancelled()?;
             let version:i64=sqlx::query_scalar("PRAGMA user_version").fetch_one(self.conn()).await?;
-            if !resource_compare(session,version,13)?.is_eq()&&!resource_compare(session,version,14)?.is_eq()&&!resource_compare(session,version,15)?.is_eq()&&!resource_compare(session,version,16)?.is_eq()&&!resource_compare(session,version,17)?.is_eq(){return Err(StoreError::BillingUpgradeRequired.into());}
+            if !resource_compare(session,version,13)?.is_eq()&&!resource_compare(session,version,14)?.is_eq()&&!resource_compare(session,version,15)?.is_eq()&&!resource_compare(session,version,16)?.is_eq()&&!resource_compare(session,version,17)?.is_eq()&&!resource_compare(session,version,18)?.is_eq(){return Err(StoreError::BillingUpgradeRequired.into());}
             let row=self.read_financial_head_projection(
                 "SELECT 1,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
                 "SELECT '1',d.kind,d.id,d.digest FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
@@ -310,6 +311,69 @@ impl SqliteTx {
             session.semantic_work().visit(ValidationVisit::RefLookup)?;
             let found: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_source_enrollments e JOIN workflow_source_namespaces n ON n.logical_store_id=e.logical_store_id AND n.tenant=e.tenant AND n.environment=e.environment AND n.source=e.source AND n.canonical_economic_namespace=e.canonical_economic_namespace WHERE e.logical_store_id=? AND e.tenant=? AND e.environment=? AND e.enrollment_id=? AND e.document_id=? AND e.source=? AND e.canonical_economic_namespace=e.source)")
                 .bind(args[0]).bind(args[1]).bind(args[2]).bind(args[3]).bind(args[4]).bind(args[5])
+                .fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
+            if resource_compare(session, found, 1)?.is_eq() { Ok(true) }
+            else if resource_compare(session, found, 0)?.is_eq() { Ok(false) }
+            else { Err(invalid()) }
+        }).await.map_err(|_| FinancialReadError::Store(self.workflow_timeout_error()))?;
+        if result.is_ok() {
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(invalid());
+            }
+            self.failed = false;
+        }
+        result
+    }
+}
+
+impl SqliteTx {
+    /// Fixed scalar registration join. It grants no operation or source rights;
+    /// immutable enrollment custody and current-grant authority remain core inputs.
+    pub(crate) async fn workflow_financial_registered_mapping(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        enrollment: &str,
+        document: &str,
+        source: &str,
+        namespace: &str,
+        session: &mut OriginalAuditSession,
+    ) -> Result<bool, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(invalid());
+        }
+        self.failed = true;
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
+            let args = [store, &scope[0], &scope[1], enrollment, document, source, namespace];
+            for (text, maximum) in args.iter().zip([128, 128, 128, 128, 104, 256, 256]) {
+                session.semantic_work().visit(ValidationVisit::Constraint)?;
+                if !resource_compare(session, text.len() as i64, 0)?.is_gt()
+                    || resource_compare(session, text.len() as i64, maximum)?.is_gt() {
+                    return Err(invalid());
+                }
+                session.semantic_work().scan_bytes(text.len())?;
+                for c in text.chars() {
+                    session.semantic_work().visit(ValidationVisit::Constraint)?;
+                    if c.is_control() { return Err(invalid()); }
+                }
+            }
+            let bindings = args.map(str::as_bytes);
+            let payload = io::binding_payload(&bindings, &[], 0, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
+            session.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let found: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_source_enrollments e JOIN workflow_source_namespaces n ON n.logical_store_id=e.logical_store_id AND n.tenant=e.tenant AND n.environment=e.environment AND n.source=e.source AND n.canonical_economic_namespace=e.canonical_economic_namespace WHERE e.logical_store_id=? AND e.tenant=? AND e.environment=? AND e.enrollment_id=? AND e.document_id=? AND e.source=? AND e.canonical_economic_namespace=?)")
+                .bind(args[0]).bind(args[1]).bind(args[2]).bind(args[3]).bind(args[4]).bind(args[5]).bind(args[6])
                 .fetch_one(self.conn()).await?;
             self.financial_finish_io(session).await?;
             if resource_compare(session, found, 1)?.is_eq() { Ok(true) }

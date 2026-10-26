@@ -137,10 +137,15 @@ impl WorkflowReply {
                 4194304,
                 s,
             )?
-        } else if duplicate.is_some() {
+        } else if let Some(duplicate) = duplicate {
+            let duplicate: &[u8] = match duplicate {
+                "identity" => b"\"identity\"",
+                "semantic" => b"\"semantic\"",
+                _ => return Err(ServiceError::IntegrityFailure),
+            };
             wire::object(
                 &[
-                    ("duplicate_kind", b"\"identity\""),
+                    ("duplicate_kind", duplicate),
                     ("receipt", receipt),
                     ("request_evidence", evidence),
                     ("schema", b"\"ledger-operation-result/1\""),

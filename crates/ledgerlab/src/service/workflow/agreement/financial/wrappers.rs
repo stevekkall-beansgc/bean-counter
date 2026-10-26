@@ -869,8 +869,9 @@ pub(super) const LOCAL_REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
 pub(super) const DECLARED_LINK_REGISTRY: &str =
     "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d";
+pub(super) const STAGE_LIFECYCLE_REGISTRY: &str = "sha256:dfbe7f6e268575c31e3ec131a6b08203facf764381dd4e8aea28be993dd45000";
 pub(super) fn is_local_registry(value: &str, s: &mut OriginalAuditSession) -> Result<bool> {
-    Ok(equal_text(value, LOCAL_REGISTRY, s)? || equal_text(value, DECLARED_LINK_REGISTRY, s)?)
+    Ok(equal_text(value, LOCAL_REGISTRY, s)? || equal_text(value, DECLARED_LINK_REGISTRY, s)? || equal_text(value, STAGE_LIFECYCLE_REGISTRY, s)?)
 }
 fn declared_link_recipe(
     kind: &str,
@@ -896,6 +897,22 @@ fn declared_link_recipe(
         }
     }
     local_recipe(kind, payload, s)
+}
+fn stage_lifecycle_recipe(kind: &str, payload: &str, s: &mut OriginalAuditSession) -> Result<Option<(Recipe, &'static str)>> {
+    for (k,p) in [
+        ("invocation.authorize", "ledger-workflow-invocation-authorize/1"),
+        ("invocation.authorize", "ledger-workflow-stage-authorize/1"),
+        ("invocation.close", "ledger-workflow-invocation-close/1"),
+        ("outcome.submit", "ledger-workflow-stage-close/1"),
+    ] {
+        if equal_text(kind,k,s)? && equal_text(payload,p,s)? {
+            return Ok(Some((Recipe { operation: "ledger-workflow-economic-operation/10", manifest: "ledger-workflow-economic-manifest/10", closure: "ledger-local-selected-inputs/1", authority: if k == "invocation.authorize" || k == "invocation.close" { "ledger-workflow-stage-authority/1" } else { "ledger-workflow-economic-authority/8" } }, "ledger-operation-descriptors/8")));
+        }
+    }
+    if equal_text(kind, "authority.change", s)? && equal_text(payload, "ledger-cost-authority-enroll/1", s)? {
+        return Ok(Some((Recipe { operation: "ledger-workflow-economic-operation/10", manifest: "ledger-workflow-economic-manifest/10", closure: "ledger-local-selected-inputs/1", authority: "ledger-cost-enrollment-authority/1" }, "ledger-operation-descriptors/8")));
+    }
+    declared_link_recipe(kind,payload,s)
 }
 // Exact adopted local-execution-01 dispatch. Historical registries retain
 // their original tuples; recognition here does not certify an executor.
@@ -1125,7 +1142,11 @@ pub(super) fn descriptor_schema(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
-    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+    if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
+        return stage_lifecycle_recipe(kind, payload, session)?
+            .map(|(_, descriptor)| descriptor)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
         return declared_link_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
@@ -1216,7 +1237,11 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
-    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+    if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
+        return stage_lifecycle_recipe(kind, payload, session)?
+            .map(|(recipe, _)| recipe)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
         return declared_link_recipe(kind, payload, session)?
             .map(|(recipe, _)| recipe)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
@@ -2127,7 +2152,18 @@ pub(super) async fn validate_frame(
         .visit(Visit::Constraint)
         .map_err(core_error)?;
     match class {
-        WireClass::Financial => request::same_text(result_kind, "economic", session)?,
+        WireClass::Financial => {
+            let kind = request::text(op, "kind", session)?;
+            let resolution = request::field(request::field(op, "request_evidence", session)?, "descriptor_resolution", session)?;
+            let registry = request::text(resolution, "registry_digest", session)?;
+            if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? && (matches!(kind, "invocation.authorize" | "invocation.close") || (kind == "authority.change" && request::text(request::field(request::field(op, "request_evidence", session)?, "normalized_request", session)?.get("payload").ok_or(ServiceError::IntegrityFailure)?, "schema", session)? == "ledger-cost-authority-enroll/1")) {
+                request::same_text(result_kind, "administrative", session)?;
+            } else if matches!(result_kind, "semantic_alias") {
+                require(kind == "work.accept" && (equal_text(registry, DECLARED_LINK_REGISTRY, session)? || equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)?), "INTEGRITY_FAILURE")?;
+            } else {
+                request::same_text(result_kind, "economic", session)?;
+            }
+        },
         WireClass::AgreementAlias => request::same_text(result_kind, "semantic_alias", session)?,
         _ => require(
             matches!(result_kind, "administrative" | "semantic_alias"),

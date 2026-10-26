@@ -283,6 +283,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 15)?.is_eq()
             && !resource_compare(session, version, 16)?.is_eq()
             && !resource_compare(session, version, 17)?.is_eq()
+            && !resource_compare(session, version, 18)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -506,6 +507,14 @@ impl SqliteTx {
                         .into());
                     }
                 }
+            } else if same_text(kind, "workflow-receipt", session)? {
+                let bound = [key.logical_store_id.as_bytes(), key.scope[0].as_bytes(), key.scope[1].as_bytes(), id.as_bytes(), digest.as_bytes()];
+                let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+                self.financial_reserve_io(session, payload)?;
+                let present:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND receipt_id=? AND receipt_digest=? AND commit_sequence<?)")
+                    .bind(&key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1]).bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
+                self.financial_finish_io(session).await?;
+                if !present { return Err(StoreError::Integrity("alias receipt member is not an earlier scoped original").into()); }
             } else {
                 let bound = [kind.as_bytes(), id.as_bytes(), digest.as_bytes()];
                 let payload = io::binding_payload(&bound, &[], 0, 0, session)?;

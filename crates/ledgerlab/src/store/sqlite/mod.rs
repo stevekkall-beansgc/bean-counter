@@ -215,7 +215,8 @@ impl SqliteStore {
                         || schema_version == 14
                         || schema_version == 15
                         || schema_version == 16
-                        || schema_version == 17,
+                        || schema_version == 17
+                        || schema_version == 18,
                 ),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),

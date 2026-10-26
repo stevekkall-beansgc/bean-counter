@@ -14,6 +14,29 @@ pub(super) async fn verify(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
+    if request_wrapper::text(original.wrappers().receipt(), "result_kind", s)? == "semantic_alias" { return Ok(false); }
+    verify_intent(tx, original, incoming, false, s).await
+}
+pub(super) async fn verify_alias_transport(tx: &mut SqliteTx, original: &prefix::LocatedWrappers, incoming: Option<&ingress::IncomingRequest>, s: &mut OriginalAuditSession) -> Result<bool> {
+    verify_intent(tx, original, incoming, false, s).await
+}
+/// The enclosing adapter authenticates the actual mapped caller and permanent
+/// claim before this SAME original certificate compares only transport variance.
+pub(super) async fn verify_work_alias(
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: &ingress::IncomingRequest,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    verify_intent(tx, original, Some(incoming), true, s).await
+}
+async fn verify_intent(
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    semantic_work_alias: bool,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
     let w = original.wrappers();
     if w.class() != wrappers::WireClass::Financial {
         return Ok(false);
@@ -34,6 +57,7 @@ pub(super) async fn verify(
         .checked_add(1)
         .ok_or(ServiceError::IntegrityFailure)?;
     let mut pool = local_inputs::LocalInputs::new(s)?;
+    pool.select_saved_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)?;
     for r in request_wrapper::field(w.manifest(), "members", s)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?
@@ -125,15 +149,21 @@ pub(super) async fn verify(
         saved_normalized.bytes() == normalized.bytes(),
         "INTEGRITY_FAILURE",
     )?;
+    if semantic_work_alias {
+        require(publication.program().uses_shared_namespace_recipe() && saved.kind() == "work.accept", "UNSUPPORTED_SCHEMA_PROFILE")?;
+    }
     if let Some(incoming) = incoming {
         require(incoming.kind() == saved.kind(), "IDENTITY_CONFLICT")?;
         let incoming_payload = incoming.payload(s)?;
         let raw = s
             .canonical_representation(incoming_payload, RepresentationKind::OriginalRequest)
             .map_err(core_error)?;
-        let actual =
+        let actual = if semantic_work_alias {
+            ledgerlab_core::policy::workflow::transition_constructor::normalize_local_work_alias_intent(
+                publication.program(), normalized.bytes(), raw.bytes(), s)
+        } else {
             normalize_local_saved_intent(publication.program(), normalized.bytes(), raw.bytes(), s)
-                .map_err(core_error)?;
+        }.map_err(core_error)?;
         require(actual.bytes() == normalized.bytes(), "IDENTITY_CONFLICT")?;
     }
     for r in request_wrapper::field(w.receipt(), "result_refs", s)?

@@ -23,7 +23,11 @@ pub(super) fn locators(req: &request::Request, payload: &Value) -> Result<Vec<Va
         }
         (
             "authority.change",
-            Some("ledger-workflow-source-enroll/1" | "ledger-workflow-source-enroll/2"),
+            Some(
+                "ledger-workflow-source-enroll/1"
+                | "ledger-workflow-source-enroll/2"
+                | "ledger-workflow-source-enroll/3",
+            ),
         ) => {
             for r in payload["customer_refs"]
                 .as_array()
@@ -32,6 +36,9 @@ pub(super) fn locators(req: &request::Request, payload: &Value) -> Result<Vec<Va
                 out.push(json!({"role":"customer","ref":r}));
             }
             out.push(json!({"role":"evidence","ref":payload["evidence_ref"]}));
+            if source::shared_namespace_schema(payload) {
+                out.push(json!({"role":"namespace_owner","ref":payload["namespace_owner_enrollment_ref"]}));
+            }
         }
         (
             "authority.change",
@@ -39,7 +46,9 @@ pub(super) fn locators(req: &request::Request, payload: &Value) -> Result<Vec<Va
                 "ledger-workflow-source-restrict/1"
                 | "ledger-workflow-source-revoke/1"
                 | "ledger-workflow-source-restrict/2"
-                | "ledger-workflow-source-revoke/2",
+                | "ledger-workflow-source-restrict/3"
+                | "ledger-workflow-source-revoke/2"
+                | "ledger-workflow-source-revoke/3",
             ),
         ) => out.push(json!({"role":"source_enrollment","ref":payload["enrollment_ref"]})),
         _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
@@ -56,6 +65,7 @@ pub(super) fn evidence(req: &request::Request, normalized_payload: &Value) -> Re
             "evidence" => "evidence_input",
             "customer" => "customer_registration",
             "source_enrollment" => "source_enrollment",
+            "namespace_owner" => "source_enrollment",
             "accepted_binding" => "accepted_binding",
             "activation_target" => "activation_target",
             _ => return Err(ServiceError::IntegrityFailure),
@@ -65,7 +75,9 @@ pub(super) fn evidence(req: &request::Request, normalized_payload: &Value) -> Re
         );
     }
     canonical::sort_set(&mut anchors).map_err(|_| ServiceError::IntegrityFailure)?;
-    let registry_bytes: &[u8] = if source::participant_schema(normalized_payload) {
+    let registry_bytes: &[u8] = if source::shared_namespace_schema(normalized_payload) {
+        include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/local-shared-namespace-01/registry.json")
+    } else if source::participant_schema(normalized_payload) {
         include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/local-source-participants-01/registry.json")
     } else {
         include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready-registry.json")

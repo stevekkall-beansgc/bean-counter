@@ -105,6 +105,35 @@ impl LocalInputs {
                 )?;
             }
             drop(parsed);
+            let mut initial_invocation = None;
+            if program.uses_stage_lifecycle_recipe()
+                && self.rows[index].reference.kind == "workflow-invocation"
+            {
+                let parsed = s.parse_representation(body.bytes(), RepresentationKind::Record).map_err(core_error)?;
+                let authority = check::field(parsed.value(), "original_authority_ref", s)?;
+                let (authority, _authority_owner) = source::from_value_local(authority, s)?;
+                let sequence = tx.workflow_selected_association_sequence(&authority, &key.logical_store_id, &key.scope, before, s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+                let origin = prefix::next(tx,key,sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?,sequence,s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx,s).await?;
+                let authority_value = wire::reference(&authority,s)?;
+                let authority_value = s.parse_representation(authority_value.bytes(),RepresentationKind::Record).map_err(core_error)?;
+                origin.require_member(authority_value.value(),s)?;
+                result_member(origin.wrappers().receipt(),authority_value.value(),s)?;
+                let invocation_id = check::text(parsed.value(),"invocation_id",s)?;
+                let mut initial = None;
+                for value in check::field(origin.wrappers().receipt(),"result_refs",s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
+                    if check::text(value,"kind",s)?!="workflow-invocation" { continue; }
+                    let row = source::retained_local_record(tx,key,value,("workflow-invocation","ledger-workflow-invocation/1"),before,s).await?;
+                    if acceptance::same_recipe_text(check::text(row.body(),"invocation_id",s)?,invocation_id,s)?
+                        && acceptance::same_recipe_text(check::text(row.body(),"revision",s)?,"1",s)?
+                    {
+                        require(initial.is_none(),"INTEGRITY_FAILURE")?;
+                        let encoded=wire::reference(row.reference(),s)?;
+                        initial=Some(s.parse_representation(encoded.bytes(),RepresentationKind::Record).map_err(core_error)?);
+                    }
+                }
+                let initial=initial.ok_or(ServiceError::IntegrityFailure)?;
+                initial_invocation = Some(initial);
+            }
             let edges = select_lifecycle_input_edges(
                 program,
                 &core_key,
@@ -115,6 +144,7 @@ impl LocalInputs {
                 s,
             )
             .map_err(core_error)?;
+            if let Some(initial) = initial_invocation.as_ref() { self.add_value(initial.value(),s)?; }
             for reference in edges.direct_refs() {
                 self.add(reference, s)?;
             }

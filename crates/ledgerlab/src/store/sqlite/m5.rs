@@ -307,6 +307,7 @@ pub(crate) async fn recurrence_state(
         && schema != 15
         && schema != 16
         && schema != 17
+            && schema != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -458,6 +459,7 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1162,6 +1164,7 @@ pub(crate) async fn ad_hoc_state(
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1289,6 +1292,7 @@ pub(crate) async fn term_state(
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1345,6 +1349,7 @@ pub(crate) async fn term_transition_state(
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1433,6 +1438,7 @@ pub(crate) async fn period_resolve_state(
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1488,6 +1494,7 @@ pub(crate) async fn period_close_state(
         && version != 15
         && version != 16
         && version != 17
+            && version != 18
     {
         return Err(StoreError::BillingUpgradeRequired);
     }

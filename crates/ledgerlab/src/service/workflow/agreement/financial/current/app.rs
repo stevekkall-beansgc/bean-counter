@@ -6,6 +6,8 @@ mod chain_links;
 mod nonwork;
 mod work_capture;
 mod work_heads;
+mod stage;
+mod alias;
 use ledgerlab_core::policy::workflow::transition_constructor::{
     select_work_fact_reference_inputs, OperationFactReferenceInputs,
 };
@@ -18,7 +20,10 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_source_index: Option<usize>,
+    alias_work: Option<alias::AliasWork>,
     pub(super) work_source_birth: Option<prefix::SourceBirthInputs>,
+    pub(super) namespace_source_births: Vec<prefix::SourceBirthInputs>,
+    pub(super) namespace_source_births_storage: Option<ExternalBufferLease>,
     pub(super) work_root: Option<source::SourceRecord>,
     pub(super) work_received_at: Option<Timestamp>,
     _work_received_storage: Option<ExternalBufferLease>,
@@ -30,6 +35,9 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) local_input_bodies: Option<super::super::local_inputs::LocalInputs>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
     work_state: Option<work_heads::OwnedWorkState>,
+    pub(super) work_invocation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::WorkInvocationHeadLocators>,
+    pub(super) invocation_operation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::InvocationOperationLocators>,
+    pub(super) stage_work_locator: Option<ledgerlab_core::policy::workflow::transition_constructor::StageWorkHeadLocator>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(in super::super) at: Timestamp,
@@ -149,8 +157,25 @@ pub(in super::super) async fn observe(
             .source_birth_inputs(tx, key, source.enrollment_ref(), observed.before, session)
             .await?;
         observed.work_source_birth = Some(birth);
+        work_capture::retain_namespace_birth_inputs(&mut observed, tx, key, session).await?;
         let root = work_capture::retained_root(&mut observed, tx, key, index, session).await?;
         observed.work_root = Some(root);
+        if alias::select(&mut observed, tx, key, payload, index, session).await? {
+            observed.work_source_index = Some(index);
+            observed.work_received_at = Some(received_at);
+            observed._work_received_storage = Some(_received_storage);
+            return Ok(observed);
+        }
+        if observed.parties.is_none() {
+            let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            observed.parties = Some(observed.original.current_platforms(tx,key,binding.value(),&observed.at,observed.before,session).await?);
+        }
+        if observed.activation.is_none() {
+            if !stage::retain_original_work_activation(&mut observed,tx,key,payload,session).await? {
+                let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
+                observed.activation = Some(observed.original.current_initial_activation(tx,key,binding.value(),&observed.at,observed.before,session).await?);
+            }
+        }
         if observed
             .original
             .publication
@@ -158,6 +183,7 @@ pub(in super::super) async fn observe(
             .uses_declared_work_link_recipe()
         {
             let mut direct = super::super::local_inputs::LocalInputs::new(session)?;
+            direct.select_stage_recipe(observed.original.publication.program());
             direct.payload_refs(payload, session)?;
             direct.complete(tx, key, observed.before, session).await?;
             observed.local_input_bodies = Some(direct);
@@ -247,6 +273,12 @@ pub(in super::super) async fn observe(
             if let Some(birth) = observed.work_source_birth.as_ref() {
                 pool.add(birth.state.reference(), session)?;
                 pool.add(birth.grant.reference(), session)?;
+                for input in birth.namespace_owner_views() { pool.add(input.reference, session)?; }
+            }
+            for birth in &observed.namespace_source_births {
+                pool.add(birth.state.reference(), session)?;
+                pool.add(birth.grant.reference(), session)?;
+                for input in birth.namespace_owner_views() { pool.add(input.reference, session)?; }
             }
             if let Some(active) = observed.activation.as_ref() {
                 pool.add(active.head.reference(), session)?;
@@ -326,13 +358,16 @@ pub(in super::super) async fn observe(
                 }
             }
             pool.complete(tx, key, observed.before, session).await?;
+            stage::retain_work_head(&mut observed, &mut state, &mut pool, tx, key, payload, session).await?;
             let program = observed.original.publication.program();
             if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
                 let mut links = chain_links::acquire(
                     tx,
                     key,
                     chain_links::Selection {
-                        recipe: if program.uses_policy_semantics_recipe() {
+                        recipe: if program.uses_stage_lifecycle_recipe() {
+                            chain_links::ClaimRecipe::Stage
+                        } else if program.uses_policy_semantics_recipe() {
                             chain_links::ClaimRecipe::Policy
                         } else {
                             chain_links::ClaimRecipe::Declared
@@ -701,7 +736,7 @@ async fn observe_binding(
             operation,
             "agreement.revoke",
             session,
-        )? {
+        )? || (operation == "work.accept" && original.publication.program().uses_shared_namespace_recipe()) {
             None
         } else {
             Some(
@@ -711,7 +746,7 @@ async fn observe_binding(
             )
         };
         let activation =
-            if super::super::acceptance::same_recipe_text(operation, "work.accept", session)? {
+            if super::super::acceptance::same_recipe_text(operation, "work.accept", session)? && !original.publication.program().uses_shared_namespace_recipe() {
                 Some(
                     original
                         .current_initial_activation(tx, key, binding.value(), &at, before, session)
@@ -728,6 +763,9 @@ async fn observe_binding(
             work_source_slot: None,
             work_source_index: None,
             work_source_birth: None,
+            alias_work: None,
+            namespace_source_births: Vec::new(),
+            namespace_source_births_storage: None,
             work_root: None,
             work_received_at: None,
             _work_received_storage: None,
@@ -737,6 +775,9 @@ async fn observe_binding(
             local_locators: None,
             local_input_bodies: None,
             work_head_locators: None,
+            stage_work_locator: None,
+            work_invocation_locators: None,
+            invocation_operation_locators: None,
             work_heads: None,
             work_state: None,
             at,
@@ -811,6 +852,7 @@ impl ObservedAppActivation {
 }
 
 impl ObservedAppBinding {
+    pub(in super::super) fn is_work_alias(&self) -> bool { self.alias_work.is_some() }
     pub(in super::super) fn current_participant_source(
         &self,
         s: &mut OriginalAuditSession,
@@ -847,3 +889,5 @@ impl ObservedAppBinding {
 }
 
 pub(in super::super) use nonwork::observe as observe_nonwork;
+
+pub(in super::super) use alias::construct as construct_work_alias;

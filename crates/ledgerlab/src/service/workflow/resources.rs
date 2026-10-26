@@ -215,10 +215,9 @@ impl Snapshot {
         self.recheck()?;
         if self.settings.is_some() {
             require(
-                tx.billing_schema_version()
+                matches!(tx.billing_schema_version()
                     .await
-                    .map_err(crate::service::store_error)?
-                    == 17,
+                    .map_err(crate::service::store_error)?, 17 | 18),
                 "UNSUPPORTED_SCHEMA_PROFILE",
             )?;
         }
@@ -478,7 +477,7 @@ mod tests {
                 .unwrap();
         let mut tx = fresh.begin(&ledger.store, &mut s).await.unwrap();
         assert!(tx.workflow_deadline().is_none());
-        assert_eq!(tx.billing_schema_version().await.unwrap(), 17);
+        assert_eq!(tx.billing_schema_version().await.unwrap(), 18);
         tx.rollback().await.unwrap();
         let key = request::OperationKey {
             logical_store_id: "operator-settings-test".into(),

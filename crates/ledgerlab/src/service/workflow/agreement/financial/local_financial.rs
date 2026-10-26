@@ -18,7 +18,7 @@ impl PreparedFinancialCommit {
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
         let payload = req.payload(s)?;
-        let observed = if req.kind() == "work.accept" {
+        let mut observed = if req.kind() == "work.accept" {
             current::app::observe(ledger, tx, req.key(), payload, s).await?
         } else {
             current::app::observe_nonwork(ledger, tx, req.key(), payload, s).await?
@@ -31,7 +31,11 @@ impl PreparedFinancialCommit {
                 .uses_local_execution_recipe(),
             "UNSUPPORTED_SCHEMA_PROFILE",
         )?;
-        let (candidate, evidence) = observed.construct_local(req.key(), payload, req.raw(), s)?;
+        let (candidate, evidence) = if observed.is_work_alias() {
+            current::app::construct_work_alias(&mut observed, ledger, tx, req, s).await?
+        } else {
+            observed.construct_local(req.key(), payload, req.raw(), s)?
+        };
         require(
             candidate.result_metadata().is_local_execution(),
             "INTEGRITY_FAILURE",

@@ -16,6 +16,12 @@ mod local_acceptance;
 mod local_activation;
 mod local_financial;
 mod local_financial_original;
+mod local_original_context;
+mod local_original_heads;
+mod local_original_work;
+mod local_alias_original;
+mod local_cost_authority;
+mod local_reads;
 mod local_inputs;
 mod local_party;
 mod local_publication;
@@ -127,6 +133,12 @@ pub(in crate::service::workflow) async fn enable_app_schemas(
             tx.workflow_enable_assertion_schema()
                 .await
                 .map_err(crate::service::store_error)?;
+            tx.workflow_enable_resource_schema()
+                .await
+                .map_err(crate::service::store_error)?;
+            tx.workflow_enable_stage_schema()
+                .await
+                .map_err(crate::service::store_error)?;
             session.check_cancelled().map_err(core_error)
         })
     })
@@ -170,6 +182,28 @@ pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
             | "cost.finalize"
             | "cost.correct"
     )
+}
+
+/// Existing EconomicRead kinds use the authenticated local owner. The subject
+/// identifies the immutable economics, never the current reader principal.
+pub(in crate::service::workflow) async fn read_current(ledger:&LocalWorkflowLedger,raw:&[u8])->Result<Value>{
+    use ledgerlab_core::validation_work::{OriginalAuditSession,RepresentationKind};
+    let snapshot=ledger.resource_snapshot()?;let arena=snapshot.arena()?;
+    let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+    let parsed=s.parse_representation(raw,RepresentationKind::OriginalRequest).map_err(core_error)?;
+    request_wrapper::closed(parsed.value(),&["schema","kind","payload"],&mut s)?;
+    request_wrapper::same_text(request_wrapper::text(parsed.value(),"schema",&mut s)?,"ledger-read/1",&mut s)?;
+    let kind=request_wrapper::text(parsed.value(),"kind",&mut s)?;
+    require(matches!(kind,"work.current"|"outcome.current"),"UNSUPPORTED_SCHEMA_PROFILE")?;
+    let _key_owner=s.reserve_external_payload(std::mem::size_of::<OperationKey>()+ledger.admin.logical_store_id.len()+ledger.admin.scope[0].len()+ledger.admin.scope[1].len()+128).map_err(core_error)?;
+    let key=OperationKey{logical_store_id:ledger.admin.logical_store_id.clone(),scope:ledger.admin.scope.clone(),source:"urn:internal:workflow-read".into(),operation_id:"workflow-current-read".into()};
+    let mut tx=snapshot.begin(&ledger.store,&mut s).await?;
+    let _cancellation=AttemptCancellation::new(&arena,tx.workflow_deadline());tx.workflow_main_session=true;
+    let attempted=proof_session::with_proofs(&mut tx,&key,|tx|Box::pin(async{
+        local_reads::current(ledger,tx,&key,kind,request_wrapper::field(parsed.value(),"payload",&mut s)?,&mut s).await
+    })).await;
+    tx.rollback().await.map_err(crate::service::store_error)?;
+    attempted
 }
 
 /// The actual request lifetime and held-writer deadline feed the same terminal
@@ -317,6 +351,8 @@ pub(in crate::service::workflow) async fn local_management_status(
                 .is_none()
             && !local_acceptance::verify_original(ledger, tx, &original, None, &mut s).await?
             && !local_activation::verify_original(ledger, tx, &original, None, &mut s).await?
+            && !local_alias_original::verify(ledger, tx, &original, None, &mut s).await?
+            && !local_cost_authority::verify_original(tx, &original, None, &mut s).await?
             && !local_financial_original::verify(tx, &original, None, &mut s).await?
         {
             return Ok(None);
@@ -437,6 +473,10 @@ fn is_local_financial_schema(schema: &str) -> bool {
             | "ledger-workflow-outcome-close/2"
             | "ledger-workflow-quantity-correction/2"
             | "ledger-workflow-work-reverse/2"
+            | "ledger-workflow-invocation-authorize/1"
+            | "ledger-workflow-stage-authorize/1"
+            | "ledger-workflow-invocation-close/1"
+            | "ledger-workflow-stage-close/1"
     )
 }
 
@@ -454,12 +494,17 @@ fn registered_financial_operation(kind: &str) -> bool {
             | "outcome.close"
             | "quantity.correct"
             | "work.reverse"
+            | "invocation.authorize"
+            | "invocation.close"
     )
 }
 fn registered_financial_tuple(kind: &str, schema: &str) -> bool {
     matches!(
         (kind, schema),
         ("work.accept", "ledger-workflow-work/1")
+            | ("invocation.authorize", "ledger-workflow-invocation-authorize/1" | "ledger-workflow-stage-authorize/1")
+            | ("invocation.close", "ledger-workflow-invocation-close/1")
+            | ("outcome.submit", "ledger-workflow-stage-close/1")
             | (
                 "evidence.retain",
                 "ledger-workflow-fact-attest/1"
@@ -595,6 +640,10 @@ async fn fresh_reply_in(
         }
     }
 
+    if req.kind()=="authority.change" && request_wrapper::text(req.payload(session)?,"schema",session)?=="ledger-cost-authority-enroll/1" {
+        let reply=local_cost_authority::prepare_append(ledger,tx,req,&management,session).await?;
+        return Ok(TransactionResult::Appended(reply));
+    }
     if is_local_financial_schema(request_wrapper::text(
         req.payload(session)?,
         "schema",
@@ -685,6 +734,8 @@ async fn original_query_in(
     };
     if local_acceptance::verify_original(ledger, tx, &original, retry, session).await?
         || local_activation::verify_original(ledger, tx, &original, retry, session).await?
+        || local_alias_original::verify(ledger, tx, &original, retry, session).await?
+        || local_cost_authority::verify_original(tx, &original, retry, session).await?
         || local_financial_original::verify(tx, &original, retry, session).await?
     {
         let reply = recovery::party_reply(&original, session)?;

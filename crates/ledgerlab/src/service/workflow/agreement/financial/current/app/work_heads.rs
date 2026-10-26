@@ -401,6 +401,10 @@ pub(super) struct OwnedWorkState {
     pub(super) parties:
         Vec<ledgerlab_core::policy::workflow::transition_constructor::PartyAuthorizationHead>,
     _storage: ExternalBufferLease,
+    stage_storage: Option<ExternalBufferLease>,
+    pub(super) invocations: Vec<ledgerlab_core::policy::workflow::transition_constructor::InvocationHead>,
+    invocation_storage: Vec<ExternalBufferLease>,
+    invocation_controls: Option<ExternalBufferLease>,
 }
 fn copied(value: &str, s: &mut OriginalAuditSession) -> Result<String> {
     s.semantic_work()
@@ -728,6 +732,8 @@ impl ObservedWorkHeads {
                 capacities,
                 parties: current_parties,
                 _storage: storage,
+                stage_storage: None,
+                invocations: Vec::new(), invocation_storage: Vec::new(), invocation_controls: None,
             })
         })();
         if result.is_err() {
@@ -773,6 +779,8 @@ pub(super) fn unattached_state(
         capacities: Vec::new(),
         parties: current,
         _storage: storage,
+        stage_storage: None,
+                invocations: Vec::new(), invocation_storage: Vec::new(), invocation_controls: None,
     })
 }
 
@@ -871,4 +879,48 @@ pub(super) async fn observe_relation_decision(
         _claim: claim,
         _storage: storage,
     })
+}
+
+pub(super) fn retain_stage_head(
+    state: &mut OwnedWorkState,
+    locator: &ledgerlab_core::policy::workflow::transition_constructor::StageWorkHeadLocator,
+    head: &HeadLocator,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    use ledgerlab_core::policy::workflow::transition_constructor::StageHead;
+    require(state.financial.stage_heads.is_empty() && state.stage_storage.is_none(), "INTEGRITY_FAILURE")?;
+    let mut bytes = mem::size_of::<StageHead>();
+    for value in [locator.agreement(), locator.chain(), locator.stage(), text(head.revision.bytes(), s)?, &reference.kind, &reference.id, &reference.digest] {
+        bytes = add(bytes, value.len(), s)?;
+    }
+    state.stage_storage = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
+    state.financial.stage_heads.try_reserve_exact(1).map_err(|_| ServiceError::Unavailable)?;
+    let value = StageHead {
+        agreement: copied(locator.agreement(), s)?, chain: copied(locator.chain(), s)?, stage: copied(locator.stage(), s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?, reference: copied_exact(reference, s)?,
+    };
+    s.semantic_work().write_bytes(mem::size_of::<StageHead>()).map_err(core_error)?;
+    state.financial.stage_heads.push(value);
+    Ok(())
+}
+
+pub(super) fn prepare_invocation_heads(state: &mut OwnedWorkState, count: usize, s: &mut OriginalAuditSession) -> Result<()> {
+    use ledgerlab_core::policy::workflow::transition_constructor::InvocationHead;
+    require(state.invocations.is_empty() && state.invocation_controls.is_none(), "INTEGRITY_FAILURE")?;
+    let bytes = product(count, mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>(), s)?;
+    state.invocation_controls = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
+    state.invocations.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    state.invocation_storage.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    Ok(())
+}
+pub(super) fn retain_invocation_head(state: &mut OwnedWorkState, id: &str, head: &HeadLocator, reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
+    use ledgerlab_core::policy::workflow::transition_constructor::InvocationHead;
+    let mut bytes = 0;
+    for value in [id, text(head.revision.bytes(), s)?, &reference.kind, &reference.id, &reference.digest] { bytes = add(bytes, value.len(), s)?; }
+    let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    let row = InvocationHead { invocation_id: copied(id, s)?, revision: copied(text(head.revision.bytes(), s)?, s)?, reference: copied_exact(reference, s)? };
+    s.semantic_work().write_bytes(mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>()).map_err(core_error)?;
+    state.invocations.push(row); state.invocation_storage.push(owner);
+    Ok(())
 }

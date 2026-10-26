@@ -80,6 +80,33 @@ impl SqliteTx {
         }
         result
     }
+    /// Exact wrapper Ref lookup only. The caller must check the whole original
+    /// operation/manifest/receipt certificate before consuming its bytes.
+    pub(crate) async fn workflow_wrapper_reference_sequence(&mut self, reference: &ExactRef, store: &str, scope: &[String;2], before:i64, session:&mut OriginalAuditSession) -> Result<Option<i64>,FinancialReadError> {
+        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) { return Err(invalid()); }
+        self.failed = true;
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
+            let sql = match reference.kind.as_str() {
+                "workflow-operation" => "SELECT count(*),min(commit_sequence) FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_record_id=? AND operation_digest=? AND commit_sequence<?",
+                "workflow-receipt" => "SELECT count(*),min(commit_sequence) FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND receipt_id=? AND receipt_digest=? AND commit_sequence<?",
+                _ => return Err(invalid()),
+            };
+            let bound=[store.as_bytes(),scope[0].as_bytes(),scope[1].as_bytes(),reference.id.as_bytes(),reference.digest.as_bytes()];
+            let payload=io::binding_payload(&bound,&[],0,0,session)?;
+            self.financial_reserve_io(session,payload)?;
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let row=sqlx::query(sql).bind(store).bind(&scope[0]).bind(&scope[1]).bind(&reference.id).bind(&reference.digest).bind(before).fetch_one(self.conn()).await?;
+            let count:i64=row.try_get(0)?;let sequence:Option<i64>=row.try_get(1)?;
+            self.financial_finish_io(session).await?;
+            if resource_compare(session,count,0)?.is_eq() {return Ok(None);}
+            if !resource_compare(session,count,1)?.is_eq() {return Err(invalid());}
+            let sequence=sequence.ok_or_else(invalid)?;
+            if !resource_compare(session,sequence,0)?.is_gt() || !resource_compare(session,sequence,before)?.is_lt() {return Err(invalid());}
+            Ok(Some(sequence))
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
+        if result.is_ok(){session.check_cancelled()?;if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire)||self.financial_io.is_some(){return Err(invalid());}self.failed=false;}
+        result
+    }
     /// An exact reference and earlier scoped membership select retained bytes,
     /// never completed provenance. Bodies retain their SAME arena ownership
     /// after worker finalization. No ordinary Vec/body clone is returned.

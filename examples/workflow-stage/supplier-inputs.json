@@ -1,0 +1,50 @@
+{
+  "classification": "Proposed public combined Stage supplier inputs; actual retained refs supplied by enrollment/acceptance",
+  "activity": "support:prepare",
+  "quantity_field": "support:quantity",
+  "unit": "support:item",
+  "maximum": "1",
+  "actual_work_facts": {
+    "support:quantity": "1"
+  },
+  "supplier_slot": "support:supplier",
+  "source_slot": "support:worker",
+  "unit_ceilings": [
+    {
+      "activity": "support:prepare",
+      "field": "support:quantity",
+      "unit": "support:item",
+      "maximum": "1"
+    }
+  ],
+  "quantity_ceilings": [
+    {
+      "activity": "support:prepare",
+      "field": "support:quantity",
+      "unit": "support:item",
+      "maximum": "1"
+    }
+  ],
+  "maximum_exposure": {
+    "currency": "USD",
+    "scale": 18,
+    "atoms": "1000000000000000000"
+  },
+  "retail_oracle": {
+    "prior_atoms": "1350000000000000000",
+    "premium_before_cap_atoms": "2000000000000000000",
+    "cap_atoms": "3150000000000000000",
+    "cap_adjustment_atoms": "-200000000000000000",
+    "current_after_cap_atoms": "1800000000000000000",
+    "retail_total_atoms": "3150000000000000000",
+    "supplier_share_atoms": "450000000000000000"
+  },
+  "requires_actual_inputs": [
+    "original CostAuthority1 and owner/account enrollment",
+    "SupplierOffer3 and SupplierTerms5 plus actual commitment, roles and assent",
+    "original accepted Binding nominated sources and funding leg",
+    "original Invocation1 authorized exposure and held current Invocation state",
+    "original/current worker B invocation.authorize +invocation/read, separately captured from outer Stage A",
+    "original expected Work occurrence attestation/verifier; payload.occurred_at equals its verified support:occurred fact"
+  ]
+}

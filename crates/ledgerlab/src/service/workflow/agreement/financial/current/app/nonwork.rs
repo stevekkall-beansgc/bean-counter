@@ -70,17 +70,18 @@ pub(in super::super::super) async fn observe(
         .map_err(|_| ServiceError::IntegrityFailure)?;
     let kind = core_operation_kind(payload, s)?;
     let mut o = observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?;
+    pool.select_stage_recipe(o.original.publication.program());
     let original_binding = s
         .parse_representation(
             o.original.acceptance.binding.bytes(),
             RepresentationKind::Record,
         )
         .map_err(core_error)?;
-    o.activation = Some(
-        o.original
-            .original_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)
-            .await?,
-    );
+    o.activation = Some(if kind=="invocation.authorize" {
+        o.original.current_initial_activation(tx,key,original_binding.value(),&o.at,o.before,s).await?
+    }else{
+        o.original.original_initial_activation(tx,key,original_binding.value(),&o.at,o.before,s).await?
+    });
     require(
         o.original
             .publication
@@ -94,6 +95,7 @@ pub(in super::super::super) async fn observe(
         .source_birth_inputs(tx, key, o.sources[index].enrollment_ref(), o.before, s)
         .await?;
     o.work_source_birth = Some(birth);
+    work_capture::retain_namespace_birth_inputs(&mut o, tx, key, s).await?;
     let root = work_capture::retained_root(&mut o, tx, key, index, s).await?;
     o.work_root = Some(root);
     let mut locators = work_capture::with_capture(
@@ -138,6 +140,7 @@ pub(in super::super::super) async fn observe(
         work_heads::unattached_state(o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?, s)?
     };
     state.financial.work_claims.clear();
+    super::stage::retain_invocation_operation(&mut o,&mut state,&mut pool,tx,key,payload,s).await?;
     if let Some(report) = locators.selector_start_work_heads() {
         let held =
             work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)
@@ -266,6 +269,12 @@ pub(in super::super::super) async fn observe(
     if let Some(b) = o.work_source_birth.as_ref() {
         pool.add(b.state.reference(), s)?;
         pool.add(b.grant.reference(), s)?;
+        for input in b.namespace_owner_views() { pool.add(input.reference, s)?; }
+    }
+    for birth in &o.namespace_source_births {
+        pool.add(birth.state.reference(), s)?;
+        pool.add(birth.grant.reference(), s)?;
+        for input in birth.namespace_owner_views() { pool.add(input.reference, s)?; }
     }
     if let Some(a) = o.activation.as_ref() {
         pool.add(a.head.reference(), s)?;
@@ -445,7 +454,9 @@ pub(in super::super::super) async fn observe(
                 tx,
                 key,
                 super::chain_links::Selection {
-                    recipe: if program.uses_policy_semantics_recipe() {
+                    recipe: if program.uses_stage_lifecycle_recipe() {
+                        super::chain_links::ClaimRecipe::Stage
+                    } else if program.uses_policy_semantics_recipe() {
                         super::chain_links::ClaimRecipe::Policy
                     } else {
                         super::chain_links::ClaimRecipe::Declared
@@ -473,16 +484,18 @@ pub(in super::super::super) async fn observe(
             cost_claim_refs: &extra.claims,
             evidence_consumption_refs: &extra.consumed,
         };
+        let (correspondences, _correspondence_owner) = work_capture::source_correspondences(&o, s)?;
+        let supplier=core::SupplierStateData{invocation_heads:&state.invocations,cost_heads:&[],cost_consumption_heads:&[],cost_owner_heads:&[]};
         let data = core::EconomicStateData {
             retained_assertion: extra.assertion.as_ref(),
             financial: &state.financial,
             capacity_heads: &state.capacities,
-            supplier: None,
+            supplier: program.uses_stage_lifecycle_recipe().then_some(&supplier),
             app: Some(&app),
             current_party_authorizations: &state.parties,
             observation: None,
             audit: None,
-            initial_source_correspondences: &[],
+            initial_source_correspondences: &correspondences,
         };
         let groups = locators
             .select_fact_reference_inputs(program, &ck, raw.bytes(), (&data, &pool.views()), s)
@@ -590,6 +603,9 @@ fn outcome_proof_payload<'a>(
 
 fn core_operation_kind(payload: &Value, s: &mut OriginalAuditSession) -> Result<&'static str> {
     Ok(match check::text(payload, "schema", s)? {
+        "ledger-workflow-invocation-authorize/1" | "ledger-workflow-stage-authorize/1" => "invocation.authorize",
+        "ledger-workflow-invocation-close/1" => "invocation.close",
+        "ledger-workflow-stage-close/1" => "outcome.submit",
         "ledger-workflow-fact-attest/1"
         | "ledger-workflow-family-close-attest/1"
         | "ledger-workflow-app-observe/1"

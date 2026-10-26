@@ -239,6 +239,7 @@ impl SqliteTx {
             && version != 15
             && version != 16
             && version != 17
+            && version != 18
         {
             return Err(StoreError::BillingUpgradeRequired);
         }
@@ -254,6 +255,7 @@ impl SqliteTx {
             && version != 15
             && version != 16
             && version != 17
+            && version != 18
         {
             return Err(StoreError::BillingUpgradeRequired);
         }
@@ -268,7 +270,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            11..=17 => {
+            11..=18 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
             }
@@ -403,7 +405,7 @@ impl SqliteTx {
             s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
             let version = self.billing_schema_version().await?;
             let mut supported = false;
-            for allowed in [11, 12, 13, 14, 15, 16, 17] {
+            for allowed in [11, 12, 13, 14, 15, 16, 17, 18] {
                 if billing_resource_compare(version, allowed, s.semantic_work())?.is_eq() {
                     supported = true;
                     break;
@@ -1183,7 +1185,7 @@ impl SqliteTx {
             let ordinal = entry_count + 1;
             let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
                 .fetch_one(self.conn()).await?;
-            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 || schema == 17 {
+            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 || schema == 17 || schema == 18 {
                 super::m5::assignment_for_m3(self.conn(), plan).await?
             } else {
                 None

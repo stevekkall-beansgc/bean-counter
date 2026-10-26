@@ -1,0 +1,482 @@
+{
+  "classification": "Public synthetic combined Stage/share inputs; no actual assent or account ownership from fixture data",
+  "scope": [
+    "example-company",
+    "local"
+  ],
+  "source": "urn:example:stage-admin",
+  "operator": "example-operator",
+  "platform": "platform-P",
+  "provider": "supplier-S",
+  "customer": "customer-stage",
+  "agreement": "stage-support",
+  "source_ceiling": {
+    "source": "urn:example:stage-admin",
+    "canonical_economic_namespace": "urn:example:stage-admin",
+    "principal_id": "example-operator",
+    "customer_scope": [
+      "customer-stage"
+    ],
+    "source_slots": [
+      "support:stage-authorizer"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:close",
+          "support:prepare"
+        ]
+      }
+    ],
+    "link_selectors": [
+      {
+        "names": [
+          "support:closes"
+        ]
+      }
+    ],
+    "operations": [
+      "agreement.accept",
+      "agreement.activate",
+      "agreement.revoke",
+      "authority.change",
+      "invocation.authorize"
+    ],
+    "permissions": [
+      "admin",
+      "invocation",
+      "read",
+      "submit"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "worker_source": "urn:example:stage-worker",
+  "worker_ceiling": {
+    "source": "urn:example:stage-worker",
+    "canonical_economic_namespace": "urn:example:stage-worker",
+    "principal_id": "example-operator",
+    "customer_scope": [
+      "customer-stage"
+    ],
+    "source_slots": [
+      "support:worker"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:close",
+          "support:prepare"
+        ]
+      }
+    ],
+    "link_selectors": [
+      {
+        "names": [
+          "support:closes"
+        ]
+      }
+    ],
+    "operations": [
+      "evidence.retain",
+      "invocation.authorize",
+      "invocation.close",
+      "work.accept"
+    ],
+    "permissions": [
+      "close",
+      "invocation",
+      "read",
+      "submit"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "alias_source": "urn:example:stage-reporter",
+  "alias_ceiling": {
+    "source": "urn:example:stage-reporter",
+    "canonical_economic_namespace": "urn:example:stage-worker",
+    "principal_id": "example-operator",
+    "customer_scope": [
+      "customer-stage"
+    ],
+    "source_slots": [
+      "support:worker"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:close",
+          "support:prepare"
+        ]
+      }
+    ],
+    "link_selectors": [
+      {
+        "names": [
+          "support:closes"
+        ]
+      }
+    ],
+    "operations": [
+      "evidence.retain",
+      "invocation.authorize",
+      "invocation.close",
+      "work.accept"
+    ],
+    "permissions": [
+      "close",
+      "invocation",
+      "read",
+      "submit"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "corrector_source": "urn:example:stage-corrector",
+  "corrector_ceiling": {
+    "source": "urn:example:stage-corrector",
+    "canonical_economic_namespace": "urn:example:stage-corrector",
+    "principal_id": "example-operator",
+    "customer_scope": [
+      "customer-stage"
+    ],
+    "source_slots": [
+      "support:corrector"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:close",
+          "support:prepare"
+        ]
+      }
+    ],
+    "link_selectors": [
+      {
+        "names": [
+          "support:closes"
+        ]
+      }
+    ],
+    "operations": [
+      "quantity.correct",
+      "work.reverse"
+    ],
+    "permissions": [
+      "correct",
+      "read"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "closer_source": "urn:example:stage-closer",
+  "closer_ceiling": {
+    "source": "urn:example:stage-closer",
+    "canonical_economic_namespace": "urn:example:stage-closer",
+    "principal_id": "example-operator",
+    "customer_scope": [
+      "customer-stage"
+    ],
+    "source_slots": [
+      "support:closer",
+      "support:supplier-authorizer"
+    ],
+    "product_selectors": [
+      {
+        "names": [
+          "support:product"
+        ]
+      }
+    ],
+    "activity_selectors": [
+      {
+        "names": [
+          "support:close",
+          "support:prepare"
+        ]
+      }
+    ],
+    "link_selectors": [
+      {
+        "names": [
+          "support:closes"
+        ]
+      }
+    ],
+    "operations": [
+      "evidence.retain",
+      "invocation.close",
+      "outcome.close",
+      "outcome.correct",
+      "outcome.submit",
+      "quantity.correct",
+      "work.reverse"
+    ],
+    "permissions": [
+      "close",
+      "correct",
+      "read",
+      "submit"
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z",
+    "ends_at": "2099-01-01T00:00:00.000000Z"
+  },
+  "role": {
+    "schema": "ledger-workflow-role-assignment/1",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "agreement_id": "stage-support",
+    "customer": "customer-stage",
+    "role_slot": "support:retail-role",
+    "provider": "platform-P",
+    "cost_originator": "platform-P",
+    "beneficiary": "customer-stage",
+    "recipient": "customer-stage",
+    "payer": "customer-stage",
+    "bearer": "customer-stage"
+  },
+  "supplier_role": {
+    "schema": "ledger-workflow-role-assignment/1",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "agreement_id": "stage-support",
+    "customer": "customer-stage",
+    "role_slot": "support:supplier-role",
+    "provider": "supplier-S",
+    "cost_originator": "supplier-S",
+    "beneficiary": "customer-stage",
+    "recipient": "customer-stage",
+    "payer": "platform-P",
+    "bearer": "platform-P"
+  },
+  "catalog": {
+    "schema": "ledger-workflow-slot-catalog/1",
+    "revision": "1",
+    "agreement_id": "stage-support",
+    "customer": "customer-stage",
+    "components": [
+      {
+        "slot_id": "support:cap",
+        "root_slot": "support:premium",
+        "role_slot": "support:retail-role",
+        "book": "retail"
+      },
+      {
+        "slot_id": "support:premium",
+        "root_slot": "support:premium",
+        "role_slot": "support:retail-role",
+        "book": "retail"
+      },
+      {
+        "slot_id": "support:prior",
+        "root_slot": "support:prior",
+        "role_slot": "support:retail-role",
+        "book": "retail"
+      },
+      {
+        "slot_id": "support:share",
+        "root_slot": "support:share",
+        "role_slot": "support:supplier-role",
+        "book": "supplier"
+      }
+    ],
+    "families": []
+  },
+  "component_map": [
+    {
+      "slot_id": "support:cap",
+      "template_key": "support:cap"
+    },
+    {
+      "slot_id": "support:premium",
+      "template_key": "support:premium"
+    },
+    {
+      "slot_id": "support:prior",
+      "template_key": "support:prior"
+    },
+    {
+      "slot_id": "support:share",
+      "template_key": "support:share"
+    }
+  ],
+  "family_map": [],
+  "terms": {
+    "schema": "ledger-workflow-slot-binding-terms/7",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "customer": "customer-stage",
+    "agreement_id": "stage-support",
+    "slot": "support:retail",
+    "book": "retail",
+    "role_slot": "support:retail-role",
+    "funding_leg": "support:customer",
+    "allowed_activities": [
+      "support:close",
+      "support:prepare"
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "support:prepare",
+        "field": "support:quantity",
+        "unit": "support:item",
+        "maximum": "1"
+      }
+    ],
+    "exposure_ceiling": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "4000000000000000000"
+    },
+    "correction_source_slot": "support:corrector",
+    "causal_reversal_clauses": [],
+    "app_cost_terms": []
+  },
+  "binding": {
+    "agreement_id": "stage-support",
+    "customer": "customer-stage",
+    "version": "1",
+    "source_namespace": "urn:example:stage-worker",
+    "source_slots": [
+      {
+        "name": "support:closer",
+        "sources": [
+          "urn:example:stage-closer"
+        ],
+        "evidence_kinds": [
+          "occurrence",
+          "outcome"
+        ]
+      },
+      {
+        "name": "support:corrector",
+        "sources": [
+          "urn:example:stage-corrector"
+        ],
+        "evidence_kinds": []
+      },
+      {
+        "name": "support:stage-authorizer",
+        "sources": [
+          "urn:example:stage-admin"
+        ],
+        "evidence_kinds": []
+      },
+      {
+        "name": "support:supplier-authorizer",
+        "sources": [
+          "urn:example:stage-closer"
+        ],
+        "evidence_kinds": []
+      },
+      {
+        "name": "support:worker",
+        "sources": [
+          "urn:example:stage-reporter",
+          "urn:example:stage-worker"
+        ],
+        "evidence_kinds": [
+          "occurrence"
+        ]
+      }
+    ],
+    "funding_legs": [
+      {
+        "name": "support:customer",
+        "mode": "customer_local",
+        "resource_owner": "customer-stage",
+        "payer": "customer-stage",
+        "evidence_refs": []
+      },
+      {
+        "name": "support:provider",
+        "mode": "platform",
+        "resource_owner": "platform-P",
+        "payer": "platform-P",
+        "supplier_binding_slot": "support:supplier",
+        "evidence_refs": []
+      }
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "support:prepare",
+        "field": "support:quantity",
+        "unit": "support:item",
+        "maximum": "1"
+      }
+    ],
+    "exposure_ceilings": [
+      {
+        "binding_slot": "support:retail",
+        "maximum": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "4000000000000000000"
+        }
+      },
+      {
+        "binding_slot": "support:supplier",
+        "maximum": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "1000000000000000000"
+        }
+      }
+    ],
+    "starts_at": "2000-01-01T00:00:00.000000Z"
+  },
+  "supplier_inputs": {
+    "valuation_mode": "fixed_unit",
+    "activity": "support:prepare",
+    "source_slot": "support:worker",
+    "quantity_field": "support:quantity",
+    "unit": "support:item",
+    "maximum_quantity": "1",
+    "maximum_exposure": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "1000000000000000000"
+    },
+    "provider_account_identity": {
+      "provider_namespace": "synthetic-provider",
+      "provider_account_id": "example-stage-account",
+      "environment": "synthetic"
+    },
+    "consumption_basis": "owned_obligation_high_water"
+  }
+}

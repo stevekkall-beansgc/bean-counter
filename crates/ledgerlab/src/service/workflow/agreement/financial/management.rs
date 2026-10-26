@@ -85,6 +85,15 @@ impl ManagementObservation {
             .current_grant_body()
             .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
         let original = source.original_grant_body();
+        let shared = observed
+            .original
+            .publication
+            .program()
+            .uses_shared_namespace_recipe();
+        let namespace = request_wrapper::text(grant, "canonical_economic_namespace", s)?;
+        if !shared {
+            request_wrapper::same_text(namespace, &key.source, s)?;
+        }
         for body in [grant, original] {
             request_wrapper::same_text(
                 request_wrapper::text(body, "principal_id", s)?,
@@ -94,23 +103,37 @@ impl ManagementObservation {
             request_wrapper::same_text(request_wrapper::text(body, "source", s)?, &key.source, s)?;
             request_wrapper::same_text(
                 request_wrapper::text(body, "canonical_economic_namespace", s)?,
-                &key.source,
+                namespace,
                 s,
             )?;
         }
-        require(
+        let enrolled =
+            request_wrapper::text(source.enrollment_record().body(), "enrollment_id", s)?;
+        let registered = if shared {
+            tx.workflow_financial_registered_mapping(
+                &key.logical_store_id,
+                &key.scope,
+                enrolled,
+                &source.enrollment_ref().id,
+                &key.source,
+                namespace,
+                s,
+            )
+            .await
+            .map_err(prefix::read_error)?
+        } else {
             tx.workflow_financial_registered_source(
                 &key.logical_store_id,
                 &key.scope,
-                request_wrapper::text(source.enrollment_record().body(), "enrollment_id", s)?,
+                enrolled,
                 &source.enrollment_ref().id,
                 &key.source,
                 s,
             )
             .await
-            .map_err(prefix::read_error)?,
-            "AUTHORITY_REQUIRED",
-        )?;
+            .map_err(prefix::read_error)?
+        };
+        require(registered, "AUTHORITY_REQUIRED")?;
         let key_body = request_wrapper::field(req.value(), "key", s)?;
         Self::capture_with_caller(
             ledger,

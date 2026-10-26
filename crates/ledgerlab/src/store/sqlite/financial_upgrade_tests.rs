@@ -302,3 +302,36 @@ async fn app_upgrade_preserves_history_and_enforces_independent_global_consumpti
         .unwrap()
         .is_none());
 }
+
+#[tokio::test]
+async fn stage_upgrade_preserves_history_and_exact_head_partition_with_rollback() {
+    let mut c = prior().await;
+    for sql in [super::FINANCIAL_WORKFLOW, super::SUPPLIER_WORKFLOW, super::APP_WORKFLOW, super::ASSERTION_WORKFLOW, include_str!("workflow/resource_schema.sql")] {
+        let mut tx = c.begin().await.unwrap();
+        tx.execute(sqlx::AssertSqlSafe(sql)).await.unwrap();
+        finish_financial_schema(&mut tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    let before: Vec<(String, Vec<u8>)> = sqlx::query_as("SELECT id,canonical_bytes FROM workflow_documents ORDER BY id").fetch_all(&mut c).await.unwrap();
+    let operation_before: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as("SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations").fetch_one(&mut c).await.unwrap();
+    {
+        let mut tx = c.begin().await.unwrap();
+        tx.execute(sqlx::AssertSqlSafe(super::STAGE_WORKFLOW)).await.unwrap();
+        finish_financial_schema(&mut tx).await.unwrap();
+        tx.execute("INSERT INTO workflow_documents VALUES('workflow-stage-instance','instance','digest','opaque',X'1011'),('workflow-stage-state','state','digest','opaque',X'1213'),('workflow-stage-closure-claim','claim','digest','opaque',X'1415')").await.unwrap();
+        tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','stage','agreement','chain','stage','','1','workflow-stage-state','state','digest')").await.unwrap();
+        assert!(tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','stage','agreement','chain','stage','customer','1','workflow-stage-state','state','digest')").await.is_err());
+        assert!(tx.execute("DELETE FROM workflow_financial_heads WHERE head_kind='stage'").await.is_err());
+        tx.rollback().await.unwrap();
+    }
+    assert_eq!(sqlx::query_as::<_, (String, Vec<u8>)>("SELECT id,canonical_bytes FROM workflow_documents ORDER BY id").fetch_all(&mut c).await.unwrap(), before);
+    {
+        let mut tx = c.begin().await.unwrap();
+        tx.execute(sqlx::AssertSqlSafe(super::STAGE_WORKFLOW)).await.unwrap();
+        finish_financial_schema(&mut tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    assert_eq!(sqlx::query_as::<_, (String, Vec<u8>)>("SELECT id,canonical_bytes FROM workflow_documents ORDER BY id").fetch_all(&mut c).await.unwrap(), before);
+    assert_eq!(sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>)>("SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations").fetch_one(&mut c).await.unwrap(), operation_before);
+    assert!(sqlx::query("PRAGMA foreign_key_check").fetch_optional(&mut c).await.unwrap().is_none());
+}
