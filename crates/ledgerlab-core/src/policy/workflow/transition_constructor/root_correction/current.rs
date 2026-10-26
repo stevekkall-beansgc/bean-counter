@@ -34,6 +34,28 @@ pub(super) fn verify(
         "workflow-decision",
         "ledger-workflow-decision-revision/1",
     )?;
+    shape::closed(
+        m,
+        &prior,
+        &[
+            "schema",
+            "decision_id",
+            "revision",
+            "subject_ref",
+            "kind",
+            "transition",
+            "status",
+            "original_terms_ref",
+            "authority_ref",
+            "evaluation_ref",
+            "actions_appended",
+            "active_action_refs",
+            "dependency_refs",
+            "operation_key",
+            "accepted_at",
+        ],
+        &["prior_ref"],
+    )?;
     for name in ["decision_id", "subject_ref", "kind", "original_terms_ref"] {
         equal(m, &prior[name], &plan.current[name])?;
     }
@@ -41,6 +63,14 @@ pub(super) fn verify(
     let next = meter::add(m, &previous, &1.into())?;
     if !meter::cmp(m, &next, &revision)?.is_eq() {
         return Err(shape::fail("current root immediate predecessor revision"));
+    }
+    let transition = if meter::cmp(m, &previous, &1.into())?.is_eq() {
+        "initial"
+    } else {
+        "quantity_correct"
+    };
+    if !text_is(m, &prior, "transition", transition)? {
+        return Err(shape::fail("current root predecessor transition"));
     }
     let arena = m
         .representation_arena()
@@ -66,6 +96,23 @@ pub(super) fn verify(
         &prior["evaluation_ref"],
         "workflow-evaluation",
         "ledger-workflow-evaluation-proof/1",
+    )?;
+    shape::closed(
+        m,
+        &old_eval,
+        &[
+            "schema",
+            "subject_ref",
+            "policy_ref",
+            "compiled_plan_ref",
+            "compiler_ref",
+            "binding_ref",
+            "fact_schema_ref",
+            "facts",
+            "context",
+            "steps",
+        ],
+        &[],
     )?;
     for name in [
         "schema",
@@ -307,3 +354,6 @@ fn compare_action(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

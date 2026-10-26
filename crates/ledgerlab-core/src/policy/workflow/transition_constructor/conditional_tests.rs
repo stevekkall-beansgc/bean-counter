@@ -202,6 +202,41 @@ fn policy_scalar_actual_source_plan_reload_pricing_and_exposure_share_typed_sema
         data.compiled_plan().canonical_bytes(),
         p.compiled_plan().canonical_bytes()
     );
+    // Original-intent normalization consumes ACTUAL incoming source bodies,
+    // including Product after Policy and noncanonical scalar spelling. It
+    // restores the same saved identity, without substituting saved bodies.
+    let mut incoming = policy_scalar_input(&support);
+    for bytes in &mut incoming.documents {
+        let mut value: Value = serde_json::from_slice(bytes).unwrap();
+        if value["schema"] == "ledger-workflow-policy/4" {
+            for arg in value["rules"][0]["when"]["args"].as_array_mut().unwrap() {
+                if arg["op"] == "ge" {
+                    arg["value"] = json!("060.000");
+                }
+            }
+        }
+        *bytes = canonical::CanonicalBytes::from_value(&value)
+            .unwrap()
+            .into_vec();
+    }
+    incoming.documents.reverse();
+    let normalized = super::super::super::selected_program::normalize_local_publication_input(
+        incoming, &p, &mut s,
+    )
+    .unwrap();
+    assert_eq!(normalized.root_policy_ref(), p.root_policy_ref());
+    assert_eq!(
+        normalized.source_documents().len(),
+        p.source_documents().len()
+    );
+    for actual in normalized.source_documents() {
+        let expected = p
+            .source_documents()
+            .iter()
+            .find(|d| d.reference() == actual.reference())
+            .unwrap();
+        assert_eq!(actual.canonical_bytes(), expected.canonical_bytes());
+    }
     let (_read_arena, mut read) = session();
     let restored = load_local_selected_execution(
         SelectedSourceInput {
