@@ -141,7 +141,10 @@ pub(super) fn decimal(m: &mut CoreMeter, s: &mut String) -> Result<()> {
     }
     Ok(())
 }
-fn set<T: Serialize + DeserializeOwned>(m: &mut CoreMeter, items: &mut Vec<T>) -> Result<()> {
+pub(super) fn set<T: Serialize + DeserializeOwned>(
+    m: &mut CoreMeter,
+    items: &mut Vec<T>,
+) -> Result<()> {
     let mut ordered = Vec::<(Vec<u8>, Value)>::new();
     for item in items.iter() {
         m.visit("source.set_member")?;

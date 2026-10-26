@@ -490,6 +490,7 @@ impl ExactRatio {
         }
         let numerator = integer(n, work)?;
         let denominator = integer(d, work)?;
+        work.write_bytes(2 * std::mem::size_of::<BigInt>() + 128)?;
         let result = Self::new_with_work(numerator.clone(), denominator.clone(), work)?;
         work.arithmetic(Op::Compare, &[&result.numerator, &numerator])?;
         work.arithmetic(Op::Compare, &[&result.denominator, &denominator])?;

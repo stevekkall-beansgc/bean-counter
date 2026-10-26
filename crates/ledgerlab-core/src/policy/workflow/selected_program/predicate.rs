@@ -6,6 +6,24 @@ use crate::policy::workflow::transition_constructor::{shape, CoreMeter};
 use crate::{validation_work as w, Error, Result};
 use serde_json::Value;
 use std::cmp::Ordering;
+#[path = "predicate_domains.rs"]
+mod domains;
+
+pub(super) fn prove(
+    m: &mut CoreMeter,
+    monetary_conditions: &[&Predicate],
+    implications: &[(usize, usize)],
+    activity_schema: &FactSchema,
+    context_schema: &FactSchema,
+) -> Result<()> {
+    domains::prove(
+        m,
+        monetary_conditions,
+        implications,
+        activity_schema,
+        context_schema,
+    )
+}
 
 /// Typechecking and scalar normalization of the already defined AST. The caller
 /// shares `nodes` across the whole policy; no rule-local reset can hide its
@@ -84,8 +102,15 @@ pub(super) fn normalize(
                 {
                     return Err(bad("predicate set bounds"));
                 }
-                for value in values {
+                for value in values.iter_mut() {
                     literal(m, field, value, false, activity, context)?;
+                }
+                if m.representation_arena().is_some() {
+                    super::super::normalize::owning_set(m, values, |a, m, value| {
+                        a.clone_value(value, m)
+                    })?;
+                } else {
+                    super::super::normalize::set(m, values)?;
                 }
                 Ok(())
             }
@@ -107,7 +132,7 @@ pub(super) fn normalize(
             }
         }
     }
-    visit(m, condition, activity_schema, context_schema, nodes, 0)
+    visit(m, condition, activity_schema, context_schema, nodes, 1)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,7 +278,7 @@ fn checked_literal(
         .normalize_field_scalar_complete_with_work(operand.name, value, m)
 }
 pub(super) fn evaluate(m: &mut CoreMeter, condition: &Value, inputs: &Inputs<'_>) -> Result<Truth> {
-    evaluate_inner(m, condition, inputs, 0)
+    evaluate_inner(m, condition, inputs, 1)
 }
 fn evaluate_inner(
     m: &mut CoreMeter,
@@ -442,6 +467,22 @@ mod tests {
             &mut 0
         )
         .is_err());
+        let mut duplicate: Predicate = serde_json::from_value(
+            json!({"op":"in","field":{"fact":"test:d"},"values":["1.20","1.2"]}),
+        )
+        .unwrap();
+        assert_eq!(
+            normalize(
+                &mut compiler_meter,
+                &mut duplicate,
+                &activity,
+                &context,
+                &mut 0
+            )
+            .unwrap_err()
+            .code,
+            "INVALID_SHAPE"
+        );
         let digest = context.content_digest().unwrap();
         let accepted = json!({"fact_schema_ref":{"kind":"workflow-fact-schema","id":format!("wdoc_{}",&digest[7..]),"digest":digest},"facts":{"test:eligible":"test:yes"}});
         let facts = json!({"test:n":"2","test:d":"1.20","test:at":"2026-10-25T00:00:00.000000Z","test:flag":true,"test:text":"ok"});
