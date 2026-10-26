@@ -547,7 +547,7 @@ fn executing_key_and_selector_helpers_do_not_hide_membership() {
 }
 
 #[test]
-fn complete_source_product_preserves_links_schema_clones_and_terminal_refusal() {
+fn complete_source_product_preserves_links_schema_clones_and_exact_unit_normalization() {
     let schemas = [facts()];
     let mut raw = source();
     raw["version"] = json!("0001");
@@ -603,19 +603,57 @@ fn complete_source_product_preserves_links_schema_clones_and_terminal_refusal() 
                 .unwrap_err();
         assert_eq!(old.code, new.code);
     }
-    // Present null and malformed ratio input are refused BEFORE ratio serde,
-    // exactly as the selected compiler's preexisting unit-terminal check.
+    // Ratio parsing uses the same canonical reduced contract as the old Product
+    // normalizer, through paid arithmetic rather than ExactRatio's legacy serde.
+    let mut converted = raw.clone();
+    let mut batch = unit("fixture.report:batch", "fixture.report:count");
+    batch["normalization"] =
+        json!({"to":"fixture.report:page","factor":{"numerator":"1","denominator":"60"}});
+    converted["units"].as_array_mut().unwrap().push(batch);
+    let old = Product::from_value_with_work(converted.clone(), &schemas, &mut NoopValidationWork)
+        .unwrap();
+    let mut work = crate::validation_work::tests::CountingWork::new(usize::MAX);
+    let complete =
+        Product::from_value_complete_with_work(converted.clone(), &schemas, &mut work).unwrap();
+    assert_eq!(
+        old.canonical_bytes().unwrap(),
+        complete.canonical_bytes().unwrap()
+    );
+    assert_eq!(
+        complete
+            .unit("fixture.report:batch")
+            .unwrap()
+            .normalization()
+            .unwrap()
+            .1,
+        &ExactRatio::from_canonical("1", "60").unwrap()
+    );
+    let mut short = crate::validation_work::tests::CountingWork::new(work.used - 1);
+    assert_eq!(
+        Product::from_value_complete_with_work(converted.clone(), &schemas, &mut short)
+            .unwrap_err()
+            .code,
+        "TEST_EXHAUSTED"
+    );
+    for (n, d) in [("2", "120"), ("0", "1"), ("-1", "60"), ("1", "0")] {
+        let mut invalid = converted.clone();
+        invalid["units"][1]["normalization"]["factor"] = json!({"numerator":n,"denominator":d});
+        assert!(
+            Product::from_value_complete_with_work(invalid, &schemas, &mut NoopValidationWork)
+                .is_err()
+        );
+    }
+    // Present null and malformed ratio input remain invalid; no permissive
+    // conversion or unmetered ratio deserialization is used as a fallback.
     for normalization in [
         Value::Null,
         json!({"to":"fixture.report:page","factor":{"numerator":[],"denominator":"0"}}),
     ] {
         let mut invalid = raw.clone();
         invalid["units"][0]["normalization"] = normalization;
-        assert_eq!(
+        assert!(
             Product::from_value_complete_with_work(invalid, &schemas, &mut NoopValidationWork)
-                .unwrap_err()
-                .code,
-            "UNSUPPORTED_SCHEMA_PROFILE"
+                .is_err()
         );
     }
 }

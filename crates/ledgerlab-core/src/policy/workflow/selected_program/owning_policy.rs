@@ -59,17 +59,27 @@ fn formula(m: &mut CoreMeter, a: &AuditArena, f: &Formula) -> Result<AuditedValu
             quantity_field,
             unit,
             rate,
-        } => object(
-            m,
-            a,
-            &[
+            normalize_to,
+        } => {
+            let fields = [
                 ("kind", "unit"),
-                ("quantity_field", quantity_field),
-                ("unit", unit),
-                ("rate", rate),
-            ],
-            &[],
-        ),
+                ("quantity_field", quantity_field.as_str()),
+                ("unit", unit.as_str()),
+                ("rate", rate.as_str()),
+            ];
+            if let Some(target) = normalize_to {
+                let fields = [
+                    fields[0],
+                    fields[1],
+                    fields[2],
+                    fields[3],
+                    ("normalize_to", target.as_str()),
+                ];
+                object(m, a, &fields, &[])
+            } else {
+                object(m, a, &fields, &[])
+            }
+        }
         Formula::Discount {
             basis,
             mode,
@@ -171,6 +181,73 @@ fn formula(m: &mut CoreMeter, a: &AuditArena, f: &Formula) -> Result<AuditedValu
         }
     }
 }
+fn operand(m: &mut CoreMeter, a: &AuditArena, field: &Operand) -> Result<AuditedValue> {
+    match field {
+        Operand::BindingFact { binding_fact } => {
+            object(m, a, &[("binding_fact", binding_fact)], &[])
+        }
+        Operand::Fact { fact } => object(m, a, &[("fact", fact)], &[]),
+        Operand::Context { context } => object(m, a, &[("context", context)], &[]),
+    }
+}
+fn predicate(m: &mut CoreMeter, a: &AuditArena, p: &Predicate) -> Result<AuditedValue> {
+    match p {
+        Predicate::True => object(m, a, &[("op", "true")], &[]),
+        Predicate::False => object(m, a, &[("op", "false")], &[]),
+        Predicate::Eq { field, value }
+        | Predicate::Lt { field, value }
+        | Predicate::Le { field, value }
+        | Predicate::Gt { field, value }
+        | Predicate::Ge { field, value } => {
+            let op = match p {
+                Predicate::Eq { .. } => "eq",
+                Predicate::Lt { .. } => "lt",
+                Predicate::Le { .. } => "le",
+                Predicate::Gt { .. } => "gt",
+                _ => "ge",
+            };
+            let field = operand(m, a, field)?;
+            let value = a.clone_value(value, m)?;
+            object(
+                m,
+                a,
+                &[("op", op)],
+                &[("field", field.value()), ("value", value.value())],
+            )
+        }
+        Predicate::In { field, values } => {
+            let field = operand(m, a, field)?;
+            let mut rows = vector(m, a, values.len())?;
+            for value in values {
+                rows.push(a.clone_value(value, m)?);
+            }
+            let values = array(m, a, &rows)?;
+            object(
+                m,
+                a,
+                &[("op", "in")],
+                &[("field", field.value()), ("values", values.value())],
+            )
+        }
+        Predicate::All { args } | Predicate::Any { args } => {
+            let op = if matches!(p, Predicate::All { .. }) {
+                "all"
+            } else {
+                "any"
+            };
+            let mut rows = vector(m, a, args.len())?;
+            for arg in args {
+                rows.push(predicate(m, a, arg)?);
+            }
+            let args = array(m, a, &rows)?;
+            object(m, a, &[("op", op)], &[("args", args.value())])
+        }
+        Predicate::Not { arg } => {
+            let arg = predicate(m, a, arg)?;
+            object(m, a, &[("op", "not")], &[("arg", arg.value())])
+        }
+    }
+}
 pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
     let a = m.representation_arena().ok_or_else(fail)?;
     // The selected compiler has already refused stages before this producer.
@@ -195,18 +272,7 @@ pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
     let bindings = array(m, &a, &bindings)?;
     let mut rules = vector(m, &a, p.rules.len())?;
     for r in &p.rules {
-        let predicate = match &r.when {
-            Predicate::True => object(m, &a, &[("op", "true")], &[])?,
-            Predicate::Eq { field, value } => {
-                let field = object(m, &a, &[("binding_fact", &field.binding_fact)], &[])?;
-                object(
-                    m,
-                    &a,
-                    &[("op", "eq"), ("value", value)],
-                    &[("field", field.value())],
-                )?
-            }
-        };
+        let predicate = predicate(m, &a, &r.when)?;
         let formula = formula(m, &a, &r.formula)?;
         rules.push(object(
             m,

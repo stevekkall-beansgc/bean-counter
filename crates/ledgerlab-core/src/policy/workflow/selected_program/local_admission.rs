@@ -545,6 +545,7 @@ mod tests {
             quantity_field: "support:quantity".into(),
             unit: "support:request".into(),
             rate: "1".into(),
+            normalize_to: None,
         };
         check(
             &mut m,

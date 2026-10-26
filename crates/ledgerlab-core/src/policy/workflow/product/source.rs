@@ -1,20 +1,63 @@
 //! Selected complete source construction uses the SAME Product normalizer.
-//! Terminal-unit refusal precedes serde, exactly as the existing selected
-//! compiler: unsupported ratio serde never executes under this entry.
+//! Scalar-only ratio framing prevents the legacy unmetered arithmetic serde
+//! path from running during owning source construction.
 use super::super::facts::source as paid;
 use super::*;
 use std::mem;
-pub(super) fn terminal(v: &Value, w: &mut dyn ValidationWork) -> Result<()> {
-    if let Some(units) = paid::member(v, "units", w)?.and_then(Value::as_array) {
-        for unit in units {
-            w.visit(Visit::Element)?;
-            w.visit(Visit::Constraint)?;
-            if paid::member(unit, "normalization", w)?.is_some() {
-                return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "selected terminal unit"));
-            }
-        }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RatioFields {
+    numerator: String,
+    denominator: String,
+}
+
+pub(super) fn parse(v: Value, w: &mut dyn ValidationWork) -> Result<ProductDto> {
+    // This DTO only copies closed scalar strings; its deserializer performs no
+    // integer parse, reduction or arithmetic under a Noop work adapter.
+    let raw: ProductDto<RatioFields> =
+        serde_json::from_value(v).map_err(|e| Error::new("SCHEMA", e.to_string()))?;
+    let bytes = paid::mul(raw.units.len(), mem::size_of::<UnitDto>(), w)?;
+    w.write_bytes(bytes)?;
+    let mut units = Vec::new();
+    units
+        .try_reserve_exact(raw.units.len())
+        .map_err(|_| fail("PRODUCT_LIMIT", "unit allocation"))?;
+    for unit in raw.units {
+        w.visit(Visit::Element)?;
+        let normalization = unit
+            .normalization
+            .map(|n| -> Result<_> {
+                Ok(UnitNormalization {
+                    to: n.to,
+                    factor: ExactRatio::from_canonical_with_work(
+                        &n.factor.numerator,
+                        &n.factor.denominator,
+                        w,
+                    )?,
+                })
+            })
+            .transpose()?;
+        units.push(UnitDto {
+            name: unit.name,
+            labels: unit.labels,
+            dimension: unit.dimension,
+            normalization,
+        });
     }
-    Ok(())
+    Ok(ProductDto {
+        schema: raw.schema,
+        product_id: raw.product_id,
+        version: raw.version,
+        labels: raw.labels,
+        profile: raw.profile,
+        evaluator: raw.evaluator,
+        grammar: raw.grammar,
+        limits_profile: raw.limits_profile,
+        units,
+        activities: raw.activities,
+        fact_schemas: raw.fact_schemas,
+        links: raw.links,
+    })
 }
 fn string_payload(v: &Value, w: &mut dyn ValidationWork) -> Result<usize> {
     w.visit(Visit::Value)?;
@@ -42,7 +85,6 @@ pub(super) fn bound(
     supplied: &[FactSchema],
     w: &mut dyn ValidationWork,
 ) -> Result<usize> {
-    terminal(v, w)?;
     let mut total = crate::canonical::audit_arena::value_copy_payload_bound(v, w)?;
     total = paid::add(total, paid::error_payload(v, w)?, w)?;
     for (name, stride) in [
@@ -65,6 +107,11 @@ pub(super) fn bound(
                 // Independent typed map payload, besides DTO and body copies.
                 if name != "fact_schemas" {
                     total = paid::add(total, string_payload(row, w)?, w)?;
+                }
+                if name == "units" && paid::member(row, "normalization", w)?.is_some() {
+                    // Raw ratio strings, normalized DTO/map copies, and bounded
+                    // reduction temporaries coexist until the Product is built.
+                    total = paid::add(total, 2048 + 4 * mem::size_of::<UnitDto<RatioFields>>(), w)?;
                 }
                 if let Some(key) =
                     paid::member(row, if name == "fact_schemas" { "id" } else { "name" }, w)?
@@ -201,6 +248,12 @@ pub(super) fn decode(v: &Value, w: &mut dyn ValidationWork) -> Result<()> {
                 if let Some(reference) = paid::member(row, "fact_schema", w)? {
                     paid::object_decode_work(reference, &["kind", "id", "digest"], w)?;
                 }
+                if let Some(normalization) = paid::member(row, "normalization", w)? {
+                    paid::object_decode_work(normalization, &["to", "factor"], w)?;
+                    if let Some(factor) = paid::member(normalization, "factor", w)? {
+                        paid::object_decode_work(factor, &["numerator", "denominator"], w)?;
+                    }
+                }
                 for name in [
                     "primitive",
                     "child_primitive",
@@ -240,14 +293,20 @@ fn labels(v: &Labels, w: &mut dyn ValidationWork) -> Result<Labels> {
     })
 }
 pub(super) fn unit(v: &UnitDto, w: &mut dyn ValidationWork) -> Result<UnitDefinition> {
-    if v.normalization.is_some() {
-        return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "selected terminal unit"));
-    }
     Ok(UnitDefinition(UnitDto {
         name: paid::text(&v.name, w)?,
         labels: labels(&v.labels, w)?,
         dimension: paid::text(&v.dimension, w)?,
-        normalization: None,
+        normalization: v
+            .normalization
+            .as_ref()
+            .map(|n| -> Result<_> {
+                Ok(UnitNormalization {
+                    to: paid::text(&n.to, w)?,
+                    factor: n.factor.clone_with_work(w)?,
+                })
+            })
+            .transpose()?,
     }))
 }
 fn reference(v: &Reference, w: &mut dyn ValidationWork) -> Result<Reference> {
@@ -356,13 +415,20 @@ pub(super) fn body(dto: &ProductDto, w: &mut dyn ValidationWork) -> Result<Value
     paid::put(&mut out, "labels", labels_body(&dto.labels, w)?, w)?;
     let units = array(&dto.units, w, |v, w| {
         let mut out = serde_json::Map::new();
-        if v.normalization.is_some() {
-            return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "selected terminal unit"));
-        }
         for (key, value) in [("name", &v.name), ("dimension", &v.dimension)] {
             paid::put(&mut out, key, paid::literal(value, w)?, w)?;
         }
         paid::put(&mut out, "labels", labels_body(&v.labels, w)?, w)?;
+        if let Some(n) = &v.normalization {
+            let mut normalization = serde_json::Map::new();
+            paid::put(&mut normalization, "to", paid::literal(&n.to, w)?, w)?;
+            let mut factor = serde_json::Map::new();
+            for (name, text) in n.factor.canonical_fields_with_work(w)? {
+                paid::put(&mut factor, name, paid::literal(&text, w)?, w)?;
+            }
+            paid::put(&mut normalization, "factor", Value::Object(factor), w)?;
+            paid::put(&mut out, "normalization", Value::Object(normalization), w)?;
+        }
         Ok(Value::Object(out))
     })?;
     paid::put(&mut out, "units", units, w)?;

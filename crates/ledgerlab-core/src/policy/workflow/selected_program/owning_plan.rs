@@ -411,7 +411,14 @@ pub(super) fn build(
             let context = reference(m, &a, &p.context_schema_ref)?;
             for slot in &slots {
                 if field_same(m, slot.value(), "schema_ref", context.value())?
-                    && text_same(m, &slot.value()["field"], "name", &field.binding_fact)?
+                    && text_same(
+                        m,
+                        &slot.value()["field"],
+                        "name",
+                        field
+                            .binding_name()
+                            .ok_or_else(|| fail("conditional binding operand"))?,
+                    )?
                 {
                     indices.push(shape::field(m, slot.value(), "index")?);
                 }
@@ -468,10 +475,23 @@ pub(super) fn build(
                     .value()
                     .as_str()
                     .ok_or_else(|| fail("explanation field name"))?;
-                already_named |= shape::same_text(m, name, &field.binding_fact)?;
+                already_named |= shape::same_text(
+                    m,
+                    name,
+                    field
+                        .binding_name()
+                        .ok_or_else(|| fail("conditional binding operand"))?,
+                )?;
             }
             if !already_named {
-                field_names.push(a.string_value(&field.binding_fact, m)?);
+                field_names.push(
+                    a.string_value(
+                        field
+                            .binding_name()
+                            .ok_or_else(|| fail("conditional binding operand"))?,
+                        m,
+                    )?,
+                );
             }
             set(m, &a, &mut field_names)?
         } else {

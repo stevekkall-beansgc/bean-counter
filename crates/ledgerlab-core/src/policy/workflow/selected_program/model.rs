@@ -51,15 +51,55 @@ pub(super) struct Rule {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Predicate {
     True,
+    False,
     Eq {
-        field: BindingOperand,
-        value: String,
+        field: Operand,
+        value: serde_json::Value,
+    },
+    Lt {
+        field: Operand,
+        value: serde_json::Value,
+    },
+    Le {
+        field: Operand,
+        value: serde_json::Value,
+    },
+    Gt {
+        field: Operand,
+        value: serde_json::Value,
+    },
+    Ge {
+        field: Operand,
+        value: serde_json::Value,
+    },
+    In {
+        field: Operand,
+        values: Vec<serde_json::Value>,
+    },
+    All {
+        args: Vec<Predicate>,
+    },
+    Any {
+        args: Vec<Predicate>,
+    },
+    Not {
+        arg: Box<Predicate>,
     },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct BindingOperand {
-    pub binding_fact: String,
+#[serde(untagged, deny_unknown_fields)]
+pub(super) enum Operand {
+    BindingFact { binding_fact: String },
+    Fact { fact: String },
+    Context { context: String },
+}
+impl Operand {
+    pub(super) fn binding_name(&self) -> Option<&str> {
+        match self {
+            Self::BindingFact { binding_fact } => Some(binding_fact),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -72,6 +112,8 @@ pub(super) enum Formula {
         quantity_field: String,
         unit: String,
         rate: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        normalize_to: Option<String>,
     },
     Discount {
         basis: Basis,

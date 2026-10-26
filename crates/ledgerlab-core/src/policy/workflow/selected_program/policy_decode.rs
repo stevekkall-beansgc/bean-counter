@@ -39,6 +39,8 @@ const CELL: usize = {
         mem::size_of::<AppCostDeclaration>(),
         mem::size_of::<String>(),
         mem::size_of::<Value>(),
+        mem::size_of::<Predicate>(),
+        mem::size_of::<Operand>(),
     ];
     let mut max = 0;
     let mut i = 0;
@@ -55,7 +57,7 @@ type Content = serde::__private229::de::Content<'static>;
 // superset bounds serde's single failure message, including an escaped input
 // field/string (at most six bytes per UTF8 input byte). No input is formatted
 // into an error unless this storage has already been admitted.
-const EXPECTED: &str = stringify!(schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true eq field binding_fact value kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
+const EXPECTED: &str = stringify!(schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true false eq lt le gt ge in all any not args arg field fact binding_fact context value values kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
 fn dimensions(m: &mut CoreMeter, v: &Value, depth: usize) -> Result<(usize, usize)> {
     m.visit("compile.policy_decode_storage_node")?;
     if w::compare(m, depth, 64)?.is_gt() {
@@ -93,6 +95,9 @@ fn dimensions(m: &mut CoreMeter, v: &Value, depth: usize) -> Result<(usize, usiz
             }
         }
         Value::Object(rows) => {
+            if rows.contains_key("op") {
+                bytes = w::usize_add(m, bytes, mem::size_of::<Predicate>())?;
+            }
             let n = if w::compare(m, rows.len(), 0)?.is_eq() {
                 0
             } else if w::compare(m, rows.len(), 4)?.is_lt() {
@@ -218,6 +223,91 @@ pub(super) fn decode(
 // the sole decoder/refusal authority; these calls reserve its actual field,
 // tag and type dispatch work before it runs (not a second policy parser).
 fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
+    fn scalar_work(v: &Value, m: &mut CoreMeter) -> Result<()> {
+        m.visit("compile.predicate_literal")?;
+        match v {
+            Value::Bool(_) => Ok(()),
+            Value::String(s) => {
+                m.scan_bytes(s.len())?;
+                Ok(())
+            }
+            Value::Object(_) => object(v, &["kind", "id", "digest"], m),
+            _ => Err(fail()),
+        }
+    }
+    fn operand_work(v: &Value, m: &mut CoreMeter) -> Result<()> {
+        let o = v.as_object().ok_or_else(fail)?;
+        if !w::compare(m, o.len(), 1usize)?.is_eq() {
+            return Err(fail());
+        }
+        for key in ["binding_fact", "fact", "context"] {
+            // Untagged serde operands try at most the same three closed shapes.
+            object(v, &[key], m)?;
+        }
+        let (name, value) = o.iter().next().ok_or_else(fail)?;
+        m.scan_bytes(name.len())?;
+        if !matches!(name.as_str(), "binding_fact" | "fact" | "context") || !value.is_string() {
+            return Err(fail());
+        }
+        Ok(())
+    }
+    fn predicate_work(v: &Value, m: &mut CoreMeter, depth: usize, nodes: &mut usize) -> Result<()> {
+        *nodes = w::usize_add(m, *nodes, 1)?;
+        if w::compare(m, depth, 8usize)?.is_gt() || w::compare(m, *nodes, 256usize)?.is_gt() {
+            return Err(fail());
+        }
+        let op = v.get("op").and_then(Value::as_str).ok_or_else(fail)?;
+        match op {
+            "true" | "false" => {
+                object(v, &["op"], m)?;
+                tag(v, "op", &["true", "false"], m)
+            }
+            "eq" | "lt" | "le" | "gt" | "ge" => {
+                object(v, &["op", "field", "value"], m)?;
+                tag(v, "op", &["eq", "lt", "le", "gt", "ge"], m)?;
+                operand_work(v.get("field").ok_or_else(fail)?, m)?;
+                scalar_work(v.get("value").ok_or_else(fail)?, m)
+            }
+            "in" => {
+                object(v, &["op", "field", "values"], m)?;
+                tag(v, "op", &["in"], m)?;
+                operand_work(v.get("field").ok_or_else(fail)?, m)?;
+                let values = v.get("values").and_then(Value::as_array).ok_or_else(fail)?;
+                if w::compare(m, values.len(), 1usize)?.is_lt()
+                    || w::compare(m, values.len(), 32usize)?.is_gt()
+                {
+                    return Err(fail());
+                }
+                for value in values {
+                    scalar_work(value, m)?;
+                }
+                Ok(())
+            }
+            "all" | "any" => {
+                object(v, &["op", "args"], m)?;
+                tag(v, "op", &["all", "any"], m)?;
+                let args = v.get("args").and_then(Value::as_array).ok_or_else(fail)?;
+                if w::compare(m, args.len(), 1usize)?.is_lt()
+                    || w::compare(m, args.len(), 8usize)?.is_gt()
+                {
+                    return Err(fail());
+                }
+                for arg in args {
+                    let next = w::usize_add(m, depth, 1)?;
+                    predicate_work(arg, m, next, nodes)?;
+                }
+                Ok(())
+            }
+            "not" => {
+                object(v, &["op", "arg"], m)?;
+                tag(v, "op", &["not"], m)?;
+                let next = w::usize_add(m, depth, 1)?;
+                predicate_work(v.get("arg").ok_or_else(fail)?, m, next, nodes)
+            }
+            _ => Err(fail()),
+        }
+    }
+
     use crate::policy::workflow::facts::source as paid;
     fn object(v: &Value, keys: &[&str], m: &mut CoreMeter) -> Result<()> {
         paid::object_decode_work(v, keys, m)
@@ -276,6 +366,7 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
         "quantity_field",
         "unit",
         "rate",
+        "normalize_to",
         "basis",
         "mode",
         "evidence_slot",
@@ -349,22 +440,8 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
             m,
         )?;
         let predicate = child(rule, "when", m)?;
-        let op = predicate
-            .get("op")
-            .and_then(Value::as_str)
-            .ok_or_else(fail)?;
-        match op {
-            "true" => {
-                object(predicate, &["op"], m)?;
-                tag(predicate, "op", &["true"], m)?;
-            }
-            "eq" => {
-                object(predicate, &["op", "field", "value"], m)?;
-                object(child(predicate, "field", m)?, &["binding_fact"], m)?;
-                tag(predicate, "op", &["eq"], m)?;
-            }
-            _ => return Err(fail()),
-        }
+        let mut nodes = 0;
+        predicate_work(predicate, m, 0, &mut nodes)?;
         let formula = child(rule, "formula", m)?;
         // TaggedContentVisitor identifies kind and buffers other keys; the derived
         // variant visitor then dispatches the same fields. Prepay both passes.
@@ -529,6 +606,9 @@ mod tests {
             raw[edit] = value;
             values.push(raw);
         }
+        let mut general = policy();
+        general["rules"][0]["when"] = serde_json::json!({"op":"all","args":[{"op":"ge","field":{"fact":"support:quantity"},"value":"2"},{"op":"any","args":[{"op":"in","field":{"binding_fact":"support:service-eligibility"},"values":["support:billable","support:included"]},{"op":"not","arg":{"op":"false"}}]}]});
+        values.push(general);
         let mut raw = policy();
         raw["rules"][0]["formula"]["unknown"] = Value::String("x".into());
         values.push(raw);

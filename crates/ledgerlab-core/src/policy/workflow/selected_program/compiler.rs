@@ -1,4 +1,6 @@
 //! Source-derived selected instructions. This module never consumes oracle output.
+#[path = "predicate.rs"]
+mod predicate;
 use super::super::{
     transition_constructor::{arithmetic, codec, CoreMeter},
     DefinitionRef, FactSchema, Product, SlotTemplate,
@@ -1235,7 +1237,19 @@ fn compile_selected_recipe(
         (policy, None)
     };
     for rule in &policy.rules {
+        if !matches!(
+            rule.when,
+            super::model::Predicate::True | super::model::Predicate::Eq { .. }
+        ) {
+            return Err(err("predicate capability"));
+        }
         if let super::model::Predicate::Eq { field, value } = &rule.when {
+            let field_name = field
+                .binding_name()
+                .ok_or_else(|| err("conditional binding operand"))?;
+            let value = value
+                .as_str()
+                .ok_or_else(|| err("conditional enum literal"))?;
             if !matches!(
                 recipe,
                 SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
@@ -1253,7 +1267,7 @@ fn compile_selected_recipe(
             let context = context.ok_or_else(|| err("conditional context schema"))?;
             use crate::policy::workflow::transition_constructor::shape;
             let fields = shape::array(m, context.canonical_value(), "fields")?;
-            let definition = shape::named(m, fields, "name", &field.binding_fact)?;
+            let definition = shape::named(m, fields, "name", field_name)?;
             let kind = shape::text(m, &definition["type"], "kind")?;
             let provenance = shape::text(m, &definition["provenance"], "kind")?;
             if !same_literal(m, kind, "enum")?
@@ -1377,7 +1391,11 @@ fn compile_selected_recipe(
                 quantity_field,
                 unit,
                 rate,
+                normalize_to,
             } => {
+                if normalize_to.is_some() {
+                    return Err(err("selected terminal unit"));
+                }
                 arithmetic::decimal(m, rate)?;
                 let mut found_schema = None;
                 for schema in &schemas {
@@ -1812,7 +1830,7 @@ fn compile_selected_recipe(
             if let super::model::Predicate::Eq { field, .. } = &rule.when {
                 for slot in &slots {
                     if slot["schema_ref"] == json!(policy.context_schema_ref)
-                        && slot["field"]["name"] == field.binding_fact
+                        && slot["field"]["name"].as_str() == field.binding_name()
                     {
                         binding_indices.push(slot["index"].clone());
                     }
@@ -1841,11 +1859,15 @@ fn compile_selected_recipe(
                     already_named |= same_literal(
                         m,
                         name.as_str().ok_or_else(|| err("explanation field name"))?,
-                        &field.binding_fact,
+                        field
+                            .binding_name()
+                            .ok_or_else(|| err("conditional binding operand"))?,
                     )?;
                 }
                 if !already_named {
-                    names.push(json!(field.binding_fact));
+                    names.push(json!(field
+                        .binding_name()
+                        .ok_or_else(|| err("conditional binding operand"))?));
                 }
                 Value::Array(set(m, names)?)
             } else {

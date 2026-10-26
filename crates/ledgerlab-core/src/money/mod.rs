@@ -438,6 +438,111 @@ impl ExactRatio {
         }
         Ok(result)
     }
+    /// Canonical reduced ratio DATA, with parsing and reduction paid before
+    /// execution. Owning source decoders must not call the legacy serde parser.
+    pub(crate) fn from_canonical_with_work(
+        n: &str,
+        d: &str,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+        fn integer(
+            text: &str,
+            work: &mut dyn crate::validation_work::ValidationWork,
+        ) -> Result<BigInt> {
+            work.scan_bytes(text.len())?;
+            work.arithmetic(Op::Compare, &[&text.len().into(), &156usize.into()])?;
+            if text.len() > 156 {
+                return Err(overflow());
+            }
+            let digits = text.strip_prefix('-').unwrap_or(text);
+            work.visit(Visit::Constraint)?;
+            if digits.is_empty() || (digits.len() > 1 && digits.starts_with('0')) || text == "-0" {
+                return Err(Error::new(
+                    "INPUT_PRECISION",
+                    "canonical integer string required",
+                ));
+            }
+            let mut value = BigInt::zero();
+            for byte in digits.bytes() {
+                work.scan_bytes(1)?;
+                work.visit(Visit::ScalarDigit)?;
+                if !byte.is_ascii_digit() {
+                    return Err(Error::new(
+                        "INPUT_PRECISION",
+                        "canonical integer string required",
+                    ));
+                }
+                work.arithmetic(Op::Multiply, &[&value, &10u8.into()])?;
+                value *= 10;
+                work.arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])?;
+                let digit = BigInt::from(byte - b'0');
+                work.arithmetic(Op::Add, &[&value, &digit])?;
+                value += digit;
+                bounded(&value)?;
+            }
+            work.visit(Visit::Constraint)?;
+            if text.starts_with('-') {
+                work.arithmetic(Op::Negate, &[&value])?;
+                value = -value;
+            }
+            Ok(value)
+        }
+        let numerator = integer(n, work)?;
+        let denominator = integer(d, work)?;
+        let result = Self::new_with_work(numerator.clone(), denominator.clone(), work)?;
+        work.arithmetic(Op::Compare, &[&result.numerator, &numerator])?;
+        work.arithmetic(Op::Compare, &[&result.denominator, &denominator])?;
+        if result.numerator != numerator || result.denominator != denominator {
+            return Err(Error::new("INPUT_PRECISION", "ratio must be reduced"));
+        }
+        Ok(result)
+    }
+    pub(crate) fn clone_with_work(
+        &self,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        work.write_bytes(2 * std::mem::size_of::<Self>() + 128)?;
+        Ok(self.clone())
+    }
+    pub(crate) fn canonical_fields_with_work(
+        &self,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<[(&'static str, String); 2]> {
+        use crate::validation_work::ArithmeticOperation as Op;
+        fn decimal(
+            value: &BigInt,
+            work: &mut dyn crate::validation_work::ValidationWork,
+        ) -> Result<String> {
+            work.arithmetic(Op::Absolute, &[value])?;
+            let mut magnitude = value.abs();
+            work.write_bytes(312)?;
+            let mut digits = Vec::new();
+            digits.try_reserve_exact(156).map_err(|_| overflow())?;
+            loop {
+                work.arithmetic(Op::DivideRemainder, &[&magnitude, &10u8.into()])?;
+                let (quotient, remainder) = magnitude.div_rem(&BigInt::from(10));
+                work.arithmetic(Op::Add, &[&remainder, &b'0'.into()])?;
+                digits.push(remainder.to_u8().ok_or_else(overflow)? + b'0');
+                magnitude = quotient;
+                work.arithmetic(Op::Compare, &[&magnitude, &BigInt::zero()])?;
+                if magnitude == BigInt::zero() {
+                    break;
+                }
+            }
+            work.arithmetic(Op::Compare, &[value, &BigInt::zero()])?;
+            if value.is_negative() {
+                digits.push(b'-');
+            }
+            work.scan_bytes(digits.len())?;
+            digits.reverse();
+            String::from_utf8(digits).map_err(|_| overflow())
+        }
+        Ok([
+            ("numerator", decimal(&self.numerator, work)?),
+            ("denominator", decimal(&self.denominator, work)?),
+        ])
+    }
     fn reduced(mut self) -> Self {
         let g = self.numerator.gcd(&self.denominator);
         self.numerator /= &g;
@@ -446,6 +551,16 @@ impl ExactRatio {
     }
     pub fn is_positive(&self) -> bool {
         self.numerator.is_positive()
+    }
+    pub(crate) fn is_positive_with_work(
+        &self,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<bool> {
+        work.arithmetic(
+            crate::validation_work::ArithmeticOperation::Compare,
+            &[&self.numerator, &BigInt::zero()],
+        )?;
+        Ok(self.is_positive())
     }
     pub fn negated(&self) -> Self {
         Self {

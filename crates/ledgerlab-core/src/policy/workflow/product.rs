@@ -79,18 +79,18 @@ struct Reference {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct UnitNormalization {
+struct UnitNormalization<R = ExactRatio> {
     to: String,
-    factor: ExactRatio,
+    factor: R,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UnitDto {
+#[serde(deny_unknown_fields, bound(deserialize = "R: Deserialize<'de>"))]
+struct UnitDto<R = ExactRatio> {
     name: String,
     labels: Labels,
     dimension: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    normalization: Option<UnitNormalization>,
+    normalization: Option<UnitNormalization<R>>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,8 +120,8 @@ struct LinkDto {
     max_depth: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProductDto {
+#[serde(deny_unknown_fields, bound(deserialize = "R: Deserialize<'de>"))]
+struct ProductDto<R = ExactRatio> {
     schema: String,
     product_id: String,
     version: String,
@@ -130,7 +130,7 @@ struct ProductDto {
     evaluator: String,
     grammar: String,
     limits_profile: String,
-    units: Vec<UnitDto>,
+    units: Vec<UnitDto<R>>,
     activities: Vec<ActivityDto>,
     fact_schemas: Vec<Reference>,
     links: Vec<LinkDto>,
@@ -232,7 +232,7 @@ pub struct Product {
 pub(super) fn candidate_fact_schema_refs(raw: &[u8]) -> Result<Vec<super::DefinitionRef>> {
     let value = canonical::parse_bounded(raw, 262144)?;
     reject_null(&value)?;
-    let dto: ProductDto = canonical::dto(value)?;
+    let dto: ProductDto<source::RatioFields> = canonical::dto(value)?;
     if dto.schema != SCHEMA || dto.fact_schemas.is_empty() || dto.fact_schemas.len() > 16 {
         return Err(fail("PRODUCT_SCHEMA", "candidate schema/dependency count"));
     }
@@ -253,8 +253,8 @@ impl Product {
     pub fn parse(bytes: &[u8], supplied_schemas: &[FactSchema]) -> Result<Self> {
         Self::parse_with_work(bytes, supplied_schemas, &mut NoopValidationWork)
     }
-    /// The selected compiler rejects unit conversion before this decoded path:
-    /// legacy ratio serde is retained for compatibility, not a metered domain.
+    /// Legacy compatibility entry. Owning selected compilation uses the complete
+    /// source entry, whose ratio parsing/reduction is paid independently.
     pub fn parse_with_work(
         bytes: &[u8],
         supplied_schemas: &[FactSchema],
@@ -270,9 +270,8 @@ impl Product {
     ) -> Result<Self> {
         Self::from_value_mode(value, supplied_schemas, work, false)
     }
-    /// SAME selected terminal-unit precondition as the owning compiler. The
-    /// general legacy source entry remains unchanged and supports its original
-    /// unit-conversion DTO; that ratio serde is not an RP01 execution recipe.
+    /// Concrete ownership bound for the complete Product normalizer. Selected
+    /// compiler capability/admission checks remain separate from source DATA.
     pub(crate) fn normalization_payload_bound_with_work(
         value: &Value,
         supplied_schemas: &[FactSchema],
@@ -294,17 +293,14 @@ impl Product {
         complete: bool,
     ) -> Result<Self> {
         if complete {
-            source::terminal(&value, work)?;
             source::decode(&value, work)?;
         }
         reject_null_with_work(&value, work)?;
-        let mut dto: ProductDto = serde_json::from_value(value).map_err(|error| {
-            if complete {
-                Error::new("SCHEMA", error.to_string())
-            } else {
-                fail("SCHEMA", &error.to_string())
-            }
-        })?;
+        let mut dto: ProductDto = if complete {
+            source::parse(value, work)?
+        } else {
+            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?
+        };
         if source::compare(&dto.schema, SCHEMA, work, complete)? != Ordering::Equal
             || source::compare(&dto.profile, "workflow/1", work, complete)? != Ordering::Equal
             || source::compare(
@@ -469,7 +465,12 @@ impl Product {
             if let Some(normalization) = &unit.normalization {
                 name_with_work(&normalization.to, work)?;
                 work.visit(Visit::Constraint)?;
-                if !normalization.factor.is_positive() {
+                let positive = if complete {
+                    normalization.factor.is_positive_with_work(work)?
+                } else {
+                    normalization.factor.is_positive()
+                };
+                if !positive {
                     return Err(fail("UNIT_NORMALIZATION", "positive factor required"));
                 }
             }
@@ -494,10 +495,18 @@ impl Product {
                 let target = super::facts::source::lookup(&units, to, work, complete)?
                     .ok_or_else(|| fail("UNIT_MISSING", "normalization target"))?;
                 work.visit(Visit::Constraint)?;
-                if target.normalization().is_some()
-                    || unit.name() == to
-                    || unit.dimension() != target.dimension()
-                {
+                let self_target = if complete {
+                    source::compare(unit.name(), to, work, true)? == Ordering::Equal
+                } else {
+                    unit.name() == to
+                };
+                let same_dimension = if complete {
+                    source::compare(unit.dimension(), target.dimension(), work, true)?
+                        == Ordering::Equal
+                } else {
+                    unit.dimension() == target.dimension()
+                };
+                if target.normalization().is_some() || self_target || !same_dimension {
                     return Err(fail(
                         "UNIT_NORMALIZATION",
                         "terminal target of same dimension required",

@@ -313,6 +313,18 @@ fn rehydrate_inner(
         }
     }
 
+    for rule in &policy.rules {
+        match &rule.when {
+            super::super::model::Predicate::True => {}
+            super::super::model::Predicate::Eq { field, value }
+                if matches!(
+                    key.recipe,
+                    SelectedRecipe::LocalConditional1 | SelectedRecipe::LocalDeclaredLink1
+                ) && field.binding_name().is_some()
+                    && value.is_string() => {}
+            _ => return Err(fail("original predicate capability")),
+        }
+    }
     super::super::normalize::policy(m, &mut policy)?;
     let normalized = super::super::owning_policy::build(m, &policy)?;
     if !shape::same(m, normalized.value(), root_body)? {

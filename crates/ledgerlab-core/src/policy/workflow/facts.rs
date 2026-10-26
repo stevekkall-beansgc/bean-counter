@@ -622,6 +622,17 @@ impl FactSchema {
     ) -> Result<NormalizedFacts> {
         self.normalize_value_mode(value, work, true)
     }
+    /// Scalar type/range normalization only, using an existing field. This
+    /// supplies no provenance, subject, source or relationship authorization.
+    pub(crate) fn normalize_field_scalar_complete_with_work(
+        &self,
+        name: &str,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<FactValue> {
+        let field = self.field_with_work(name, work)?;
+        normalize_value_mode(&field.field_type, value, work, true)
+    }
     /// One claimed attested field uses this SAME immutable field definition.
     /// Unrelated required facts are not invented to normalize a proof subset.
     /// The caller still authenticates source/subject/provenance and pre-admits
@@ -828,7 +839,7 @@ pub enum FactValue {
     Timestamp(Timestamp),
 }
 impl FactValue {
-    fn canonical_value_complete_with_work(
+    pub(crate) fn canonical_value_complete_with_work(
         &self,
         work: &mut dyn ValidationWork,
     ) -> Result<Option<Value>> {
