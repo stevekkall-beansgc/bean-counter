@@ -19,8 +19,8 @@ from workflow_work_lifecycle import LifecycleJourney
 class StageJourney(MeteredJourney):
     fixture_directory = REPO / "examples/workflow-stage"
     reopen_retry = LifecycleJourney.reopen_retry
-    source_filename = "source-platform-funding.json"
-    publication_operation = "publication-platform-funding"
+    source_filename = "source-platform-funding-v2.json"
+    publication_operation = "publication-platform-funding-v2"
     ownership_operation = "supplier-owner-evidence-platform"
 
     def source_documents(self):
