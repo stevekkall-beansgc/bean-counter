@@ -220,8 +220,8 @@
       },
       "compiler_ref": {
         "kind": "workflow-compiler-descriptor",
-        "id": "wdoc_61f48f08efb961b9a00e10aa820fac1862e378e0d923875b4875e17371e9460e",
-        "digest": "sha256:61f48f08efb961b9a00e10aa820fac1862e378e0d923875b4875e17371e9460e"
+        "id": "wdoc_b6dcacd8dcf70813ad3096e5db76ad8ff6c3352b32570800acdc350af1a550e7",
+        "digest": "sha256:b6dcacd8dcf70813ad3096e5db76ad8ff6c3352b32570800acdc350af1a550e7"
       },
       "currency": "USD",
       "scale": 18,
@@ -371,7 +371,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_2477a4631fe1497461059609b1b302585a46b96f7b7cac61b4548b43778e25bf",
-    "digest": "sha256:2477a4631fe1497461059609b1b302585a46b96f7b7cac61b4548b43778e25bf"
+    "id": "wdoc_64d7beb325eb8a1d4fa1244eb79b160614dab6b059a3c4e82216b342daad231d",
+    "digest": "sha256:64d7beb325eb8a1d4fa1244eb79b160614dab6b059a3c4e82216b342daad231d"
   }
 }

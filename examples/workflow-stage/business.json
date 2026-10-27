@@ -262,7 +262,7 @@
     "provider": "platform-P",
     "cost_originator": "platform-P",
     "beneficiary": "customer-stage",
-    "recipient": "customer-stage",
+    "recipient": "platform-P",
     "payer": "customer-stage",
     "bearer": "customer-stage"
   },
@@ -278,7 +278,7 @@
     "provider": "supplier-S",
     "cost_originator": "supplier-S",
     "beneficiary": "customer-stage",
-    "recipient": "customer-stage",
+    "recipient": "supplier-S",
     "payer": "platform-P",
     "bearer": "platform-P"
   },
@@ -335,7 +335,7 @@
   ],
   "family_map": [],
   "terms": {
-    "schema": "ledger-workflow-slot-binding-terms/7",
+    "schema": "ledger-workflow-slot-binding-terms/3",
     "scope": [
       "example-company",
       "local"
@@ -365,7 +365,7 @@
     },
     "correction_source_slot": "support:corrector",
     "causal_reversal_clauses": [],
-    "app_cost_terms": []
+    "exposure_scope": "original_work"
   },
   "binding": {
     "agreement_id": "stage-support",
