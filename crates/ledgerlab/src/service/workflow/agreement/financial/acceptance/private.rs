@@ -1,6 +1,7 @@
-//! Owning private-document normalization for actual AppAccept8 input. Each
-//! family uses its SAME shared normalizer, never a canonical-only input rule.
-//! Remaining families/complete graph still precede any prepared acceptance.
+//! Owning proposed records for the exact selected acceptance. Shared families
+//! use their paid normalizers. Stage Offer4/Commitment2 remain closed canonical
+//! DATA until the actual supplier constructor validates/rederives them before
+//! any prepared acceptance can be framed.
 use super::*;
 use ledgerlab_core::policy::workflow::{
     RoleAssignment, SlotBindingTerms, SlotCatalog, SlotInstantiation,
@@ -208,6 +209,10 @@ pub(super) fn normalize_inline(
         maximum = maximum
             .checked_add(assents.len())
             .ok_or(ServiceError::Unavailable)?;
+        s.semantic_work().arithmetic(Op::Multiply,&[&bindings.len().into(),&2usize.into()]).map_err(core_error)?;
+        let offers=bindings.len().checked_mul(2).ok_or(ServiceError::Unavailable)?;
+        s.semantic_work().arithmetic(Op::Add,&[&maximum.into(),&offers.into()]).map_err(core_error)?;
+        maximum=maximum.checked_add(offers).ok_or(ServiceError::Unavailable)?;
     }
     s.semantic_work()
         .arithmetic(
@@ -240,6 +245,8 @@ pub(super) fn normalize_inline(
             ("ledger-workflow-slot-binding-terms/3", 4),
             ("ledger-workflow-slot-binding-terms/8", 4),
             ("ledger-workflow-party-assent/3", 5),
+            ("ledger-workflow-offer/4", 6),
+            ("ledger-workflow-supplier-commitment/2", 7),
         ] {
             s.semantic_work()
                 .visit(Visit::MemberCompare)
@@ -258,7 +265,7 @@ pub(super) fn normalize_inline(
         let Some(mut family) = family else {
             continue;
         };
-        if family == 5 {
+        if family >= 5 {
             require(
                 publication.program().uses_stage_lifecycle_recipe(),
                 "UNSUPPORTED_SCHEMA_PROFILE",
@@ -327,6 +334,19 @@ pub(super) fn normalize_inline(
                     .map_err(core_error)?;
                 ("workflow-assent", "ledger-workflow-party-assent/3", bytes)
             }
+            6 | 7 => {
+                // These are proposed immutable DATA. The actual owning
+                // supplier verifier rederives Commitment2 byte-for-byte and
+                // repeats Offer4's entire closed contract before framing.
+                let fields: &[&str] = if family==6 {
+                    &["schema","agreement_id","version","provider","valuation_mode","role_refs","activity_names","unit_ceilings","exposure_ceiling","allowed_component_slots","source_slots","starts_at","ends_at","evidence_refs","commitment_ref"]
+                } else {
+                    &["schema","scope","customer","agreement_id","supplier_slot","projection_recipe","program","acceptance"]
+                };
+                request_wrapper::closed(body,fields,s)?;
+                let schema=if family==6 {"ledger-workflow-offer/4"}else{"ledger-workflow-supplier-commitment/2"};
+                ("workflow-offer",schema,raw)
+            }
             _ => return Err(ServiceError::IntegrityFailure),
         };
         let doc = wire::source_record(kind, schema, normalized, s)?;
@@ -366,6 +386,15 @@ pub(super) fn normalize_inline(
                     found = true;
                     break;
                 }
+            }
+        } else if family==6 || family==7 {
+            let field=if family==6 {"offer_ref"}else{"commitment_ref"};
+            for proposed in documents {
+                s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+                if !same_recipe_text(request_wrapper::text(proposed,"schema",s)?,"ledger-workflow-slot-binding-terms/8",s)? {continue;}
+                let actual=encode(request_wrapper::field(proposed,field,s)?,s)?;
+                s.semantic_work().scan_bytes(actual.bytes().len()+expected.bytes().len()).map_err(core_error)?;
+                if actual.bytes()==expected.bytes() {found=true;break;}
             }
         } else if family == 3 {
             for row in bindings {
