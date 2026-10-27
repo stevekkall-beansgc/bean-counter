@@ -19,9 +19,12 @@ from workflow_work_lifecycle import LifecycleJourney
 class StageJourney(MeteredJourney):
     fixture_directory = REPO / "examples/workflow-stage"
     reopen_retry = LifecycleJourney.reopen_retry
+    source_filename = "source-platform-funding.json"
+    publication_operation = "publication-platform-funding"
+    ownership_operation = "supplier-owner-evidence-platform"
 
     def source_documents(self):
-        return Journey.source_documents(self)
+        return json.loads((self.fixture_directory / self.source_filename).read_bytes())["documents"]
 
     def __init__(self, args):
         Journey.__init__(self, args)
@@ -31,6 +34,9 @@ class StageJourney(MeteredJourney):
         self.closer = self.business["closer_source"]
         self.chain = "stage-chain"
         self.business_id = "stage-member"
+        self.meta["stage_source"] = {"path": self.source_filename,
+            "sha256": sha((self.fixture_directory / self.source_filename).read_bytes())}
+        self.save()
 
     def key(self, operation):
         key = Journey.key(self, operation)
@@ -96,6 +102,17 @@ class StageJourney(MeteredJourney):
         return sorted([self.grant, self.worker_grant, self.alias_grant,
                        self.corrector_grant, self.closer_grant], key=canonical)
 
+    def ownership_evidence_payload(self):
+        account = self.business["supplier_inputs"]["provider_account_identity"]
+        ownership = {"statement": "local_owner_controls_provider_accounts", "principal_id": self.operator,
+            "logical_store_id": self.store, "provider_account_identities": [account]}
+        content = canonical(ownership)
+        return {"schema": "ledger-workflow-evidence-retain/2", "purpose": "funding",
+            "subject": {"customer": self.customer, "agreement_id": self.agreement},
+            "metadata": {"resource_owner": self.business["platform"], "payer": self.business["platform"], "mode": "platform"},
+            "media_type": "text/plain;charset=utf-8", "content_base64": base64.b64encode(content).decode(),
+            "content_sha256": sha(content)}
+
     def setup_publication(self, auth, psub, roles):
         customer = unique(json.loads((self.root / "customer-register.committed.json").read_bytes()), "workflow-customer")
         for label in ["worker", "corrector", "closer", "alias"]:
@@ -113,9 +130,9 @@ class StageJourney(MeteredJourney):
         self.write_source_documents()
         pub_path = self.inputs / "publication.request.json"
         self.command("prepare-publication", [self.args.publication_helper, self.inputs,
-            self.write("publication.key.json", self.key("publication")), pub_path, "--operator-resources"])
+            self.write("publication.key.json", self.key(self.publication_operation)), pub_path, "--operator-resources"])
         pub_payload = json.loads(pub_path.read_bytes())["payload"]
-        published = self.submit("publication", "policy.publish", pub_payload)
+        published = self.submit(self.publication_operation, "policy.publish", pub_payload)
         publication = unique(published, "workflow-publication")
         self.plan = self.document(unique(published, "workflow-compiled-plan"))
         source_refs = self.plan["source_refs"]
@@ -125,14 +142,7 @@ class StageJourney(MeteredJourney):
         self.policy = self.document(self.policy_ref)
         self.fact_refs = {self.document(r)["schema_id"]: r for r in source_refs if r["kind"] == "workflow-fact-schema"}
         account = self.business["supplier_inputs"]["provider_account_identity"]
-        ownership = {"statement": "local_owner_controls_provider_accounts", "principal_id": self.operator,
-            "logical_store_id": self.store, "provider_account_identities": [account]}
-        content = canonical(ownership)
-        funding = self.submit("supplier-owner-evidence", "evidence.retain", {
-            "schema": "ledger-workflow-evidence-retain/1", "purpose": "funding",
-            "subject": {"customer": self.customer, "agreement_id": self.agreement},
-            "metadata": {"resource_owner": self.business["platform"], "payer": self.business["platform"], "mode": "platform"},
-            "media_type": "application/json", "content_base64": base64.b64encode(content).decode(), "content_sha256": sha(content)})
+        funding = self.submit(self.ownership_operation, "evidence.retain", self.ownership_evidence_payload())
         funding_ref = unique(funding, "workflow-evidence")
         enrolled = self.submit("supplier-account-enroll", "authority.change", {"schema": "ledger-cost-authority-enroll/1",
             "authority_id": "stage-supplier-owner", "provider_account_identities": [account], "evidence_refs": [funding_ref]})
@@ -435,7 +445,7 @@ class StageJourney(MeteredJourney):
             assert not self.document(current_decision)["active_action_refs"]
         _, _, final_values = self.invocation_state(original_invocation)
         assert final_values["consumed"] == consumed_values["consumed"], "inverse replenished consumed supplier exposure"
-        self.reopen_retry(["alias-enroll", "supplier-account-enroll", "provider-consent-evidence", "publication",
+        self.reopen_retry(["alias-enroll", "supplier-account-enroll", "provider-consent-evidence", self.publication_operation,
             "acceptance", "activation", "stage-authorize", "work-occurrence", "member-work", "shared-work-alias",
             "invocation-completed", "stage-close", "member-reverse"])
         restored_root = self.root / "restored-final-history"

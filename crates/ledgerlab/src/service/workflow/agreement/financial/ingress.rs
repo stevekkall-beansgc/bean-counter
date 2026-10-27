@@ -206,7 +206,7 @@ impl IncomingRequest {
             let allowed: &[&str] = if kind == "evidence.retain"
                 && matches!(recipe, IngressRecipe::OriginalAdministration)
             {
-                &["ledger-workflow-evidence-retain/1"]
+                &["ledger-workflow-evidence-retain/1", "ledger-workflow-evidence-retain/2"]
             } else if kind == "evidence.retain" {
                 &[
                     "ledger-workflow-fact-attest/1",

@@ -725,6 +725,21 @@ fn retention_record(
     root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
+    let schema = if same(
+        request_wrapper::text(p, "schema", s)?,
+        "ledger-workflow-evidence-retain/2",
+        s,
+    )? {
+        "ledger-workflow-retained-evidence/2"
+    } else {
+        request_wrapper::same_text(
+            request_wrapper::text(p, "schema", s)?,
+            "ledger-workflow-evidence-retain/1",
+            s,
+        )?;
+        "ledger-workflow-retained-evidence/1"
+    };
+    let encoded_schema = wire::string(schema, s)?;
     let content = value(p, "content_base64", s)?;
     let hash = value(p, "content_sha256", s)?;
     let media = value(p, "media_type", s)?;
@@ -745,19 +760,15 @@ fn retention_record(
             ("purpose", purpose.bytes()),
             ("retained_at", at.bytes()),
             ("retained_by", actor.bytes()),
-            ("schema", b"\"ledger-workflow-retained-evidence/1\""),
+            ("schema", encoded_schema.bytes()),
             ("subject", subject.bytes()),
         ],
         262144,
         s,
     )?;
-    wire::source_record(
-        "workflow-evidence",
-        "ledger-workflow-retained-evidence/1",
-        body,
-        s,
-    )
+    wire::source_record("workflow-evidence", schema, body, s)
 }
+
 pub(in super::super) async fn reconstruct_retention<'a>(
     tx: &mut SqliteTx,
     origin: &'a LocatedWrappers,
@@ -789,8 +800,11 @@ async fn retention_inner<'a>(
     )?;
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
-    let input = ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(literal, s)
-        .map_err(core_error)?;
+    let input = if same(request_wrapper::text(literal, "schema", s)?, "ledger-workflow-evidence-retain/2", s)? {
+        ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize_platform_funding(literal, s)
+    } else {
+        ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(literal, s)
+    }.map_err(core_error)?;
     let p = input.canonical_value();
     let saved = request_wrapper::field(
         request_wrapper::field(operation, "request_evidence", s)?,
@@ -898,7 +912,7 @@ async fn retention_inner<'a>(
     compare_source_results(
         tx,
         origin,
-        &[(&result, "ledger-workflow-retained-evidence/1")],
+        &[(&result, result.schema())],
         management.own_before,
         s,
     )
@@ -2513,7 +2527,8 @@ pub(super) async fn fold(
             )?;
         }
         inventory.set_head(&head, r.state.reference(), s)?;
-    } else if same(schema, "ledger-workflow-evidence-retain/1", s)? {
+    } else if same(schema, "ledger-workflow-evidence-retain/1", s)?
+        || same(schema, "ledger-workflow-evidence-retain/2", s)? {
         let r = reconstruct_retention(tx, origin, s).await?;
         custody(r.management.root.body(), setup, s)?;
         for record in r.dependencies.iter().flatten() {

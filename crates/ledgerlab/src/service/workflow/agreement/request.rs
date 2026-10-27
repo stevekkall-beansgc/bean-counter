@@ -36,6 +36,7 @@ impl Request {
             "evidence.retain" => matches!(
                 schema,
                 "ledger-workflow-evidence-retain/1"
+                    | "ledger-workflow-evidence-retain/2"
                     | "ledger-workflow-definition-retain/1"
                     | "ledger-workflow-definition-fragment/1"
                     | "ledger-workflow-definition-finalize/1"

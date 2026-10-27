@@ -3,14 +3,14 @@
 use ledgerlab_core::{
     canonical::{self, audit_arena::AuditArena},
     policy::workflow::{
-        selected_program::{
-            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
-        },
         DefinitionRef,
+        selected_program::{
+            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
+        },
     },
     validation_work::OriginalAuditSession,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
@@ -75,12 +75,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         (context, input.join("report-facts.json").is_file())
                     } else {
                         drop(context);
-                        let lifecycle = SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut session)?;
+                        let lifecycle =
+                            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(
+                                &mut session,
+                            )?;
                         if policy["compiler_ref"] == serde_json::to_value(lifecycle.reference())? {
                             (lifecycle, input.join("report-facts.json").is_file())
                         } else {
                             drop(lifecycle);
-                            (SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut session)?, input.join("report-facts.json").is_file())
+                            let stage = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut session)?;
+                            if policy["compiler_ref"] == serde_json::to_value(stage.reference())? {
+                                (stage, input.join("report-facts.json").is_file())
+                            } else {
+                                drop(stage);
+                                (SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut session)?, input.join("report-facts.json").is_file())
+                            }
                         }
                     }
                 }

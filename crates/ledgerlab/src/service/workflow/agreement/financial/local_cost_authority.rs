@@ -51,6 +51,73 @@ fn selected(req: &ingress::IncomingRequest, s: &mut OriginalAuditSession) -> Res
     Ok(req.kind() == "authority.change"
         && request_wrapper::text(req.payload(s)?, "schema", s)? == "ledger-cost-authority-enroll/1")
 }
+fn support_for_evidence(
+    payload: &Value,
+    pool: &local_inputs::LocalInputs,
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedCompilerSupport> {
+    let refs = request_wrapper::field(payload, "evidence_refs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    require((1..=16).contains(&refs.len()), "INVALID_SHAPE")?;
+    let mut platform = None;
+    for reference in refs {
+        let mut selected = None;
+        for row in pool.iter_views() {
+            s.semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)
+                .map_err(core_error)?;
+            if acceptance::same_recipe_text(
+                request_wrapper::text(reference, "kind", s)?,
+                &row.reference.kind,
+                s,
+            )? && acceptance::same_recipe_text(
+                request_wrapper::text(reference, "id", s)?,
+                &row.reference.id,
+                s,
+            )? && acceptance::same_recipe_text(
+                request_wrapper::text(reference, "digest", s)?,
+                &row.reference.digest,
+                s,
+            )? {
+                let body = s
+                    .parse_representation(row.canonical_body, RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let schema = request_wrapper::text(body.value(), "schema", s)?;
+                selected = Some(
+                    if acceptance::same_recipe_text(
+                        schema,
+                        "ledger-workflow-retained-evidence/2",
+                        s,
+                    )? {
+                        true
+                    } else {
+                        request_wrapper::same_text(
+                            schema,
+                            "ledger-workflow-retained-evidence/1",
+                            s,
+                        )?;
+                        false
+                    },
+                );
+                break;
+            }
+        }
+        let selected = selected.ok_or(ServiceError::IntegrityFailure)?;
+        require(
+            platform.is_none_or(|old| old == selected),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        platform = Some(selected);
+    }
+    if platform == Some(true) {
+        SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(s)
+    } else {
+        SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s)
+    }
+    .map_err(core_error)
+}
+
 pub(super) async fn prepare_append(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -136,13 +203,12 @@ pub(super) async fn prepare_append(
         pool.add_value(r, s)?;
     }
     pool.complete(tx, req.key(), before, s).await?;
+    let support = support_for_evidence(payload, &pool, s)?;
     let (mut inputs, _views_owner) = pool.owned_views(1, s)?;
     inputs.push(EconomicRecordView {
         reference: root.reference(),
         canonical_body: root.bytes(),
     });
-    let support = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s)
-        .map_err(core_error)?;
     let (candidate, evidence) = core::construct_local_cost_authority_enrollment(
         &support,
         &c,
@@ -336,8 +402,10 @@ async fn reproduce_original(
         "INTEGRITY_FAILURE",
     )?;
     let (inputs, _views_owner) = pool.owned_views(0, s)?;
-    let support = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s)
-        .map_err(core_error)?;
+    let descriptors = request_wrapper::field(resolution, "descriptors", s)?
+        .as_array().ok_or(ServiceError::IntegrityFailure)?;
+    require(descriptors.len() == 1, "INTEGRITY_FAILURE")?;
+    let support = publication_prepare::local_support(&descriptors[0], s)?;
     let state = core::CostAuthorityEnrollmentState {
         occupied_accounts: &[],
     };

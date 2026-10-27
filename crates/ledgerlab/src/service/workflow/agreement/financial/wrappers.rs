@@ -1149,6 +1149,11 @@ pub(super) fn descriptor_schema(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
+    if equal_text(registry, super::evidence::PLATFORM_FUNDING_REGISTRY, session)? {
+        require(equal_text(kind, "evidence.retain", session)?
+            && equal_text(payload, "ledger-workflow-evidence-retain/2", session)?, "UNSUPPORTED_SCHEMA_PROFILE")?;
+        return Ok("ledger-operation-descriptors/1");
+    }
     if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
         return stage_lifecycle_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
@@ -1245,6 +1250,16 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, super::evidence::PLATFORM_FUNDING_REGISTRY, session)? {
+        require(equal_text(kind, "evidence.retain", session)?
+            && equal_text(payload, "ledger-workflow-evidence-retain/2", session)?, "UNSUPPORTED_SCHEMA_PROFILE")?;
+        return Ok(Recipe {
+            operation: "ledger-workflow-operation-record/1",
+            manifest: "ledger-workflow-agreement-manifest/1",
+            closure: "absent",
+            authority: "ledger-workflow-publication-authority/1",
+        });
+    }
     if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
         return stage_lifecycle_recipe(kind, payload, session)?
             .map(|(recipe, _)| recipe)

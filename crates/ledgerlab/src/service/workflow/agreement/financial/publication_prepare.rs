@@ -140,12 +140,25 @@ pub(super) fn local_support(
     drop(context);
     let lifecycle = SelectedCompilerSupport::local_work_lifecycle_execution_with_session(s)
         .map_err(core_error)?;
-    if same_support(reference, &lifecycle, s)? { return Ok(lifecycle); }
+    if same_support(reference, &lifecycle, s)? {
+        return Ok(lifecycle);
+    }
     drop(lifecycle);
-    let stage = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s).map_err(core_error)?;
-    require(same_support(reference, &stage, s)?, "UNSUPPORTED_SCHEMA_PROFILE")?;
-    Ok(stage)
+    let stage = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s)
+        .map_err(core_error)?;
+    if same_support(reference, &stage, s)? {
+        return Ok(stage);
+    }
+    drop(stage);
+    let platform = SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(s)
+        .map_err(core_error)?;
+    require(
+        same_support(reference, &platform, s)?,
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    Ok(platform)
 }
+
 fn support_for_policy<F>(
     bodies: &[AuditedBytes],
     factory: F,

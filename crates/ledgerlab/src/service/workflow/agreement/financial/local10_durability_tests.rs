@@ -144,6 +144,151 @@ fn operations(snapshot: &[(String, Vec<String>)]) -> usize {
         .len()
 }
 
+async fn retain_platform_test_input(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    raw: &[u8],
+) -> Result<crate::store::sqlite::workflow::RecordRef> {
+    let request = super::super::request::Request::parse(raw)?;
+    let key = request.key();
+    ledger.admin.read(&ledger.store, tx, key).await?;
+    let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
+    let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+    let root = match tx
+        .workflow_agreement_root_candidate(&key.logical_store_id, &key.scope)
+        .await
+        .map_err(crate::service::store_error)?
+    {
+        Some(root) => {
+            verify::document_origin(tx, key, &root.reference).await?;
+            verify::root(&canonical_body(&root)?, key, None)?;
+            if canonical_body(&root)?["basis"] == super::super::journal::basis(&setup) {
+                root
+            } else {
+                super::super::journal::fresh_root(&setup, &at)?
+            }
+        }
+        None => super::super::journal::fresh_root(&setup, &at)?,
+    };
+    let payload = super::super::service::normalize_payload(&request)?;
+    let prepared = super::super::service::prepare_evidence(
+        tx,
+        &request,
+        &payload,
+        (&setup.operator, &at, "real_local", &root.reference),
+    )
+    .await?;
+    let result = prepared.results[0].clone();
+    let sequence = tx
+        .workflow_sequence()
+        .await
+        .map_err(crate::service::store_error)?;
+    let input = super::super::parse_evidence_payload(&payload)?;
+    let append = super::super::journal::assemble(
+        &request,
+        super::super::journal::evidence(&request, &payload)?,
+        &setup,
+        &at,
+        sequence,
+        root,
+        prepared.documents,
+        prepared.results,
+        super::super::evidence_identity(key, &input)?,
+        None,
+        Projection::None,
+    )?;
+    tx.workflow_agreement_append(&append)
+        .await
+        .map_err(crate::service::store_error)?;
+    proof_session::after_append(tx, key)?;
+    verify::retained(tx, key, &append.operation).await?;
+    Ok(result)
+}
+
+#[tokio::test]
+#[ignore = "requires stopped16-op Stage fixture; actual retention/account/originals then whole rollback"]
+async fn platform_evidence_retention_account_original_route_rolls_back() {
+    assert!(
+        crate::build_identity::embedded_inputs().is_ok(),
+        "actual captured inputs required"
+    );
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let failed = fs::read(root.join("supplier-owner-evidence.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&failed),
+        "6303f0a2a661acd7549b18ff30c6452db88d6ef899f6d7cfb8cf40c4c220472d"
+    );
+    let mut retention: Value = serde_json::from_slice(&failed).unwrap();
+    retention["key"]["operation_id"] = json!("supplier-owner-evidence-platform");
+    retention["payload"]["schema"] = json!("ledger-workflow-evidence-retain/2");
+    retention["payload"]["media_type"] = json!("text/plain;charset=utf-8");
+    assert_eq!(
+        retention["payload"]["content_sha256"],
+        "f3e93b76cc85261c56714d7f3a58a6df247823925b03c2870b869baa8106f138"
+    );
+    let raw = records::bytes(&retention).unwrap();
+    let key = OperationKey::parse(&records::bytes(&retention["key"]).unwrap()).unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let before = snapshot_tables(&installation, true).await;
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 16);
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let resource = ledger.resource_snapshot().unwrap();
+    let arena = resource.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let mut tx = resource.begin(&ledger.store, &mut s).await.unwrap();
+    tx.workflow_main_session = true;
+    let result = proof_session::with_proofs(&mut tx, &key, |tx| Box::pin(async {
+        let retained_ref = retain_platform_test_input(&ledger, tx, &raw).await?;
+        let retained = loaded(tx, &key, &retained_ref).await?;
+        let body = canonical_body(&retained)?;
+        require(body["schema"] == "ledger-workflow-retained-evidence/2", "INTEGRITY_FAILURE")?;
+        let proof_root: crate::store::sqlite::workflow::RecordRef = serde_json::from_value(body["authority_ref"].clone()).map_err(|_| ServiceError::IntegrityFailure)?;
+        let root_record = loaded(tx, &key, &proof_root).await?;
+        let input = super::super::evidence_input(&body)?;
+        let assertion: Value = serde_json::from_slice(input.content()).map_err(|_| ServiceError::IntegrityFailure)?;
+        let mut enrollment = retention.clone();
+        enrollment["kind"] = json!("authority.change");
+        enrollment["key"]["operation_id"] = json!("supplier-account-enroll");
+        enrollment["payload"] = json!({"schema":"ledger-cost-authority-enroll/1", "authority_id":"stage-supplier-owner", "provider_account_identities":assertion["provider_account_identities"], "evidence_refs":[retained_ref]});
+        let enrollment_raw = records::bytes(&enrollment)?;
+        let incoming = ingress::IncomingRequest::parse(&enrollment_raw, &mut s)?;
+        let management = ManagementObservation::capture(&ledger, tx, incoming.key(), request_wrapper::field(incoming.value(), "key", &mut s)?, &mut s).await?;
+        local_cost_authority::prepare_append(&ledger, tx, &incoming, &management, &mut s).await?;
+        proof_session::after_append(tx, incoming.key())?;
+        let identity = s.canonical_representation(&enrollment["key"], ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+        let acquired = prefix::target(tx, incoming.key(), identity, &mut s).await?;
+        let original = acquired.checked_wrappers(tx, &mut s).await?;
+        require(local_cost_authority::verify_original(tx, &original, None, &mut s).await?, "INTEGRITY_FAILURE")?;
+        let op = original.wrappers().operation();
+        let snapshot = &op["authority_snapshot"];
+        let basis = &snapshot["local_admin_snapshot"]["basis"];
+        let business: Value = serde_json::from_slice(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/workflow-stage/business.json"))).map_err(|_| ServiceError::IntegrityFailure)?;
+        let mut leg = business["binding"]["funding_legs"].as_array().ok_or(ServiceError::IntegrityFailure)?.iter().find(|v| v["mode"] == "platform").ok_or(ServiceError::IntegrityFailure)?.clone();
+        leg["evidence_refs"] = json!([retained_ref]);
+        Ok(json!({"context":{"key":enrollment["key"],"actor":basis["principal_id"],"canonical_economic_namespace":basis["canonical_economic_namespace"],"installation_mode":snapshot["installation_mode"],"received_at":op["received_at"],"accepted_at":op["accepted_at"],"authorities":[],"source_observation_inputs":[]},"records":[{"reference":retained_ref,"body":body},{"reference":proof_root,"body":canonical_body(&root_record)?}],"binding":{"customer":business["customer"],"agreement_id":business["agreement"],"accepted_at":op["accepted_at"],"funding_legs":[leg]}}))
+    })).await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    let output = result.unwrap();
+    if let Some(path) = std::env::var_os("WAVE_PLATFORM_FUNDING_OUTPUT") {
+        fs::write(path, records::bytes(&output).unwrap()).unwrap();
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires exact stopped Stage publication fixture; private transaction rolls back"]
 async fn saved_stage_publication_prepares_and_verifies_original_then_rolls_back() {

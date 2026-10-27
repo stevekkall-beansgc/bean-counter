@@ -87,6 +87,22 @@ async fn loaded(
         .map_err(crate::service::store_error)?
         .ok_or_else(|| reject("AUTHORITY_REQUIRED"))
 }
+fn parse_evidence_payload(
+    payload: &Value,
+) -> Result<ledgerlab_core::policy::workflow::EvidenceInput> {
+    let raw = records::bytes(payload)?;
+    match payload["schema"].as_str() {
+        Some("ledger-workflow-evidence-retain/1") => {
+            ledgerlab_core::policy::workflow::EvidenceInput::parse(&raw)
+        }
+        Some("ledger-workflow-evidence-retain/2") => {
+            ledgerlab_core::policy::workflow::EvidenceInput::parse_platform_funding(&raw)
+        }
+        _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+    }
+    .map_err(typed_error)
+}
+
 fn evidence_input(body: &Value) -> Result<ledgerlab_core::policy::workflow::EvidenceInput> {
     exact_keys(
         body,
@@ -104,9 +120,11 @@ fn evidence_input(body: &Value) -> Result<ledgerlab_core::policy::workflow::Evid
             "authority_ref",
         ],
     )?;
-    if body["schema"] != "ledger-workflow-retained-evidence/1" {
-        return Err(ServiceError::IntegrityFailure);
-    }
+    let request_schema = match body["schema"].as_str() {
+        Some("ledger-workflow-retained-evidence/1") => "ledger-workflow-evidence-retain/1",
+        Some("ledger-workflow-retained-evidence/2") => "ledger-workflow-evidence-retain/2",
+        _ => return Err(ServiceError::IntegrityFailure),
+    };
     let mut input = body.clone();
     let o = input
         .as_object_mut()
@@ -119,8 +137,8 @@ fn evidence_input(body: &Value) -> Result<ledgerlab_core::policy::workflow::Evid
     ] {
         o.remove(k);
     }
-    input["schema"] = json!("ledger-workflow-evidence-retain/1");
-    ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&input)?)
+    input["schema"] = json!(request_schema);
+    parse_evidence_payload(&input)
         .map_err(|_| ServiceError::IntegrityFailure)
 }
 fn evidence_record(
@@ -131,7 +149,11 @@ fn evidence_record(
     root: &RecordRef,
 ) -> Result<Document> {
     let mut body = input.canonical_value().map_err(typed_error)?;
-    body["schema"] = json!("ledger-workflow-retained-evidence/1");
+    body["schema"] = json!(match body["schema"].as_str() {
+        Some("ledger-workflow-evidence-retain/1") => "ledger-workflow-retained-evidence/1",
+        Some("ledger-workflow-evidence-retain/2") => "ledger-workflow-retained-evidence/2",
+        _ => return Err(ServiceError::IntegrityFailure),
+    });
     body["retained_by"] = json!(actor);
     body["retained_at"] = json!(at);
     body["installation_mode"] = json!(mode);

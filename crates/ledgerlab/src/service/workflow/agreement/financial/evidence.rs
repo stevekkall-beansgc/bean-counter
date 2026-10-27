@@ -14,6 +14,7 @@ const SHARED_NAMESPACE_REGISTRY: &str =
 const SOURCE_PARTICIPANT_REGISTRY: &str =
     "sha256:3413b928959d6f114b22ec7390172b7d48058050df3489e3d7a08680b78fe28d";
 const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
+pub(super) const PLATFORM_FUNDING_REGISTRY: &str = "sha256:2fa74f5678d0d6422073a1aa00d8edcbfaaab9df22f248acdce188474a3866b1";
 pub(super) struct RequestEvidence {
     parsed: AuditedValue,
     bytes: AuditedBytes,
@@ -714,7 +715,9 @@ pub(super) fn original_party(
 /// Select the same immutable tuple registry in producer and original reader.
 /// Parsing and complete normalization remain separate mandatory gates.
 fn administration_registry(payload: &Value) -> &'static str {
-    if super::super::source::shared_namespace_schema(payload) {
+    if payload["schema"] == "ledger-workflow-evidence-retain/2" {
+        PLATFORM_FUNDING_REGISTRY
+    } else if super::super::source::shared_namespace_schema(payload) {
         SHARED_NAMESPACE_REGISTRY
     } else if super::super::source::participant_schema(payload) {
         SOURCE_PARTICIPANT_REGISTRY
@@ -782,7 +785,11 @@ pub(super) fn administration(
         let mut set = Anchors::<66>::new();
         let schema = request_wrapper::text(p, "schema", s)?;
         if cmp(req.kind().as_bytes(), b"evidence.retain", s)?.is_eq() {
-            request_wrapper::same_text(schema, "ledger-workflow-evidence-retain/1", s)?;
+            if cmp(schema.as_bytes(), b"ledger-workflow-evidence-retain/2", s)?.is_eq() {
+                request_wrapper::same_text(request_wrapper::text(p, "purpose", s)?, "funding", s)?;
+            } else {
+                request_wrapper::same_text(schema, "ledger-workflow-evidence-retain/1", s)?;
+            }
             let purpose = request_wrapper::text(p, "purpose", s)?;
             let metadata = request_wrapper::field(p, "metadata", s)?;
             if cmp(purpose.as_bytes(), b"operator_attestation", s)?.is_eq() {

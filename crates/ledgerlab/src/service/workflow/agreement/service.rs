@@ -29,8 +29,7 @@ struct Registration {
 fn normalized(req: &request::Request) -> Result<Value> {
     match req.kind() {
         "evidence.retain" => {
-            ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(req.payload())?)
-                .map_err(typed_error)?
+            parse_evidence_payload(req.payload())?
                 .canonical_value()
                 .map_err(typed_error)
         }
@@ -100,7 +99,7 @@ impl LocalWorkflowLedger {
                 None=>journal::fresh_root(&setup,&at)?,
             };
             let sequence=tx.workflow_sequence().await.map_err(crate::service::store_error)?;
-            let semantic_key=if req.kind()=="evidence.retain" {evidence_identity(key,&ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?)?} else if payload["action"]=="customer.register" {records::bytes(&json!(["customer.register",payload["customer"]]))?} else if payload["action"]=="source.enroll" {source::semantic(&payload,text(&payload,"enrollment_id")?)?} else {let r:RecordRef=serde_json::from_value(payload["enrollment_ref"].clone()).map_err(|_|ServiceError::IntegrityFailure)?;let e=source::enrollment(tx,key,&r).await?;source::semantic(&payload,e.enrollment_id())?};
+            let semantic_key=if req.kind()=="evidence.retain" {evidence_identity(key,&parse_evidence_payload(&payload)?)?} else if payload["action"]=="customer.register" {records::bytes(&json!(["customer.register",payload["customer"]]))?} else if payload["action"]=="source.enroll" {source::semantic(&payload,text(&payload,"enrollment_id")?)?} else {let r:RecordRef=serde_json::from_value(payload["enrollment_ref"].clone()).map_err(|_|ServiceError::IntegrityFailure)?;let e=source::enrollment(tx,key,&r).await?;source::semantic(&payload,e.enrollment_id())?};
             let alias=tx.workflow_agreement_semantic(&key.logical_store_id,&key.scope,req.kind(),&semantic_key).await.map_err(crate::service::store_error)?;
             let (documents,results,projection)=if let Some(identity)=&alias {
                 let original=tx.workflow_agreement_lookup(identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
@@ -112,9 +111,8 @@ impl LocalWorkflowLedger {
                 let documents=verify::authenticated_closure(tx,key,&results).await?;
                 (documents,results,Projection::None)
             }else if req.kind()=="evidence.retain" {
-                let input=ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?;
-                validate_evidence_dependencies(tx,key,&input,&setup.operator,mode).await?;
-                let result=evidence_record(&input,&setup.operator,&at,mode,&root.reference)?;let refs=vec![result.reference.clone()];let mut docs=vec![result];docs.extend(verify::locator_dependencies(tx,key,&req,&payload).await?);(docs,refs,Projection::None)
+                let prepared=prepare_evidence(tx,&req,&payload,(&setup.operator,&at,mode,&root.reference)).await?;
+                (prepared.documents,prepared.results,Projection::None)
             }else if payload["action"]=="customer.register" {
                 let registration:Registration=serde_json::from_value(payload.clone()).map_err(|_|ServiceError::IntegrityFailure)?;
                 require(tx.workflow_agreement_customer(&key.logical_store_id,&key.scope,&registration.customer).await.map_err(crate::service::store_error)?.is_none(),"SEMANTIC_CONFLICT")?;
@@ -188,6 +186,29 @@ async fn retry(tx: &mut SqliteTx, req: &request::Request, old: &JournalOperation
     }
     Ok(result)
 }
+pub(super) struct PreparedEvidence {
+    pub(super) documents: Vec<Document>,
+    pub(super) results: Vec<RecordRef>,
+}
+/// The actual prerequisite producer; administration/root custody remains the
+/// held coordinator's obligation, with the same exact literal input grammar.
+pub(super) async fn prepare_evidence(
+    tx: &mut SqliteTx,
+    req: &request::Request,
+    payload: &Value,
+    owner: (&str, &Timestamp, &str, &RecordRef),
+) -> Result<PreparedEvidence> {
+    let (actor, at, mode, root) = owner;
+    require(proof_session::present(tx, req.key())?, "INTEGRITY_FAILURE")?;
+    let input = parse_evidence_payload(payload)?;
+    validate_evidence_dependencies(tx, req.key(), &input, actor, mode).await?;
+    let result = evidence_record(&input, actor, at, mode, root)?;
+    let results = vec![result.reference.clone()];
+    let mut documents = vec![result];
+    documents.extend(verify::locator_dependencies(tx, req.key(), req, payload).await?);
+    Ok(PreparedEvidence { documents, results })
+}
+
 async fn validate_evidence_dependencies(
     tx: &mut SqliteTx,
     key: &super::super::request::OperationKey,

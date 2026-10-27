@@ -30,10 +30,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AuditArena::new()?
     };
     let mut session = OriginalAuditSession::for_resource_profile_v2(&arena)?;
-    let support =
-        SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut session)?;
     let publication = &input["publication_payload"];
     let root: DefinitionRef = serde_json::from_value(publication["root_policy_ref"].clone())?;
+    let policies = publication["documents"]
+        .as_array()
+        .ok_or("publication documents")?
+        .iter()
+        .filter(|d| d["schema"] == "ledger-workflow-policy/4")
+        .collect::<Vec<_>>();
+    if policies.len() != 1 {
+        return Err("exactly one root policy required".into());
+    }
+    let compiler = &policies[0]["compiler_ref"];
+    let old = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut session)?;
+    let support = if compiler == &serde_json::to_value(old.reference())? {
+        old
+    } else {
+        drop(old);
+        let next =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut session)?;
+        if compiler != &serde_json::to_value(next.reference())? {
+            return Err("unsupported supplier compiler".into());
+        }
+        next
+    };
     let documents = publication["documents"]
         .as_array()
         .ok_or("publication documents")?

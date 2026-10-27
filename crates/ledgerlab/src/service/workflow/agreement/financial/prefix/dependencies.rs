@@ -96,6 +96,7 @@ pub(super) fn body(v: &Value, emit: &mut Emit<'_>, s: &mut OriginalAuditSession)
         "ledger-workflow-source-state/1",
         "ledger-workflow-customer-registration/1",
         "ledger-workflow-retained-evidence/1",
+        "ledger-workflow-retained-evidence/2",
         "ledger-workflow-party-management-authority/1",
         "ledger-workflow-party-authorization/1",
         "ledger-workflow-party-evidence/1",

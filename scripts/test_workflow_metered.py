@@ -45,7 +45,7 @@ class DeclaredSourceRoutingTests(unittest.TestCase):
 
 class StageSourceRoutingTests(unittest.TestCase):
     def test_stage_writes_exact_frozen_source_without_metered_parameters(self):
-        fixture = stage.StageJourney.fixture_directory / "source.json"
+        fixture = stage.StageJourney.fixture_directory / stage.StageJourney.source_filename
         original = fixture.read_bytes()
         expected = json.loads(original)["documents"]
         with tempfile.TemporaryDirectory() as directory:
@@ -61,6 +61,29 @@ class StageSourceRoutingTests(unittest.TestCase):
             self.assertEqual(len(actual), len(expected))
             self.assertEqual(fixture.read_bytes(), original)
             self.assertFalse(hasattr(journey, "parameters"))
+        old = json.loads((stage.StageJourney.fixture_directory / "source.json").read_bytes())["documents"]
+        restored = copy.deepcopy(expected)
+        for before, after in zip(old, restored):
+            if before["schema"] == "ledger-workflow-policy/4":
+                after["compiler_ref"] = before["compiler_ref"]
+        self.assertEqual(restored, old)
+
+    def test_platform_ownership_encoding_preserves_actual_content_and_funding(self):
+        journey = stage.StageJourney.__new__(stage.StageJourney)
+        journey.business = json.loads((journey.fixture_directory / "business.json").read_bytes())
+        journey.operator = journey.business["operator"]
+        journey.customer, journey.agreement = journey.business["customer"], journey.business["agreement"]
+        journey.store = "workflow-example-516434c1b51dd682"
+        payload = journey.ownership_evidence_payload()
+        self.assertEqual(payload["schema"], "ledger-workflow-evidence-retain/2")
+        self.assertEqual(payload["media_type"], "text/plain;charset=utf-8")
+        self.assertEqual(payload["metadata"], {"resource_owner": "platform-P", "payer": "platform-P", "mode": "platform"})
+        self.assertEqual(payload["content_sha256"], "f3e93b76cc85261c56714d7f3a58a6df247823925b03c2870b869baa8106f138")
+        import base64
+        ownership = json.loads(base64.b64decode(payload["content_base64"]))
+        self.assertEqual(ownership["principal_id"], journey.operator)
+        self.assertEqual(ownership["logical_store_id"], journey.store)
+        self.assertEqual(ownership["provider_account_identities"], [journey.business["supplier_inputs"]["provider_account_identity"]])
 
 
 class MeteredDriverTests(unittest.TestCase):
