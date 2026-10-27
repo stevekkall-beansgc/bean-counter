@@ -225,8 +225,8 @@
       ],
       "compiler_ref": {
         "kind": "workflow-compiler-descriptor",
-        "id": "wdoc_2fa5c482e67503e4bc48e8b07cf4f2b52c5ed414a5781138de659b0f5fdcfd03",
-        "digest": "sha256:2fa5c482e67503e4bc48e8b07cf4f2b52c5ed414a5781138de659b0f5fdcfd03"
+        "id": "wdoc_a69243eb2204e6109f8ad5327c7759a40c953f3ab438bfed04c9c06de1157cab",
+        "digest": "sha256:a69243eb2204e6109f8ad5327c7759a40c953f3ab438bfed04c9c06de1157cab"
       },
       "context_schema_ref": {
         "digest": "sha256:9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
@@ -371,7 +371,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_9cf79d549f101dae1d07ba5ec0249645a7bc371390b2ead63f2418a681d4dbe0",
-    "digest": "sha256:9cf79d549f101dae1d07ba5ec0249645a7bc371390b2ead63f2418a681d4dbe0"
+    "id": "wdoc_7b72998411879927e293e18145b2416908d543d326c6382d1e2c68319d2ff831",
+    "digest": "sha256:7b72998411879927e293e18145b2416908d543d326c6382d1e2c68319d2ff831"
   }
 }
