@@ -318,45 +318,7 @@ pub(super) fn resolve_role(
         future_source_shape(m, r, c, &binding, &slot_terms, program)?;
     }
     inventory::slots::validate_app_funding_projection(m, program, &binding, &slot_terms, &role)?;
-    let funding = shape::array(m, &binding, "funding_legs")?;
-    // All original funding evidence retains its exact purpose/subject/metadata;
-    // its actual original authentication is completed by the host origin driver.
-    for leg in funding {
-        let metadata = arena.object_from_fields(
-            &[
-                ("mode", &leg["mode"]),
-                ("payer", &leg["payer"]),
-                ("resource_owner", &leg["resource_owner"]),
-            ],
-            m,
-        )?;
-        let subject = arena.object_from_fields(
-            &[
-                ("customer", &binding["customer"]),
-                ("agreement_id", &binding["agreement_id"]),
-            ],
-            m,
-        )?;
-        for evidence in shape::array(m, leg, "evidence_refs")? {
-            let (_, evidence) = load(
-                m,
-                r,
-                c,
-                evidence,
-                "workflow-evidence",
-                "ledger-workflow-retained-evidence/1",
-            )?;
-            inventory::evidence::retained(
-                m,
-                r,
-                c,
-                &owner,
-                &evidence,
-                "funding",
-                (subject.value(), metadata.value(), &binding, "accepted_at"),
-            )?;
-        }
-    }
+    validate_funding_evidence(m, r, c, program, &binding, &owner)?;
     super::consent::original(
         program,
         m,
@@ -381,6 +343,73 @@ pub(super) fn resolve_role(
         source,
     ))
 }
+/// Same original evidence use, factored only to exercise actual host-produced
+/// retained2 DATA through the exact production consumer. No authority output.
+pub(in crate::policy::workflow::transition_constructor) fn validate_funding_evidence(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    binding: &Value,
+    owner: &InvocationToken,
+) -> Result<()> {
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning funding evidence"))?;
+    let funding = shape::array(m, &binding, "funding_legs")?;
+    // All original funding evidence retains its exact purpose/subject/metadata;
+    // its actual original authentication is completed by the host origin driver.
+    for leg in funding {
+        let metadata = arena.object_from_fields(
+            &[
+                ("mode", &leg["mode"]),
+                ("payer", &leg["payer"]),
+                ("resource_owner", &leg["resource_owner"]),
+            ],
+            m,
+        )?;
+        let subject = arena.object_from_fields(
+            &[
+                ("customer", &binding["customer"]),
+                ("agreement_id", &binding["agreement_id"]),
+            ],
+            m,
+        )?;
+        for evidence in shape::array(m, leg, "evidence_refs")? {
+            let mode = shape::text(m, leg, "mode")?;
+            let platform = program.uses_platform_funding_evidence_recipe()
+                && shape::same_text(m, mode, "platform")?;
+            let schema = if platform {
+                "ledger-workflow-retained-evidence/2"
+            } else {
+                "ledger-workflow-retained-evidence/1"
+            };
+            let (_, evidence) = load(m, r, c, evidence, "workflow-evidence", schema)?;
+            if platform {
+                inventory::evidence::retained_platform(
+                    m,
+                    r,
+                    c,
+                    owner,
+                    &evidence,
+                    (subject.value(), metadata.value(), &binding, "accepted_at"),
+                )?;
+            } else {
+                inventory::evidence::retained(
+                    m,
+                    r,
+                    c,
+                    owner,
+                    &evidence,
+                    "funding",
+                    (subject.value(), metadata.value(), &binding, "accepted_at"),
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Called by the SAME work constructor, replacing only its original binding
 /// resolver for the code-owned app recipe. Pricing/actions remain unchanged.
 pub(in crate::policy::workflow::transition_constructor) fn work(

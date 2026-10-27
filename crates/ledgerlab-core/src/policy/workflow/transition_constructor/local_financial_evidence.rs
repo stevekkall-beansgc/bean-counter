@@ -934,6 +934,7 @@ fn selected_anchor(
         | (
             "workflow-evidence",
             "ledger-workflow-retained-evidence/1"
+            | "ledger-workflow-retained-evidence/2"
             | "ledger-workflow-party-evidence/1"
             | "ledger-workflow-party-evidence/2",
         )
@@ -1152,9 +1153,10 @@ pub(super) fn cost_enrollment(
             ("workflow-authority", "ledger-workflow-local-authority-snapshot/1") => {
                 ("authority", "direct")
             }
-            ("workflow-evidence", "ledger-workflow-retained-evidence/1") => {
-                ("evidence", "evidence_input")
-            }
+            (
+                "workflow-evidence",
+                "ledger-workflow-retained-evidence/1" | "ledger-workflow-retained-evidence/2",
+            ) => ("evidence", "evidence_input"),
             _ => return Err(shape::fail("cost enrollment exact supporting operand")),
         };
         anchors.add(m, &a, role, relation, reference.value(), empty.value())?;

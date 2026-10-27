@@ -217,13 +217,27 @@ fn encode_metadata(
 }
 impl OwnedEvidenceInput {
     pub fn normalize(value: &Value, session: &mut OriginalAuditSession) -> Result<Self> {
-        let result = Self::inner(value, session);
+        let result = Self::inner(value, session, EvidenceRecipe::Legacy1);
         if result.is_err() {
             session.invalidate();
         }
         result
     }
-    fn inner(value: &Value, session: &mut OriginalAuditSession) -> Result<Self> {
+    pub fn normalize_platform_funding(
+        value: &Value,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let result = Self::inner(value, session, EvidenceRecipe::PlatformFunding2);
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
+    }
+    fn inner(
+        value: &Value,
+        session: &mut OriginalAuditSession,
+        recipe: EvidenceRecipe,
+    ) -> Result<Self> {
         let arena = session.arena().shared_handle();
         let mut storage = Storage::new();
         let w = session.meter_mut();
@@ -244,7 +258,7 @@ impl OwnedEvidenceInput {
         )?;
         if !same_text(
             input::text(input::field(value, "schema", w)?, w)?,
-            "ledger-workflow-evidence-retain/1",
+            recipe.request_schema(),
             w,
         )? {
             return Err(fail("schema"));
@@ -264,6 +278,9 @@ impl OwnedEvidenceInput {
         let text = same_text(&media, "text/plain;charset=utf-8", w)?;
         if !text && !same_text(&media, "application/octet-stream", w)? {
             return Err(fail("media type"));
+        }
+        if matches!(recipe, EvidenceRecipe::PlatformFunding2) && !text {
+            return Err(fail("platform funding media"));
         }
         let encoded = string(value, "content_base64", &mut storage, &arena, w)?;
         // Any canonical base64 of the existing decoded 4096-byte domain has
@@ -299,6 +316,10 @@ impl OwnedEvidenceInput {
             return Err(fail("content digest"));
         }
         let purpose = string(value, "purpose", &mut storage, &arena, w)?;
+        if matches!(recipe, EvidenceRecipe::PlatformFunding2) && !same_text(&purpose, "funding", w)?
+        {
+            return Err(fail("platform funding purpose"));
+        }
         let metadata = metadata(
             &purpose,
             input::field(value, "metadata", w)?,
@@ -306,7 +327,7 @@ impl OwnedEvidenceInput {
             &arena,
             w,
         )?;
-        normalize_metadata(&metadata, agreement.is_some(), w)?;
+        normalize_metadata_recipe(&metadata, agreement.is_some(), w, recipe)?;
         let mut e = Encode {
             storage: &mut storage,
             arena: &arena,
@@ -329,7 +350,7 @@ impl OwnedEvidenceInput {
         let encoded = e.text(&encoded, w)?;
         let hash = e.text(&expected_hash, w)?;
         let purpose = e.text(&purpose, w)?;
-        let schema = e.text("ledger-workflow-evidence-retain/1", w)?;
+        let schema = e.text(recipe.request_schema(), w)?;
         let bytes = e.object(
             &[
                 ("content_base64", encoded.bytes()),

@@ -364,10 +364,32 @@ fn reference(
 }
 
 #[cfg(test)]
+#[derive(Clone, Copy)]
+enum EvidenceRecipe {
+    Legacy1,
+    Platform2,
+}
+#[cfg(test)]
+impl EvidenceRecipe {
+    fn schema(self) -> &'static str {
+        match self {
+            Self::Legacy1 => "ledger-workflow-retained-evidence/1",
+            Self::Platform2 => "ledger-workflow-retained-evidence/2",
+        }
+    }
+    fn mode(self) -> &'static str {
+        match self {
+            Self::Legacy1 => "customer_local",
+            Self::Platform2 => "platform",
+        }
+    }
+}
+#[cfg(test)]
 fn metadata(
     work: &mut dyn IntrinsicValidationWork,
     purpose: &str,
     v: &Value,
+    recipe: EvidenceRecipe,
 ) -> Result<(EvidencePurpose, EvidenceMetadata)> {
     for (name, tag) in [
         (
@@ -453,7 +475,7 @@ fn metadata(
                 let s = text(work, v, "payer")?;
                 let payer = opaque(work, s, 128)?;
                 let s = text(work, v, "mode")?;
-                same_required(work, s, "customer_local")?;
+                same_required(work, s, recipe.mode())?;
                 EvidenceMetadata::Funding {
                     _resource_owner: resource_owner,
                     _payer: payer,
@@ -518,6 +540,25 @@ pub fn validate_retained_evidence_with_work<'inv>(
     input: &'inv RecordInput,
     work: &mut dyn IntrinsicValidationWork,
 ) -> Result<IntrinsicRecord<'inv>> {
+    validate_retained_recipe(owner, input, work, EvidenceRecipe::Legacy1)
+}
+/// Exact additive intrinsic DATA factory; consuming successor use still proves
+/// the original actor/subject/root/time and current purpose independently.
+#[cfg(test)]
+pub fn validate_platform_funding_evidence_with_work<'inv>(
+    owner: &'inv IntrinsicDataScope,
+    input: &'inv RecordInput,
+    work: &mut dyn IntrinsicValidationWork,
+) -> Result<IntrinsicRecord<'inv>> {
+    validate_retained_recipe(owner, input, work, EvidenceRecipe::Platform2)
+}
+#[cfg(test)]
+fn validate_retained_recipe<'inv>(
+    owner: &'inv IntrinsicDataScope,
+    input: &'inv RecordInput,
+    work: &mut dyn IntrinsicValidationWork,
+    recipe: EvidenceRecipe,
+) -> Result<IntrinsicRecord<'inv>> {
     // Validate borrowed header fields before any header/string materialization.
     reference_parts(
         work,
@@ -564,7 +605,7 @@ pub fn validate_retained_evidence_with_work<'inv>(
         &[],
     )?;
     let schema = text(work, &body, "schema")?;
-    same_required(work, schema, "ledger-workflow-retained-evidence/1")?;
+    same_required(work, schema, recipe.schema())?;
     let mode = text(work, &body, "installation_mode")?;
     let installation_mode = if same(work, mode, "real_local")? {
         EvidenceInstallationMode::RealLocal
@@ -588,7 +629,12 @@ pub fn validate_retained_evidence_with_work<'inv>(
     };
     let purpose = text(work, &body, "purpose")?;
     let meta = field(work, &body, "metadata")?;
-    let (purpose, metadata) = metadata(work, purpose, meta)?;
+    if matches!(recipe, EvidenceRecipe::Platform2) {
+        same_required(work, purpose, "funding")?;
+        let media = text(work, &body, "media_type")?;
+        same_required(work, media, "text/plain;charset=utf-8")?;
+    }
+    let (purpose, metadata) = metadata(work, purpose, meta, recipe)?;
     work.visit_named("intrinsic.stop_subject")?;
     if purpose == EvidencePurpose::AdmissionStop && agreement_id.is_none() {
         return Err(fail("stop agreement subject"));

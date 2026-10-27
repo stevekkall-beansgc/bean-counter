@@ -14,20 +14,22 @@ mod assets;
 mod conditional_assets;
 #[path = "local_declared_link_assets.rs"]
 mod declared_link_assets;
-#[path = "local_policy_semantics_assets.rs"]
-mod policy_semantics_assets;
-#[path = "local_policy_context_assets.rs"]
-mod policy_context_assets;
-#[path = "local_work_lifecycle_assets.rs"]
-mod work_lifecycle_assets;
-#[path = "local_shared_namespace_assets.rs"]
-mod shared_namespace_assets;
-#[path = "local_stage_lifecycle_assets.rs"]
-mod stage_lifecycle_assets;
 #[path = "local_operator_assets.rs"]
 mod operator_assets;
 #[path = "local_parent_assets.rs"]
 mod parent_assets;
+#[path = "local_policy_context_assets.rs"]
+mod policy_context_assets;
+#[path = "local_policy_semantics_assets.rs"]
+mod policy_semantics_assets;
+#[path = "local_shared_namespace_assets.rs"]
+mod shared_namespace_assets;
+#[path = "local_stage_lifecycle_assets.rs"]
+mod stage_lifecycle_assets;
+#[path = "local_stage_lifecycle_v2_assets.rs"]
+mod stage_lifecycle_v2_assets;
+#[path = "local_work_lifecycle_assets.rs"]
+mod work_lifecycle_assets;
 pub(super) const REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
 pub(super) const DECLARED_LINK_REGISTRY: &str =
@@ -43,9 +45,13 @@ const DECLARED_LINK_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/c
 pub(super) const LOCAL_WORK_LIFECYCLE_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const LOCAL_WORK_LIFECYCLE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-work-lifecycle-compiler8-data.json");
 const LOCAL_WORK_LIFECYCLE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-work-lifecycle-contract-profile.json");
-pub(super) const LOCAL_STAGE_LIFECYCLE_REGISTRY: &str = "sha256:8d775e597055ab47e894b325d5578c23475aa9ac79f8aa8dd04e10505fbad556";
+pub(in crate::policy::workflow) const LOCAL_STAGE_LIFECYCLE_REGISTRY: &str =
+    "sha256:8d775e597055ab47e894b325d5578c23475aa9ac79f8aa8dd04e10505fbad556";
 pub(super) const LOCAL_STAGE_LIFECYCLE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-compiler8-data.json");
 const LOCAL_STAGE_LIFECYCLE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-contract-profile.json");
+pub(super) const LOCAL_STAGE_LIFECYCLE_V2_REGISTRY: &str = LOCAL_STAGE_LIFECYCLE_REGISTRY;
+pub(super) const LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-v2-compiler8-data.json");
+const LOCAL_STAGE_LIFECYCLE_V2_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-v2-contract-profile.json");
 pub(super) const LOCAL_SHARED_NAMESPACE_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const LOCAL_SHARED_NAMESPACE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-compiler8-data.json");
 const LOCAL_SHARED_NAMESPACE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-contract-profile.json");
@@ -117,25 +123,56 @@ pub fn local_policy_semantics_compiler_descriptor_with_session(
 pub fn local_policy_context_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
-    compiler_descriptor(s, POLICY_CONTEXT_DESCRIPTOR, POLICY_CONTEXT_MANIFEST, policy_context_assets::ARTIFACTS)
+    compiler_descriptor(
+        s,
+        POLICY_CONTEXT_DESCRIPTOR,
+        POLICY_CONTEXT_MANIFEST,
+        policy_context_assets::ARTIFACTS,
+    )
 }
 /// Exact additive original Work status and typed Reference support DATA.
 pub fn local_work_lifecycle_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
-    compiler_descriptor(s, LOCAL_WORK_LIFECYCLE_DESCRIPTOR, LOCAL_WORK_LIFECYCLE_MANIFEST, work_lifecycle_assets::ARTIFACTS)
+    compiler_descriptor(
+        s,
+        LOCAL_WORK_LIFECYCLE_DESCRIPTOR,
+        LOCAL_WORK_LIFECYCLE_MANIFEST,
+        work_lifecycle_assets::ARTIFACTS,
+    )
 }
 /// Exact additive explicitly registered shared canonical namespace support DATA.
 pub fn local_shared_namespace_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
-    compiler_descriptor(s, LOCAL_SHARED_NAMESPACE_DESCRIPTOR, LOCAL_SHARED_NAMESPACE_MANIFEST, shared_namespace_assets::ARTIFACTS)
+    compiler_descriptor(
+        s,
+        LOCAL_SHARED_NAMESPACE_DESCRIPTOR,
+        LOCAL_SHARED_NAMESPACE_MANIFEST,
+        shared_namespace_assets::ARTIFACTS,
+    )
 }
 /// Exact fixed-stage lifecycle support DATA; selected consumers supply authority.
 pub fn local_stage_lifecycle_compiler_descriptor_with_session(
     s: &mut OriginalAuditSession,
 ) -> Result<SelectedDocument> {
-    compiler_descriptor(s, LOCAL_STAGE_LIFECYCLE_DESCRIPTOR, LOCAL_STAGE_LIFECYCLE_MANIFEST, stage_lifecycle_assets::ARTIFACTS)
+    compiler_descriptor(
+        s,
+        LOCAL_STAGE_LIFECYCLE_DESCRIPTOR,
+        LOCAL_STAGE_LIFECYCLE_MANIFEST,
+        stage_lifecycle_assets::ARTIFACTS,
+    )
+}
+/// Exact Stage successor with disjoint platform-funding evidence consumers.
+pub fn local_stage_lifecycle_v2_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(
+        s,
+        LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR,
+        LOCAL_STAGE_LIFECYCLE_V2_MANIFEST,
+        stage_lifecycle_v2_assets::ARTIFACTS,
+    )
 }
 #[cfg(test)]
 pub(super) fn legacy_descriptor_for_test(s: &mut OriginalAuditSession) -> Result<SelectedDocument> {

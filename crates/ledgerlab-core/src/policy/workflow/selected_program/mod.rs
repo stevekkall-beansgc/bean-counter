@@ -29,7 +29,7 @@ mod policy_decode;
 
 pub(in crate::policy::workflow) use compiler::finish_owned_document;
 
-mod local;
+pub(in crate::policy::workflow) mod local;
 mod local_admission;
 pub use local::{
     local_compiler_descriptor_with_session, local_conditional_compiler_descriptor_with_session,
@@ -38,5 +38,6 @@ pub use local::{
     local_policy_semantics_compiler_descriptor_with_session,
     local_shared_namespace_compiler_descriptor_with_session,
     local_stage_lifecycle_compiler_descriptor_with_session,
+    local_stage_lifecycle_v2_compiler_descriptor_with_session,
     local_work_lifecycle_compiler_descriptor_with_session,
 };

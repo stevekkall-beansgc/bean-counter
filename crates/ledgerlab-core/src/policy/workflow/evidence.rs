@@ -105,6 +105,25 @@ impl Reference {
         Ok(())
     }
 }
+#[derive(Clone, Copy)]
+enum EvidenceRecipe {
+    Legacy1,
+    PlatformFunding2,
+}
+impl EvidenceRecipe {
+    fn request_schema(self) -> &'static str {
+        match self {
+            Self::Legacy1 => "ledger-workflow-evidence-retain/1",
+            Self::PlatformFunding2 => "ledger-workflow-evidence-retain/2",
+        }
+    }
+    fn funding_mode(self) -> &'static str {
+        match self {
+            Self::Legacy1 => "customer_local",
+            Self::PlatformFunding2 => "platform",
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct EvidenceInput {
     body: Input,
@@ -113,10 +132,18 @@ pub struct EvidenceInput {
 }
 impl EvidenceInput {
     pub fn parse(raw: &[u8]) -> Result<Self> {
+        Self::parse_recipe(raw, EvidenceRecipe::Legacy1)
+    }
+    /// Exact additive platform funding DATA. No ownership, authority or origin
+    /// certificate is established by parsing; those checks remain consumers'.
+    pub fn parse_platform_funding(raw: &[u8]) -> Result<Self> {
+        Self::parse_recipe(raw, EvidenceRecipe::PlatformFunding2)
+    }
+    fn parse_recipe(raw: &[u8], recipe: EvidenceRecipe) -> Result<Self> {
         let parsed = canonical::parse_bounded(raw, 262144)?;
         reject_null(&parsed)?;
         let mut body: Input = canonical::dto(parsed)?;
-        if body.schema != "ledger-workflow-evidence-retain/1" {
+        if body.schema != recipe.request_schema() {
             return Err(fail("schema"));
         }
         id(&body.subject.customer, 128)?;
@@ -127,6 +154,11 @@ impl EvidenceInput {
             .contains(&body.media_type.as_str())
         {
             return Err(fail("media type"));
+        }
+        if matches!(recipe, EvidenceRecipe::PlatformFunding2)
+            && (body.purpose != "funding" || body.media_type != "text/plain;charset=utf-8")
+        {
+            return Err(fail("platform funding purpose/media"));
         }
         let content = crate::adjudication::proofs::decode_base64(&body.content_base64, 4096)?;
         if content.is_empty() {
@@ -149,10 +181,11 @@ impl EvidenceInput {
             "admission_stop" => Metadata::Stop(canonical::dto(body.metadata)?),
             _ => return Err(fail("unsupported purpose")),
         };
-        normalize_metadata(
+        normalize_metadata_recipe(
             &metadata,
             body.subject.agreement_id.is_some(),
             &mut NoopValidationWork,
+            recipe,
         )?;
         body.metadata = value(metadata)?;
         let bytes = CanonicalBytes::from_value(&body)?;
@@ -249,7 +282,12 @@ enum Metadata {
     Funding(Funding),
     Stop(Stop),
 }
-fn normalize_metadata(m: &Metadata, has_agreement: bool, w: &mut dyn ValidationWork) -> Result<()> {
+fn normalize_metadata_recipe(
+    m: &Metadata,
+    has_agreement: bool,
+    w: &mut dyn ValidationWork,
+    recipe: EvidenceRecipe,
+) -> Result<()> {
     w.visit(Visit::Constraint)?;
     match m {
         Metadata::Registration(m) => id_with_work(&m.acceptor, 128, w)?,
@@ -273,7 +311,7 @@ fn normalize_metadata(m: &Metadata, has_agreement: bool, w: &mut dyn ValidationW
         Metadata::Funding(m) => {
             id_with_work(&m.resource_owner, 128, w)?;
             id_with_work(&m.payer, 128, w)?;
-            if !same_text(&m.mode, "customer_local", w)? {
+            if !same_text(&m.mode, recipe.funding_mode(), w)? {
                 return Err(fail("funding mode"));
             }
         }

@@ -92,6 +92,81 @@ fn source_slot(
     slots.unique(m, a, original)
 }
 
+/// The successor Offer and accepted platform leg consume the same exact new
+/// evidence contract, retaining original root/subject/owner/time associations.
+fn platform_offer_evidence(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    records: &mut Records,
+    c: &DraftContextData,
+    selected: (&Value, &Value, &Value),
+) -> Result<()> {
+    if !program.uses_platform_funding_evidence_recipe() {
+        return Ok(());
+    }
+    let (binding, terms, offer) = selected;
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("platform Offer evidence owner"))?;
+    let name = shape::text(m, terms, "funding_leg")?;
+    let leg = named(m, binding, "funding_legs", name, "name")?;
+    literal(m, leg, "mode", "platform")?;
+    shape::equal(m, &leg["supplier_binding_slot"], &terms["slot"])?;
+    let metadata = a.object_from_fields(
+        &[
+            ("mode", &leg["mode"]),
+            ("resource_owner", &leg["resource_owner"]),
+            ("payer", &leg["payer"]),
+        ],
+        m,
+    )?;
+    let subject = a.object_from_fields(
+        &[
+            ("customer", &binding["customer"]),
+            ("agreement_id", &binding["agreement_id"]),
+        ],
+        m,
+    )?;
+    let funding = shape::array(m, leg, "evidence_refs")?;
+    // Offer support is not constrained to the funding leg. Every named record
+    // still joins its exact typed original provenance; retained2 additionally
+    // repeats this new evidence recipe at the Offer's original use boundary.
+    for value in shape::array(m, offer, "evidence_refs")? {
+        let reference = parse_owned_reference(m, &a, value)?;
+        let body = records.provenance(m, &c.key, reference.reference())?;
+        let schema = shape::text(m, &body, "schema")?;
+        if shape::same_text(m, schema, "ledger-workflow-retained-evidence/2")? {
+            inventory::evidence::retained_platform(
+                m,
+                records,
+                c,
+                &super::representation::InvocationToken::new(),
+                &body,
+                (subject.value(), &body["metadata"], binding, "accepted_at"),
+            )?;
+        }
+    }
+    let token = super::representation::InvocationToken::new();
+    for reference in funding {
+        let evidence = load(
+            m,
+            records,
+            &c.key,
+            reference,
+            "workflow-evidence",
+            "ledger-workflow-retained-evidence/2",
+        )?;
+        inventory::evidence::retained_platform(
+            m,
+            records,
+            c,
+            &token,
+            &evidence,
+            (subject.value(), metadata.value(), binding, "accepted_at"),
+        )?;
+    }
+    Ok(())
+}
 /// Preview reads only the actual normalized association inputs used by the
 /// commitment. Its primary supplier Terms/Offer refs are deliberately not read:
 /// those documents depend on this commitment. Actual acceptance repeats this
@@ -826,6 +901,13 @@ pub fn derive_local_supplier_consent_verifications(
                 &[],
             )?;
             shape::equal(m, &offer["commitment_ref"], &supplier["commitment_ref"])?;
+            platform_offer_evidence(
+                program,
+                m,
+                &mut records,
+                context,
+                (binding, &supplier, &offer),
+            )?;
             for field in ["agreement_id", "version"] {
                 shape::equal(m, &offer[field], &binding[field])?;
             }
@@ -1128,6 +1210,7 @@ fn validate_retained(
             "ledger-workflow-offer/4",
         )?;
         shape::equal(m, &offer["commitment_ref"], &supplier["commitment_ref"])?;
+        platform_offer_evidence(program, m, r, c, (binding, &supplier, &offer))?;
         let kind = a.string_value("supplier_commitment", m)?;
         let basis = a.object_from_fields(
             &[

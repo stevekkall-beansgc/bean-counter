@@ -13,7 +13,8 @@ use super::super::{
 use super::*;
 use crate::{
     policy::workflow::selected_program::{
-        local_stage_lifecycle_compiler_descriptor_with_session, SelectedCompilerSupport,
+        local_stage_lifecycle_compiler_descriptor_with_session,
+        local_stage_lifecycle_v2_compiler_descriptor_with_session, SelectedCompilerSupport,
     },
     validation_work::{self as w, OriginalAuditSession, RepresentationKind},
     Error, Result,
@@ -156,9 +157,10 @@ fn produce(
     raw: &[u8],
     root: &ExactRef,
     inputs: &[EconomicRecordView<'_>],
-    state: &CostAuthorityEnrollmentState,
+    selected: (&CostAuthorityEnrollmentState, &str),
     m: &mut CoreMeter,
 ) -> Result<EconomicCandidate> {
+    let (state, retained_schema) = selected;
     if !c.authorities.is_empty() || !c.source_observation_inputs.is_empty() {
         return Err(shape::fail(
             "pre-policy cost enrollment has no economic Binding capture",
@@ -228,13 +230,7 @@ fn produce(
     // remotely verified ownership or a source grant substituted for custody.
     for v in shape::array(m, &p, "evidence_refs")? {
         let r = shape::reference(m, v)?;
-        let evidence = records.get(
-            m,
-            &c.key,
-            &r,
-            "workflow-evidence",
-            "ledger-workflow-retained-evidence/1",
-        )?;
+        let evidence = records.get(m, &c.key, &r, "workflow-evidence", retained_schema)?;
         literal(m, &evidence, "purpose", "funding")?;
         shape::closed(
             m,
@@ -286,20 +282,36 @@ fn produce(
             &assertion["provider_account_identities"],
             &p["provider_account_identities"],
         )?;
-        inventory::evidence::retained(
-            m,
-            &mut records,
-            c,
-            &InvocationToken::new(),
-            &evidence,
-            "funding",
-            (
-                &evidence["subject"],
-                &evidence["metadata"],
-                before.value(),
-                "accepted_at",
-            ),
-        )?;
+        if retained_schema == "ledger-workflow-retained-evidence/2" {
+            inventory::evidence::retained_platform(
+                m,
+                &mut records,
+                c,
+                &InvocationToken::new(),
+                &evidence,
+                (
+                    &evidence["subject"],
+                    &evidence["metadata"],
+                    before.value(),
+                    "accepted_at",
+                ),
+            )?;
+        } else {
+            inventory::evidence::retained(
+                m,
+                &mut records,
+                c,
+                &InvocationToken::new(),
+                &evidence,
+                "funding",
+                (
+                    &evidence["subject"],
+                    &evidence["metadata"],
+                    before.value(),
+                    "accepted_at",
+                ),
+            )?;
+        }
     }
     let mut size = mem::size_of::<EconomicCandidate>()
         + 4 * mem::size_of::<CandidateEnvelope>()
@@ -473,19 +485,35 @@ pub fn construct_local_cost_authority_enrollment(
     s: &mut OriginalAuditSession,
 ) -> Result<LocalCostAuthorityEnrollment> {
     let result = (|| {
-        let exact = local_stage_lifecycle_compiler_descriptor_with_session(s)?;
-        if !shape::same_bytes(
+        let legacy = local_stage_lifecycle_compiler_descriptor_with_session(s)?;
+        let retained_schema = if shape::same_bytes(
             s.meter_mut(),
             support.canonical_bytes(),
-            exact.canonical_bytes(),
-        )? || support.execution_registry().is_none()
+            legacy.canonical_bytes(),
+        )? {
+            "ledger-workflow-retained-evidence/1"
+        } else {
+            let successor = local_stage_lifecycle_v2_compiler_descriptor_with_session(s)?;
+            if !shape::same_bytes(
+                s.meter_mut(),
+                support.canonical_bytes(),
+                successor.canonical_bytes(),
+            )? {
+                return Err(shape::fail(
+                    "exact code-owned Stage management support required",
+                ));
+            }
+            "ledger-workflow-retained-evidence/2"
+        };
+        if support.execution_registry()
+            != Some(
+                crate::policy::workflow::selected_program::local::LOCAL_STAGE_LIFECYCLE_REGISTRY,
+            )
         {
-            return Err(shape::fail(
-                "exact code-owned Stage management support required",
-            ));
+            return Err(shape::fail("exact Stage account registry"));
         }
         let mut child = s.meter_mut().local_economic_meter()?;
-        let candidate = produce(c, raw, root, inputs, state, &mut child)?;
+        let candidate = produce(c, raw, root, inputs, (state, retained_schema), &mut child)?;
         s.meter_mut().finish_local_economic(child)?;
         let evidence = super::super::local_financial_evidence::cost_enrollment(
             support, raw, &candidate, inputs, s,

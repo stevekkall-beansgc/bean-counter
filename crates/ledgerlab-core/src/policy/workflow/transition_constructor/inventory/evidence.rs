@@ -262,6 +262,38 @@ pub(in crate::policy::workflow::transition_constructor) fn retained(
         (subject, metadata, before_doc, before_key),
     )
 }
+/// Exact successor platform evidence. Grammar selection precedes intrinsic
+/// reuse; all existing subject/root/mode/time/digest checks remain shared.
+pub(in crate::policy::workflow::transition_constructor) fn retained_platform(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    o: &InvocationToken,
+    e: &Value,
+    selected: (&Value, &Value, &Value, &str),
+) -> Result<()> {
+    let schema = shape::text(m, e, "schema")?;
+    if !shape::same_text(m, schema, "ledger-workflow-retained-evidence/2")? {
+        return Err(shape::fail("exact platform retained evidence schema"));
+    }
+    for (value, field, want) in [
+        (e, "purpose", "funding"),
+        (e, "media_type", "text/plain;charset=utf-8"),
+        (&e["metadata"], "mode", "platform"),
+    ] {
+        let actual = shape::text(m, value, field)?;
+        if !shape::same_text(m, actual, want)? {
+            return Err(shape::fail(
+                "exact platform retained evidence purpose/media/mode",
+            ));
+        }
+    }
+    shape::closed(m, &e["metadata"], &["resource_owner", "payer", "mode"], &[])?;
+    for field in ["resource_owner", "payer"] {
+        super::binding::id(m, &e["metadata"][field], 128)?;
+    }
+    retained_data(m, r, c, o, e, "funding", selected)
+}
 fn retained_data(
     m: &mut CoreMeter,
     r: &mut Records,

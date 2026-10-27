@@ -495,7 +495,9 @@ pub fn select_local_input_edges(
             "ledger-workflow-party-authorization/1" | "ledger-workflow-party-authorization/2" => {
                 Some(&["evidence_ref", "operator_attestation_ref", "authority_ref"])
             }
-            "ledger-workflow-retained-evidence/1" => Some(&["authority_ref"]),
+            "ledger-workflow-retained-evidence/1" | "ledger-workflow-retained-evidence/2" => {
+                Some(&["authority_ref"])
+            }
             "ledger-workflow-slot-binding-terms/8" => Some(&[
                 "role_ref",
                 "source_grant_refs",
