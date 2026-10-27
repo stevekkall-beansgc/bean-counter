@@ -47,8 +47,7 @@ pub(super) async fn select(
             &key.scope,
             enrollment,
             &source.enrollment_ref().id,
-            &key.source,
-            namespace,
+            (&key.source, namespace),
             s,
         )
         .await

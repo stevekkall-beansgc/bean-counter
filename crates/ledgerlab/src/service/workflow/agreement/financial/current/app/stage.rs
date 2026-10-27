@@ -357,7 +357,22 @@ pub(super) async fn retain_stage_operation(
         )?;
         pool.add(&reference, s)?;
     }
-    work_heads::prepare_stage_members(state, locator.expected_work_heads().len(), s)?;
+    let closure_count = usize::from(locator.closure_decision_id().is_some());
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Add,
+            &[
+                &locator.expected_work_heads().len().into(),
+                &closure_count.into(),
+            ],
+        )
+        .map_err(core_error)?;
+    let count = locator
+        .expected_work_heads()
+        .len()
+        .checked_add(closure_count)
+        .ok_or(ServiceError::Unavailable)?;
+    work_heads::prepare_stage_members(state, count, s)?;
     for expected in locator.expected_work_heads() {
         s.semantic_work()
             .visit(ValidationVisit::Element)
@@ -407,6 +422,18 @@ pub(super) async fn retain_stage_operation(
             let reference = read_head_reference(&head, s)?;
             check::same_text(&reference.kind, "workflow-correction-capacity", s)?;
             work_heads::retain_stage_capacity(state, expected.decision_id(), &head, &reference, s)?;
+            pool.add(&reference, s)?;
+        }
+    }
+    if let Some(id) = locator.closure_decision_id() {
+        if let Some(head) = tx
+            .workflow_financial_head(&key.logical_store_id, &key.scope, HeadKey::Decision(id), s)
+            .await
+            .map_err(prefix::read_error)?
+        {
+            let reference = read_head_reference(&head, s)?;
+            check::same_text(&reference.kind, "workflow-decision", s)?;
+            work_heads::retain_stage_decision(state, id, &head, &reference, s)?;
             pool.add(&reference, s)?;
         }
     }

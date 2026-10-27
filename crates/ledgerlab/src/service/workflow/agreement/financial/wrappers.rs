@@ -1153,7 +1153,8 @@ pub(super) fn descriptor_schema(
         return stage_lifecycle_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
-    }    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+    }
+    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
         return declared_link_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
@@ -1248,7 +1249,8 @@ pub(super) fn recipe(
         return stage_lifecycle_recipe(kind, payload, session)?
             .map(|(recipe, _)| recipe)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
-    }    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
+    }
+    if equal_text(registry, DECLARED_LINK_REGISTRY, session)? {
         return declared_link_recipe(kind, payload, session)?
             .map(|(recipe, _)| recipe)
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));

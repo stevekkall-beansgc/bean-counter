@@ -512,7 +512,7 @@ impl SqliteTx {
                 let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
                 self.financial_reserve_io(session, payload)?;
                 let present:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND receipt_id=? AND receipt_digest=? AND commit_sequence<?)")
-                    .bind(&key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1]).bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
+                    .bind(key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1]).bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
                 self.financial_finish_io(session).await?;
                 if !present { return Err(StoreError::Integrity("alias receipt member is not an earlier scoped original").into()); }
             } else {

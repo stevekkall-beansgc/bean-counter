@@ -115,8 +115,7 @@ impl ManagementObservation {
                 &key.scope,
                 enrolled,
                 &source.enrollment_ref().id,
-                &key.source,
-                namespace,
+                (&key.source, namespace),
                 s,
             )
             .await

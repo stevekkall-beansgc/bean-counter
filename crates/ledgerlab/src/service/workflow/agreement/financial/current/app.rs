@@ -181,11 +181,10 @@ pub(in super::super) async fn observe(
             let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
             observed.parties.as_mut().ok_or(ServiceError::IntegrityFailure)?.observe_supplier_current(tx,key,binding.value(),&observed.at,observed.before,session).await?;
         }
-        if observed.activation.is_none() {
-            if !stage::retain_original_work_activation(&mut observed,tx,key,payload,session).await? {
-                let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
-                observed.activation = Some(observed.original.current_initial_activation(tx,key,binding.value(),&observed.at,observed.before,session).await?);
-            }
+        if observed.activation.is_none()
+            && !stage::retain_original_work_activation(&mut observed,tx,key,payload,session).await? {
+            let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            observed.activation = Some(observed.original.current_initial_activation(tx,key,binding.value(),&observed.at,observed.before,session).await?);
         }
         if observed
             .original
@@ -753,8 +752,23 @@ async fn observe_binding(
             {
                 None
             } else if original.publication.program().uses_stage_lifecycle_recipe()
-                && matches!(operation, "invocation.close" | "outcome.submit" | "quantity.correct" | "work.reverse") {
-                Some(prefix::original_platforms_for_binding(ledger,tx,key,binding_ref,binding.value(),before,session).await?)
+                && matches!(
+                    operation,
+                    "invocation.close" | "outcome.submit" | "quantity.correct" | "work.reverse"
+                )
+            {
+                Some(
+                    prefix::original_platforms_for_binding(
+                        ledger,
+                        tx,
+                        key,
+                        binding_ref,
+                        binding.value(),
+                        before,
+                        session,
+                    )
+                    .await?,
+                )
             } else {
                 Some(
                     original

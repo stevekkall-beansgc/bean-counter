@@ -164,7 +164,8 @@ class StageJourney(MeteredJourney):
         kinds = ["workflow-roles", "workflow-roles", "workflow-slot-catalog", "workflow-slot-instantiation", "workflow-slot-terms"]
         records = [{"reference": reference(kind, body), "body": body} for kind, body in zip(kinds, documents)]
         preview = {"publication_payload": pub_payload, "key": self.key("supplier-commitment-preview"),
-            "binding_inputs": binding, "supplier_terms_projection": supplier, "records": records}
+            "binding_inputs": {**binding, "authority_refs": self.accepted_grants()},
+            "supplier_terms_projection": supplier, "records": records}
         self.command("prepare-supplier-commitment", [self.args.supplier_helper,
             self.write("supplier-commitment.input.json", preview), self.inputs, "--operator-resources"])
         commitment = json.loads((self.inputs / "supplier-commitment.json").read_bytes())

@@ -11,6 +11,48 @@ pub(super) mod inventory;
 mod members;
 mod programs;
 mod publication;
+/// Reconstruct the exact accepted commercial promise under its own completed
+/// prefix. Terminal Stage consumers retain original mappings; actual current
+/// operation sources, custody and held heads are checked by their caller.
+pub(super) async fn original_platforms_for_binding(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    binding: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<super::acceptance::CurrentPlatformConsents> {
+    let mut original = acceptance_for_original(ledger, tx, key, reference, before, s).await?;
+    let cutoff = original
+        ._origin
+        .wrappers()
+        .sequence()
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Add,
+            &[&original._origin.wrappers().sequence().into(), &1i64.into()],
+        )
+        .map_err(core_error)?;
+    original
+        .acceptance
+        .audited()?
+        .original_platforms(
+            tx,
+            original._origin.key(),
+            binding,
+            cutoff,
+            original
+                ._prefix
+                .as_mut()
+                .ok_or(ServiceError::IntegrityFailure)?,
+            s,
+        )
+        .await
+}
+
 #[cfg(test)]
 impl OriginInput {
     pub(super) fn key(&self) -> &OperationKey {
@@ -1926,17 +1968,4 @@ mod tests {
             assert_eq!(arena.usage().unwrap().live_bytes, baseline);
         }
     }
-}
-
-/// Reconstruct the exact accepted commercial promise under its own completed
-/// prefix. Terminal Stage consumers retain original mappings; actual current
-/// operation sources, custody and held heads are checked by their caller.
-pub(super) async fn original_platforms_for_binding(
-    ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,key:&OperationKey,reference:&Value,
-    binding:&Value,before:i64,s:&mut OriginalAuditSession,
-)->Result<super::acceptance::CurrentPlatformConsents> {
-    let mut original=acceptance_for_original(ledger,tx,key,reference,before,s).await?;
-    let cutoff=original._origin.wrappers().sequence().checked_add(1).ok_or(ServiceError::IntegrityFailure)?;
-    s.semantic_work().arithmetic(Op::Add,&[&original._origin.wrappers().sequence().into(),&1i64.into()]).map_err(core_error)?;
-    original.acceptance.audited()?.original_platforms(tx,original._origin.key(),binding,cutoff,original._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,s).await
 }

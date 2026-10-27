@@ -77,10 +77,14 @@ pub(in super::super::super) async fn observe(
             RepresentationKind::Record,
         )
         .map_err(core_error)?;
-    o.activation = Some(if kind=="invocation.authorize" {
-        o.original.current_initial_activation(tx,key,original_binding.value(),&o.at,o.before,s).await?
-    }else{
-        o.original.original_initial_activation(tx,key,original_binding.value(),&o.at,o.before,s).await?
+    o.activation = Some(if kind == "invocation.authorize" {
+        o.original
+            .current_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)
+            .await?
+    } else {
+        o.original
+            .original_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)
+            .await?
     });
     require(
         o.original
@@ -140,8 +144,10 @@ pub(in super::super::super) async fn observe(
         work_heads::unattached_state(o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?, s)?
     };
     state.financial.work_claims.clear();
-    super::stage::retain_invocation_operation(&mut o,&mut state,&mut pool,tx,key,payload,s).await?;
-    super::stage::retain_stage_operation(&mut o,&mut state,&mut pool,tx,key,payload,s).await?;
+    super::stage::retain_invocation_operation(&mut o, &mut state, &mut pool, tx, key, payload, s)
+        .await?;
+    super::stage::retain_stage_operation(&mut o, &mut state, &mut pool, tx, key, payload, s)
+        .await?;
     if let Some(report) = locators.selector_start_work_heads() {
         let held =
             work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)
@@ -270,12 +276,16 @@ pub(in super::super::super) async fn observe(
     if let Some(b) = o.work_source_birth.as_ref() {
         pool.add(b.state.reference(), s)?;
         pool.add(b.grant.reference(), s)?;
-        for input in b.namespace_owner_views() { pool.add(input.reference, s)?; }
+        for input in b.namespace_owner_views() {
+            pool.add(input.reference, s)?;
+        }
     }
     for birth in &o.namespace_source_births {
         pool.add(birth.state.reference(), s)?;
         pool.add(birth.grant.reference(), s)?;
-        for input in birth.namespace_owner_views() { pool.add(input.reference, s)?; }
+        for input in birth.namespace_owner_views() {
+            pool.add(input.reference, s)?;
+        }
     }
     if let Some(a) = o.activation.as_ref() {
         pool.add(a.head.reference(), s)?;
@@ -297,8 +307,11 @@ pub(in super::super::super) async fn observe(
             .retain_current_root_predecessor(
                 o.original.publication.program(),
                 &ck,
-                &state.financial.decision_heads,
-                &state.capacities,
+                (
+                    &state.financial.decision_heads,
+                    &state.capacities,
+                    &state.financial.stage_heads,
+                ),
                 &pool.views(),
                 s,
             )
@@ -486,7 +499,12 @@ pub(in super::super::super) async fn observe(
             evidence_consumption_refs: &extra.consumed,
         };
         let (correspondences, _correspondence_owner) = work_capture::source_correspondences(&o, s)?;
-        let supplier=core::SupplierStateData{invocation_heads:&state.invocations,cost_heads:&[],cost_consumption_heads:&[],cost_owner_heads:&[]};
+        let supplier = core::SupplierStateData {
+            invocation_heads: &state.invocations,
+            cost_heads: &[],
+            cost_consumption_heads: &[],
+            cost_owner_heads: &[],
+        };
         let data = core::EconomicStateData {
             retained_assertion: extra.assertion.as_ref(),
             financial: &state.financial,
@@ -604,7 +622,9 @@ fn outcome_proof_payload<'a>(
 
 fn core_operation_kind(payload: &Value, s: &mut OriginalAuditSession) -> Result<&'static str> {
     Ok(match check::text(payload, "schema", s)? {
-        "ledger-workflow-invocation-authorize/1" | "ledger-workflow-stage-authorize/1" => "invocation.authorize",
+        "ledger-workflow-invocation-authorize/1" | "ledger-workflow-stage-authorize/1" => {
+            "invocation.authorize"
+        }
         "ledger-workflow-invocation-close/1" => "invocation.close",
         "ledger-workflow-stage-close/1" => "outcome.submit",
         "ledger-workflow-fact-attest/1"

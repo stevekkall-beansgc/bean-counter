@@ -1263,18 +1263,10 @@ async fn prepare_selected(
         consents.supplier = supplier::derive(
             tx,
             incoming.key(),
-            &input,
-            &publication,
-            &private_documents,
-            &binding,
-            &local_root,
-            &sources,
-            source,
-            &consents,
-            &setup.operator,
-            &at,
-            before,
-            false,
+            (&input, &publication, &private_documents),
+            (&binding, &local_root, &consents),
+            (&sources, source),
+            (&setup.operator, &at, before, false),
             session,
         )
         .await?;

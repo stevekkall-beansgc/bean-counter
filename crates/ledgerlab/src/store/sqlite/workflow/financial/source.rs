@@ -341,10 +341,10 @@ impl SqliteTx {
         scope: &[String; 2],
         enrollment: &str,
         document: &str,
-        source: &str,
-        namespace: &str,
+        mapping: (&str, &str),
         session: &mut OriginalAuditSession,
     ) -> Result<bool, FinancialReadError> {
+        let (source, namespace) = mapping;
         if self.failed
             || self
                 .workflow_proof_failed

@@ -640,7 +640,7 @@ pub(super) async fn required_role_registrations(
         let enrollment = check::text(source.enrollment_record().body(), "enrollment_id", s)?;
         let registered = if observed.original.publication.program().uses_shared_namespace_recipe() {
             tx.workflow_financial_registered_mapping(&key.logical_store_id, &key.scope,
-                enrollment, &source.enrollment_ref().id, name, namespace, s).await
+                enrollment, &source.enrollment_ref().id, (name, namespace), s).await
         } else {
             check::same_text(namespace, name, s)?;
             tx.workflow_financial_registered_source(&key.logical_store_id, &key.scope,
@@ -909,7 +909,7 @@ pub(super) fn source_correspondences<'a>(
     for birth in observed.work_source_birth.iter().chain(observed.namespace_source_births.iter()) {
         s.semantic_work().visit(ValidationVisit::Element).map_err(core_error)?;
         if let Some(correspondence) = birth.correspondence() {
-            s.semantic_work().write_bytes(mem::size_of_val(&correspondence)).map_err(core_error)?;
+            s.semantic_work().write_bytes(mem::size_of::<&ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>()).map_err(core_error)?;
             refs.push(correspondence);
         }
     }

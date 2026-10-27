@@ -1009,7 +1009,7 @@ impl Coverage {
                 && matches!(snapshot, PlatformSnapshot::Original)
             {
                 result
-                    .observe_supplier_at(tx, key, binding, at, before, Some(prefix), s)
+                    .observe_supplier_at(tx, key, binding, (at, before, Some(prefix)), s)
                     .await?;
             }
             Ok(result)
@@ -1155,20 +1155,18 @@ impl CurrentPlatformConsents {
         before: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        self.observe_supplier_at(tx, key, binding, at, before, None, s)
+        self.observe_supplier_at(tx, key, binding, (at, before, None), s)
             .await
     }
-    #[allow(clippy::too_many_arguments)]
     async fn observe_supplier_at(
         &mut self,
         tx: &mut SqliteTx,
         key: &OperationKey,
         binding: &Value,
-        at: &Timestamp,
-        before: i64,
-        mut historical: Option<&mut prefix::FoldedInventory>,
+        context: (&Timestamp, i64, Option<&mut prefix::FoldedInventory>),
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        let (at, before, mut historical) = context;
         require(self.supplier.is_empty(), "INTEGRITY_FAILURE")?;
         let refs = request_wrapper::field(binding, "assent_refs", s)?
             .as_array()

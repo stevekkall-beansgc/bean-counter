@@ -85,24 +85,26 @@ fn retain_head(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn derive(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    input: &AppAcceptanceInput,
-    publication: &prefix::RecompiledPublication,
-    documents: &private::InlineDocuments,
-    binding: &wire::SourceRecord,
-    root: &wire::SourceRecord,
-    sources: &[current::source::ObservedSource],
-    admission_source: &current::source::ObservedSource,
-    consents: &consent::Coverage,
-    actor: &str,
-    at: &Timestamp,
-    before: i64,
-    historical: bool,
+    selected: (
+        &AppAcceptanceInput,
+        &prefix::RecompiledPublication,
+        &private::InlineDocuments,
+    ),
+    pending: (&wire::SourceRecord, &wire::SourceRecord, &consent::Coverage),
+    source_inputs: (
+        &[current::source::ObservedSource],
+        &current::source::ObservedSource,
+    ),
+    capture: (&str, &Timestamp, i64, bool),
     s: &mut OriginalAuditSession,
 ) -> Result<Option<SupplierCoverage>> {
+    let (input, publication, documents) = selected;
+    let (binding, root, consents) = pending;
+    let (sources, admission_source) = source_inputs;
+    let (actor, at, before, historical) = capture;
     if !publication.program().uses_stage_lifecycle_recipe() {
         return Ok(None);
     }
@@ -242,9 +244,15 @@ pub(super) async fn derive(
         .map_err(core_error)?;
     // This is the actual selected source birth, authenticated by held owner
     // custody on admission and original producer/prefix custody on replay.
-    let mode=request_wrapper::text(admission_source.enrollment_record().body(),"installation_mode",s)?;
-    let grant=admission_source.current_grant_body().ok_or(ServiceError::IntegrityFailure)?;
-    let namespace=request_wrapper::text(grant,"canonical_economic_namespace",s)?;
+    let mode = request_wrapper::text(
+        admission_source.enrollment_record().body(),
+        "installation_mode",
+        s,
+    )?;
+    let grant = admission_source
+        .current_grant_body()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let namespace = request_wrapper::text(grant, "canonical_economic_namespace", s)?;
     let (context, _context_owner, _key_owner) = super::super::local_cost_authority::context(
         key,
         actor,
