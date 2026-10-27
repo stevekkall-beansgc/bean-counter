@@ -1065,6 +1065,10 @@ mod platform_funding_tests {
             &mut session,
         )
         .unwrap();
+        // Source compilation and this independent retained-input consumption
+        // are distinct attempts. Keep actual Program/support owners alive in
+        // the same paid arena; never reopen the completed compiler child.
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let mut retained = Records::borrowed_parent_selected(
             session.meter_mut(),
             &arena,
