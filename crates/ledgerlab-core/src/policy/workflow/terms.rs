@@ -405,6 +405,25 @@ impl SlotBindingTerms {
         slot_owned::normalize(raw, session)
     }
 
+    /// Exact selected Stage Terms3/Terms8 normalization DATA. This does not
+    /// establish consent, accepted nomination, custody or execution authority.
+    pub fn normalize_stage_private_with_session(
+        program: &super::selected_program::SelectedProgram,
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        slot_owned::normalize_stage(program, raw, false, session)
+    }
+    /// Terms8 preview excludes exactly schema, offer_ref and commitment_ref;
+    /// the producer derives their acyclic commitment before the final terms.
+    pub fn normalize_stage_supplier_projection_with_session(
+        program: &super::selected_program::SelectedProgram,
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        slot_owned::normalize_stage(program, raw, true, session)
+    }
+
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
