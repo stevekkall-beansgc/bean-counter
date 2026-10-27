@@ -371,7 +371,7 @@
   ],
   "root_policy_ref": {
     "kind": "workflow-policy",
-    "id": "wdoc_51525e705a0f49e3be1e0441d744b2fba33d3b3652eec5dae1d5a54cb929d5e2",
-    "digest": "sha256:51525e705a0f49e3be1e0441d744b2fba33d3b3652eec5dae1d5a54cb929d5e2"
+    "id": "wdoc_205c18926e6427118b4b365c13228513bd50c547af6f37e1d334d77583e02e73",
+    "digest": "sha256:205c18926e6427118b4b365c13228513bd50c547af6f37e1d334d77583e02e73"
   }
 }
