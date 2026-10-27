@@ -356,7 +356,7 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_funding_evid
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning funding evidence"))?;
-    let funding = shape::array(m, &binding, "funding_legs")?;
+    let funding = shape::array(m, binding, "funding_legs")?;
     // All original funding evidence retains its exact purpose/subject/metadata;
     // its actual original authentication is completed by the host origin driver.
     for leg in funding {
@@ -392,7 +392,7 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_funding_evid
                     c,
                     owner,
                     &evidence,
-                    (subject.value(), metadata.value(), &binding, "accepted_at"),
+                    (subject.value(), metadata.value(), binding, "accepted_at"),
                 )?;
             } else {
                 inventory::evidence::retained(
@@ -402,7 +402,7 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_funding_evid
                     owner,
                     &evidence,
                     "funding",
-                    (subject.value(), metadata.value(), &binding, "accepted_at"),
+                    (subject.value(), metadata.value(), binding, "accepted_at"),
                 )?;
             }
         }
@@ -986,4 +986,101 @@ pub(in crate::policy::workflow::transition_constructor) fn stage_component(
         ),
         (binding_ref, selected_terms, source),
     )
+}
+
+#[cfg(test)]
+mod platform_funding_tests {
+    use super::*;
+    use crate::policy::workflow::selected_program::{
+        compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+    };
+    use crate::{
+        canonical::{self, audit_arena::AuditArena},
+        validation_work::{OriginalAuditSession, ResourceLimits},
+    };
+
+    /// Actual producer DATA is emitted only after the host transaction and its
+    /// original account verification have passed complete rollback checks.
+    #[test]
+    #[ignore = "requires host-produced retained2/root DATA after complete rollback"]
+    fn platform_funding_actual_retained_output_reaches_same_binding_consumer() {
+        let path = std::env::var("WAVE_PLATFORM_FUNDING_INPUT").expect("actual host output path");
+        let data: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let ctx = &data["context"];
+        let text = |key: &str| ctx[key].as_str().unwrap().to_owned();
+        let context = DraftContextData {
+            key: serde_json::from_value(ctx["key"].clone()).unwrap(),
+            actor: text("actor"),
+            canonical_economic_namespace: text("canonical_economic_namespace"),
+            installation_mode: text("installation_mode"),
+            received_at: text("received_at"),
+            accepted_at: text("accepted_at"),
+            authorities: Vec::new(),
+            source_observation_inputs: Vec::new(),
+        };
+        let records = data["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| RecordInput {
+                reference: serde_json::from_value(row["reference"].clone()).unwrap(),
+                canonical_body: canonical::CanonicalBytes::from_value(&row["body"])
+                    .unwrap()
+                    .into_vec(),
+            })
+            .collect::<Vec<_>>();
+        let views = records
+            .iter()
+            .map(|row| EconomicRecordView {
+                reference: &row.reference,
+                canonical_body: &row.canonical_body,
+            })
+            .collect::<Vec<_>>();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut session)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                canonical::CanonicalBytes::from_value(row)
+                    .unwrap()
+                    .into_vec()
+            })
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut session,
+        )
+        .unwrap();
+        let mut retained = Records::borrowed_parent_selected(
+            session.meter_mut(),
+            &arena,
+            &context.key,
+            &views,
+            &program,
+        )
+        .unwrap();
+        validate_funding_evidence(
+            session.meter_mut(),
+            &mut retained,
+            &context,
+            &program,
+            &data["binding"],
+            &InvocationToken::new(),
+        )
+        .unwrap();
+    }
 }

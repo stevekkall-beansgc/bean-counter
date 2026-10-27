@@ -130,3 +130,71 @@ fn owning_six_purpose_normalization_matches_same_legacy_rules_and_releases_paylo
         }
     }
 }
+
+#[test]
+fn platform_funding_v2_codecs_are_disjoint_and_preserve_content() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let legacy = payloads()
+        .into_iter()
+        .find(|v| v["purpose"] == "funding")
+        .unwrap();
+    let old =
+        EvidenceInput::parse(CanonicalBytes::from_value(&legacy).unwrap().as_slice()).unwrap();
+    let mut value = legacy.clone();
+    value["schema"] = json!("ledger-workflow-evidence-retain/2");
+    value["metadata"]["mode"] = json!("platform");
+    value["media_type"] = json!("text/plain;charset=utf-8");
+    let raw = CanonicalBytes::from_value(&value).unwrap();
+    let new = EvidenceInput::parse_platform_funding(raw.as_slice()).unwrap();
+    assert_eq!(new.content(), old.content());
+    assert_eq!(new.content_sha256(), old.content_sha256());
+    assert_eq!(new.canonical_bytes(), raw.as_slice());
+    assert!(EvidenceInput::parse(raw.as_slice()).is_err());
+    assert!(EvidenceInput::parse_platform_funding(old.canonical_bytes()).is_err());
+    let mut old_platform = legacy.clone();
+    old_platform["metadata"]["mode"] = json!("platform");
+    assert!(EvidenceInput::parse(
+        CanonicalBytes::from_value(&old_platform)
+            .unwrap()
+            .as_slice()
+    )
+    .is_err());
+    let arena = AuditArena::new().unwrap();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let owning = OwnedEvidenceInput::normalize_platform_funding(&value, &mut session).unwrap();
+    assert_eq!(owning.canonical_bytes(), raw.as_slice());
+    assert_eq!(owning.content(), old.content());
+    drop(owning);
+    assert_eq!(baseline, arena.usage().unwrap().live_bytes);
+    for (field, wrong) in [
+        ("schema", json!("ledger-workflow-evidence-retain/99")),
+        ("purpose", json!("assent")),
+        ("media_type", json!("application/octet-stream")),
+        ("content_sha256", json!("0".repeat(64))),
+        (
+            "metadata",
+            json!({"mode":"customer_local","payer":"platform","resource_owner":"platform"}),
+        ),
+        (
+            "metadata",
+            json!({"mode":"platform","payer":"platform","resource_owner":"platform","extra":true}),
+        ),
+    ] {
+        let mut bad = value.clone();
+        bad[field] = wrong;
+        assert!(
+            EvidenceInput::parse_platform_funding(
+                CanonicalBytes::from_value(&bad).unwrap().as_slice()
+            )
+            .is_err(),
+            "{field}"
+        );
+        let mut isolated = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(
+            OwnedEvidenceInput::normalize_platform_funding(&bad, &mut isolated).is_err(),
+            "{field}"
+        );
+        assert_eq!(baseline, arena.usage().unwrap().live_bytes);
+    }
+}

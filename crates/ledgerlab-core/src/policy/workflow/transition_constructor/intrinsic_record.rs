@@ -1017,4 +1017,39 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(raw.usage(), generic.usage());
     }
+    #[test]
+    fn platform_funding_intrinsic_data_is_exact_and_does_not_change_legacy_factory() {
+        let mut input = funding();
+        rebind(&mut input, |body| {
+            body["schema"] = json!("ledger-workflow-retained-evidence/2");
+            body["metadata"]["mode"] = json!("platform");
+            body["media_type"] = json!("text/plain;charset=utf-8");
+        });
+        let anchor = owner();
+        let mut m = CoreMeter::new(65536).unwrap();
+        let record = validate_platform_funding_evidence_with_work(&anchor, &input, &mut m).unwrap();
+        assert_eq!(
+            record.retained_evidence().purpose(),
+            EvidencePurpose::Funding
+        );
+        let mut legacy = CoreMeter::new(65536).unwrap();
+        assert!(validate_retained_evidence_with_work(&anchor, &input, &mut legacy).is_err());
+        for (field, value) in [
+            ("schema", json!("ledger-workflow-retained-evidence/1")),
+            ("media_type", json!("application/octet-stream")),
+            ("purpose", json!("source_enrollment")),
+            (
+                "metadata",
+                json!({"resource_owner":"platform","payer":"platform","mode":"customer_local"}),
+            ),
+        ] {
+            let mut wrong = input.clone();
+            rebind(&mut wrong, |body| body[field] = value);
+            let mut m = CoreMeter::new(65536).unwrap();
+            assert!(
+                validate_platform_funding_evidence_with_work(&anchor, &wrong, &mut m).is_err(),
+                "{field}"
+            );
+        }
+    }
 }

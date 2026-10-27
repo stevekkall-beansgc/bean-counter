@@ -415,4 +415,88 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn platform_funding_stage_successor_compiles_and_reloads_exactly() {
+        let arena =
+            AuditArena::with_resource_limits(crate::validation_work::ResourceLimits::unlimited())
+                .unwrap();
+        let mut old_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let old =
+            SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut old_session)
+                .unwrap();
+        let mut new_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let new = SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(
+            &mut new_session,
+        )
+        .unwrap();
+        assert_ne!(old.reference(), new.reference());
+        assert_eq!(old.execution_registry(), new.execution_registry());
+        let input = |raw: &[u8], support: &SelectedCompilerSupport| {
+            let fixture: Value = serde_json::from_slice(raw).unwrap();
+            let policy = fixture["documents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["schema"] == "ledger-workflow-policy/4")
+                .unwrap();
+            assert_eq!(
+                document_digest("ledger-workflow-policy/4", policy).unwrap(),
+                fixture["root_policy_ref"]["digest"].as_str().unwrap(),
+                "immutable fixture root"
+            );
+            assert_eq!(
+                policy["compiler_ref"],
+                serde_json::to_value(support.reference()).unwrap(),
+                "immutable fixture compiler"
+            );
+            let mut documents = fixture["documents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                .collect::<Vec<_>>();
+            documents.push(support.canonical_bytes().to_vec());
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(fixture["root_policy_ref"].clone())
+                    .unwrap(),
+            }
+        };
+        let old_raw = include_bytes!("../../../../../../examples/workflow-stage/source.json");
+        let new_raw = include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        );
+        let old_program =
+            compile_selected_publication(input(old_raw, &old), &old, &mut old_session).unwrap();
+        let new_program =
+            compile_selected_publication(input(new_raw, &new), &new, &mut new_session).unwrap();
+        assert!(!old_program.uses_platform_funding_evidence_recipe());
+        assert!(new_program.uses_platform_funding_evidence_recipe());
+        assert!(
+            old_program.uses_stage_lifecycle_recipe() && new_program.uses_stage_lifecycle_recipe()
+        );
+        for (raw, support, program) in [
+            (old_raw.as_slice(), &old, &old_program),
+            (new_raw.as_slice(), &new, &new_program),
+        ] {
+            let mut replay = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let loaded = load_local_selected_execution(
+                input(raw, support),
+                program.compiled_plan().canonical_bytes(),
+                program.compiled_plan().reference(),
+                &mut replay,
+            )
+            .unwrap();
+            assert_eq!(
+                loaded.compiler_descriptor_ref(),
+                program.compiler_descriptor_ref()
+            );
+            assert_eq!(
+                loaded.uses_platform_funding_evidence_recipe(),
+                program.uses_platform_funding_evidence_recipe()
+            );
+        }
+        let mut foreign = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(compile_selected_publication(input(old_raw, &old), &new, &mut foreign).is_err());
+    }
 }
