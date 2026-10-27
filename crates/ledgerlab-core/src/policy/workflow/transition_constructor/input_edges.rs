@@ -496,6 +496,36 @@ pub fn select_local_input_edges(
                 Some(&["evidence_ref", "operator_attestation_ref", "authority_ref"])
             }
             "ledger-workflow-retained-evidence/1" => Some(&["authority_ref"]),
+            "ledger-workflow-slot-binding-terms/8" => Some(&[
+                "role_ref",
+                "source_grant_refs",
+                "offer_ref",
+                "commitment_ref",
+                "cost_authority_ref",
+            ]),
+            "ledger-workflow-offer/4" => Some(&["role_refs", "evidence_refs", "commitment_ref"]),
+            "ledger-workflow-party-assent/3" => {
+                Some(&["consent", "evidence_ref", "operator_attestation_ref"])
+            }
+            "ledger-workflow-supplier-consent-verification/2" => Some(&[
+                "publication_ref",
+                "compiled_plan_ref",
+                "commitment_ref",
+                "offer_ref",
+                "supplier_terms_ref",
+                "acceptance_terms_ref",
+                "customer_assent_refs",
+                "party_assent_refs",
+                "original_party_authorization_refs",
+                "current_party_authorization_refs",
+                "local_admin_ref",
+            ]),
+            "ledger-workflow-allocation/1" => Some(&[
+                "stage_instance_ref",
+                "allocation_parent",
+                "inputs",
+                "reverses",
+            ]),
             "ledger-workflow-source-state/1" => Some(&["enrollment_ref", "current_grant_ref"]),
             "ledger-workflow-economic-authority/8" => Some(&[
                 "enrollment_ref",
@@ -603,6 +633,53 @@ pub fn select_local_input_edges(
                         } else {
                             generic(value, 1, m, emit)?;
                         }
+                    }
+                    Ok(())
+                } else if schema == "ledger-workflow-supplier-commitment/2" {
+                    // Select only defining source contracts and actual accepted
+                    // scoped constraint operands. Predicate Ref literals and
+                    // opaque context facts are never generic graph authority.
+                    let program = shape::field(m, &v, "program")?;
+                    generic(
+                        shape::field(m, program, "source_contract_refs")?,
+                        1,
+                        m,
+                        emit,
+                    )?;
+                    let acceptance = shape::field(m, &v, "acceptance")?;
+                    context(shape::field(m, acceptance, "accepted_context")?, m, emit)?;
+                    let terms = shape::field(m, acceptance, "terms")?;
+                    for field in ["role_ref", "source_grant_refs", "cost_authority_ref"] {
+                        if let Some(value) = terms.get(field) {
+                            generic(value, 1, m, emit)?;
+                        }
+                    }
+                    generic(shape::field(m, acceptance, "funding_leg")?, 1, m, emit)?;
+                    for row in shape::array(m, acceptance, "additional_bindings")? {
+                        let terms = shape::field(m, row, "terms")?;
+                        for field in ["role_ref", "source_grant_refs"] {
+                            generic(shape::field(m, terms, field)?, 1, m, emit)?;
+                        }
+                        generic(shape::field(m, row, "funding_leg")?, 1, m, emit)?;
+                    }
+                    Ok(())
+                } else if schema == "ledger-workflow-party-evidence/3" {
+                    generic(shape::field(m, &v, "authority_ref")?, 1, m, emit)?;
+                    let metadata = shape::field(m, &v, "metadata")?;
+                    let purpose = shape::text(m, metadata, "purpose")?;
+                    if shape::same_text(m, purpose, "party_consent")? {
+                        let consent = shape::field(m, metadata, "consent")?;
+                        generic(shape::field(m, consent, "authorization_ref")?, 1, m, emit)?;
+                    } else {
+                        if !shape::same_text(m, purpose, "party_operator_attestation")? {
+                            return Err(shape::fail("supplier evidence purpose"));
+                        }
+                        generic(
+                            shape::field(m, metadata, "target_evidence_ref")?,
+                            1,
+                            m,
+                            emit,
+                        )?;
                     }
                     Ok(())
                 } else if schema == "ledger-workflow-party-evidence/2" {
