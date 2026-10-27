@@ -41,7 +41,7 @@
   },
   "requires_actual_inputs": [
     "original CostAuthority1 and owner/account enrollment",
-    "SupplierOffer3 and SupplierTerms5 plus actual commitment, roles and assent",
+    "SupplierCommitment2, SupplierOffer4, SupplierTerms8 and actual fresh provider Assent3 plus fullterms customer/platform assent",
     "original accepted Binding nominated sources and funding leg",
     "original Invocation1 authorized exposure and held current Invocation state",
     "original/current worker B invocation.authorize +invocation/read, separately captured from outer Stage A",
