@@ -869,7 +869,7 @@ pub(super) const LOCAL_REGISTRY: &str =
     "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
 pub(super) const DECLARED_LINK_REGISTRY: &str =
     "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d";
-pub(super) const STAGE_LIFECYCLE_REGISTRY: &str = "sha256:dfbe7f6e268575c31e3ec131a6b08203facf764381dd4e8aea28be993dd45000";
+pub(super) const STAGE_LIFECYCLE_REGISTRY: &str = "sha256:8d775e597055ab47e894b325d5578c23475aa9ac79f8aa8dd04e10505fbad556";
 pub(super) fn is_local_registry(value: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     Ok(equal_text(value, LOCAL_REGISTRY, s)? || equal_text(value, DECLARED_LINK_REGISTRY, s)? || equal_text(value, STAGE_LIFECYCLE_REGISTRY, s)?)
 }
@@ -911,6 +911,13 @@ fn stage_lifecycle_recipe(kind: &str, payload: &str, s: &mut OriginalAuditSessio
     }
     if equal_text(kind, "authority.change", s)? && equal_text(payload, "ledger-cost-authority-enroll/1", s)? {
         return Ok(Some((Recipe { operation: "ledger-workflow-economic-operation/10", manifest: "ledger-workflow-economic-manifest/10", closure: "ledger-local-selected-inputs/1", authority: "ledger-cost-enrollment-authority/1" }, "ledger-operation-descriptors/8")));
+    }
+    if equal_text(kind, "evidence.retain", s)? && equal_text(payload, "ledger-workflow-party-evidence-retain/3", s)? {
+        return Ok(Some((Recipe { operation: "ledger-workflow-operation-record/1", manifest: "ledger-workflow-agreement-manifest/1", closure: "absent", authority: "ledger-workflow-party-management-authority/1" }, "ledger-operation-descriptors/7")));
+    }
+    if equal_text(kind, "agreement.accept", s)? && equal_text(payload, "ledger-workflow-agreement-accept/9", s)?
+        || equal_text(kind, "agreement.activate", s)? && (equal_text(payload, "ledger-workflow-activation/1", s)? || equal_text(payload, "ledger-workflow-activation-replace/1", s)?) {
+        return Ok(Some((Recipe { operation: "ledger-workflow-operation-record/1", manifest: "ledger-workflow-agreement-manifest/1", closure: "absent", authority: "ledger-workflow-agreement-authority/6" }, "ledger-operation-descriptors/7")));
     }
     declared_link_recipe(kind,payload,s)
 }
@@ -2023,15 +2030,12 @@ pub(super) async fn validate_frame(
             request::text(descriptors, "registry_digest", session)?,
             session,
         )? {
-            Some(
-                local_recipe(
-                    frame.kind,
-                    request::text(payload, "schema", session)?,
-                    session,
-                )?
-                .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?
-                .0,
-            )
+            Some(recipe(
+                frame.kind,
+                request::text(payload, "schema", session)?,
+                request::text(descriptors, "registry_digest", session)?,
+                session,
+            )?)
         } else if equal_text(
             request::text(descriptors, "registry_digest", session)?,
             PARTY_COMMITMENT_REGISTRY,

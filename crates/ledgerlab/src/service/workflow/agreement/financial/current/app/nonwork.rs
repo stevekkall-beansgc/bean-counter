@@ -141,6 +141,7 @@ pub(in super::super::super) async fn observe(
     };
     state.financial.work_claims.clear();
     super::stage::retain_invocation_operation(&mut o,&mut state,&mut pool,tx,key,payload,s).await?;
+    super::stage::retain_stage_operation(&mut o,&mut state,&mut pool,tx,key,payload,s).await?;
     if let Some(report) = locators.selector_start_work_heads() {
         let held =
             work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)

@@ -38,6 +38,7 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) work_invocation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::WorkInvocationHeadLocators>,
     pub(super) invocation_operation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::InvocationOperationLocators>,
     pub(super) stage_work_locator: Option<ledgerlab_core::policy::workflow::transition_constructor::StageWorkHeadLocator>,
+    pub(super) stage_operation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::StageOperationLocators>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(in super::super) at: Timestamp,
@@ -776,6 +777,7 @@ async fn observe_binding(
             local_input_bodies: None,
             work_head_locators: None,
             stage_work_locator: None,
+            stage_operation_locators: None,
             work_invocation_locators: None,
             invocation_operation_locators: None,
             work_heads: None,

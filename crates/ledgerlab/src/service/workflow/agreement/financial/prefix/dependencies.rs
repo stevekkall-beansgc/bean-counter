@@ -100,6 +100,7 @@ pub(super) fn body(v: &Value, emit: &mut Emit<'_>, s: &mut OriginalAuditSession)
         "ledger-workflow-party-authorization/1",
         "ledger-workflow-party-evidence/1",
         "ledger-workflow-party-evidence/2",
+        "ledger-workflow-party-evidence/3",
         "ledger-workflow-publication/1",
         "ledger-workflow-build-manifest/1",
         "ledger-workflow-policy/1",
@@ -156,7 +157,7 @@ pub(super) fn body(v: &Value, emit: &mut Emit<'_>, s: &mut OriginalAuditSession)
     if !allowed {
         return Err(ServiceError::Unavailable);
     }
-    if equal(schema, "ledger-workflow-party-evidence/2", s)? {
+    if equal(schema, "ledger-workflow-party-evidence/2", s)? || equal(schema, "ledger-workflow-party-evidence/3", s)? {
         emit(request_wrapper::field(v, "authority_ref", s)?, s)?;
         let metadata = request_wrapper::field(v, "metadata", s)?;
         let purpose = request_wrapper::text(metadata, "purpose", s)?;

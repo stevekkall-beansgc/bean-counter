@@ -263,9 +263,10 @@ fn party_anchors(
         s,
     )?
     .is_eq();
+    let supplier = cmp(schema.as_bytes(), b"ledger-workflow-party-evidence-retain/3", s)?.is_eq();
     request_wrapper::same_text(
         wrappers::descriptor_schema(req.kind(), schema, registry, s)?,
-        if commitment {
+        if commitment || supplier {
             "ledger-operation-descriptors/7"
         } else {
             "ledger-operation-descriptors/3"
@@ -293,7 +294,9 @@ fn party_anchors(
     } else {
         request_wrapper::same_text(
             schema,
-            if commitment {
+            if supplier {
+                "ledger-workflow-party-evidence-retain/3"
+            } else if commitment {
                 "ledger-workflow-party-evidence-retain/2"
             } else {
                 "ledger-workflow-party-evidence-retain/1"
@@ -320,10 +323,10 @@ fn party_anchors(
                 s,
             )?;
             let basis = request_wrapper::field(consent, "basis", s)?;
-            if commitment {
+            if commitment || supplier {
                 request_wrapper::same_text(
                     request_wrapper::text(basis, "kind", s)?,
-                    "acceptance_terms",
+                    if supplier { "supplier_commitment" } else { "acceptance_terms" },
                     s,
                 )?;
                 return Ok(out);
@@ -373,7 +376,11 @@ pub(super) fn local_party(
     pending: &current::party::produce::PendingPartyOperation,
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
-    party_with_registry(req, pending, wrappers::LOCAL_REGISTRY, s)
+    let payload = req.payload(s)?;
+    let registry = if request_wrapper::text(payload, "schema", s)? == "ledger-workflow-party-evidence-retain/3" {
+        wrappers::STAGE_LIFECYCLE_REGISTRY
+    } else { wrappers::LOCAL_REGISTRY };
+    party_with_registry(req, pending, registry, s)
 }
 fn party_with_registry(
     req: &ingress::IncomingRequest,
@@ -1071,6 +1078,21 @@ mod commitment_tests {
         let arena = AuditArena::new().unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         assert!(ingress::IncomingRequest::parse_original_administration(raw, &mut s).is_err());
+    }
+    #[test]
+    fn supplier_successor_literal_retains_only_immediate_authorization_anchor() {
+        use ledgerlab_core::canonical::audit_arena::AuditArena;
+        let r=|kind:&str| serde_json::json!({"kind":kind,"id":format!("wdoc_{}","1".repeat(64)),"digest":format!("sha256:{}","1".repeat(64))});
+        for (registry,accepted) in [(wrappers::STAGE_LIFECYCLE_REGISTRY,true),(wrappers::LOCAL_REGISTRY,false),(COMMITMENT_REGISTRY,false)] {
+            let value=serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"evidence.retain",
+                "key":{"logical_store_id":"test-store","scope":["test","local"],"source":"owner","operation_id":"supplier-consent"},
+                "payload":{"schema":"ledger-workflow-party-evidence-retain/3","metadata":{"purpose":"party_consent","consent":{"authorization_ref":r("workflow-authority"),"basis":{"kind":"supplier_commitment","commitment_ref":r("workflow-offer"),"offer_ref":r("workflow-offer"),"supplier_terms_ref":r("workflow-slot-terms")}}}}});
+            let arena=AuditArena::new().unwrap(); let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let raw=serde_json::to_vec(&value).unwrap(); let req=ingress::IncomingRequest::parse(&raw,&mut s).unwrap();
+            let result=party_anchors(&req,req.payload(&mut s).unwrap(),registry,&mut s);
+            assert_eq!(result.is_ok(),accepted);
+            if let Ok(anchors)=result { assert_eq!(anchors.len,1); let (locators,_)=anchors.arrays(&mut s).unwrap(); let parsed:Value=serde_json::from_slice(locators.bytes()).unwrap(); assert_eq!(parsed.as_array().unwrap().len(),1); }
+        }
     }
     #[test]
     fn commitment_anchors_keep_authorization_immediate_and_terms_in_original_recipe() {

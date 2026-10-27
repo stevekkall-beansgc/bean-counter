@@ -2376,6 +2376,7 @@ pub(super) async fn fold(
         "ledger-workflow-party-revoke/1",
         "ledger-workflow-party-evidence-retain/1",
         "ledger-workflow-party-evidence-retain/2",
+                    "ledger-workflow-party-evidence-retain/3",
     ] {
         if same(schema, party, s)? {
             let result = origin.reconstruct_party(tx, inventory, s).await?;

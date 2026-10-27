@@ -66,15 +66,35 @@ impl PendingPartyOperation {
 fn evidence_payload(schema: &str, session: &mut OriginalAuditSession) -> Result<bool> {
     Ok(
         equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?
-            || equal_text(schema, "ledger-workflow-party-evidence-retain/2", session)?,
+            || equal_text(schema, "ledger-workflow-party-evidence-retain/2", session)?
+            || equal_text(schema, "ledger-workflow-party-evidence-retain/3", session)?,
     )
 }
+fn supplier_payload(payload: &Value, session: &mut OriginalAuditSession) -> Result<bool> {
+    equal_text(check::text(payload, "schema", session)?, "ledger-workflow-party-evidence-retain/3", session)
+}
 fn commitment_payload(payload: &Value, session: &mut OriginalAuditSession) -> Result<bool> {
-    equal_text(
-        check::text(payload, "schema", session)?,
-        "ledger-workflow-party-evidence-retain/2",
-        session,
-    )
+    Ok(equal_text(check::text(payload, "schema", session)?, "ledger-workflow-party-evidence-retain/2", session)? || supplier_payload(payload, session)?)
+}
+fn evidence_schema(payload: &Value, session: &mut OriginalAuditSession) -> Result<&'static str> {
+    Ok(if supplier_payload(payload, session)? {
+        "ledger-workflow-party-evidence/3"
+    } else if commitment_payload(payload, session)? {
+        "ledger-workflow-party-evidence/2"
+    } else {
+        "ledger-workflow-party-evidence/1"
+    })
+}
+fn consent_kind(payload: &Value, consent: &Value, session: &mut OriginalAuditSession) -> Result<()> {
+    if supplier_payload(payload, session)? {
+        check::same_text(check::text(check::field(consent, "basis", session)?, "kind", session)?, "supplier_commitment", session)?;
+        let selected = roles(consent, session)?;
+        size(selected.len(), 1, 1, session)?;
+        check::same_text(selected[0].as_str().ok_or(ServiceError::IntegrityFailure)?, "provider", session)?;
+    } else if commitment_payload(payload, session)? {
+        check::same_text(check::text(check::field(consent, "basis", session)?, "kind", session)?, "acceptance_terms", session)?;
+    }
+    Ok(())
 }
 fn encode(value: &Value, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     session
@@ -329,13 +349,7 @@ async fn evidence_inputs(
         check::closed(metadata, &["purpose", "consent"], session)?;
         let spec = check::field(metadata, "consent", session)?;
         consent(spec, req.key(), at, session)?;
-        if commitment {
-            check::same_text(
-                check::text(check::field(spec, "basis", session)?, "kind", session)?,
-                "acceptance_terms",
-                session,
-            )?;
-        }
+        consent_kind(payload, spec, session)?;
         same_subject(subject_value, spec, session)?;
         Ok([None, None])
     } else {
@@ -359,11 +373,7 @@ async fn evidence_inputs(
             req.key(),
             actor,
             at,
-            if commitment {
-                "ledger-workflow-party-evidence/2"
-            } else {
-                "ledger-workflow-party-evidence/1"
-            },
+            evidence_schema(payload, session)?,
             session,
         )?;
         same_value(
@@ -387,12 +397,9 @@ async fn evidence_inputs(
         } else {
             check::same_text(target_purpose, "party_consent", session)?;
             check::closed(target_metadata, &["purpose", "consent"], session)?;
-            consent(
-                check::field(target_metadata, "consent", session)?,
-                req.key(),
-                at,
-                session,
-            )?;
+            let spec = check::field(target_metadata, "consent", session)?;
+            consent(spec, req.key(), at, session)?;
+            consent_kind(payload, spec, session)?;
             "operator_verified_party_exact_consent"
         };
         check::same_text(
@@ -429,7 +436,7 @@ async fn consent_basis_inputs(
             .ok_or(ServiceError::IntegrityFailure)?;
         check::same_text(
             check::text(target.body(), "schema", session)?,
-            "ledger-workflow-party-evidence/2",
+            evidence_schema(payload, session)?,
             session,
         )?;
         metadata = check::field(target.body(), "metadata", session)?;
@@ -1075,11 +1082,7 @@ fn construct(
         let subject = encode(check::field(payload, "subject", session)?, session)?;
         let scope = encode(scope_value, session)?;
         let schema = wire::string(
-            if commitment_payload(payload, session)? {
-                "ledger-workflow-party-evidence/2"
-            } else {
-                "ledger-workflow-party-evidence/1"
-            },
+            evidence_schema(payload, session)?,
             session,
         )?;
         wire::object(
@@ -1153,11 +1156,7 @@ fn construct(
             "workflow-authority"
         },
         if is_evidence {
-            if commitment_payload(payload, session)? {
-                "ledger-workflow-party-evidence/2"
-            } else {
-                "ledger-workflow-party-evidence/1"
-            }
+            evidence_schema(payload, session)?
         } else {
             "ledger-workflow-party-authorization/1"
         },

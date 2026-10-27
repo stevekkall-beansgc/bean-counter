@@ -109,7 +109,8 @@ impl<'a> PartyWriteData<'a> {
         } else {
             require(
                 equal_text(schema, "ledger-workflow-party-evidence/1", session)?
-                    || equal_text(schema, "ledger-workflow-party-evidence/2", session)?,
+                    || equal_text(schema, "ledger-workflow-party-evidence/2", session)?
+                    || equal_text(schema, "ledger-workflow-party-evidence/3", session)?,
                 "INTEGRITY_FAILURE",
             )?;
             None

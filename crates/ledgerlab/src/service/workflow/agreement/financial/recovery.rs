@@ -22,6 +22,7 @@ impl OriginalQuery<'_> {
             for allowed in [
                 "ledger-workflow-party-evidence-retain/1",
                 "ledger-workflow-party-evidence-retain/2",
+                "ledger-workflow-party-evidence-retain/3",
                 "ledger-workflow-party-authorize/1",
                 "ledger-workflow-party-revoke/1",
             ] {

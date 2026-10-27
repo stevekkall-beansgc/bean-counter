@@ -216,6 +216,7 @@ impl IncomingRequest {
                     "ledger-workflow-app-cost-attest/1",
                     "ledger-workflow-party-evidence-retain/1",
                     "ledger-workflow-party-evidence-retain/2",
+                    "ledger-workflow-party-evidence-retain/3",
                 ]
             } else if matches!(recipe, IngressRecipe::OriginalAdministration) {
                 &[

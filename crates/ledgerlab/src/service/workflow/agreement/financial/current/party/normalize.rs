@@ -121,6 +121,7 @@ pub(in super::super::super) fn payload(
         )?
     } else if equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?
         || equal_text(schema, "ledger-workflow-party-evidence-retain/2", session)?
+        || equal_text(schema, "ledger-workflow-party-evidence-retain/3", session)?
     {
         let metadata = check::field(value, "metadata", session)?;
         let purpose = check::text(metadata, "purpose", session)?;

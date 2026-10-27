@@ -186,7 +186,7 @@ pub(super) async fn retain_work_head(
             .map_err(core_error)?;
         let (reference, _owner) = source::from_value_local(parsed.value(), s)?;
         check::same_text(&reference.kind, "workflow-stage-state", s)?;
-        work_heads::retain_stage_head(state, locator, &head, &reference, s)?;
+        work_heads::retain_stage_head(state, (locator.agreement(), locator.chain(), locator.stage()), &head, &reference, s)?;
         pool.add(&reference, s)?;
     }
     pool.complete(tx, key, observed.before, s).await
@@ -289,4 +289,66 @@ pub(super) async fn retain_invocation_operation(
     }
     pool.complete_lifecycle(program, tx, key, observed.before, s)
         .await
+}
+
+/// Stage permanent member keys and current heads are scoped point reads. The
+/// child repeats declaration/member/first-Work/producer and CAS semantics.
+pub(super) async fn retain_stage_operation(
+    observed: &mut ObservedAppBinding,
+    state: &mut work_heads::OwnedWorkState,
+    pool: &mut super::super::super::local_inputs::LocalInputs,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    payload: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let program=observed.original.publication.program();
+    if !program.uses_stage_lifecycle_recipe() { return Ok(()); }
+    let raw=s.canonical_representation(payload,RepresentationKind::OriginalRequest).map_err(core_error)?;
+    let (ck,_key_owner)=super::super::super::local_inputs::core_key_with_owner(key,s)?;
+    observed.stage_operation_locators=ledgerlab_core::policy::workflow::transition_constructor::select_stage_operation_locators(program,&ck,raw.bytes(),&pool.views(),s).map_err(core_error)?;
+    let Some(locator)=observed.stage_operation_locators.as_ref() else { return Ok(()); };
+    pool.add(locator.original_binding_ref(),s)?;
+    if let Some(reference)=locator.stage_instance_ref() { pool.add(reference,s)?; }
+    if let Some(head)=tx.workflow_financial_head(&key.logical_store_id,&key.scope,HeadKey::Stage { agreement:locator.agreement(),chain:locator.chain(),stage:locator.stage() },s).await.map_err(prefix::read_error)? {
+        let reference=read_head_reference(&head,s)?;
+        check::same_text(&reference.kind,"workflow-stage-state",s)?;
+        work_heads::retain_stage_head(state,(locator.agreement(),locator.chain(),locator.stage()),&head,&reference,s)?;
+        pool.add(&reference,s)?;
+    }
+    work_heads::prepare_stage_members(state,locator.expected_work_heads().len(),s)?;
+    for expected in locator.expected_work_heads() {
+        s.semantic_work().visit(ValidationVisit::Element).map_err(core_error)?;
+        if let Some(row)=tx.workflow_local_record_identity(&key.logical_store_id,&key.scope,"workflow-work-claim",expected.work_claim_id(),"ledger-workflow-work-claim/1",s).await.map_err(prefix::read_error)? {
+            let reference=read_locator_reference(row.kind.bytes(),row.id.bytes(),row.digest.bytes(),s)?;
+            work_heads::retain_stage_work_claim(state,&reference,s)?;
+            pool.add(&reference,s)?;
+        }
+        if let Some(head)=tx.workflow_financial_head(&key.logical_store_id,&key.scope,HeadKey::Decision(expected.decision_id()),s).await.map_err(prefix::read_error)? {
+            let reference=read_head_reference(&head,s)?;
+            check::same_text(&reference.kind,"workflow-decision",s)?;
+            work_heads::retain_stage_decision(state,expected.decision_id(),&head,&reference,s)?;
+            pool.add(&reference,s)?;
+        }
+    }
+    let binding=s.parse_representation(observed.original.acceptance.binding.bytes(),RepresentationKind::Record).map_err(core_error)?;
+    let customer=check::text(binding.value(),"customer",s)?;
+    if let Some(head)=tx.workflow_financial_head(&key.logical_store_id,&key.scope,HeadKey::Chain {customer,chain:locator.chain()},s).await.map_err(prefix::read_error)? {
+        let reference=read_head_reference(&head,s)?;
+        check::same_text(&reference.kind,"workflow-chain-state",s)?;
+        work_heads::retain_stage_chain(state,&reference,s)?;
+        pool.add(&reference,s)?;
+    }
+    pool.complete_lifecycle(program,tx,key,observed.before,s).await
+}
+fn read_locator_reference(kind:&[u8],id:&[u8],digest:&[u8],s:&mut OriginalAuditSession)->Result<ExactRef> {
+    let kind=wire::string(head_text(kind,s)?,s)?;
+    let id=wire::string(head_text(id,s)?,s)?;
+    let digest=wire::string(head_text(digest,s)?,s)?;
+    let value=wire::object(&[("kind",kind.bytes()),("id",id.bytes()),("digest",digest.bytes())],262144,s)?;
+    let parsed=s.parse_representation(value.bytes(),RepresentationKind::Record).map_err(core_error)?;
+    source::from_value_local(parsed.value(),s).map(|v|v.0)
+}
+fn read_head_reference(head:&crate::store::sqlite::workflow::financial::HeadLocator,s:&mut OriginalAuditSession)->Result<ExactRef> {
+    read_locator_reference(head.kind.bytes(),head.id.bytes(),head.digest.bytes(),s)
 }

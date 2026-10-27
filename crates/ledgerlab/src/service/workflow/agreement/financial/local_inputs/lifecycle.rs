@@ -134,6 +134,29 @@ impl LocalInputs {
                 let initial=initial.ok_or(ServiceError::IntegrityFailure)?;
                 initial_invocation = Some(initial);
             }
+            let mut zero_stage = None;
+            if program.uses_stage_lifecycle_recipe() && row.reference.kind == "workflow-chain-state" {
+                let parsed=s.parse_representation(body.bytes(),RepresentationKind::Record).map_err(core_error)?;
+                if check::text(parsed.value(),"admitted_events",s)?=="0" {
+                    let producer_key=check::field(parsed.value(),"operation_key",s)?;
+                    let identity=s.canonical_representation(producer_key,RepresentationKind::Record).map_err(core_error)?;
+                    let origin=prefix::target(tx,key,identity,s).await?.checked_wrappers(tx,s).await?;
+                    require(origin.wrappers().sequence()<before,"INTEGRITY_FAILURE")?;
+                    let chain_ref=wire::reference(&row.reference,s)?;
+                    let chain_ref=s.parse_representation(chain_ref.bytes(),RepresentationKind::Record).map_err(core_error)?;
+                    origin.require_member(chain_ref.value(),s)?;
+                    result_member(origin.wrappers().receipt(),chain_ref.value(),s)?;
+                    let request=check::field(origin.wrappers().operation(),"request_evidence",s)?;
+                    let normalized=check::field(request,"normalized_request",s)?;
+                    check::same_text(check::text(check::field(normalized,"payload",s)?,"schema",s)?,"ledger-workflow-stage-authorize/1",s)?;
+                    let instance=unique_result(origin.wrappers().receipt(),"workflow-stage-instance",s)?;
+                    let state=unique_result(origin.wrappers().receipt(),"workflow-stage-state",s)?;
+                    for r in [instance,state] { origin.require_member(r,s)?; }
+                    let instance=s.canonical_representation(instance,RepresentationKind::Record).map_err(core_error)?;
+                    let state=s.canonical_representation(state,RepresentationKind::Record).map_err(core_error)?;
+                    zero_stage=Some((s.parse_representation(instance.bytes(),RepresentationKind::Record).map_err(core_error)?,s.parse_representation(state.bytes(),RepresentationKind::Record).map_err(core_error)?));
+                }
+            }
             let edges = select_lifecycle_input_edges(
                 program,
                 &core_key,
@@ -145,6 +168,7 @@ impl LocalInputs {
             )
             .map_err(core_error)?;
             if let Some(initial) = initial_invocation.as_ref() { self.add_value(initial.value(),s)?; }
+            if let Some((instance,state))=zero_stage.as_ref() { self.add_value(instance.value(),s)?; self.add_value(state.value(),s)?; }
             for reference in edges.direct_refs() {
                 self.add(reference, s)?;
             }
