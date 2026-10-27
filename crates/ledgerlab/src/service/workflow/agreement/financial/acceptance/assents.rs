@@ -59,9 +59,12 @@ impl<'a> Inputs<'a> {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            if let Some(record) =
+            let record = if equal(input.registry(), wrappers::STAGE_LIFECYCLE_REGISTRY, s)? {
+                current::source::stage_assent_record(tx, key, reference, before, s).await?
+            } else {
                 current::source::assent_record(tx, key, reference, before, s).await?
-            {
+            };
+            if let Some(record) = record {
                 s.semantic_work()
                     .write_bytes(mem::size_of::<current::source::SourceRecord>())
                     .map_err(core_error)?;

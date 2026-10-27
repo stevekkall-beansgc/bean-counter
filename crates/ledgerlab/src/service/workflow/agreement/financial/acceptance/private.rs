@@ -169,6 +169,7 @@ impl InlineDocuments {
 pub(super) fn normalize_inline(
     incoming: &ingress::IncomingRequest,
     input: &AppAcceptanceInput,
+    publication: &prefix::RecompiledPublication,
     s: &mut OriginalAuditSession,
 ) -> Result<InlineDocuments> {
     let payload = incoming.payload(s)?;
@@ -195,7 +196,19 @@ pub(super) fn normalize_inline(
     s.semantic_work()
         .arithmetic(Op::Add, &[&ref_count.into(), &2usize.into()])
         .map_err(core_error)?;
-    let maximum = ref_count.checked_add(2).ok_or(ServiceError::Unavailable)?;
+    let mut maximum = ref_count.checked_add(2).ok_or(ServiceError::Unavailable)?;
+    if publication.program().uses_stage_lifecycle_recipe() {
+        let assents = input
+            .assent_refs()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&maximum.into(), &assents.len().into()])
+            .map_err(core_error)?;
+        maximum = maximum
+            .checked_add(assents.len())
+            .ok_or(ServiceError::Unavailable)?;
+    }
     s.semantic_work()
         .arithmetic(
             Op::Multiply,
@@ -224,6 +237,9 @@ pub(super) fn normalize_inline(
             ("ledger-workflow-slot-catalog/1", 1),
             ("ledger-workflow-slot-instantiation/1", 2),
             ("ledger-workflow-slot-binding-terms/7", 3),
+            ("ledger-workflow-slot-binding-terms/3", 4),
+            ("ledger-workflow-slot-binding-terms/8", 4),
+            ("ledger-workflow-party-assent/3", 5),
         ] {
             s.semantic_work()
                 .visit(Visit::MemberCompare)
@@ -239,9 +255,29 @@ pub(super) fn normalize_inline(
                 break;
             }
         }
-        let Some(family) = family else {
+        let Some(mut family) = family else {
             continue;
         };
+        if family == 5 {
+            require(
+                publication.program().uses_stage_lifecycle_recipe(),
+                "UNSUPPORTED_SCHEMA_PROFILE",
+            )?;
+        }
+        if family == 4 {
+            require(
+                publication.program().uses_stage_lifecycle_recipe(),
+                "UNSUPPORTED_SCHEMA_PROFILE",
+            )?;
+            request_wrapper::same_text(
+                schema,
+                stage_terms_schema(publication, request_wrapper::text(body, "slot", s)?, s)?,
+                s,
+            )?;
+            family = 3;
+        } else if family == 3 && publication.program().uses_stage_lifecycle_recipe() {
+            return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+        }
         s.semantic_work()
             .arithmetic(Op::Compare, &[&out.documents.len().into(), &maximum.into()])
             .map_err(core_error)?;
@@ -265,12 +301,32 @@ pub(super) fn normalize_inline(
                 SlotInstantiation::normalize_private_with_session(raw.bytes(), s)
                     .map_err(core_error)?,
             ),
-            3 => (
-                "workflow-slot-terms",
-                "ledger-workflow-slot-binding-terms/7",
-                SlotBindingTerms::normalize_private_with_session(raw.bytes(), s)
-                    .map_err(core_error)?,
-            ),
+            3 => {
+                let stage = publication.program().uses_stage_lifecycle_recipe();
+                let schema = if stage {
+                    stage_terms_schema(publication, request_wrapper::text(body, "slot", s)?, s)?
+                } else {
+                    "ledger-workflow-slot-binding-terms/7"
+                };
+                let bytes = if stage {
+                    SlotBindingTerms::normalize_stage_private_with_session(
+                        publication.program(),
+                        raw.bytes(),
+                        s,
+                    )
+                } else {
+                    SlotBindingTerms::normalize_private_with_session(raw.bytes(), s)
+                }
+                .map_err(core_error)?;
+                ("workflow-slot-terms", schema, bytes)
+            }
+            5 => {
+                let assent=ledgerlab_core::policy::workflow::transition_constructor::normalize_local_supplier_assent_with_session(publication.program(),body,s).map_err(core_error)?;
+                let bytes = s
+                    .copy_representation(assent.canonical_bytes(), Kind::SourceDefinition)
+                    .map_err(core_error)?;
+                ("workflow-assent", "ledger-workflow-party-assent/3", bytes)
+            }
             _ => return Err(ServiceError::IntegrityFailure),
         };
         let doc = wire::source_record(kind, schema, normalized, s)?;
@@ -289,6 +345,24 @@ pub(super) fn normalize_inline(
                     .scan_bytes(actual.bytes().len())
                     .map_err(core_error)?;
                 if expected.bytes() == actual.bytes() {
+                    found = true;
+                    break;
+                }
+            }
+        } else if family == 5 {
+            for reference in input
+                .assent_refs()
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+            {
+                let actual = encode(reference, s)?;
+                s.semantic_work()
+                    .scan_bytes(actual.bytes().len())
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(expected.bytes().len())
+                    .map_err(core_error)?;
+                if actual.bytes() == expected.bytes() {
                     found = true;
                     break;
                 }
@@ -367,6 +441,7 @@ pub(super) async fn resolve_graph(
     tx: &mut SqliteTx,
     key: &OperationKey,
     input: &AppAcceptanceInput,
+    publication: &prefix::RecompiledPublication,
     before: i64,
     s: &mut OriginalAuditSession,
 ) -> Result<InlineDocuments> {
@@ -389,7 +464,20 @@ pub(super) async fn resolve_graph(
     s.semantic_work()
         .arithmetic(Op::Add, &[&count.into(), &2usize.into()])
         .map_err(core_error)?;
-    let maximum = count.checked_add(2).ok_or(ServiceError::Unavailable)?;
+    let mut maximum = count.checked_add(2).ok_or(ServiceError::Unavailable)?;
+    if publication.program().uses_stage_lifecycle_recipe() {
+        let count = input
+            .assent_refs()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+            .len();
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&maximum.into(), &count.into()])
+            .map_err(core_error)?;
+        maximum = maximum
+            .checked_add(count)
+            .ok_or(ServiceError::Unavailable)?;
+    }
     for (field, kind, schema) in [
         (
             "slot_catalog_ref",
@@ -438,10 +526,50 @@ pub(super) async fn resolve_graph(
                 key,
                 request_wrapper::field(binding, "binding_ref", s)?,
                 "workflow-slot-terms",
-                ("ledger-workflow-slot-binding-terms/7", before, maximum),
+                (
+                    if publication.program().uses_stage_lifecycle_recipe() {
+                        stage_terms_schema(
+                            publication,
+                            request_wrapper::text(binding, "slot", s)?,
+                            s,
+                        )?
+                    } else {
+                        "ledger-workflow-slot-binding-terms/7"
+                    },
+                    before,
+                    maximum,
+                ),
                 s,
             )
             .await?;
+    }
+    if publication.program().uses_stage_lifecycle_recipe() {
+        for reference in input
+            .assent_refs()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            match documents.find(reference, s) {
+                Ok(_) => continue,
+                Err(ServiceError::Rejection(code)) if code == "INVALID_REFERENCE" => {}
+                Err(error) => return Err(error),
+            }
+            if let Some(record) =
+                current::source::stage_assent_record(tx, key, reference, before, s).await?
+            {
+                if same_recipe_text(
+                    request_wrapper::text(record.body(), "schema", s)?,
+                    "ledger-workflow-party-assent/3",
+                    s,
+                )? {
+                    require(documents.documents.len() < maximum, "INVALID_REFERENCE")?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<Document>())
+                        .map_err(core_error)?;
+                    documents.documents.push(Document::Retained(record));
+                }
+            }
+        }
     }
     Ok(documents)
 }
@@ -537,4 +665,55 @@ pub(super) fn validate_slots(
         .map_err(core_error)?;
     }
     Ok(())
+}
+
+/// Select a slot's declared book from the actual owning original template.
+/// Matching terms still undergo the complete original graph/rights validator.
+fn stage_terms_schema(
+    publication: &prefix::RecompiledPublication,
+    slot: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<&'static str> {
+    let program = publication.program();
+    require(
+        program.uses_stage_lifecycle_recipe(),
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    let target = program.template_ref();
+    let mut selected = None;
+    for document in program.source_documents() {
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        let r = document.reference();
+        let mut matches = true;
+        for (actual, expected) in [
+            (r.kind(), target.kind()),
+            (r.id(), target.id()),
+            (r.digest(), target.digest()),
+        ] {
+            if !same_recipe_text(actual, expected, s)? {
+                matches = false;
+            }
+        }
+        if !matches {
+            continue;
+        }
+        for row in request_wrapper::field(document.canonical_value(), "binding_slots", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            if same_recipe_text(request_wrapper::text(row, "name", s)?, slot, s)? {
+                require(selected.is_none(), "INVALID_REFERENCE")?;
+                let book = request_wrapper::text(row, "book", s)?;
+                selected = Some(if same_recipe_text(book, "retail", s)? {
+                    "ledger-workflow-slot-binding-terms/3"
+                } else {
+                    request_wrapper::same_text(book, "supplier", s)?;
+                    "ledger-workflow-slot-binding-terms/8"
+                });
+            }
+        }
+    }
+    selected.ok_or_else(|| reject("INVALID_REFERENCE"))
 }

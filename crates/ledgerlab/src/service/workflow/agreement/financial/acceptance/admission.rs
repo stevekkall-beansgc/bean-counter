@@ -60,10 +60,18 @@ pub(super) fn authority(
         s,
     )?
     .encode(s)?;
+    let supplier_refs = wire::RefSet::new(
+        consents.supplier_verification_refs(),
+        consents.supplier_verification_refs().count(),
+        true,
+        s,
+    )?
+    .encode(s)?;
     authority_with_refs(
         input,
         source,
         refs.bytes(),
+        supplier_refs.bytes(),
         root,
         key,
         actor,
@@ -77,6 +85,7 @@ pub(super) fn authority_with_refs(
     input: &AppAcceptanceInput,
     source: &current::source::ObservedSource,
     verification_refs: &[u8],
+    supplier_verification_refs: &[u8],
     root: &wire::SourceRecord,
     key: &OperationKey,
     actor: &str,
@@ -118,35 +127,48 @@ pub(super) fn authority_with_refs(
     )?;
     let assents = encode(input.assent_refs(), s)?;
     let at = wire::string(at.as_str(), s)?;
-    let schema = wire::string("ledger-workflow-agreement-authority/5", s)?;
+    let stage = same_recipe_text(input.registry(), wrappers::STAGE_LIFECYCLE_REGISTRY, s)?;
+    let schema_name = if stage {
+        "ledger-workflow-agreement-authority/6"
+    } else {
+        "ledger-workflow-agreement-authority/5"
+    };
+    if !stage {
+        same_bytes(supplier_verification_refs, b"[]", s)?;
+    }
+    let schema = wire::string(schema_name, s)?;
+    let fields = [
+        ("actor", actor.bytes()),
+        ("agreement_id", agreement.bytes()),
+        ("app_consent_verification_refs", verification_refs),
+        ("assent_refs", assents.bytes()),
+        ("canonical_economic_namespace", namespace.bytes()),
+        ("customer", customer.bytes()),
+        ("local_admin_ref", root.bytes()),
+        ("observed_at", at.bytes()),
+        ("operation", operation.bytes()),
+        ("purpose", br#""admit""#),
+        ("schema", schema.bytes()),
+        ("scope", scope.bytes()),
+        ("source", source.bytes()),
+        ("source_grant_refs", grants.bytes()),
+        ("source_revision", revision.bytes()),
+        ("source_state_refs", states.bytes()),
+        (
+            "supplier_consent_verification_refs",
+            supplier_verification_refs,
+        ),
+    ];
     let bytes = wire::object(
-        &[
-            ("actor", actor.bytes()),
-            ("agreement_id", agreement.bytes()),
-            ("app_consent_verification_refs", verification_refs),
-            ("assent_refs", assents.bytes()),
-            ("canonical_economic_namespace", namespace.bytes()),
-            ("customer", customer.bytes()),
-            ("local_admin_ref", root.bytes()),
-            ("observed_at", at.bytes()),
-            ("operation", operation.bytes()),
-            ("purpose", br#""admit""#),
-            ("schema", schema.bytes()),
-            ("scope", scope.bytes()),
-            ("source", source.bytes()),
-            ("source_grant_refs", grants.bytes()),
-            ("source_revision", revision.bytes()),
-            ("source_state_refs", states.bytes()),
-        ],
+        if stage {
+            &fields
+        } else {
+            &fields[..fields.len() - 1]
+        },
         262144,
         s,
     )?;
-    wire::source_record(
-        "workflow-authority",
-        "ledger-workflow-agreement-authority/5",
-        bytes,
-        s,
-    )
+    wire::source_record("workflow-authority", schema_name, bytes, s)
 }
 
 fn acceptance_operation(operation: &str, s: &mut OriginalAuditSession) -> Result<bool> {

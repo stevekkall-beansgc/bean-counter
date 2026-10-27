@@ -96,13 +96,23 @@ pub(super) async fn prepare_append(
     let authority = s
         .parse_representation(admission.authority.bytes(), RepresentationKind::Authority)
         .map_err(core_error)?;
-    for r in request_wrapper::field(authority.value(), "app_consent_verification_refs", s)?
-        .as_array()
-        .ok_or(ServiceError::IntegrityFailure)?
-    {
-        let (r, _owner) = current::source::from_value(r, "workflow-verification", s)?;
-        prefix::verify_selected_association(tx, req.key(), &r, observed.before(), s).await?;
-        members.add_record_ref(&r, s)?;
+    let fields: &[&str] = if original.publication.program().uses_stage_lifecycle_recipe() {
+        &[
+            "app_consent_verification_refs",
+            "supplier_consent_verification_refs",
+        ]
+    } else {
+        &["app_consent_verification_refs"]
+    };
+    for field in fields {
+        for r in request_wrapper::field(authority.value(), field, s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            let (r, _owner) = current::source::from_value(r, "workflow-verification", s)?;
+            prefix::verify_selected_association(tx, req.key(), &r, observed.before(), s).await?;
+            members.add_record_ref(&r, s)?;
+        }
     }
     let evidence = evidence::activation_material(
         req,

@@ -182,7 +182,16 @@ fn frame_agreement(
         )?;
         check::same_text(recipe.operation, "ledger-workflow-operation-record/1", s)?;
         check::same_text(recipe.manifest, "ledger-workflow-agreement-manifest/1", s)?;
-        check::same_text(recipe.authority, "ledger-workflow-agreement-authority/5", s)?;
+        let authority_schema = if super::super::acceptance::same_recipe_text(
+            check::text(resolution, "registry_digest", s)?,
+            wrappers::STAGE_LIFECYCLE_REGISTRY,
+            s,
+        )? {
+            "ledger-workflow-agreement-authority/6"
+        } else {
+            "ledger-workflow-agreement-authority/5"
+        };
+        check::same_text(recipe.authority, authority_schema, s)?;
         check::same_text(recipe.closure, "absent", s)?;
         let key_bytes = s
             .canonical_representation(key, RepresentationKind::Record)

@@ -8,6 +8,7 @@ pub(in super::super) struct TargetedAcceptance {
     private_documents: private::InlineDocuments,
     accepted: current::source::SourceRecord,
     verifications: AuditedValue,
+    supplier_verifications: AuditedValue,
     _binding: AuditedValue,
 }
 impl std::ops::Deref for TargetedAcceptance {
@@ -30,12 +31,14 @@ impl TargetedAcceptance {
         let original = super::reconstruct(tx, origin, publication, s).await?;
         let incoming =
             ingress::IncomingRequest::parse(origin.wrappers().original_request().raw(), s)?;
-        let private_documents = private::normalize_inline(&incoming, &original.input, s)?;
+        let private_documents =
+            private::normalize_inline(&incoming, &original.input, publication, s)?;
         let private_documents = private::resolve_graph(
             private_documents,
             tx,
             origin.key(),
             &original.input,
+            publication,
             origin.wrappers().sequence() + 1,
             s,
         )
@@ -104,7 +107,12 @@ impl TargetedAcceptance {
         let authority =
             request_wrapper::field(origin.wrappers().operation(), "authority_snapshot", s)?;
         let refs = request_wrapper::field(authority, "app_consent_verification_refs", s)?;
-        let refs = reference_set(refs, "workflow-verification", 1, 16, s)?;
+        let minimum = if publication.program().uses_stage_lifecycle_recipe() {
+            0
+        } else {
+            1
+        };
+        let refs = reference_set(refs, "workflow-verification", minimum, 16, s)?;
         let verifications = s
             .parse_representation(refs.bytes(), Kind::Record)
             .map_err(core_error)?;
@@ -135,12 +143,58 @@ impl TargetedAcceptance {
             let expected = encode(&expected, s)?;
             same_bytes(actual.bytes(), expected.bytes(), s)?;
         }
+        let supplier_refs = if publication.program().uses_stage_lifecycle_recipe() {
+            let refs = request_wrapper::field(authority, "supplier_consent_verification_refs", s)?;
+            reference_set(refs, "workflow-verification", 0, 16, s)?
+        } else {
+            encode(&serde_json::json!([]), s)?
+        };
+        let supplier_verifications = s
+            .parse_representation(supplier_refs.bytes(), Kind::Record)
+            .map_err(core_error)?;
+        for reference in supplier_verifications
+            .value()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            origin.require_member(reference, s)?;
+            let (r, _owner) = current::source::from_value(reference, "workflow-verification", s)?;
+            // The exact producing acceptance is completed under its original
+            // cutoff; the retained verification is not credited by its name.
+            prefix::verify_selected_association(
+                tx,
+                origin.key(),
+                &r,
+                origin.wrappers().sequence() + 1,
+                s,
+            )
+            .await?;
+            let record = current::source::retained_record(
+                tx,
+                origin.key(),
+                reference,
+                "workflow-verification",
+                "ledger-workflow-supplier-consent-verification/2",
+                origin.wrappers().sequence() + 1,
+                s,
+            )
+            .await?;
+            let expected = serde_json::to_value(original.input.terms().reference())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            let actual = encode(
+                request_wrapper::field(record.body(), "acceptance_terms_ref", s)?,
+                s,
+            )?;
+            let expected = encode(&expected, s)?;
+            same_bytes(actual.bytes(), expected.bytes(), s)?;
+        }
         Ok(Self {
             original,
             incoming,
             private_documents,
             accepted,
             verifications,
+            supplier_verifications,
             _binding: binding,
         })
     }
@@ -215,10 +269,12 @@ impl TargetedAcceptance {
         s: &mut OriginalAuditSession,
     ) -> Result<wire::SourceRecord> {
         let refs = encode(self.verifications.value(), s)?;
+        let supplier_refs = encode(self.supplier_verifications.value(), s)?;
         admission::authority_with_refs(
             &self.original.input,
             source,
             refs.bytes(),
+            supplier_refs.bytes(),
             root,
             key,
             actor,

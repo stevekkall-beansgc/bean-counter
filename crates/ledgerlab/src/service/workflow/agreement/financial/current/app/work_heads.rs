@@ -404,7 +404,8 @@ pub(super) struct OwnedWorkState {
     stage_storage: Option<ExternalBufferLease>,
     stage_members_storage: Option<ExternalBufferLease>,
     stage_chain_storage: Option<ExternalBufferLease>,
-    pub(super) invocations: Vec<ledgerlab_core::policy::workflow::transition_constructor::InvocationHead>,
+    pub(super) invocations:
+        Vec<ledgerlab_core::policy::workflow::transition_constructor::InvocationHead>,
     invocation_storage: Vec<ExternalBufferLease>,
     invocation_controls: Option<ExternalBufferLease>,
 }
@@ -737,7 +738,9 @@ impl ObservedWorkHeads {
                 stage_storage: None,
                 stage_members_storage: None,
                 stage_chain_storage: None,
-                invocations: Vec::new(), invocation_storage: Vec::new(), invocation_controls: None,
+                invocations: Vec::new(),
+                invocation_storage: Vec::new(),
+                invocation_controls: None,
             })
         })();
         if result.is_err() {
@@ -784,9 +787,11 @@ pub(super) fn unattached_state(
         parties: current,
         _storage: storage,
         stage_storage: None,
-                stage_members_storage: None,
-                stage_chain_storage: None,
-                invocations: Vec::new(), invocation_storage: Vec::new(), invocation_controls: None,
+        stage_members_storage: None,
+        stage_chain_storage: None,
+        invocations: Vec::new(),
+        invocation_storage: Vec::new(),
+        invocation_controls: None,
     })
 }
 
@@ -895,74 +900,238 @@ pub(super) fn retain_stage_head(
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
     use ledgerlab_core::policy::workflow::transition_constructor::StageHead;
-    require(state.financial.stage_heads.is_empty() && state.stage_storage.is_none(), "INTEGRITY_FAILURE")?;
+    require(
+        state.financial.stage_heads.is_empty() && state.stage_storage.is_none(),
+        "INTEGRITY_FAILURE",
+    )?;
     let mut bytes = mem::size_of::<StageHead>();
-    for value in [identity.0, identity.1, identity.2, text(head.revision.bytes(), s)?, &reference.kind, &reference.id, &reference.digest] {
+    for value in [
+        identity.0,
+        identity.1,
+        identity.2,
+        text(head.revision.bytes(), s)?,
+        &reference.kind,
+        &reference.id,
+        &reference.digest,
+    ] {
         bytes = add(bytes, value.len(), s)?;
     }
     state.stage_storage = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
-    state.financial.stage_heads.try_reserve_exact(1).map_err(|_| ServiceError::Unavailable)?;
+    state
+        .financial
+        .stage_heads
+        .try_reserve_exact(1)
+        .map_err(|_| ServiceError::Unavailable)?;
     let value = StageHead {
-        agreement: copied(identity.0, s)?, chain: copied(identity.1, s)?, stage: copied(identity.2, s)?,
-        revision: copied(text(head.revision.bytes(), s)?, s)?, reference: copied_exact(reference, s)?,
+        agreement: copied(identity.0, s)?,
+        chain: copied(identity.1, s)?,
+        stage: copied(identity.2, s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?,
+        reference: copied_exact(reference, s)?,
     };
-    s.semantic_work().write_bytes(mem::size_of::<StageHead>()).map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<StageHead>())
+        .map_err(core_error)?;
     state.financial.stage_heads.push(value);
     Ok(())
 }
 
-pub(super) fn prepare_invocation_heads(state: &mut OwnedWorkState, count: usize, s: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn prepare_invocation_heads(
+    state: &mut OwnedWorkState,
+    count: usize,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     use ledgerlab_core::policy::workflow::transition_constructor::InvocationHead;
-    require(state.invocations.is_empty() && state.invocation_controls.is_none(), "INTEGRITY_FAILURE")?;
-    let bytes = product(count, mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>(), s)?;
+    require(
+        state.invocations.is_empty() && state.invocation_controls.is_none(),
+        "INTEGRITY_FAILURE",
+    )?;
+    let bytes = product(
+        count,
+        mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>(),
+        s,
+    )?;
     state.invocation_controls = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
-    state.invocations.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
-    state.invocation_storage.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    state
+        .invocations
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    state
+        .invocation_storage
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
     Ok(())
 }
-pub(super) fn retain_invocation_head(state: &mut OwnedWorkState, id: &str, head: &HeadLocator, reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn retain_invocation_head(
+    state: &mut OwnedWorkState,
+    id: &str,
+    head: &HeadLocator,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     use ledgerlab_core::policy::workflow::transition_constructor::InvocationHead;
     let mut bytes = 0;
-    for value in [id, text(head.revision.bytes(), s)?, &reference.kind, &reference.id, &reference.digest] { bytes = add(bytes, value.len(), s)?; }
+    for value in [
+        id,
+        text(head.revision.bytes(), s)?,
+        &reference.kind,
+        &reference.id,
+        &reference.digest,
+    ] {
+        bytes = add(bytes, value.len(), s)?;
+    }
     let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
-    let row = InvocationHead { invocation_id: copied(id, s)?, revision: copied(text(head.revision.bytes(), s)?, s)?, reference: copied_exact(reference, s)? };
-    s.semantic_work().write_bytes(mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>()).map_err(core_error)?;
-    state.invocations.push(row); state.invocation_storage.push(owner);
+    let row = InvocationHead {
+        invocation_id: copied(id, s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?,
+        reference: copied_exact(reference, s)?,
+    };
+    s.semantic_work()
+        .write_bytes(mem::size_of::<InvocationHead>() + mem::size_of::<ExternalBufferLease>())
+        .map_err(core_error)?;
+    state.invocations.push(row);
+    state.invocation_storage.push(owner);
     Ok(())
 }
 
 /// Reserve the actual fixed Stage member projection copies before appending
 /// either claims or current decisions. Their immutable bodies remain in pool.
-pub(super) fn prepare_stage_members(state: &mut OwnedWorkState, count: usize, s: &mut OriginalAuditSession) -> Result<()> {
-    use ledgerlab_core::policy::workflow::transition_constructor::DecisionHead;
-    require(state.financial.work_claims.is_empty() && state.financial.decision_heads.is_empty() && state.stage_members_storage.is_none(), "INTEGRITY_FAILURE")?;
-    let stride = mem::size_of::<ExactRef>() + mem::size_of::<DecisionHead>() + 2 * (32 + 128 + 71) + 128 + 20;
+pub(super) fn prepare_stage_members(
+    state: &mut OwnedWorkState,
+    count: usize,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    use ledgerlab_core::policy::workflow::transition_constructor::{CapacityHead, DecisionHead};
+    require(state.stage_members_storage.is_none(), "INTEGRITY_FAILURE")?;
+    let stride = mem::size_of::<ExactRef>()
+        + mem::size_of::<DecisionHead>()
+        + mem::size_of::<CapacityHead>()
+        + 3 * (32 + 128 + 71)
+        + 2 * (128 + 20);
     let bytes = product(count, stride, s)?;
-    state.stage_members_storage=Some(s.reserve_external_payload(bytes).map_err(core_error)?);
-    state.financial.work_claims.try_reserve_exact(count).map_err(|_|ServiceError::Unavailable)?;
-    state.financial.decision_heads.try_reserve_exact(count).map_err(|_|ServiceError::Unavailable)?;
+    state.stage_members_storage = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
+    state
+        .financial
+        .work_claims
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    state
+        .financial
+        .decision_heads
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    state
+        .capacities
+        .try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
     Ok(())
 }
-pub(super) fn retain_stage_work_claim(state: &mut OwnedWorkState, reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
-    let r=copied_exact(reference,s)?;
-    s.semantic_work().write_bytes(mem::size_of::<ExactRef>()).map_err(core_error)?;
+pub(super) fn retain_stage_work_claim(
+    state: &mut OwnedWorkState,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    for existing in &state.financial.work_claims {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        if existing.id == reference.id {
+            require(existing == reference, "INTEGRITY_FAILURE")?;
+            return Ok(());
+        }
+    }
+    let r = copied_exact(reference, s)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<ExactRef>())
+        .map_err(core_error)?;
     state.financial.work_claims.push(r);
     Ok(())
 }
-pub(super) fn retain_stage_decision(state: &mut OwnedWorkState, id: &str, head: &HeadLocator, reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn retain_stage_decision(
+    state: &mut OwnedWorkState,
+    id: &str,
+    head: &HeadLocator,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     use ledgerlab_core::policy::workflow::transition_constructor::DecisionHead;
-    let row=DecisionHead { decision_id:copied(id,s)?, revision:copied(text(head.revision.bytes(),s)?,s)?, reference:copied_exact(reference,s)? };
-    s.semantic_work().write_bytes(mem::size_of::<DecisionHead>()).map_err(core_error)?;
+    for existing in &state.financial.decision_heads {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        if existing.decision_id == id {
+            require(
+                existing.reference == *reference
+                    && existing.revision == text(head.revision.bytes(), s)?,
+                "INTEGRITY_FAILURE",
+            )?;
+            return Ok(());
+        }
+    }
+    let row = DecisionHead {
+        decision_id: copied(id, s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?,
+        reference: copied_exact(reference, s)?,
+    };
+    s.semantic_work()
+        .write_bytes(mem::size_of::<DecisionHead>())
+        .map_err(core_error)?;
     state.financial.decision_heads.push(row);
     Ok(())
 }
 
-pub(super) fn retain_stage_chain(state:&mut OwnedWorkState,reference:&ExactRef,s:&mut OriginalAuditSession)->Result<()> {
-    require(state.financial.chain_head.is_none(), "INTEGRITY_FAILURE")?;
+pub(super) fn retain_stage_chain(
+    state: &mut OwnedWorkState,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    if let Some(existing) = state.financial.chain_head.as_ref() {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        require(existing == reference, "INTEGRITY_FAILURE")?;
+        return Ok(());
+    }
     // Reserve one fixed reference alongside Stage member control storage.
-    let bytes=reference.kind.len()+reference.id.len()+reference.digest.len()+mem::size_of::<ExactRef>();
-    let owner=s.reserve_external_payload(bytes).map_err(core_error)?;
-    state.financial.chain_head=Some(copied_exact(reference,s)?);
-    state.stage_chain_storage=Some(owner);
+    let bytes = reference.kind.len()
+        + reference.id.len()
+        + reference.digest.len()
+        + mem::size_of::<ExactRef>();
+    let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    state.financial.chain_head = Some(copied_exact(reference, s)?);
+    state.stage_chain_storage = Some(owner);
+    Ok(())
+}
+
+pub(super) fn retain_stage_capacity(
+    state: &mut OwnedWorkState,
+    id: &str,
+    head: &HeadLocator,
+    reference: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    use ledgerlab_core::policy::workflow::transition_constructor::CapacityHead;
+    for existing in &state.capacities {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        if existing.root_decision_id == id {
+            require(
+                existing.reference == *reference
+                    && existing.revision == text(head.revision.bytes(), s)?,
+                "INTEGRITY_FAILURE",
+            )?;
+            return Ok(());
+        }
+    }
+    let row = CapacityHead {
+        root_decision_id: copied(id, s)?,
+        revision: copied(text(head.revision.bytes(), s)?, s)?,
+        reference: copied_exact(reference, s)?,
+    };
+    s.semantic_work()
+        .write_bytes(mem::size_of::<CapacityHead>())
+        .map_err(core_error)?;
+    state.capacities.push(row);
     Ok(())
 }

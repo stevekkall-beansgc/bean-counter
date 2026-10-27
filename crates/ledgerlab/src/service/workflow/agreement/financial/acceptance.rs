@@ -8,6 +8,7 @@ mod admission;
 mod assents;
 mod binding;
 mod consent;
+mod supplier;
 pub(super) use consent::CurrentPlatformConsents;
 mod customer;
 mod emit;
@@ -27,7 +28,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
-pub(super) use replay::{reconstruct as reconstruct_held, ReplayedAcceptance};
+pub(super) use replay::{ReplayedAcceptance, reconstruct as reconstruct_held};
 use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)
@@ -885,7 +886,11 @@ async fn reconstruct_inner(
     let authority = request_wrapper::field(operation, "authority_snapshot", session)?;
     request_wrapper::same_text(
         request_wrapper::text(authority, "schema", session)?,
-        "ledger-workflow-agreement-authority/5",
+        if publication.program().uses_stage_lifecycle_recipe() {
+            "ledger-workflow-agreement-authority/6"
+        } else {
+            "ledger-workflow-agreement-authority/5"
+        },
         session,
     )?;
     let actor = request_wrapper::text(authority, "actor", session)?;
@@ -1124,12 +1129,13 @@ async fn prepare_selected(
             &at,
             session,
         )?;
-        let private_documents = private::normalize_inline(incoming, &input, session)?;
+        let private_documents = private::normalize_inline(incoming, &input, &publication, session)?;
         let private_documents = private::resolve_graph(
             private_documents,
             tx,
             incoming.key(),
             &input,
+            &publication,
             before,
             session,
         )
@@ -1244,13 +1250,30 @@ async fn prepare_selected(
         let source = sources
             .get(admission_source)
             .ok_or(ServiceError::IntegrityFailure)?;
-        let consents = consent::observe_all(
+        let mut consents = consent::observe_all(
             tx,
             incoming,
             &input,
             &publication,
             &private_documents,
             (source, &local_root, &setup.operator, &at, before),
+            session,
+        )
+        .await?;
+        consents.supplier = supplier::derive(
+            tx,
+            incoming.key(),
+            &input,
+            &publication,
+            &private_documents,
+            &binding,
+            &local_root,
+            &sources,
+            &consents,
+            &setup.operator,
+            &at,
+            before,
+            false,
             session,
         )
         .await?;

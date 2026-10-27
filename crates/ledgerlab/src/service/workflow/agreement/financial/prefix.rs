@@ -1590,7 +1590,19 @@ async fn fold_origin(
         ._inventory
         .begin_origin_links(origin.wrappers().sequence(), s)?;
     let mut initial_source = None;
-    let publication = if origin.wrappers().class() == wrappers::WireClass::Agreement {
+    let literal =
+        request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+    let cost_enrollment = origin.wrappers().class() == wrappers::WireClass::Financial
+        && acceptance::same_recipe_text(
+            request_wrapper::text(literal, "schema", s)?,
+            "ledger-cost-authority-enroll/1",
+            s,
+        )?;
+    let publication = if cost_enrollment {
+        super::local_cost_authority::fold_original(tx, origin, &mut prefix._inventory, setup, s)
+            .await?;
+        None
+    } else if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
             request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
         let wanted = request_wrapper::field(literal, "publication_ref", s)?;
@@ -1866,7 +1878,7 @@ impl FoldedInventory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ledgerlab_core::canonical::{audit_arena::AuditArena, CanonicalBytes};
+    use ledgerlab_core::canonical::{CanonicalBytes, audit_arena::AuditArena};
     fn scope() -> OperationKey {
         OperationKey {
             logical_store_id: "local".into(),

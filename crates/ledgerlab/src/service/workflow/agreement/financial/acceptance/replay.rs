@@ -77,12 +77,13 @@ pub(in super::super) async fn reconstruct(
             raw,
             s,
         )?;
-        let private_documents = private::normalize_inline(&incoming, input, s)?;
+        let private_documents = private::normalize_inline(&incoming, input, publication, s)?;
         let private_documents = private::resolve_graph(
             private_documents,
             tx,
             origin.key(),
             input,
+            publication,
             origin.wrappers().sequence(),
             s,
         )
@@ -173,7 +174,7 @@ pub(in super::super) async fn reconstruct(
             .arithmetic(Op::Compare, &[&index.into(), &sources.len().into()])
             .map_err(core_error)?;
         let source = sources.get(index).ok_or(ServiceError::IntegrityFailure)?;
-        let consents = consent::reconstruct_all(
+        let mut consents = consent::reconstruct_all(
             tx,
             &incoming,
             input,
@@ -191,6 +192,23 @@ pub(in super::super) async fn reconstruct(
         )
         .await?;
         consents.match_prefix(prefix, s)?;
+        consents.supplier = super::supplier::derive(
+            tx,
+            origin.key(),
+            input,
+            publication,
+            &private_documents,
+            &original.binding,
+            &local_root,
+            &sources,
+            &consents,
+            actor,
+            &original.at,
+            origin.wrappers().sequence(),
+            true,
+            s,
+        )
+        .await?;
         let authority = admission::authority(
             input,
             source,
@@ -408,7 +426,7 @@ impl ReplayedAcceptance {
             input.terms().canonical_bytes() == self.input.terms().canonical_bytes(),
             "IDENTITY_CONFLICT",
         )?;
-        let documents = private::normalize_inline(incoming, &input, s)?;
+        let documents = private::normalize_inline(incoming, &input, publication, s)?;
         s.semantic_work()
             .arithmetic(
                 Op::Add,
@@ -421,7 +439,8 @@ impl ReplayedAcceptance {
             .checked_add(1)
             .ok_or(ServiceError::IntegrityFailure)?;
         let documents =
-            private::resolve_graph(documents, tx, origin.key(), &input, before, s).await?;
+            private::resolve_graph(documents, tx, origin.key(), &input, publication, before, s)
+                .await?;
         let binding = s
             .parse_representation(self.binding.bytes(), Kind::SourceDefinition)
             .map_err(core_error)?;

@@ -353,25 +353,31 @@ pub(in super::super) async fn reconstruct_initial(
             let parsed_authority = s
                 .parse_representation(authority.bytes(), RepresentationKind::Authority)
                 .map_err(core_error)?;
-            for value in request_wrapper::field(
-                parsed_authority.value(),
-                "app_consent_verification_refs",
-                s,
-            )?
-            .as_array()
-            .ok_or(ServiceError::IntegrityFailure)?
-            {
-                let (reference, _owner) =
-                    current::source::from_value(value, "workflow-verification", s)?;
-                prefix::verify_selected_association(
-                    tx,
-                    origin.key(),
-                    &reference,
-                    origin.wrappers().sequence(),
-                    s,
-                )
-                .await?;
-                members.add_record_ref(&reference, s)?;
+            let fields: &[&str] = if publication.program().uses_stage_lifecycle_recipe() {
+                &[
+                    "app_consent_verification_refs",
+                    "supplier_consent_verification_refs",
+                ]
+            } else {
+                &["app_consent_verification_refs"]
+            };
+            for field in fields {
+                for value in request_wrapper::field(parsed_authority.value(), field, s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                {
+                    let (reference, _owner) =
+                        current::source::from_value(value, "workflow-verification", s)?;
+                    prefix::verify_selected_association(
+                        tx,
+                        origin.key(),
+                        &reference,
+                        origin.wrappers().sequence(),
+                        s,
+                    )
+                    .await?;
+                    members.add_record_ref(&reference, s)?;
+                }
             }
             members
         } else {

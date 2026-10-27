@@ -298,7 +298,15 @@ impl AppAcceptanceInput {
 /// Owners retain all material; a coverage vector is still not origin custody.
 pub(super) struct Coverage {
     observations: Vec<ObservedAcceptanceConsent>,
+    fullterms: Vec<FulltermsConsent>,
+    _fullterms_storage: ExternalBufferLease,
+    pub(super) supplier: Option<super::supplier::SupplierCoverage>,
     _storage: ExternalBufferLease,
+}
+struct FulltermsConsent {
+    customer: ObservedCustomerConsent,
+    platform: current::party::ObservedPlatformConsent,
+    party_assent: wire::SourceRecord,
 }
 struct TermRefs<'a> {
     refs: Vec<&'a ExactRef>,
@@ -404,7 +412,19 @@ async fn observe_all_at(
         s.semantic_work()
             .visit(Visit::Element)
             .map_err(core_error)?;
-        let reference = documents.reference(request_wrapper::field(row, "binding_ref", s)?, s)?;
+        let terms_ref = request_wrapper::field(row, "binding_ref", s)?;
+        if publication.program().uses_stage_lifecycle_recipe() {
+            let terms = documents.body(terms_ref, s)?;
+            if !same_recipe_text(request_wrapper::text(terms, "book", s)?, "retail", s)? {
+                continue;
+            }
+            request_wrapper::same_text(
+                request_wrapper::text(terms, "schema", s)?,
+                "ledger-workflow-slot-binding-terms/3",
+                s,
+            )?;
+        }
+        let reference = documents.reference(terms_ref, s)?;
         s.semantic_work()
             .write_bytes(mem::size_of::<&ExactRef>())
             .map_err(core_error)?;
@@ -428,8 +448,18 @@ async fn observe_all_at(
         .checked_mul(mem::size_of::<ObservedAcceptanceConsent>())
         .ok_or(ServiceError::Unavailable)?;
     let storage = s.reserve_external_payload(n).map_err(core_error)?;
+    let fullterms_storage = s
+        .reserve_external_payload(legs.len() * mem::size_of::<FulltermsConsent>())
+        .map_err(core_error)?;
+    let mut fullterms = Vec::new();
+    fullterms
+        .try_reserve_exact(legs.len())
+        .map_err(|_| ServiceError::Unavailable)?;
     let mut out = Coverage {
         observations: Vec::new(),
+        fullterms,
+        _fullterms_storage: fullterms_storage,
+        supplier: None,
         _storage: storage,
     };
     out.observations
@@ -451,6 +481,117 @@ async fn observe_all_at(
         s.semantic_work().scan_bytes(8).map_err(core_error)?;
         if mode != "platform" {
             continue;
+        }
+        if publication.program().uses_stage_lifecycle_recipe() {
+            terms.refs.clear();
+            for row in rows {
+                let reference = request_wrapper::field(row, "binding_ref", s)?;
+                let body = documents.body(reference, s)?;
+                if same_recipe_text(request_wrapper::text(body, "book", s)?, "retail", s)?
+                    && same_recipe_text(
+                        request_wrapper::text(body, "funding_leg", s)?,
+                        request_wrapper::text(leg, "name", s)?,
+                        s,
+                    )?
+                {
+                    request_wrapper::same_text(
+                        request_wrapper::text(body, "schema", s)?,
+                        "ledger-workflow-slot-binding-terms/3",
+                        s,
+                    )?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<&ExactRef>())
+                        .map_err(core_error)?;
+                    terms.refs.push(documents.reference(reference, s)?);
+                }
+            }
+            if terms.refs.is_empty() {
+                // The supplier leg requires genuine fullterms assents, but no
+                // AppConsentVerification is applicable to a supplier Terms8.
+                let party = request_wrapper::text(leg, "payer", s)?;
+                let party_assent = inputs.select(input, Some(party), s)?;
+                let resource_leg = request_wrapper::text(leg, "name", s)?;
+                let (customer, platform) = if let Some(prefix) = historical.as_deref_mut() {
+                    let customer_id =
+                        request_wrapper::field(input.terms.canonical_value(), "customer", s)?;
+                    let registration = prefix
+                        .original_customer_at(tx, incoming.key(), customer_id, before, s)
+                        .await?;
+                    let customer = input
+                        .original_customer_consent(
+                            tx,
+                            incoming.key(),
+                            admission.enrollment_record(),
+                            registration,
+                            (customer, actor, at, before),
+                            s,
+                        )
+                        .await?;
+                    let platform = input
+                        .original_platform_consent(
+                            tx,
+                            incoming.key(),
+                            resource_leg,
+                            party_assent,
+                            (at, before),
+                            s,
+                        )
+                        .await?;
+                    (customer, prefix.original_platform_at(platform, s)?)
+                } else {
+                    let customer = input
+                        .customer_consent(
+                            tx,
+                            incoming.key(),
+                            admission.enrollment_record(),
+                            customer,
+                            (actor, at, before),
+                            s,
+                        )
+                        .await?;
+                    let platform = input
+                        .platform_consent(
+                            tx,
+                            incoming.key(),
+                            resource_leg,
+                            party_assent,
+                            (at, before),
+                            s,
+                        )
+                        .await?;
+                    (customer, platform)
+                };
+                let mapping_ref = wire::reference(platform.mapping().reference(), s)?;
+                let mut nominated = false;
+                for reference in input
+                    .authority_refs()
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                {
+                    let actual = encode(reference, s)?;
+                    s.semantic_work()
+                        .scan_bytes(actual.bytes().len() + mapping_ref.bytes().len())
+                        .map_err(core_error)?;
+                    if actual.bytes() == mapping_ref.bytes() {
+                        nominated = true;
+                    }
+                }
+                require(nominated, "AUTHORITY_REQUIRED")?;
+                let bytes = s
+                    .copy_representation(platform.assent_bytes(), Kind::SourceDefinition)
+                    .map_err(core_error)?;
+                let party_assent =
+                    wire::source_record("workflow-assent", input.party_assent_schema(), bytes, s)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<FulltermsConsent>())
+                    .map_err(core_error)?;
+                out.fullterms.push(FulltermsConsent {
+                    customer,
+                    platform,
+                    party_assent,
+                });
+                continue;
+            }
         }
         let party = request_wrapper::text(leg, "payer", s)?;
         let party_assent = inputs.select(input, Some(party), s)?;
@@ -522,26 +663,77 @@ async fn observe_all_at(
             out.observations.push(observed);
         }
     }
-    size(out.observations.len(), 1, 16, s)?;
+    size(out.observations.len() + out.fullterms.len(), 1, 16, s)?;
     Ok(out)
 }
 
 impl Coverage {
+    fn consent_pairs(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &ObservedCustomerConsent,
+            &current::party::ObservedPlatformConsent,
+        ),
+    > {
+        self.observations
+            .iter()
+            .map(|o| (o.customer(), o.platform()))
+            .chain(self.fullterms.iter().map(|o| (&o.customer, &o.platform)))
+    }
+    fn customer_assents(&self) -> impl Iterator<Item = &wire::SourceRecord> {
+        self.observations
+            .iter()
+            .map(|o| o.customer.assent())
+            .chain(self.fullterms.iter().map(|o| o.customer.assent()))
+    }
+    fn party_assents(&self) -> impl Iterator<Item = &wire::SourceRecord> {
+        self.observations
+            .iter()
+            .map(|o| o.party_assent())
+            .chain(self.fullterms.iter().map(|o| &o.party_assent))
+    }
     pub(super) fn selected_refs(&self) -> impl Iterator<Item = &ExactRef> {
-        self.observations.iter().flat_map(|o| {
-            o.customer()
-                .records()
-                .into_iter()
-                .map(|r| r.reference())
-                .chain(std::iter::once(o.platform().mapping().reference()))
-                .chain(o.platform().mapping().evidence_refs())
-                .chain(o.platform().evidence_refs())
-        })
+        self.consent_pairs()
+            .flat_map(|(customer, platform)| {
+                customer
+                    .records()
+                    .into_iter()
+                    .map(|r| r.reference())
+                    .chain(std::iter::once(platform.mapping().reference()))
+                    .chain(platform.mapping().evidence_refs())
+                    .chain(platform.evidence_refs())
+            })
+            .chain(self.supplier.iter().flat_map(|v| v.selected_refs()))
     }
     pub(super) fn generated_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
         self.observations
             .iter()
-            .flat_map(|o| [o.customer().assent(), o.party_assent(), o.verification()])
+            .flat_map(|o| [o.customer.assent(), &o.party_assent, &o.verification])
+            .chain(
+                self.fullterms
+                    .iter()
+                    .flat_map(|o| [o.customer.assent(), &o.party_assent]),
+            )
+            .chain(self.supplier.iter().flat_map(|v| v.records()))
+    }
+    pub(super) fn platform_mappings(
+        &self,
+    ) -> impl Iterator<Item = &current::party::ObservedPartyAuthorization> {
+        self.consent_pairs().map(|(_, p)| p.mapping())
+    }
+    pub(super) fn registered_customer(&self) -> Result<&current::source::SourceRecord> {
+        Ok(self
+            .consent_pairs()
+            .next()
+            .ok_or(ServiceError::IntegrityFailure)?
+            .0
+            .records()[0])
+    }
+    pub(super) fn supplier_verification_refs(&self) -> impl Iterator<Item = &ExactRef> {
+        self.supplier
+            .iter()
+            .flat_map(|v| v.records().map(|r| r.reference()))
     }
 
     /// Select the already normalized, fully checked material for one literal
@@ -572,15 +764,20 @@ impl Coverage {
             "ASSENT_TERMS_MISMATCH",
         )?;
         let mut found: Option<&wire::SourceRecord> = None;
-        for observation in &self.observations {
+        for candidate in self.customer_assents().chain(self.party_assents()) {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            let candidate = if customer {
-                observation.customer().assent()
-            } else {
-                observation.party_assent()
-            };
+            let candidate_body = s
+                .parse_representation(candidate.bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            if !assents::equal(
+                request_wrapper::text(candidate_body.value(), "schema", s)?,
+                schema,
+                s,
+            )? {
+                continue;
+            }
             let body = s
                 .parse_representation(candidate.bytes(), Kind::SourceDefinition)
                 .map_err(core_error)?;
@@ -610,11 +807,11 @@ impl Coverage {
         prefix: &mut prefix::FoldedInventory,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        for observed in &self.observations {
+        for (customer, platform) in self.consent_pairs() {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            let records = observed.customer().records();
+            let records = customer.records();
             prefix.match_customer(records[0], s)?;
             for record in records {
                 s.semantic_work()
@@ -622,8 +819,8 @@ impl Coverage {
                     .map_err(core_error)?;
                 prefix.require_record(record.reference(), s)?;
             }
-            prefix.match_party(observed.platform().mapping(), s)?;
-            for reference in observed.platform().evidence_refs() {
+            prefix.match_party(platform.mapping(), s)?;
+            for reference in platform.evidence_refs() {
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
@@ -638,15 +835,38 @@ impl Coverage {
 /// This is a locked mapping view, not a replacement acceptance verification.
 pub(in super::super) struct CurrentPlatformConsents {
     observations: Vec<current::party::ObservedPlatformConsent>,
+    supplier: Vec<current::party::ObservedPartyAuthorization>,
+    _supplier_storage: Option<ExternalBufferLease>,
     _storage: ExternalBufferLease,
 }
 impl CurrentPlatformConsents {
     pub(in super::super) fn mappings(
         &self,
     ) -> impl ExactSizeIterator<Item = &current::party::ObservedPartyAuthorization> {
-        self.observations.iter().map(|o| o.mapping())
+        PartyMappings {
+            platform: self.observations.iter(),
+            supplier: self.supplier.iter(),
+        }
     }
 }
+struct PartyMappings<'a> {
+    platform: std::slice::Iter<'a, current::party::ObservedPlatformConsent>,
+    supplier: std::slice::Iter<'a, current::party::ObservedPartyAuthorization>,
+}
+impl<'a> Iterator for PartyMappings<'a> {
+    type Item = &'a current::party::ObservedPartyAuthorization;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.platform
+            .next()
+            .map(|v| v.mapping())
+            .or_else(|| self.supplier.next())
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.platform.len() + self.supplier.len();
+        (n, Some(n))
+    }
+}
+impl ExactSizeIterator for PartyMappings<'_> {}
 impl Coverage {
     fn accepted_party_assent<'a>(
         &'a self,
@@ -655,11 +875,10 @@ impl Coverage {
         s: &mut OriginalAuditSession,
     ) -> Result<&'a wire::SourceRecord> {
         let mut found: Option<&wire::SourceRecord> = None;
-        for observation in &self.observations {
+        for candidate in self.party_assents() {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            let candidate = observation.party_assent();
             let body = s
                 .parse_representation(candidate.bytes(), Kind::SourceDefinition)
                 .map_err(core_error)?;
@@ -780,10 +999,20 @@ impl Coverage {
                 observations.push(observed);
             }
             size(observations.len(), 1, 16, s)?;
-            Ok(CurrentPlatformConsents {
+            let mut result = CurrentPlatformConsents {
                 observations,
+                supplier: Vec::new(),
+                _supplier_storage: None,
                 _storage: storage,
-            })
+            };
+            if same_recipe_text(input.registry(), wrappers::STAGE_LIFECYCLE_REGISTRY, s)?
+                && matches!(snapshot, PlatformSnapshot::Original)
+            {
+                result
+                    .observe_supplier_at(tx, key, binding, at, before, Some(prefix), s)
+                    .await?;
+            }
+            Ok(result)
         }
         .await;
         terminal(result, tx, s)
@@ -892,15 +1121,115 @@ pub(super) async fn observe_local_platforms(
     size(observations.len(), 1, 16, s)?;
     Ok(CurrentPlatformConsents {
         observations,
+        supplier: Vec::new(),
+        _supplier_storage: None,
         _storage: storage,
     })
 }
 impl CurrentPlatformConsents {
     pub(in super::super) fn selected_refs(&self) -> impl Iterator<Item = &ExactRef> {
-        self.observations.iter().flat_map(|o| {
-            std::iter::once(o.mapping().reference())
-                .chain(o.mapping().evidence_refs())
-                .chain(o.evidence_refs())
-        })
+        self.observations
+            .iter()
+            .flat_map(|o| {
+                std::iter::once(o.mapping().reference())
+                    .chain(o.mapping().evidence_refs())
+                    .chain(o.evidence_refs())
+            })
+            .chain(
+                self.supplier
+                    .iter()
+                    .flat_map(|o| std::iter::once(o.reference()).chain(o.evidence_refs())),
+            )
+    }
+}
+
+impl CurrentPlatformConsents {
+    /// Current provider mapping is required only for a new Stage-selected
+    /// commercial promise. Fulfilment and original recovery never call this.
+    pub(in super::super) async fn observe_supplier_current(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        binding: &Value,
+        at: &Timestamp,
+        before: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.observe_supplier_at(tx, key, binding, at, before, None, s)
+            .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn observe_supplier_at(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        binding: &Value,
+        at: &Timestamp,
+        before: i64,
+        mut historical: Option<&mut prefix::FoldedInventory>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(self.supplier.is_empty(), "INTEGRITY_FAILURE")?;
+        let refs = request_wrapper::field(binding, "assent_refs", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        size(refs.len(), 1, 64, s)?;
+        let owner = s
+            .reserve_external_payload(
+                refs.len() * mem::size_of::<current::party::ObservedPartyAuthorization>(),
+            )
+            .map_err(core_error)?;
+        self.supplier
+            .try_reserve_exact(refs.len())
+            .map_err(|_| ServiceError::Unavailable)?;
+        for reference in refs {
+            let assent = current::source::stage_assent_record(tx, key, reference, before, s)
+                .await?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            if !same_recipe_text(
+                request_wrapper::text(assent.body(), "schema", s)?,
+                "ledger-workflow-party-assent/3",
+                s,
+            )? {
+                continue;
+            }
+            prefix::verify_selected_association(tx, key, assent.reference(), before, s).await?;
+            let spec = request_wrapper::field(assent.body(), "consent", s)?;
+            let reference = request_wrapper::field(spec, "authorization_ref", s)?;
+            let mapping = if let Some(prefix) = historical.as_deref_mut() {
+                let mapping = current::party::original_authorization_inputs(
+                    tx, key, reference, at, before, s,
+                )
+                .await?;
+                prefix.match_party(&mapping, s)?;
+                for reference in mapping.evidence_refs() {
+                    prefix.require_record(reference, s)?;
+                }
+                mapping
+            } else {
+                current::party::observe(tx, key, reference, at, before, s).await?
+            };
+            for reference in std::iter::once(mapping.reference()).chain(mapping.evidence_refs()) {
+                prefix::verify_selected_association(tx, key, reference, before, s).await?;
+            }
+            let mut duplicate = false;
+            for existing in &self.supplier {
+                s.semantic_work()
+                    .visit(Visit::MemberCompare)
+                    .map_err(core_error)?;
+                if existing.reference() == mapping.reference() {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if !duplicate {
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<current::party::ObservedPartyAuthorization>())
+                    .map_err(core_error)?;
+                self.supplier.push(mapping);
+            }
+        }
+        self._supplier_storage = Some(owner);
+        Ok(())
     }
 }

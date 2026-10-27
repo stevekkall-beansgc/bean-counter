@@ -2,14 +2,14 @@
 //! Acquiring DATA does not establish activation, original custody or eligibility.
 use super::super::request_wrapper as check;
 use super::*;
+mod alias;
 mod chain_links;
 mod nonwork;
+mod stage;
 mod work_capture;
 mod work_heads;
-mod stage;
-mod alias;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    select_work_fact_reference_inputs, OperationFactReferenceInputs,
+    OperationFactReferenceInputs, select_work_fact_reference_inputs,
 };
 use ledgerlab_core::validation_work::ValidationVisit;
 
@@ -35,10 +35,16 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) local_input_bodies: Option<super::super::local_inputs::LocalInputs>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
     work_state: Option<work_heads::OwnedWorkState>,
-    pub(super) work_invocation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::WorkInvocationHeadLocators>,
-    pub(super) invocation_operation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::InvocationOperationLocators>,
-    pub(super) stage_work_locator: Option<ledgerlab_core::policy::workflow::transition_constructor::StageWorkHeadLocator>,
-    pub(super) stage_operation_locators: Option<ledgerlab_core::policy::workflow::transition_constructor::StageOperationLocators>,
+    pub(super) work_invocation_locators: Option<
+        ledgerlab_core::policy::workflow::transition_constructor::WorkInvocationHeadLocators,
+    >,
+    pub(super) invocation_operation_locators: Option<
+        ledgerlab_core::policy::workflow::transition_constructor::InvocationOperationLocators,
+    >,
+    pub(super) stage_work_locator:
+        Option<ledgerlab_core::policy::workflow::transition_constructor::StageWorkHeadLocator>,
+    pub(super) stage_operation_locators:
+        Option<ledgerlab_core::policy::workflow::transition_constructor::StageOperationLocators>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(in super::super) at: Timestamp,
@@ -170,6 +176,10 @@ pub(in super::super) async fn observe(
         if observed.parties.is_none() {
             let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
             observed.parties = Some(observed.original.current_platforms(tx,key,binding.value(),&observed.at,observed.before,session).await?);
+        }
+        if observed.original.publication.program().uses_stage_lifecycle_recipe() {
+            let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            observed.parties.as_mut().ok_or(ServiceError::IntegrityFailure)?.observe_supplier_current(tx,key,binding.value(),&observed.at,observed.before,session).await?;
         }
         if observed.activation.is_none() {
             if !stage::retain_original_work_activation(&mut observed,tx,key,payload,session).await? {
@@ -733,21 +743,41 @@ async fn observe_binding(
         // Stop remains the existing Authority2 recipe: current admission
         // mapping expiry/revocation cannot erase the right to stop accrued
         // work. Its explicit stop evidence and target checks remain required.
-        let parties = if super::super::acceptance::same_recipe_text(
-            operation,
-            "agreement.revoke",
-            session,
-        )? || (operation == "work.accept" && original.publication.program().uses_shared_namespace_recipe()) {
-            None
-        } else {
-            Some(
-                original
-                    .current_platforms(tx, key, binding.value(), &at, before, session)
-                    .await?,
+        let mut parties =
+            if super::super::acceptance::same_recipe_text(operation, "agreement.revoke", session)?
+                || (operation == "work.accept"
+                    && original
+                        .publication
+                        .program()
+                        .uses_shared_namespace_recipe())
+            {
+                None
+            } else {
+                Some(
+                    original
+                        .current_platforms(tx, key, binding.value(), &at, before, session)
+                        .await?,
+                )
+            };
+        if original.publication.program().uses_stage_lifecycle_recipe()
+            && matches!(
+                operation,
+                "invocation.authorize" | "agreement.activate" | "agreement.replace"
             )
-        };
+        {
+            parties
+                .as_mut()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .observe_supplier_current(tx, key, binding.value(), &at, before, session)
+                .await?;
+        }
         let activation =
-            if super::super::acceptance::same_recipe_text(operation, "work.accept", session)? && !original.publication.program().uses_shared_namespace_recipe() {
+            if super::super::acceptance::same_recipe_text(operation, "work.accept", session)?
+                && !original
+                    .publication
+                    .program()
+                    .uses_shared_namespace_recipe()
+            {
                 Some(
                     original
                         .current_initial_activation(tx, key, binding.value(), &at, before, session)
@@ -854,7 +884,9 @@ impl ObservedAppActivation {
 }
 
 impl ObservedAppBinding {
-    pub(in super::super) fn is_work_alias(&self) -> bool { self.alias_work.is_some() }
+    pub(in super::super) fn is_work_alias(&self) -> bool {
+        self.alias_work.is_some()
+    }
     pub(in super::super) fn current_participant_source(
         &self,
         s: &mut OriginalAuditSession,

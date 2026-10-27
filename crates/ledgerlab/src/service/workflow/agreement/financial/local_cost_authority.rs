@@ -13,7 +13,7 @@ use ledgerlab_core::{
 fn decode(v: &[u8]) -> Result<&str> {
     std::str::from_utf8(v).map_err(|_| ServiceError::IntegrityFailure)
 }
-fn context(
+pub(super) fn context(
     key: &OperationKey,
     actor: &str,
     namespace: &str,
@@ -90,7 +90,10 @@ pub(super) async fn prepare_append(
     // Absence is queried under the same held write transaction. A hit is a
     // permanent full account tuple, irrespective of its authority label/scope.
     let occupied_owner = s
-        .reserve_external_payload(accounts.len() * (std::mem::size_of::<ExactRef>()+std::mem::size_of::<ExternalBufferLease>()))
+        .reserve_external_payload(
+            accounts.len()
+                * (std::mem::size_of::<ExactRef>() + std::mem::size_of::<ExternalBufferLease>()),
+        )
         .map_err(core_error)?;
     let mut occupied = Vec::with_capacity(accounts.len());
     let mut hit_owners = Vec::with_capacity(accounts.len());
@@ -133,7 +136,7 @@ pub(super) async fn prepare_append(
         pool.add_value(r, s)?;
     }
     pool.complete(tx, req.key(), before, s).await?;
-    let (mut inputs,_views_owner) = pool.owned_views(1,s)?;
+    let (mut inputs, _views_owner) = pool.owned_views(1, s)?;
     inputs.push(EconomicRecordView {
         reference: root.reference(),
         canonical_body: root.bytes(),
@@ -181,22 +184,88 @@ pub(super) async fn verify_original(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
+    Ok(reproduce_original(tx, original, incoming, s)
+        .await?
+        .is_some())
+}
+
+pub(super) async fn fold_original(
+    tx: &mut SqliteTx,
+    origin: &prefix::LocatedWrappers,
+    inventory: &mut prefix::inventory::Inventory,
+    setup: &crate::service::billing::Setup,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let candidate = reproduce_original(tx, origin, None, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let mut roots = 0usize;
+    for record in candidate.introduced() {
+        if record.schema() == "ledger-workflow-local-authority-snapshot/1" {
+            let body = s
+                .parse_representation(record.canonical_body(), RepresentationKind::Authority)
+                .map_err(core_error)?;
+            prefix::source::custody(body.value(), setup, s)?;
+            roots += 1;
+        }
+    }
+    require(roots == 1, "INTEGRITY_FAILURE")?;
+    for reference in candidate.consumed_refs() {
+        let stored = tx
+            .workflow_financial_document(
+                reference,
+                &origin.key().logical_store_id,
+                &origin.key().scope,
+                origin.wrappers().sequence(),
+                s,
+            )
+            .await
+            .map_err(prefix::read_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        inventory.compare_record(reference, stored.body.bytes(), s)?;
+    }
+    for record in candidate.introduced() {
+        inventory.introduce(
+            record.reference(),
+            record.canonical_body(),
+            origin.wrappers().sequence(),
+            s,
+        )?;
+    }
+    Ok(())
+}
+
+async fn reproduce_original(
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<core::EconomicCandidate>> {
     let w = original.wrappers();
     if w.class() != wrappers::WireClass::Financial {
-        return Ok(false);
+        return Ok(None);
     }
     let saved = ingress::IncomingRequest::parse(w.original_request().raw(), s)?;
     if !selected(&saved, s)? {
-        return Ok(false);
+        return Ok(None);
     }
     let evidence = request_wrapper::field(w.operation(), "request_evidence", s)?;
-    if let Some(req)=incoming {
-        require(selected(req,s)?,"IDENTITY_CONFLICT")?;
-        let normalized=core::normalize_local_cost_authority_enrollment_intent(req.raw(),s).map_err(core_error)?;
-        let expected=request_wrapper::field(request_wrapper::field(evidence,"normalized_request",s)?,"payload",s)?;
-        let expected=s.canonical_representation(expected,RepresentationKind::OriginalRequest).map_err(core_error)?;
-        s.semantic_work().scan_bytes(normalized.bytes().len()+expected.bytes().len()).map_err(core_error)?;
-        require(normalized.bytes()==expected.bytes(),"IDENTITY_CONFLICT")?;
+    if let Some(req) = incoming {
+        require(selected(req, s)?, "IDENTITY_CONFLICT")?;
+        let normalized = core::normalize_local_cost_authority_enrollment_intent(req.raw(), s)
+            .map_err(core_error)?;
+        let expected = request_wrapper::field(
+            request_wrapper::field(evidence, "normalized_request", s)?,
+            "payload",
+            s,
+        )?;
+        let expected = s
+            .canonical_representation(expected, RepresentationKind::OriginalRequest)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(normalized.bytes().len() + expected.bytes().len())
+            .map_err(core_error)?;
+        require(normalized.bytes() == expected.bytes(), "IDENTITY_CONFLICT")?;
     }
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
     request_wrapper::same_text(
@@ -266,7 +335,7 @@ pub(super) async fn verify_original(
         pool.body(root.reference())? == root.bytes(),
         "INTEGRITY_FAILURE",
     )?;
-    let (inputs,_views_owner) = pool.owned_views(0,s)?;
+    let (inputs, _views_owner) = pool.owned_views(0, s)?;
     let support = SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(s)
         .map_err(core_error)?;
     let state = core::CostAuthorityEnrollmentState {
@@ -322,5 +391,5 @@ pub(super) async fn verify_original(
         s,
     )?;
     journal.compare_original(w, s)?;
-    Ok(true)
+    Ok(Some(candidate))
 }

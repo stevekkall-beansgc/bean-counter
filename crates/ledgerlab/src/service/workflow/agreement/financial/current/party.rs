@@ -591,6 +591,53 @@ async fn original_authorization(
     )?;
     Ok((original, retained, attestation))
 }
+/// Original mapping/evidence DATA only. The enclosing chronological owner
+/// must match its actual as-of party head before using this view.
+pub(in super::super) async fn original_authorization_inputs(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<ObservedPartyAuthorization> {
+    let (original, evidence, attestation) =
+        original_authorization(tx, key, reference, at, before, session).await?;
+    let spec = check::field(original.body(), "authorization", session)?;
+    at_most(&time(spec, "starts_at", session)?, at, session)?;
+    let end = time(spec, "ends_at", session)?;
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&at.micros().into(), &end.micros().into()])
+        .map_err(core_error)?;
+    require(at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
+    let current = HeadLocator {
+        revision: session
+            .copy_representation(b"1", RepresentationKind::Record)
+            .map_err(core_error)?,
+        kind: session
+            .copy_representation(
+                original.reference.kind.as_bytes(),
+                RepresentationKind::Record,
+            )
+            .map_err(core_error)?,
+        id: session
+            .copy_representation(original.reference.id.as_bytes(), RepresentationKind::Record)
+            .map_err(core_error)?,
+        digest: session
+            .copy_representation(
+                original.reference.digest.as_bytes(),
+                RepresentationKind::Record,
+            )
+            .map_err(core_error)?,
+    };
+    Ok(ObservedPartyAuthorization {
+        original,
+        evidence,
+        attestation,
+        current,
+    })
+}
 async fn observe_inner(
     tx: &mut SqliteTx,
     key: &OperationKey,

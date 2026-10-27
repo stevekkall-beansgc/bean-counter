@@ -4,7 +4,7 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::transition_constructor::{
-        select_local_input_edges, EconomicRecordView, ExactRef, OperationKey as CoreKey,
+        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_local_input_edges,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -41,21 +41,36 @@ impl LocalInputs {
     }
     /// Exact selected Stage inventory supports original/current revisions of
     /// the one stable Invocation identity. This is DATA representation only.
-    pub(super) fn select_stage_recipe(&mut self, program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram) {
+    pub(super) fn select_stage_recipe(
+        &mut self,
+        program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram,
+    ) {
         self.stage_invocation_revisions = program.uses_stage_lifecycle_recipe();
         self.wrapper_inputs = program.uses_shared_namespace_recipe();
     }
-    pub(super) fn select_saved_registry(&mut self, registry: &str, s: &mut OriginalAuditSession) -> Result<()> {
-        s.semantic_work().scan_bytes(registry.len()).map_err(core_error)?;
+    pub(super) fn select_saved_registry(
+        &mut self,
+        registry: &str,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        s.semantic_work()
+            .scan_bytes(registry.len())
+            .map_err(core_error)?;
         self.stage_invocation_revisions = registry == super::wrappers::STAGE_LIFECYCLE_REGISTRY;
-        self.wrapper_inputs = self.stage_invocation_revisions || registry == super::wrappers::DECLARED_LINK_REGISTRY;
+        self.wrapper_inputs =
+            self.stage_invocation_revisions || registry == super::wrappers::DECLARED_LINK_REGISTRY;
         Ok(())
     }
     pub(super) fn add(&mut self, r: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
         for old in &self.rows {
             if old.reference.kind == r.kind && old.reference.id == r.id {
-                if old.reference.digest == r.digest { return Ok(()); }
-                require(self.stage_invocation_revisions && r.kind == "workflow-invocation", "INTEGRITY_FAILURE")?;
+                if old.reference.digest == r.digest {
+                    return Ok(());
+                }
+                require(
+                    self.stage_invocation_revisions && r.kind == "workflow-invocation",
+                    "INTEGRITY_FAILURE",
+                )?;
             }
         }
         let count = self
@@ -103,6 +118,90 @@ impl LocalInputs {
             lifecycle_processed: false,
             _reference: owner,
         });
+        Ok(())
+    }
+    /// Actual normalized N supplied by its owning producer. Seed all pending
+    /// bodies before completing their fixed edges, so no pending Ref is
+    /// misclassified as historical I or fetched from a current head.
+    pub(super) fn seed_pending(
+        &mut self,
+        key: &OperationKey,
+        records: &[EconomicRecordView<'_>],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let (ck, _key_owner) = core_key_with_owner(key, s)?;
+        for record in records {
+            self.add(record.reference, s)?;
+            let mut index = None;
+            for (i, row) in self.rows.iter().enumerate() {
+                s.semantic_work()
+                    .visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare)
+                    .map_err(core_error)?;
+                for (a, b) in [
+                    (&row.reference.kind, &record.reference.kind),
+                    (&row.reference.id, &record.reference.id),
+                    (&row.reference.digest, &record.reference.digest),
+                ] {
+                    s.semantic_work()
+                        .scan_bytes(a.len() + b.len())
+                        .map_err(core_error)?;
+                }
+                if row.reference == *record.reference {
+                    index = Some(i);
+                    break;
+                }
+            }
+            let index = index.ok_or(ServiceError::IntegrityFailure)?;
+            if let Some(body) = self.rows[index].body.as_ref() {
+                s.semantic_work()
+                    .scan_bytes(body.bytes().len() + record.canonical_body.len())
+                    .map_err(core_error)?;
+                require(body.bytes() == record.canonical_body, "INTEGRITY_FAILURE")?;
+                continue;
+            }
+            let parsed = s
+                .parse_representation(record.canonical_body, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let canonical = s
+                .canonical_representation(parsed.value(), RepresentationKind::Record)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(canonical.bytes().len() + record.canonical_body.len())
+                .map_err(core_error)?;
+            require(
+                canonical.bytes() == record.canonical_body,
+                "INTEGRITY_FAILURE",
+            )?;
+            let schema = super::request_wrapper::text(parsed.value(), "schema", s)?;
+            let schema = s
+                .copy_representation(schema.as_bytes(), RepresentationKind::SourceDefinition)
+                .map_err(core_error)?;
+            self.total = self
+                .total
+                .checked_add(record.canonical_body.len())
+                .ok_or(ServiceError::Unavailable)?;
+            if let Some(maximum) = s
+                .resource_limits()
+                .map(|v| v.resolved_bytes)
+                .unwrap_or(Some(8388608))
+            {
+                if self.total > maximum {
+                    return Err(ServiceError::ResourceLimit {
+                        setting: "resolved_bytes",
+                        limit: maximum as u64,
+                        observed: self.total as u64,
+                    });
+                }
+            }
+            self.rows[index].body = Some(canonical);
+            self.rows[index].native_schema = Some(schema);
+        }
+        for record in records {
+            let edges = select_local_input_edges(&ck, *record, s).map_err(core_error)?;
+            for reference in edges.direct_refs() {
+                self.add(reference, s)?;
+            }
+        }
         Ok(())
     }
     pub(super) fn add_value(&mut self, v: &Value, s: &mut OriginalAuditSession) -> Result<()> {
@@ -165,29 +264,82 @@ impl LocalInputs {
                 continue;
             }
             let r = &self.rows[i].reference;
-            if self.wrapper_inputs && matches!(r.kind.as_str(), "workflow-operation" | "workflow-receipt") {
-                let sequence = tx.workflow_wrapper_reference_sequence(r, &key.logical_store_id, &key.scope, before, s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-                let prior = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
-                let origin = prefix::next(tx, key, prior, sequence, s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, s).await?;
+            if self.wrapper_inputs
+                && matches!(r.kind.as_str(), "workflow-operation" | "workflow-receipt")
+            {
+                let sequence = tx
+                    .workflow_wrapper_reference_sequence(
+                        r,
+                        &key.logical_store_id,
+                        &key.scope,
+                        before,
+                        s,
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let prior = sequence
+                    .checked_sub(1)
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let origin = prefix::next(tx, key, prior, sequence, s)
+                    .await?
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .checked_wrappers(tx, s)
+                    .await?;
                 let pointer = origin.wrappers().origin_pointer(s)?;
-                let pointer = s.parse_representation(pointer.bytes(), RepresentationKind::Record).map_err(core_error)?;
-                let selected = super::request_wrapper::field(pointer.value(), if r.kind == "workflow-operation" { "operation_ref" } else { "receipt_ref" }, s)?;
-                let expected = super::wire::reference(r,s)?;
-                let actual = s.canonical_representation(selected,RepresentationKind::Record).map_err(core_error)?;
-                require(expected.bytes()==actual.bytes(),"INTEGRITY_FAILURE")?;
-                let value = if r.kind == "workflow-operation" {origin.wrappers().operation()} else {origin.wrappers().receipt()};
-                let body=s.canonical_representation(value,RepresentationKind::Record).map_err(core_error)?;
-                self.total=self.total.checked_add(body.bytes().len()).ok_or(ServiceError::Unavailable)?;
-                if let Some(maximum)=s.resource_limits().map(|v|v.resolved_bytes).unwrap_or(Some(8388608)) {
-                    if self.total>maximum {return Err(ServiceError::ResourceLimit{setting:"resolved_bytes",limit:maximum as u64,observed:self.total as u64});}
+                let pointer = s
+                    .parse_representation(pointer.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let selected = super::request_wrapper::field(
+                    pointer.value(),
+                    if r.kind == "workflow-operation" {
+                        "operation_ref"
+                    } else {
+                        "receipt_ref"
+                    },
+                    s,
+                )?;
+                let expected = super::wire::reference(r, s)?;
+                let actual = s
+                    .canonical_representation(selected, RepresentationKind::Record)
+                    .map_err(core_error)?;
+                require(expected.bytes() == actual.bytes(), "INTEGRITY_FAILURE")?;
+                let value = if r.kind == "workflow-operation" {
+                    origin.wrappers().operation()
+                } else {
+                    origin.wrappers().receipt()
+                };
+                let body = s
+                    .canonical_representation(value, RepresentationKind::Record)
+                    .map_err(core_error)?;
+                self.total = self
+                    .total
+                    .checked_add(body.bytes().len())
+                    .ok_or(ServiceError::Unavailable)?;
+                if let Some(maximum) = s
+                    .resource_limits()
+                    .map(|v| v.resolved_bytes)
+                    .unwrap_or(Some(8388608))
+                {
+                    if self.total > maximum {
+                        return Err(ServiceError::ResourceLimit {
+                            setting: "resolved_bytes",
+                            limit: maximum as u64,
+                            observed: self.total as u64,
+                        });
+                    }
                 }
-                let schema=super::request_wrapper::text(value,"schema",s)?;
-                let schema=s.copy_representation(schema.as_bytes(),RepresentationKind::SourceDefinition).map_err(core_error)?;
-                self.rows[i].body=Some(body);self.rows[i].native_schema=Some(schema);
+                let schema = super::request_wrapper::text(value, "schema", s)?;
+                let schema = s
+                    .copy_representation(schema.as_bytes(), RepresentationKind::SourceDefinition)
+                    .map_err(core_error)?;
+                self.rows[i].body = Some(body);
+                self.rows[i].native_schema = Some(schema);
                 // Wrapper bodies are a closed certificate boundary, never an
                 // excuse to walk arbitrary nested original facts/evidence.
-                self.rows[i].lifecycle_processed=true;
-                i+=1;continue;
+                self.rows[i].lifecycle_processed = true;
+                i += 1;
+                continue;
             }
             prefix::verify_selected_association(tx, key, r, before, s).await?;
             let stored = tx
@@ -246,14 +398,25 @@ impl LocalInputs {
     pub(super) fn views(&self) -> Vec<EconomicRecordView<'_>> {
         self.iter_views().collect()
     }
-    pub(super) fn owned_views(&self,extra:usize,s:&mut OriginalAuditSession)->Result<(Vec<EconomicRecordView<'_>>,ExternalBufferLease)>{
-        let count=self.rows.len().checked_add(extra).ok_or(ServiceError::Unavailable)?;
-        let bytes=count.checked_mul(std::mem::size_of::<EconomicRecordView<'_>>()).and_then(|v|v.checked_add(std::mem::size_of::<Vec<EconomicRecordView<'_>>>())).ok_or(ServiceError::Unavailable)?;
-        let owner=s.reserve_external_payload(bytes).map_err(core_error)?;
+    pub(super) fn owned_views(
+        &self,
+        extra: usize,
+        s: &mut OriginalAuditSession,
+    ) -> Result<(Vec<EconomicRecordView<'_>>, ExternalBufferLease)> {
+        let count = self
+            .rows
+            .len()
+            .checked_add(extra)
+            .ok_or(ServiceError::Unavailable)?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<EconomicRecordView<'_>>())
+            .and_then(|v| v.checked_add(std::mem::size_of::<Vec<EconomicRecordView<'_>>>()))
+            .ok_or(ServiceError::Unavailable)?;
+        let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
         s.semantic_work().write_bytes(bytes).map_err(core_error)?;
-        let mut views=Vec::with_capacity(count);
+        let mut views = Vec::with_capacity(count);
         views.extend(self.iter_views());
-        Ok((views,owner))
+        Ok((views, owner))
     }
     pub(super) fn iter_views(&self) -> impl Iterator<Item = EconomicRecordView<'_>> {
         self.rows.iter().filter_map(|r| {

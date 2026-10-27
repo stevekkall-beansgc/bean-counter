@@ -4,7 +4,7 @@
 //! ceiling/subset/rights checks remain separate mandatory obligations.
 use super::*;
 use crate::store::sqlite::workflow::financial::{RetainedDocument, SourceHeadLocator};
-use ledgerlab_core::policy::workflow::{transition_constructor::EconomicRecordView, AgreementRef};
+use ledgerlab_core::policy::workflow::{AgreementRef, transition_constructor::EconomicRecordView};
 use sha2::{Digest, Sha256};
 pub(in super::super) struct SourceRecord {
     parsed: AuditedValue,
@@ -533,7 +533,7 @@ pub(super) fn local_record_value(
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedValue> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
-        select_local_input_edges, OperationKey as CoreKey,
+        OperationKey as CoreKey, select_local_input_edges,
     };
     let texts = [
         &key.logical_store_id,
@@ -725,6 +725,45 @@ pub(in super::super) async fn assent_record(
         }
     };
     load_stored(key, stored, reference, lease, expected, s).map(Some)
+}
+
+/// Exact Stage supplier successor assent DATA loader. Selection supplies no
+/// consent; actual provider verification still repeats the closed triple and
+/// complete original/current party mapping under the selected Stage recipe.
+pub(in super::super) async fn stage_assent_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<SourceRecord>> {
+    let (reference, lease) = from_value(value, "workflow-assent", s)?;
+    let Some(stored) = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+    else {
+        return Ok(None);
+    };
+    if equal_text(
+        raw_text(stored.schema.bytes(), s)?,
+        "ledger-workflow-party-assent/3",
+        s,
+    )? {
+        return load_stored(
+            key,
+            stored,
+            reference,
+            lease,
+            "ledger-workflow-party-assent/3",
+            s,
+        )
+        .map(Some);
+    }
+    drop(stored);
+    drop(lease);
+    drop(reference);
+    assent_record(tx, key, value, before, s).await
 }
 
 /// Local selected-record locator syntax. This does not validate body, origin,
