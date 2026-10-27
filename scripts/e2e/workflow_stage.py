@@ -247,17 +247,23 @@ class StageJourney(MeteredJourney):
                 action = self.document(ref)
                 assert action["decision_id"] == decision["decision_id"] and action["revision"] == decision["revision"]
                 assert action["operation_key"] == decision["operation_key"]
+                assert action["amount"]["currency"] == "USD" and action["amount"]["scale"] == 18
                 with self.connection() as db:
                     receipts = [json.loads(b) for b, in db.execute("SELECT receipt_bytes FROM workflow_operations")]
                 producers = [r for r in receipts if r["key"] == action["operation_key"] and ref in r["result_refs"]
                              and decision_ref in r["result_refs"]]
                 assert len(producers) == 1
                 actions[identity] = action
+        with self.connection() as db:
+            census = {canonical({"kind": "workflow-action", "id": i, "digest": d})
+                      for i, d in db.execute("SELECT id,digest FROM workflow_documents WHERE kind='workflow-action'")}
+        assert census == set(actions), "Action without its exact producing Decision"
         total = {book: sum(int(a["amount"]["atoms"]) for a in actions.values() if a["book"] == book)
                  for book in ["retail", "supplier"]}
         assert total == {"retail": retail, "supplier": supplier}, (label, total)
         self.meta["checks"].append({"check": "actual_producer_unique_action_books", "step": label, "atoms": total})
         self.save()
+        return actions
 
     def invocation_state(self, original_ref):
         original = self.document(original_ref)
@@ -329,7 +335,7 @@ class StageJourney(MeteredJourney):
             "binding_ref": self.binding_ref, "facts": {"support:occurred": closed_at, "support:success": True},
             "fact_proofs": sorted(proofs, key=canonical), "links": [{"slot": "support:closes", "predecessor": work_ref}],
             "evidence_refs": [], "occurred_at": closed_at, "stage": "support:stage", "stage_instance_ref": stage_ref})
-        self.book_totals("stage-cap-share", 315 * ATOMS // 100, 45 * ATOMS // 100)
+        priced_actions = self.book_totals("stage-cap-share", 315 * ATOMS // 100, 45 * ATOMS // 100)
         claim_ref = unique(closed, "workflow-stage-closure-claim")
         close_decision = unique(closed, "workflow-decision")
         decision = self.document(close_decision)
@@ -337,7 +343,8 @@ class StageJourney(MeteredJourney):
         actions = {canonical(r): self.document(r) for r in decision["actions_appended"]}
         shares = [r for r in decision["actions_appended"] if actions[canonical(r)]["book"] == "supplier"]
         assert len(shares) == 1 and int(actions[canonical(shares[0])]["amount"]["atoms"]) == 45 * ATOMS // 100
-        allocations = [self.document(r) for r in closed["receipt"]["result_refs"] if r["kind"] == "workflow-allocation"]
+        allocation_refs = [r for r in closed["receipt"]["result_refs"] if r["kind"] == "workflow-allocation"]
+        allocations = [self.document(r) for r in allocation_refs]
         assert len(allocations) == 2 and {a["partition"] for a in allocations} == {"supplier_share", "host_remainder"}
         assert {int(a["amount"]["atoms"]) for a in allocations} == {45 * ATOMS // 100, 135 * ATOMS // 100}
         assert sum(int(a["amount"]["atoms"]) for a in allocations) == 180 * ATOMS // 100
@@ -349,15 +356,47 @@ class StageJourney(MeteredJourney):
         _, stage_head = self.head("stage", self.agreement, self.chain, "support:stage")
         terminal_stage = self.document(stage_head)
         assert terminal_stage["state"] == "closed" and terminal_stage["closure_claim_ref"] == claim_ref
+        actual_work = self.document(work_ref)
+        assert terminal_stage["first_work_ref"] == work_ref and terminal_stage["first_work_accepted_at"] == actual_work["accepted_at"]
+        claim = self.document(claim_ref)
+        assert claim["first_work_ref"] == claim["anchor_work_ref"] == work_ref
+        assert claim["accepted_at"] <= terminal_stage["activation_deadline"]
+        assert len(claim["anchor_link_refs"]) == 1
+        anchor = self.document(claim["anchor_link_refs"][0])
+        assert anchor["child"] == stage_ref and anchor["predecessor"] == work_ref
+        assert anchor["operation_key"] == claim["operation_key"] == self.key("stage-close")
         root = self.document(work_decision)
-        self.submit("member-reverse", "work.reverse", {"schema": "ledger-workflow-work-reverse/2",
+        reversed_result = self.submit("member-reverse", "work.reverse", {"schema": "ledger-workflow-work-reverse/2",
             "work_ref": work_ref, "expected_revision": root["revision"], "family_closures": [],
             "dependent_reversals": [{"decision_ref": close_decision, "expected_revision": decision["revision"],
                 "authority_evidence_refs": sorted([self.corrector_grant, self.closer_grant], key=canonical)}],
             "evidence_refs": [self.corrector_grant], "reason": "Synthetic causal Stage terminal proof"})
-        self.book_totals("stored-atom-causal-inverse", 0, 0)
+        final_actions = self.book_totals("stored-atom-causal-inverse", 0, 0)
+        inverse_refs = [r for r in reversed_result["receipt"]["result_refs"] if r["kind"] == "workflow-action"]
+        inverses = [self.document(r) for r in inverse_refs]
+        assert len(inverses) == len(priced_actions)
+        for original_key, original in priced_actions.items():
+            assert final_actions[original_key] == original
+            matches = [v for v in inverses if canonical(v.get("inverse_of")) == original_key]
+            assert len(matches) == 1 and int(matches[0]["amount"]["atoms"]) == -int(original["amount"]["atoms"])
+            for field in ["book", "component_slot", "root_component_slot", "role_ref", "slot_terms_ref", "funding_leg", "basis_refs"]:
+                assert matches[0][field] == original[field], ("stored inverse changed", field)
+        inverse_allocations = [self.document(r) for r in reversed_result["receipt"]["result_refs"] if r["kind"] == "workflow-allocation"]
+        assert len(inverse_allocations) == len(allocations)
+        for reference, original in zip(allocation_refs, allocations):
+            matches = [v for v in inverse_allocations if v.get("reverses") == reference]
+            assert len(matches) == 1
+            inverse = matches[0]
+            assert int(inverse["amount"]["atoms"]) == -int(original["amount"]["atoms"])
+            for field in ["partition", "recipient", "stage_instance_ref"]:
+                assert inverse[field] == original[field]
         _, stage_head = self.head("stage", self.agreement, self.chain, "support:stage")
         assert self.document(stage_head)["closure_claim_ref"] == claim_ref and self.document(stage_head)["state"] == "closed"
+        for original_decision in [work_decision, close_decision]:
+            initial = self.document(original_decision)
+            _, current_decision = self.head("decision", initial["decision_id"])
+            assert self.document(current_decision)["status"] == "reversed"
+            assert not self.document(current_decision)["active_action_refs"]
         _, _, final_values = self.invocation_state(original_invocation)
         assert final_values["consumed"] == consumed_values["consumed"], "inverse replenished consumed supplier exposure"
         self.reopen_retry(["alias-enroll", "supplier-account-enroll", "provider-consent-evidence", "publication",
