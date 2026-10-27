@@ -752,6 +752,9 @@ async fn observe_binding(
                         .uses_shared_namespace_recipe())
             {
                 None
+            } else if original.publication.program().uses_stage_lifecycle_recipe()
+                && matches!(operation, "invocation.close" | "outcome.submit" | "quantity.correct" | "work.reverse") {
+                Some(prefix::original_platforms_for_binding(ledger,tx,key,binding_ref,binding.value(),before,session).await?)
             } else {
                 Some(
                     original

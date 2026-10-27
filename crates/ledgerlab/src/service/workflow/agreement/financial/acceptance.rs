@@ -1269,6 +1269,7 @@ async fn prepare_selected(
             &binding,
             &local_root,
             &sources,
+            source,
             &consents,
             &setup.operator,
             &at,

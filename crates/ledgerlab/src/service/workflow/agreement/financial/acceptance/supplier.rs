@@ -95,6 +95,7 @@ pub(super) async fn derive(
     binding: &wire::SourceRecord,
     root: &wire::SourceRecord,
     sources: &[current::source::ObservedSource],
+    admission_source: &current::source::ObservedSource,
     consents: &consent::Coverage,
     actor: &str,
     at: &Timestamp,
@@ -239,11 +240,16 @@ pub(super) async fn derive(
     let body = s
         .parse_representation(binding.bytes(), Kind::Record)
         .map_err(core_error)?;
+    // This is the actual selected source birth, authenticated by held owner
+    // custody on admission and original producer/prefix custody on replay.
+    let mode=request_wrapper::text(admission_source.enrollment_record().body(),"installation_mode",s)?;
+    let grant=admission_source.current_grant_body().ok_or(ServiceError::IntegrityFailure)?;
+    let namespace=request_wrapper::text(grant,"canonical_economic_namespace",s)?;
     let (context, _context_owner, _key_owner) = super::super::local_cost_authority::context(
         key,
         actor,
-        &key.source,
-        "real_local",
+        namespace,
+        mode,
         at.as_str(),
         at.as_str(),
         s,

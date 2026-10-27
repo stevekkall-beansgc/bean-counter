@@ -201,6 +201,7 @@ pub(in super::super) async fn reconstruct(
             &original.binding,
             &local_root,
             &sources,
+            source,
             &consents,
             actor,
             &original.at,
@@ -681,5 +682,16 @@ impl ReplayedAcceptance {
                     .iter()
                     .flat_map(lifecycle::ContextReferences::views),
             )
+    }
+}
+
+impl ReplayedAcceptance {
+    /// The original accepted commercial promise. No current party projection
+    /// is consulted when fulfilling or reversing accrued Stage obligations.
+    pub(in super::super) async fn original_platforms(
+        &self,tx:&mut SqliteTx,key:&OperationKey,binding:&Value,before:i64,
+        prefix:&mut prefix::FoldedInventory,s:&mut OriginalAuditSession,
+    )->Result<consent::CurrentPlatformConsents> {
+        self.consents.reconstruct_activation_platforms(&self.original.input,binding,tx,key,&self.original.at,before,prefix,s).await
     }
 }
