@@ -22,6 +22,20 @@ struct Input {
     authority_ref: Value,
     installation_mode: String,
 }
+/// Exact saved /3 request DATA. Producer membership and custody are supplied
+/// independently by the host, never inferred from this closed decoding.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SharedEnrollmentInput {
+    schema: String,
+    action: String,
+    expected_revision: String,
+    enrollment_id: String,
+    customer_refs: Vec<Value>,
+    ceiling: Value,
+    evidence_ref: Value,
+    namespace_owner_enrollment_ref: Value,
+}
 #[derive(Clone, Debug)]
 pub struct SourceEnrollment {
     scope: [String; 2],
@@ -30,12 +44,40 @@ pub struct SourceEnrollment {
     ceiling: SourceCeiling,
     bytes: CanonicalBytes,
     reference: AgreementRef,
+    namespace_owner: Option<AgreementRef>,
 }
 impl SourceEnrollment {
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let input: Input = canonical::dto(value)?;
+        Self::normalize(input, None)
+    }
+    /// Owning shared-mapping DATA reader for the exact authenticated original
+    /// SourceEnroll3 route. This does not authenticate that request or owner:
+    /// the host retains their original producer/member/root/evidence/custody,
+    /// same-store association and permanent no-remap check at its held cutoff.
+    /// It neither copies owner grants nor establishes any operation right.
+    pub fn parse_shared_namespace(
+        raw: &[u8],
+        original_enroll3_payload: &Value,
+        canonical_owner: &SourceEnrollment,
+    ) -> Result<Self> {
+        let value = canonical::parse_bounded(raw, 262144)?;
+        reject_null(&value)?;
+        let input: Input = canonical::dto(value)?;
+        if CanonicalBytes::from_value(original_enroll3_payload)?
+            .as_slice()
+            .len()
+            > 262144
+        {
+            return Err(fail("shared enrollment request byte limit"));
+        }
+        reject_null(original_enroll3_payload)?;
+        let shared: SharedEnrollmentInput = canonical::dto(original_enroll3_payload.clone())?;
+        Self::normalize(input, Some((&shared, canonical_owner)))
+    }
+    fn normalize(input: Input, shared: Option<(&SharedEnrollmentInput, &Self)>) -> Result<Self> {
         if input.schema != "ledger-workflow-source-enrollment/1" {
             return Err(fail("schema"));
         }
@@ -70,11 +112,68 @@ impl SourceEnrollment {
             return Err(fail("enrollment evidence/root family"));
         }
         let ceiling = SourceCeiling::parse(CanonicalBytes::from_value(&input.ceiling)?.as_slice())?;
-        // Credential-alias enrollment is not implemented by this initial local
-        // profile. It may not silently manufacture a new economic namespace.
-        if ceiling.source() != ceiling.canonical_economic_namespace() {
-            return Err(fail("initial canonical source mapping"));
-        }
+        let namespace_owner = if let Some((request, owner)) = shared {
+            if request.schema != "ledger-workflow-source-enroll/3"
+                || request.action != "source.enroll"
+                || request.expected_revision != "0"
+            {
+                return Err(fail("exact shared enrollment recipe"));
+            }
+            let owner_ref = reference(&request.namespace_owner_enrollment_ref)?;
+            if owner_ref.kind() != "workflow-source-enrollment"
+                || &owner_ref != owner.reference()
+                || owner.namespace_owner.is_some()
+                || owner.ceiling().source() != owner.ceiling().canonical_economic_namespace()
+                || ceiling.canonical_economic_namespace() != owner.ceiling().source()
+                || ceiling.principal_id() != owner.ceiling().principal_id()
+                || input.enrolled_by != ceiling.principal_id()
+                || input.scope != owner.scope
+            {
+                return Err(fail("shared canonical owner association"));
+            }
+            let owner_body = owner.canonical_value()?;
+            if owner_body["installation_mode"] != input.installation_mode
+                || owner_body["enrolled_by"] != input.enrolled_by
+                || customer_refs != owner.customer_refs
+            {
+                return Err(fail("shared owner principal/customer/mode"));
+            }
+            let owner_at = owner_body["enrolled_at"]
+                .as_str()
+                .ok_or_else(|| fail("owner enrollment time"))?;
+            let owner_at = Timestamp::parse(owner_at)?;
+            if owner_at.micros() > input.enrolled_at.micros() {
+                return Err(fail("shared owner enrolled after target"));
+            }
+            let mut requested_customers = Vec::new();
+            for value in &request.customer_refs {
+                let value = reference(value)?;
+                if value.kind() != "workflow-customer" {
+                    return Err(fail("shared request customer family"));
+                }
+                requested_customers.push(value);
+            }
+            canonical::sort_set(&mut requested_customers)?;
+            let requested_ceiling =
+                SourceCeiling::parse(CanonicalBytes::from_value(&request.ceiling)?.as_slice())?;
+            let requested_evidence = reference(&request.evidence_ref)?;
+            if request.enrollment_id != input.enrollment_id
+                || requested_customers != customer_refs
+                || requested_ceiling.canonical_bytes() != ceiling.canonical_bytes()
+                || requested_evidence != evidence_ref
+                || ceiling.canonical_value()?["customer_scope"]
+                    != owner.ceiling().canonical_value()?["customer_scope"]
+            {
+                return Err(fail("shared original request/enrollment correspondence"));
+            }
+            Some(owner_ref)
+        } else {
+            // Legacy /1 and /2 readers keep their exact canonical-source guard.
+            if ceiling.source() != ceiling.canonical_economic_namespace() {
+                return Err(fail("initial canonical source mapping"));
+            }
+            None
+        };
         let body = json!({"schema":input.schema,"scope":input.scope,"enrollment_id":input.enrollment_id,"customer_refs":customer_refs,"ceiling":ceiling.canonical_value()?,"evidence_ref":evidence_ref,"enrolled_by":input.enrolled_by,"enrolled_at":input.enrolled_at,"authority_ref":authority_ref,"installation_mode":input.installation_mode});
         let bytes = CanonicalBytes::from_value(&body)?;
         if bytes.as_slice().len() > canonical::CANDIDATE_LIMIT {
@@ -91,6 +190,7 @@ impl SourceEnrollment {
             ceiling,
             bytes,
             reference,
+            namespace_owner,
         })
     }
     pub fn canonical_bytes(&self) -> &[u8] {
@@ -110,6 +210,10 @@ impl SourceEnrollment {
     }
     pub fn customer_refs(&self) -> &[AgreementRef] {
         &self.customer_refs
+    }
+    /// Exact original /3 owner association DATA, absent on legacy parsing.
+    pub fn namespace_owner_enrollment_ref(&self) -> Option<&AgreementRef> {
+        self.namespace_owner.as_ref()
     }
     pub fn ceiling(&self) -> &SourceCeiling {
         &self.ceiling
