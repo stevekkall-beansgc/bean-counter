@@ -177,10 +177,9 @@ pub(super) fn policy(
     product: &Product,
     template: &SlotTemplate,
     schemas: &[FactSchema],
-    owner_local_cost: bool,
-    independent_field_issuers: bool,
-    stage_lifecycle: bool,
+    selected_recipes: (bool, bool, bool),
 ) -> Result<()> {
+    let (owner_local_cost, independent_field_issuers, stage_lifecycle) = selected_recipes;
     name(m, &p.policy_id)?;
     if !m.check("policy.bounds", || {
         !p.rules.is_empty()

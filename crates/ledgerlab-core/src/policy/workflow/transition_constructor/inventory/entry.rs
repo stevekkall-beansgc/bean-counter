@@ -411,11 +411,10 @@ pub(in crate::policy::workflow::transition_constructor) fn chain_head_stage(
     r: &mut Records,
     c: &DraftContextData,
     p: &Value,
-    reference: &ExactRef,
-    old: &Value,
-    links: &[ExactRef],
+    selected: (&ExactRef, &Value, &[ExactRef]),
     program: &crate::policy::workflow::selected_program::SelectedProgram,
 ) -> Result<(BigInt, BigInt)> {
+    let (reference, old, links) = selected;
     if !program.uses_stage_lifecycle_recipe() {
         return Err(shape::fail("Stage chain pin recipe"));
     }

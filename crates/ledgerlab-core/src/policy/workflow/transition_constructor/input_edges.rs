@@ -532,6 +532,25 @@ pub fn select_local_input_edges(
                 "inputs",
                 "reverses",
             ]),
+            "ledger-workflow-stage-instance/1" => Some(&["binding_ref", "authority_ref"]),
+            "ledger-workflow-stage-state/1" => Some(&[
+                "stage_instance_ref",
+                "authority_ref",
+                "prior_ref",
+                "first_work_ref",
+                "closure_claim_ref",
+                "closed_by_root_ref",
+            ]),
+            "ledger-workflow-stage-authority/1" => Some(&[
+                "enrollment_ref",
+                "current_state_ref",
+                "current_grant_ref",
+                "original_binding_ref",
+                "original_accepted_agreement_ref",
+                "original_grant_refs",
+                "evidence_refs",
+                "verified_fact_refs",
+            ]),
             "ledger-workflow-source-state/1" => Some(&["enrollment_ref", "current_grant_ref"]),
             "ledger-workflow-economic-authority/8" => Some(&[
                 "enrollment_ref",
@@ -626,6 +645,17 @@ pub fn select_local_input_edges(
                         }
                     }
                     Ok(())
+                } else if schema == "ledger-workflow-stage-closure-claim/1" {
+                    for field in [
+                        "stage_instance_ref",
+                        "first_work_ref",
+                        "anchor_work_ref",
+                        "anchor_link_refs",
+                        "authority_ref",
+                    ] {
+                        generic(shape::field(m, &v, field)?, 1, m, emit)?;
+                    }
+                    work_payload(shape::field(m, &v, "original_payload")?, m, emit)
                 } else if schema == "ledger-workflow-evaluation-proof/1" {
                     for (field, value) in v
                         .as_object()

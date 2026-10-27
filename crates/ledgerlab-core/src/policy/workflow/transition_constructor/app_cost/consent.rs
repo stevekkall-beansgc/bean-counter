@@ -299,7 +299,7 @@ fn party(
     accepted: &Value,
     selected_operands: (&ExactRef, &Value),
 ) -> Result<RecordBody> {
-    party_with_basis(recipe, m, r, c, b, accepted, selected_operands, None)
+    party_with_basis(recipe, m, r, c, b, accepted, (selected_operands, None))
 }
 fn party_with_basis(
     recipe: Recipe,
@@ -308,9 +308,9 @@ fn party_with_basis(
     c: &DraftContextData,
     b: &Value,
     accepted: &Value,
-    selected_operands: (&ExactRef, &Value),
-    supplier_basis: Option<&Value>,
+    selection: ((&ExactRef, &Value), Option<&Value>),
 ) -> Result<RecordBody> {
+    let (selected_operands, supplier_basis) = selection;
     let (terms_ref, assent) = selected_operands;
     shape::closed(
         m,
@@ -477,10 +477,9 @@ pub(in crate::policy::workflow::transition_constructor) fn supplier_original(
     c: &DraftContextData,
     binding: &Value,
     accepted: &Value,
-    terms_ref: &ExactRef,
-    assent: &Value,
-    basis: &Value,
+    selected: (&ExactRef, &Value, &Value),
 ) -> Result<RecordBody> {
+    let (terms_ref, assent, basis) = selected;
     party_with_basis(
         Recipe {
             assent: "ledger-workflow-party-assent/3",
@@ -492,8 +491,7 @@ pub(in crate::policy::workflow::transition_constructor) fn supplier_original(
         c,
         binding,
         accepted,
-        (terms_ref, assent),
-        Some(basis),
+        ((terms_ref, assent), Some(basis)),
     )
 }
 pub(in crate::policy::workflow::transition_constructor) fn supplier_current(

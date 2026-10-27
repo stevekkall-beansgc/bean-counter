@@ -896,9 +896,7 @@ pub fn derive_local_supplier_consent_verifications(
                         context,
                         binding,
                         accepted.value(),
-                        input.acceptance_terms_ref,
-                        &assent,
-                        basis.value(),
+                        (input.acceptance_terms_ref, &assent, basis.value()),
                     )?
                 } else {
                     load(
@@ -1000,6 +998,287 @@ pub fn derive_local_supplier_consent_verifications(
         session.invalidate();
     }
     result
+}
+
+/// Repeat the accepted successor association at actual consumption, with
+/// independent held current provider mappings. Old verification current refs
+/// remain historical operands and never replace these current heads.
+pub(super) fn current(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    binding: &Value,
+    accepted: &Value,
+    heads: &[PartyAuthorizationHead],
+) -> Result<()> {
+    validate_retained(program, m, r, c, binding, accepted, Some(heads))
+}
+pub(super) fn original(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    binding: &Value,
+    accepted: &Value,
+) -> Result<()> {
+    validate_retained(program, m, r, c, binding, accepted, None)
+}
+fn validate_retained(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    binding: &Value,
+    accepted: &Value,
+    heads: Option<&[PartyAuthorizationHead]>,
+) -> Result<()> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Ok(());
+    }
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning supplier current consent"))?;
+    let authority = load(
+        m,
+        r,
+        &c.key,
+        &accepted["authority_observation_ref"],
+        "workflow-authority",
+        "ledger-workflow-agreement-authority/6",
+    )?;
+    let verification_refs = shape::array(m, &authority, "supplier_consent_verification_refs")?;
+    let terms_ref = parse_owned_reference(m, &a, &accepted["terms_ref"])?;
+    let mut suppliers = 0usize;
+    let mut checked = Values::new(m, &a, 16)?;
+    let policy = program.original_policy_value();
+    for slot in shape::array(m, policy, "binding_slots")? {
+        let book = shape::text(m, slot, "book")?;
+        if !shape::same_text(m, book, "supplier")? {
+            continue;
+        }
+        let name = shape::text(m, slot, "name")?;
+        let mut used = false;
+        for rule in shape::array(m, policy, "rules")? {
+            if shape::same(m, &rule["binding_slot"], &slot["name"])? {
+                used = true;
+            }
+        }
+        if !used {
+            continue;
+        }
+        suppliers = w::usize_add(m, suppliers, 1)?;
+        let row = named(m, binding, "bindings", name, "slot")?;
+        let supplier = load(
+            m,
+            r,
+            &c.key,
+            &row["binding_ref"],
+            "workflow-slot-terms",
+            "ledger-workflow-slot-binding-terms/8",
+        )?;
+        let projection = a.object_from_fields(
+            &[
+                ("scope", &supplier["scope"]),
+                ("agreement_id", &supplier["agreement_id"]),
+                ("customer", &supplier["customer"]),
+                ("slot", &supplier["slot"]),
+                ("book", &supplier["book"]),
+                ("role_slot", &supplier["role_slot"]),
+                ("role_ref", &supplier["role_ref"]),
+                ("funding_leg", &supplier["funding_leg"]),
+                ("allowed_activities", &supplier["allowed_activities"]),
+                ("quantity_ceilings", &supplier["quantity_ceilings"]),
+                ("exposure_ceiling", &supplier["exposure_ceiling"]),
+                ("source_grant_refs", &supplier["source_grant_refs"]),
+                (
+                    "correction_source_slot",
+                    &supplier["correction_source_slot"],
+                ),
+                ("cost_authority_ref", &supplier["cost_authority_ref"]),
+                (
+                    "provider_account_identity",
+                    &supplier["provider_account_identity"],
+                ),
+                ("consumption_basis", &supplier["consumption_basis"]),
+            ],
+            m,
+        )?;
+        let derived = derive(m, r, &c.key, program, binding, projection.value())?;
+        let declared = parse_owned_reference(m, &a, &supplier["commitment_ref"])?;
+        if !shape::same_ref(m, declared.reference(), derived.reference())? {
+            return Err(shape::fail(
+                "current supplier accepted commitment dependency closure",
+            ));
+        }
+        let commitment = r.get(
+            m,
+            &c.key,
+            declared.reference(),
+            "workflow-offer",
+            "ledger-workflow-supplier-commitment/2",
+        )?;
+        shape::equal(m, &commitment, derived.canonical_value())?;
+        let offer = load(
+            m,
+            r,
+            &c.key,
+            &supplier["offer_ref"],
+            "workflow-offer",
+            "ledger-workflow-offer/4",
+        )?;
+        shape::equal(m, &offer["commitment_ref"], &supplier["commitment_ref"])?;
+        let kind = a.string_value("supplier_commitment", m)?;
+        let basis = a.object_from_fields(
+            &[
+                ("kind", kind.value()),
+                ("commitment_ref", &supplier["commitment_ref"]),
+                ("offer_ref", &supplier["offer_ref"]),
+                ("supplier_terms_ref", &row["binding_ref"]),
+            ],
+            m,
+        )?;
+        let mut customer = Values::new(m, &a, 16)?;
+        let mut parties = Values::new(m, &a, 16)?;
+        let mut originals = Values::new(m, &a, 16)?;
+        let mut provider_count = 0usize;
+        for value in shape::array(m, binding, "assent_refs")? {
+            let reference = parse_owned_reference(m, &a, value)?;
+            let assent = r.get_schemas(
+                m,
+                &c.key,
+                reference.reference(),
+                "workflow-assent",
+                &[
+                    "ledger-workflow-assent/1",
+                    "ledger-workflow-party-assent/2",
+                    "ledger-workflow-party-assent/3",
+                ],
+            )?;
+            let schema = shape::text(m, &assent, "schema")?;
+            if shape::same_text(m, schema, "ledger-workflow-assent/1")? {
+                customer.unique(m, &a, value)?;
+                continue;
+            }
+            if shape::same_text(m, schema, "ledger-workflow-party-assent/3")? {
+                if !shape::same(m, &assent["consent"]["basis"], basis.value())? {
+                    continue;
+                }
+                shape::equal(m, &assent["consent"]["party"], &offer["provider"])?;
+                let original = super::app_cost::consent::supplier_original(
+                    m,
+                    r,
+                    c,
+                    binding,
+                    accepted,
+                    (terms_ref.reference(), &assent, basis.value()),
+                )?;
+                if let Some(heads) = heads {
+                    super::app_cost::consent::supplier_current(
+                        m,
+                        r,
+                        c,
+                        binding,
+                        &assent["consent"],
+                        &original,
+                        heads,
+                    )?;
+                }
+                checked.unique(m, &a, value)?;
+                provider_count = w::usize_add(m, provider_count, 1)?;
+            }
+            parties.unique(m, &a, value)?;
+            originals.unique(m, &a, &assent["consent"]["authorization_ref"])?;
+        }
+        if !w::compare(m, provider_count, 1usize)?.is_eq() {
+            return Err(shape::fail(
+                "actual current successor provider assent missing or duplicate",
+            ));
+        }
+        let customer = customer.finish(m, &a, true)?;
+        let parties = parties.finish(m, &a, true)?;
+        let originals = originals.finish(m, &a, true)?;
+        let mut found = false;
+        for value in verification_refs {
+            let verification = load(
+                m,
+                r,
+                &c.key,
+                value,
+                "workflow-verification",
+                "ledger-workflow-supplier-consent-verification/2",
+            )?;
+            if !shape::same(m, &verification["supplier_terms_ref"], &row["binding_ref"])? {
+                continue;
+            }
+            if found {
+                return Err(shape::fail("duplicate original supplier verification"));
+            }
+            found = true;
+            for (field, want) in [
+                ("customer", &binding["customer"]),
+                ("agreement_id", &binding["agreement_id"]),
+                ("publication_ref", &accepted["publication_ref"]),
+                ("compiled_plan_ref", &binding["compiled_plan_ref"]),
+                ("acceptance_terms_ref", &accepted["terms_ref"]),
+                ("commitment_ref", &supplier["commitment_ref"]),
+                ("offer_ref", &supplier["offer_ref"]),
+                ("customer_assent_refs", customer.value()),
+                ("party_assent_refs", parties.value()),
+                ("original_party_authorization_refs", originals.value()),
+                ("verified_at", &authority["observed_at"]),
+                ("verified_by", &authority["actor"]),
+                ("local_admin_ref", &authority["local_admin_ref"]),
+            ] {
+                shape::equal(m, &verification[field], want)?;
+            }
+            literal(
+                m,
+                &verification,
+                "projection_recipe",
+                "supplier-semantic-projection/2",
+            )?;
+        }
+        if !found {
+            return Err(shape::fail(
+                "actual original supplier consent verification absent",
+            ));
+        }
+    }
+    if !w::compare(m, suppliers, verification_refs.len())?.is_eq() {
+        return Err(shape::fail(
+            "unknown or missing supplier consent verification",
+        ));
+    }
+    for value in shape::array(m, binding, "assent_refs")? {
+        let reference = parse_owned_reference(m, &a, value)?;
+        let assent = r.get_schemas(
+            m,
+            &c.key,
+            reference.reference(),
+            "workflow-assent",
+            &[
+                "ledger-workflow-assent/1",
+                "ledger-workflow-party-assent/2",
+                "ledger-workflow-party-assent/3",
+            ],
+        )?;
+        if assent["schema"].as_str() != Some("ledger-workflow-party-assent/3") {
+            continue;
+        }
+        let mut found = false;
+        for used in checked.values() {
+            if shape::same(m, used.value(), value)? {
+                found = true;
+            }
+        }
+        if !found {
+            return Err(shape::fail(
+                "unrelated provider assent on actual Stage binding",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

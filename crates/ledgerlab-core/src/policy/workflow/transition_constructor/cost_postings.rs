@@ -63,7 +63,7 @@ pub(super) fn operation_key(
 ) -> Result<AuditedValue> {
     operation_key_value(m, arena, &c.key)
 }
-fn operation_key_value(
+pub(super) fn operation_key_value(
     m: &mut CoreMeter,
     arena: &AuditArena,
     key: &super::data::OperationKey,

@@ -23,6 +23,7 @@ mod causal;
 mod context;
 mod current;
 mod dependent;
+mod stage;
 fn unsupported(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
 }
@@ -521,8 +522,7 @@ fn prepare(
         program,
         &payload,
         &evaluation["facts"],
-        &c.accepted_at,
-        original_source,
+        (&c.accepted_at, original_source),
     )?;
     let proof_namespace = text(m, &work, "source_namespace")?;
     let mut proofs = if !program.uses_local_execution_recipe()
@@ -648,8 +648,7 @@ fn prepare(
             program,
             &payload,
             &replacement_facts,
-            &c.accepted_at,
-            original_source,
+            (&c.accepted_at, original_source),
         )?;
         request.replace(
             m,
@@ -2004,9 +2003,35 @@ fn execute_with_state<'inv, 'raw>(
     } else {
         None
     };
-    let app_reversals = match &app_closures {
-        Some(app) => app.used_reversals.as_slice(),
-        None => &[],
+    let mut stage_closure = if program.uses_stage_lifecycle_recipe() {
+        let complete = complete_state.ok_or_else(|| shape::fail("Stage closure complete state"))?;
+        stage::prepare(m, &mut r, &local, program, &plan, &request, complete)?
+    } else {
+        None
+    };
+    let mut used_dependent_reversals = Vec::new();
+    if let Some(stage) = &stage_closure {
+        used_dependent_reversals
+            .try_reserve_exact(31)
+            .map_err(|_| shape::fail("combined dependent nomination controls"))?;
+        if let Some(app) = &app_closures {
+            for index in &app.used_reversals {
+                m.visit("root.actual_app_reversal_partition")?;
+                used_dependent_reversals.push(*index);
+            }
+        }
+        for index in &stage.used {
+            m.visit("root.actual_Stage_reversal_partition")?;
+            used_dependent_reversals.push(*index);
+        }
+    }
+    let app_reversals = if stage_closure.is_some() {
+        used_dependent_reversals.as_slice()
+    } else {
+        match &app_closures {
+            Some(app) => app.used_reversals.as_slice(),
+            None => &[],
+        }
     };
     let families = causal::prepare(
         m,
@@ -2065,6 +2090,24 @@ fn execute_with_state<'inv, 'raw>(
                     }
                 }
             }
+            if let Some(batch) = &stage_closure {
+                for output in &batch.records {
+                    if !shape::same_text(m, &output.reference.kind, "workflow-economic-authority")?
+                    {
+                        continue;
+                    }
+                    let body = output.decoded(m, 4194304)?;
+                    let schema = text(m, &body, "schema")?;
+                    if !shape::same_text(m, schema, "ledger-workflow-economic-authority/8")? {
+                        continue;
+                    }
+                    match dependent::evidence_values(m, &plan.operands.binding, &body, one) {
+                        Ok(()) => found = true,
+                        Err(e) if e.code == "AUTHORITY_REQUIRED" => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
             if !found {
                 return Err(Error::new(
                     "AUTHORITY_REQUIRED",
@@ -2092,6 +2135,21 @@ fn execute_with_state<'inv, 'raw>(
         }
     }
 
+    if let Some(stage) = &stage_closure {
+        for slot in &stage.slots {
+            let mut seen = false;
+            for prior in &used_slots {
+                if shape::same_text(m, prior, slot)? {
+                    seen = true;
+                }
+            }
+            if !seen {
+                m.scan_bytes(slot.len())?;
+                m.write_bytes(slot.len())?;
+                used_slots.push(slot.clone());
+            }
+        }
+    }
     for family in families {
         m.visit("root.close_original_family")?;
         let closed = dependent::build(m, &mut r, c, program, &plan, family, &introduced)?;
@@ -2280,6 +2338,30 @@ fn execute_with_state<'inv, 'raw>(
         decision: vec![],
         family: vec![],
         chain: None,
+    };
+    let stage_owner = if let Some(stage) = stage_closure.take() {
+        records
+            .try_reserve_exact(stage.records.len())
+            .map_err(|_| shape::fail("Stage aggregate output controls"))?;
+        for output in stage.records {
+            let mut seen = false;
+            for old in &records {
+                m.visit("root.unique_Stage_component_result")?;
+                if shape::same_ref(m, &old.reference, &output.reference)? {
+                    if !shape::same_bytes(m, &old.canonical_body, &output.canonical_body)? {
+                        return Err(shape::fail("Stage root result body mismatch"));
+                    }
+                    seen = true;
+                }
+            }
+            if !seen {
+                records.push(output);
+            }
+        }
+        heads.decision.extend(stage.heads);
+        Some(stage.owner)
+    } else {
+        None
     };
     if let Some(app) = &app_closures {
         for closed in &app.finalized {
@@ -2716,7 +2798,7 @@ fn execute_with_state<'inv, 'raw>(
             effects._ownership,
             root_output_owner,
             plan.proofs.map(super::work_proofs::WorkProofs::into_owner),
-            None,
+            stage_owner,
             None,
             None,
             None,

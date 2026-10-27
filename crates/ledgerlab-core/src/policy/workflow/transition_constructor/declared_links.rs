@@ -53,6 +53,56 @@ pub(super) fn validate_inputs<'a>(
     shape::reference(m, &input["predecessor"])?;
     Ok(Some(input))
 }
+/// Stage closure owns its fixed member/birth and clock checks. This repeats
+/// the original Product association without the older two-hop success rule.
+pub(super) fn stage_endpoint(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    payload: &Value,
+    predecessor: &Value,
+    at: &str,
+) -> Result<()> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("Stage link recipe"));
+    }
+    let input = validate_inputs(m, program, payload)?
+        .ok_or_else(|| shape::fail("Stage inline declaration"))?;
+    shape::equal(m, &input["predecessor"], predecessor)?;
+    let def = definition(m, program, payload)?
+        .ok_or_else(|| shape::fail("Stage original link declaration"))?;
+    let reference = shape::reference(m, predecessor)?;
+    let work = r.get(
+        m,
+        &c.key,
+        &reference,
+        "workflow-work",
+        "ledger-workflow-work-record/1",
+    )?;
+    for field in [
+        "product_ref",
+        "policy_ref",
+        "binding_ref",
+        "customer",
+        "chain",
+    ] {
+        shape::equal(m, &work["payload"][field], &payload[field])?;
+    }
+    let allowed = shape::array(m, def, "predecessor_activities")?;
+    if !shape::member(m, allowed, &work["payload"]["activity"])? {
+        return Err(shape::fail(
+            "Stage predecessor original activity declaration",
+        ));
+    }
+    let earlier =
+        crate::domain::Timestamp::parse_with_work(shape::text(m, &work, "accepted_at")?, m)?;
+    let later = crate::domain::Timestamp::parse_with_work(at, m)?;
+    if w::compare(m, earlier.micros(), later.micros())?.is_gt() {
+        return Err(shape::fail("Stage predecessor accepted after close"));
+    }
+    Ok(())
+}
 fn selected_right(m: &mut CoreMeter, grant: &Value, slot: &Value) -> Result<()> {
     let permissions = shape::array(m, grant, "permissions")?;
     if !shape::member(m, permissions, &json!("link"))? {
@@ -68,7 +118,7 @@ fn selected_right(m: &mut CoreMeter, grant: &Value, slot: &Value) -> Result<()> 
     }
     Ok(())
 }
-fn rights(
+pub(super) fn rights(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -605,6 +655,12 @@ pub(super) fn validate_chain(
         shape::equal(m, &link["product_ref"], &current["product_ref"])?;
         shape::equal(m, &link["classification"], &json!("monetary"))?;
         let child = shape::reference(m, &link["child"])?;
+        if program.uses_stage_lifecycle_recipe()
+            && shape::same_text(m, &child.kind, "workflow-stage-instance")?
+        {
+            super::stage::retained_link(m, r, c, program, (reference, &link, &child, current))?;
+            continue;
+        }
         let child_body = if shape::same_text(m, &child.kind, "workflow-work")? {
             r.get(
                 m,

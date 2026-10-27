@@ -43,7 +43,8 @@ pub(super) struct OwnedFundingEffects {
 pub(super) fn initial_construction_effect(
     m: &mut CoreMeter,
     p: &SelectedProgram,
-    t: &super::data::Construction,
+    c: &super::data::DraftContextData,
+    t: &mut super::data::Construction,
     event_source: &str,
 ) -> Result<Option<OwnedFundingEffects>> {
     let Some(original) = t
@@ -71,7 +72,16 @@ pub(super) fn initial_construction_effect(
     let expected =
         super::working_value::owning_reference(m, &arena, &original.original_binding_ref)?;
     shape::equal(m, &payload["binding_ref"], expected.value())?;
-    let bound = derive_per_work_bound(m, p, payload, claim, &t.economic.terms, event_source)?;
+    let mut bound = derive_per_work_bound(m, p, payload, claim, &t.economic.terms, event_source)?;
+    include_stage_bound(
+        m,
+        p,
+        &mut t.records,
+        c,
+        payload,
+        &t.economic.terms,
+        &mut bound,
+    )?;
     let effect = initial_work_effect(
         &arena,
         m,
@@ -201,6 +211,53 @@ fn active_work_total(
         )?;
         let original = parse_owned_reference(m, &arena, &target["work_ref"])?;
         shape::same_ref(m, original.reference(), work)?
+    } else if shape::same_text(m, &subject.kind, "workflow-stage-closure-claim")? {
+        let claim = selected_body(
+            m,
+            r,
+            c,
+            output,
+            subject,
+            "workflow-stage-closure-claim",
+            &["ledger-workflow-stage-closure-claim/1"],
+        )?;
+        let instance_ref = parse_owned_reference(m, &arena, &claim["stage_instance_ref"])?;
+        let instance = selected_body(
+            m,
+            r,
+            c,
+            output,
+            instance_ref.reference(),
+            "workflow-stage-instance",
+            &["ledger-workflow-stage-instance/1"],
+        )?;
+        let original = selected_body(
+            m,
+            r,
+            c,
+            output,
+            work,
+            "workflow-work",
+            &["ledger-workflow-work-record/1"],
+        )?;
+        shape::equal(
+            m,
+            &instance["binding_ref"],
+            &original["payload"]["binding_ref"],
+        )?;
+        let mut matched = false;
+        for member in shape::array(m, &instance, "expected")? {
+            if shape::same(
+                m,
+                &member["business_operation_id"],
+                &original["payload"]["business_operation_id"],
+            )? && shape::same(m, &member["source"], &original["key"]["source"])?
+            {
+                matched = true;
+                shape::equal(m, &member["activity"], &original["payload"]["activity"])?;
+            }
+        }
+        matched
     } else if shape::same_text(m, &subject.kind, "workflow-cost")? {
         let claim = selected_body(
             m,
@@ -253,6 +310,11 @@ fn active_work_total(
         }
         let book = shape::text(m, &action, "book")?;
         if !shape::same_text(m, book, "retail")? {
+            if shape::same_text(m, &subject.kind, "workflow-stage-closure-claim")?
+                && shape::same_text(m, book, "supplier")?
+            {
+                continue;
+            }
             return Err(fail("app funding cannot include AP action"));
         }
         let currency = shape::text(m, &action["amount"], "currency")?;
@@ -284,7 +346,7 @@ pub(super) fn construction_effect(
             super::data::OriginalWorkPayload::New(_)
         )
     })? {
-        return initial_construction_effect(m, p, t, &c.key.source)?
+        return initial_construction_effect(m, p, c, t, &c.key.source)?
             .ok_or_else(|| fail("initial work funding effect missing"));
     }
     let work = match &t.economic.original_work {
@@ -313,13 +375,22 @@ pub(super) fn construction_effect(
     } else {
         ""
     };
-    let bound = derive_per_work_bound(
+    let mut bound = derive_per_work_bound(
         m,
         p,
         &work["payload"],
         &claim_ref,
         &t.economic.terms,
         source,
+    )?;
+    include_stage_bound(
+        m,
+        p,
+        &mut t.records,
+        c,
+        &work["payload"],
+        &t.economic.terms,
+        &mut bound,
     )?;
     let root_seed = arena.string_value(&claim_ref.id, m)?;
     let discriminator = arena.string_value("work", m)?;
@@ -620,7 +691,9 @@ pub(super) fn derive_per_work_bound(
     t: &Terms,
     event_source: &str,
 ) -> Result<WorkExposureBound> {
-    let schema = if p.uses_app_cost_causal_recipe() {
+    let schema = if p.uses_stage_lifecycle_recipe() {
+        "ledger-workflow-slot-binding-terms/3"
+    } else if p.uses_app_cost_causal_recipe() {
         "ledger-workflow-slot-binding-terms/7"
     } else if p.uses_app_owned_cost_recipe() {
         "ledger-workflow-slot-binding-terms/6"
@@ -1085,6 +1158,116 @@ fn work_effect(
         ownership,
     ))
 }
+fn include_stage_bound(
+    m: &mut CoreMeter,
+    p: &SelectedProgram,
+    r: &mut super::records::Records,
+    c: &super::data::DraftContextData,
+    payload: &Value,
+    t: &Terms,
+    bound: &mut WorkExposureBound,
+) -> Result<()> {
+    if !p.uses_stage_lifecycle_recipe() {
+        return Ok(());
+    }
+    let Some(value) = payload.get("stage_instance_ref") else {
+        return Ok(());
+    };
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| fail("owning Stage funding bound"))?;
+    let reference = super::working_value::parse_owned_reference(m, &arena, value)?;
+    let instance = r.get(
+        m,
+        &c.key,
+        reference.reference(),
+        "workflow-stage-instance",
+        "ledger-workflow-stage-instance/1",
+    )?;
+    super::stage::closed_instance(m, &c.key, reference.reference(), &instance)?;
+    for field in ["customer", "chain", "binding_ref"] {
+        shape::equal(m, &instance[field], &payload[field])?;
+    }
+    let name = shape::text(m, &instance, "stage_name")?;
+    let stage = super::stage::definition(m, p, name)?;
+    let expected = shape::array(m, &instance, "expected")?;
+    let mut member = None;
+    for row in expected {
+        if shape::same(
+            m,
+            &row["business_operation_id"],
+            &payload["business_operation_id"],
+        )? && member.replace(row).is_some()
+        {
+            return Err(fail("Stage funding member ambiguity"));
+        }
+    }
+    let member = member.ok_or_else(|| fail("Stage funding original member absent"))?;
+    let maps = shape::array(m, &t.instantiation, "component_map")?;
+    let mut affected = BigInt::from(0);
+    for root in &bound.roots {
+        let mapping = shape::named(m, maps, "template_key", &root.root_key)?;
+        let slots = shape::array(m, member, "component_slots")?;
+        if shape::member(m, slots, &mapping["slot_id"])? {
+            affected = meter::add(m, &affected, &root.positive_bound)?;
+        }
+    }
+    let mut cap = None;
+    let mut premium = None;
+    for instruction in shape::array(m, p.compiled_plan().canonical_value(), "typed_instructions")? {
+        if instruction["opcode"].as_str() != Some("evaluate_rule") {
+            continue;
+        }
+        let rule = &instruction["rule"];
+        if !shape::same(m, &rule["activity"], &stage["closure_activity"])? {
+            continue;
+        }
+        let formula = &rule["formula"];
+        match formula["kind"].as_str() {
+            Some("closure_cap") if shape::same(m, &formula["stage"], &instance["stage_name"])? => {
+                let raw = shape::text(m, &formula["ceiling"], "atoms")?;
+                if cap.replace(arithmetic::integer(m, raw, false)?).is_some() {
+                    return Err(fail("Stage funding cap ambiguity"));
+                }
+            }
+            Some("fixed")
+                if shape::same(m, &rule["component_key"], &stage["closure_component_key"])? =>
+            {
+                let raw = shape::text(m, formula, "amount")?;
+                let ratio = arithmetic::decimal(m, raw)?;
+                let scale = arithmetic::integer(m, "1000000000000000000", false)?;
+                let numerator = meter::mul(m, &ratio.numerator, &scale)?;
+                let ratio = arithmetic::rational(m, numerator, ratio.denominator)?;
+                let limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
+                if premium
+                    .replace(arithmetic::rounded(m, &ratio, &limit)?)
+                    .is_some()
+                {
+                    return Err(fail("Stage funding premium ambiguity"));
+                }
+            }
+            _ => {}
+        }
+    }
+    let cap = cap.ok_or_else(|| fail("Stage original funding cap absent"))?;
+    let premium =
+        BigInt::from(premium.ok_or_else(|| fail("Stage original funding premium absent"))?);
+    let before_cap = meter::add(m, &affected, &premium)?;
+    let closed = if meter::cmp(m, &before_cap, &cap)?.is_gt() {
+        cap
+    } else {
+        before_cap
+    };
+    let maximum = if meter::cmp(m, &closed, &affected)?.is_gt() {
+        closed
+    } else {
+        affected.clone()
+    };
+    let rest = meter::sub(m, &bound.maximum_positive, &affected)?;
+    bound.maximum_positive = meter::add(m, &rest, &maximum)?;
+    entry::exposure(m, &t.binding, &t.slot_terms, &bound.maximum_positive)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -539,9 +539,34 @@ fn resolved_role(
     selected_operands: (&str, &[ExactRef], &str),
 ) -> Result<authority::ResolvedOperands> {
     let (mode, dependent) = purpose;
-    let (source_slot, verified_facts, original_namespace) = selected_operands;
+    let (source_slot, _, _) = selected_operands;
     let (binding_ref, terms, source) =
         resolve_role(m, r, c, payload, program, (mode, source_slot), dependent)?;
+    emit_resolved(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        ((mode, dependent), selected_operands),
+        (binding_ref, terms, source),
+    )
+}
+type EconomicPurpose<'a> = (EconomicMode, Option<&'a Value>);
+type SourcePurpose<'a> = (&'a str, &'a [ExactRef], &'a str);
+fn emit_resolved(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    selection: (EconomicPurpose<'_>, SourcePurpose<'_>),
+    resolved: (ExactRef, authority::Terms, SourceSelection),
+) -> Result<authority::ResolvedOperands> {
+    let (purpose, selected_operands) = selection;
+    let (mode, dependent) = purpose;
+    let (source_slot, verified_facts, original_namespace) = selected_operands;
+    let (binding_ref, terms, source) = resolved;
     let original = shape::text(m, &terms.binding, "source_namespace")?;
     if !shape::same_text(m, original, original_namespace)? {
         return Err(shape::fail("app historical subject namespace"));
@@ -814,4 +839,122 @@ fn future_source_shape(
         }
     }
     Ok(())
+}
+
+/// A separately authorized Stage component uses its own original Terms/grants.
+/// The root caller/key and original business namespace remain independent.
+pub(in crate::policy::workflow::transition_constructor) fn stage_component(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    base: &authority::Terms,
+    selected: (&Value, EconomicMode, &str),
+) -> Result<authority::ResolvedOperands> {
+    let (payload, mode, binding_slot) = selected;
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("Stage component authority recipe"));
+    }
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("Stage component authority owner"))?;
+    let binding_ref = shape::reference(m, &payload["binding_ref"])?;
+    let rows = shape::array(m, &base.binding, "bindings")?;
+    let selected = shape::named(m, rows, "slot", binding_slot)?;
+    let definitions = shape::array(m, program.original_policy_value(), "binding_slots")?;
+    let definition = shape::named(m, definitions, "name", binding_slot)?;
+    let book = shape::text(m, definition, "book")?;
+    let supplier = shape::same_text(m, book, "supplier")?;
+    let schema = if supplier {
+        "ledger-workflow-slot-binding-terms/8"
+    } else {
+        "ledger-workflow-slot-binding-terms/3"
+    };
+    let (terms_ref, terms) = load(
+        m,
+        r,
+        c,
+        &selected["binding_ref"],
+        "workflow-slot-terms",
+        schema,
+    )?;
+    let scope = super::super::work_keys::scope(m, &c.key)?;
+    shape::equal(m, &terms["scope"], scope.value())?;
+    for field in ["agreement_id", "customer"] {
+        shape::equal(m, &terms[field], &base.binding[field])?;
+    }
+    shape::equal(m, &terms["slot"], &selected["slot"])?;
+    for field in ["book", "funding_leg", "correction_source_slot"] {
+        shape::equal(m, &terms[field], &definition[field])?;
+    }
+    let allowed = shape::array(m, &terms, "allowed_activities")?;
+    if !shape::member(m, allowed, &payload["activity"])? {
+        return Err(shape::fail("Stage component original activity"));
+    }
+    let (role_ref, role) = load(
+        m,
+        r,
+        c,
+        &terms["role_ref"],
+        "workflow-roles",
+        "ledger-workflow-role-assignment/1",
+    )?;
+    for field in ["scope", "agreement_id", "customer", "role_slot"] {
+        shape::equal(m, &role[field], &terms[field])?;
+    }
+    let roles = shape::array(m, &base.binding, "roles_refs")?;
+    if !shape::member(m, roles, &terms["role_ref"])? {
+        return Err(shape::fail("Stage component original role membership"));
+    }
+    if !supplier {
+        inventory::slots::validate_original_projection(
+            m,
+            program,
+            &base.binding,
+            &base.catalog,
+            &base.instantiation,
+            &terms,
+            &role,
+        )?;
+    }
+    let slot = shape::text(m, &terms, "correction_source_slot")?;
+    let source = source_authority::dependent(
+        m,
+        r,
+        c,
+        program,
+        OriginalSourceSubject {
+            binding_ref: &binding_ref,
+            binding: &base.binding,
+            terms: &terms,
+            payload,
+        },
+        (slot, mode, &payload["evidence_refs"]),
+    )?;
+    let metadata = 8 * std::mem::size_of::<RecordBody>() + 2 * (64 + 128 + 71);
+    let _owner = a.reserve_external_payload(metadata, m)?;
+    m.write_bytes(metadata)?;
+    let namespace = shape::text(m, &base.binding, "source_namespace")?;
+    let selected_terms = authority::Terms {
+        binding: base.binding.clone(),
+        accepted: base.accepted.clone(),
+        _activation: base._activation.clone(),
+        catalog: base.catalog.clone(),
+        instantiation: base.instantiation.clone(),
+        slot_terms: terms.clone(),
+        slot_terms_ref: terms_ref,
+        role_ref,
+    };
+    emit_resolved(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        (
+            (mode, Some(&payload["evidence_refs"])),
+            (slot, &[], namespace),
+        ),
+        (binding_ref, selected_terms, source),
+    )
 }

@@ -52,6 +52,7 @@ pub(in crate::policy::workflow::transition_constructor) fn compare_original_stru
         .ok_or_else(|| shape::fail("owning original capacity comparison"))?;
     let expected = w::usize_add(m, original.families.len(), original.delayed_costs.len())?;
     let expected = w::usize_add(m, expected, original.app_costs.len())?;
+    let expected = w::usize_add(m, expected, original.stages.len())?;
     if !w::compare(m, current.reserved.len(), expected)?.is_eq() {
         return Err(shape::fail(
             "original capacity reservation set is incomplete",
@@ -121,6 +122,25 @@ pub(in crate::policy::workflow::transition_constructor) fn compare_original_stru
                 binding.value(),
                 &root["operation_key"],
                 cost.maximum_inverse_actions,
+            ),
+        )?;
+    }
+    for stage in &original.stages {
+        m.visit("capacity.compare_original_Stage_edge")?;
+        original_edge(
+            m,
+            r,
+            c,
+            current,
+            ancestor.value(),
+            &stage.dependent_decision_id,
+            (
+                "work_basis",
+                &stage.target_ref,
+                None,
+                binding.value(),
+                &root["operation_key"],
+                stage.maximum_inverse_actions,
             ),
         )?;
     }

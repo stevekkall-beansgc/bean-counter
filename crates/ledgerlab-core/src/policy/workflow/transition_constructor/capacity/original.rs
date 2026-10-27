@@ -32,6 +32,13 @@ pub(in crate::policy::workflow::transition_constructor) struct FinancialReservat
     pub families: Vec<FamilyReservation>,
     pub delayed_costs: Vec<DelayedCostReservation>,
     pub app_costs: Vec<AppCostReservation>,
+    pub stages: Vec<StageReservation>,
+    _metadata: ExternalBufferLease,
+}
+pub(in crate::policy::workflow::transition_constructor) struct StageReservation {
+    pub target_ref: ExactRef,
+    pub dependent_decision_id: String,
+    pub maximum_inverse_actions: usize,
     _metadata: ExternalBufferLease,
 }
 /// Preserved experimental resource promises. The new local path consumes
@@ -224,8 +231,8 @@ type OriginalDerivationInputs<'a> = (
 pub(super) fn derive_financial_data(
     arena: &AuditArena,
     m: &mut CoreMeter,
-    _r: &mut super::super::records::Records,
-    _c: &super::super::data::DraftContextData,
+    r: &mut super::super::records::Records,
+    c: &super::super::data::DraftContextData,
     program: &SelectedProgram,
     payload: &Value,
     selected_operands: OriginalDerivationInputs<'_>,
@@ -309,6 +316,11 @@ pub(super) fn derive_financial_data(
                     family_count = add(m, family_count, 1)?;
                 }
             }
+        } else if program.uses_stage_lifecycle_recipe()
+            && shape::same_text(m, opcode, "close_stage")?
+        {
+            // Declaration reserves the separate fixed Stage obligation below;
+            // it is not another Work pricing instruction or a Work/Outcome claim.
         } else {
             return Err(shape::fail("unknown compiled capacity opcode"));
         }
@@ -587,6 +599,72 @@ pub(super) fn derive_financial_data(
     if w::compare(m, maximum_root_actions, 128usize)?.is_gt() {
         return Err(shape::fail("original root action capacity"));
     }
+    let mut stages = Vec::new();
+    if program.uses_stage_lifecycle_recipe() {
+        if let Some(value) = payload.get("stage_instance_ref") {
+            let reference = super::super::working_value::parse_owned_reference(m, arena, value)?;
+            let instance = r.get(
+                m,
+                &c.key,
+                reference.reference(),
+                "workflow-stage-instance",
+                "ledger-workflow-stage-instance/1",
+            )?;
+            super::super::stage::closed_instance(m, &c.key, reference.reference(), &instance)?;
+            for field in ["customer", "chain", "binding_ref"] {
+                shape::equal(m, &instance[field], &payload[field])?;
+            }
+            let name = shape::text(m, &instance, "stage_name")?;
+            let def = super::super::stage::definition(m, program, name)?;
+            let mut member = false;
+            for row in shape::array(m, &instance, "expected")? {
+                if shape::same(
+                    m,
+                    &row["business_operation_id"],
+                    &payload["business_operation_id"],
+                )? && shape::same(m, &row["source"], &original_work["key"]["source"])?
+                {
+                    shape::equal(m, &row["activity"], &payload["activity"])?;
+                    if member {
+                        return Err(shape::fail("ambiguous original Stage capacity member"));
+                    }
+                    member = true;
+                }
+            }
+            if !member {
+                return Err(shape::fail("original Stage capacity membership"));
+            }
+            let mut maximum = 0usize;
+            for instruction in instructions {
+                if instruction["opcode"].as_str() == Some("evaluate_rule")
+                    && shape::same(
+                        m,
+                        &instruction["rule"]["activity"],
+                        &def["closure_activity"],
+                    )?
+                {
+                    maximum = add(m, maximum, 1)?;
+                }
+            }
+            if maximum == 0 || w::compare(m, maximum, 128usize)?.is_gt() {
+                return Err(shape::fail("Stage original inverse action bound"));
+            }
+            let lease = arena.reserve_external_payload(
+                mem::size_of::<StageReservation>() + 128 + 64 + 128 + 71,
+                m,
+            )?;
+            stages
+                .try_reserve_exact(1)
+                .map_err(|_| shape::fail("Stage original promise vector"))?;
+            let dependent = super::super::stage::closure_decision_id(m, &c.key, &instance)?;
+            stages.push(StageReservation {
+                target_ref: copy_ref(m, reference.reference())?,
+                dependent_decision_id: dependent,
+                maximum_inverse_actions: maximum,
+                _metadata: lease,
+            });
+        }
+    }
     let financial = FinancialReservations {
         root_decision_id,
         original_root_ref: copy_ref(m, decision_ref)?,
@@ -596,6 +674,7 @@ pub(super) fn derive_financial_data(
         families,
         delayed_costs,
         app_costs,
+        stages,
         _metadata: metadata,
     };
     let checked = financial.structural_union(arena, m)?;
@@ -737,6 +816,7 @@ impl FinancialReservations {
         // remains live only through the common distinct-decision DAG traversal.
         let count = add(m, self.families.len(), self.delayed_costs.len())?;
         let count = add(m, count, self.app_costs.len())?;
+        let count = add(m, count, self.stages.len())?;
         let bytes = mul(m, count, mem::size_of::<super::topology::Reservation>())?;
         let bytes = add(
             m,
@@ -771,6 +851,14 @@ impl FinancialReservations {
                 ancestor_decision_id: &self.root_decision_id,
                 dependent_decision_id: &cost.dependent_decision_id,
                 maximum_inverse_actions: cost.maximum_inverse_actions,
+            });
+        }
+        for stage in &self.stages {
+            m.visit("capacity.original_Stage_edge")?;
+            edges.push(super::topology::Reservation {
+                ancestor_decision_id: &self.root_decision_id,
+                dependent_decision_id: &stage.dependent_decision_id,
+                maximum_inverse_actions: stage.maximum_inverse_actions,
             });
         }
         super::topology::union(

@@ -650,6 +650,7 @@ pub fn produce_local_financial_request_evidence<'a>(
             };
             if shape::same_text(m, &r.kind, "workflow-work")?
                 || shape::same_text(m, &r.kind, "workflow-outcome-claim")?
+                || shape::same_text(m, &r.kind, "workflow-stage-closure-claim")?
             {
                 needed_schema_refs(m, &a, &mut needed, body.value())?;
             }
@@ -767,6 +768,27 @@ fn selected_anchor(
             | "ledger-workflow-app-causal-authority/2"
             | "ledger-workflow-app-pending-causal-authority/2",
         ) => ("authority", "direct", 0, false),
+        ("workflow-stage-instance", "ledger-workflow-stage-instance/1")
+        | ("workflow-stage-state", "ledger-workflow-stage-state/1")
+        | ("workflow-stage-closure-claim", "ledger-workflow-stage-closure-claim/1")
+        | ("workflow-invocation", "ledger-workflow-invocation/1")
+        | ("workflow-allocation", "ledger-workflow-allocation/1")
+        | ("workflow-authority", "ledger-workflow-agreement-authority/6")
+        | (
+            "workflow-economic-authority",
+            "ledger-workflow-stage-authority/1" | "ledger-workflow-stage-causal-authority/1",
+        )
+        | (
+            "workflow-slot-terms",
+            "ledger-workflow-slot-binding-terms/3" | "ledger-workflow-slot-binding-terms/8",
+        )
+        | ("workflow-offer", "ledger-workflow-offer/4")
+        | ("workflow-offer", "ledger-workflow-supplier-commitment/2")
+        | ("workflow-assent", "ledger-workflow-party-assent/3")
+        | ("workflow-evidence", "ledger-workflow-party-evidence/3")
+        | ("workflow-verification", "ledger-workflow-supplier-consent-verification/2") => {
+            ("evidence", "evidence_input", 0, true)
+        }
         ("workflow-source-enrollment", "ledger-workflow-source-enrollment/1") => {
             ("source_enrollment", "source_enrollment", 0, false)
         }
@@ -1015,7 +1037,9 @@ fn collect_subject_schema<'a>(
             needed_schema_refs(m, a, set, original)?;
             None
         }
-        "ledger-workflow-outcome-claim/1" | "ledger-workflow-outcome-claim/2" => {
+        "ledger-workflow-outcome-claim/1"
+        | "ledger-workflow-outcome-claim/2"
+        | "ledger-workflow-stage-closure-claim/1" => {
             needed_schema_refs(m, a, set, &body.value()["original_payload"])?;
             None
         }

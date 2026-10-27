@@ -1977,19 +1977,21 @@ fn compile_selected_recipe(
         &product,
         &template,
         &schemas,
-        matches!(
-            recipe,
-            SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
+        (
+            matches!(
+                recipe,
+                SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
+            ),
+            matches!(
+                recipe,
+                SelectedRecipe::LocalPolicySemantics1
+                    | SelectedRecipe::LocalPolicySemantics2
+                    | SelectedRecipe::LocalWorkLifecycle1
+                    | SelectedRecipe::LocalWorkLifecycle2
+                    | SelectedRecipe::LocalStageLifecycle1
+            ),
+            matches!(recipe, SelectedRecipe::LocalStageLifecycle1),
         ),
-        matches!(
-            recipe,
-            SelectedRecipe::LocalPolicySemantics1
-                | SelectedRecipe::LocalPolicySemantics2
-                | SelectedRecipe::LocalWorkLifecycle1
-                | SelectedRecipe::LocalWorkLifecycle2
-                | SelectedRecipe::LocalStageLifecycle1
-        ),
-        matches!(recipe, SelectedRecipe::LocalStageLifecycle1),
     )?;
     for rule in &mut policy.rules {
         m.visit("rule.validate")?;

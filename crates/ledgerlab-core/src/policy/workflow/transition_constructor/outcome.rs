@@ -1605,8 +1605,7 @@ pub(super) fn verify_original_actions(
         program,
         p,
         &p["facts"],
-        original_at,
-        original_source,
+        (original_at, original_source),
     )?;
     if m.representation_arena().is_some() {
         let namespace = shape::text(m, work, "source_namespace")?;

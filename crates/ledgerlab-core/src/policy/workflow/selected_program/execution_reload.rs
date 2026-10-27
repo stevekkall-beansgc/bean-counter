@@ -297,11 +297,11 @@ fn rehydrate_inner(
     if !same_literal(m, policy_schema, key.recipe.policy_schema())? {
         return Err(fail("execution reload original policy recipe"));
     }
-    let bound = super::super::policy_decode::payload_bound_selected(
-        m,
-        root_body,
-        matches!(key.recipe, SelectedRecipe::LocalStageLifecycle1),
-    )?;
+    let bound = if matches!(key.recipe, SelectedRecipe::LocalStageLifecycle1) {
+        super::super::policy_decode::payload_bound_selected(m, root_body, true)?
+    } else {
+        super::super::policy_decode::payload_bound(m, root_body)?
+    };
     let policy_owner = arena.reserve_external_payload(bound, m)?;
     let value = normalizer_projection(m, root_body, &mut projection_ownership, 0)?;
     let (mut policy, policy_owner) = super::super::policy_decode::decode(m, value, policy_owner)?;
@@ -710,11 +710,11 @@ pub fn normalize_local_publication_input(
                     docs.push(borrowed_doc(m, typed.canonical_value())?);
                 }
                 "ledger-workflow-policy/4" => {
-                    let n = super::super::policy_decode::payload_bound_selected(
-                        m,
-                        &body,
-                        original.uses_stage_lifecycle_recipe(),
-                    )?;
+                    let n = if original.uses_stage_lifecycle_recipe() {
+                        super::super::policy_decode::payload_bound_selected(m, &body, true)?
+                    } else {
+                        super::super::policy_decode::payload_bound(m, &body)?
+                    };
                     let owner = a.reserve_external_payload(n, m)?;
                     let value = body.projection(m, &mut owners)?;
                     let (mut policy, owner) = super::super::policy_decode::decode(m, value, owner)?;

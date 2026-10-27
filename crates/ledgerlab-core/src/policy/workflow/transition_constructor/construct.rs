@@ -72,6 +72,28 @@ pub(super) fn execute_complete<'raw>(
         .representation_arena()
         .ok_or_else(|| shape::fail("complete constructor requires owning resource session"))?;
     let schema = shape::text(m, &p, "schema")?;
+    let fresh_supplier_promise = program.uses_stage_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-work/1")?;
+    if program.uses_stage_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-stage-close/1")?
+    {
+        let mut construction = super::stage::close_stage(program, c, p, inputs, state, m)?;
+        construction.funding_effects = Some(super::funding::construction_effect(
+            m,
+            program,
+            c,
+            state,
+            &mut construction,
+        )?);
+        construction.candidate_heads =
+            Some(super::candidate::heads::derive(m, c, state, &construction)?);
+        construction.candidate_introductions = Some(super::candidate::introductions::derive(
+            m,
+            c,
+            &construction,
+        )?);
+        return Ok(construction);
+    }
     if program.uses_stage_lifecycle_recipe()
         && shape::same_text(m, schema, "ledger-workflow-invocation-close/1")?
     {
@@ -261,15 +283,39 @@ pub(super) fn execute_complete<'raw>(
         )?;
     }
     if program.uses_app_owned_cost_recipe() {
-        super::app_cost::check_current_consent(
-            program,
-            m,
-            &mut construction.records,
-            c,
-            &construction.economic.terms.binding,
-            &construction.economic.terms.accepted,
-            state,
-        )?;
+        if !program.uses_stage_lifecycle_recipe() || fresh_supplier_promise {
+            super::app_cost::check_current_consent(
+                program,
+                m,
+                &mut construction.records,
+                c,
+                &construction.economic.terms.binding,
+                &construction.economic.terms.accepted,
+                state,
+            )?;
+        }
+        if program.uses_stage_lifecycle_recipe() {
+            if fresh_supplier_promise {
+                super::supplier_consent::current(
+                    program,
+                    m,
+                    &mut construction.records,
+                    c,
+                    &construction.economic.terms.binding,
+                    &construction.economic.terms.accepted,
+                    state.current_party_authorizations,
+                )?;
+            } else {
+                super::supplier_consent::original(
+                    program,
+                    m,
+                    &mut construction.records,
+                    c,
+                    &construction.economic.terms.binding,
+                    &construction.economic.terms.accepted,
+                )?;
+            }
+        }
     }
     construction.candidate_heads =
         Some(super::candidate::heads::derive(m, c, state, &construction)?);
@@ -1144,9 +1190,7 @@ fn execute_parsed<'inv, 'raw>(
                 &mut r,
                 c,
                 &p,
-                head,
-                &old,
-                &state.links,
+                (head, &old, &state.links),
                 program,
             )?
         } else if state.links.is_empty() {

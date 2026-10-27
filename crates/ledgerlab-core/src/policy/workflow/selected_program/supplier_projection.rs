@@ -247,9 +247,9 @@ fn root<'a>(m: &mut CoreMeter, plan: &'a Value, instruction: &'a Value) -> Resul
     let component = component(m, plan, key)?;
     shape::text(m, component, "root_key")
 }
-fn slots<'a>(
+fn slots(
     m: &mut CoreMeter,
-    plan: &'a Value,
+    plan: &Value,
     instruction: &Value,
     name: &str,
     arena: &AuditArena,

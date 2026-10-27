@@ -116,11 +116,11 @@ impl LocalOperationLocators {
         &mut self,
         program: &SelectedProgram,
         key: &OperationKey,
-        heads: &[DecisionHead],
-        capacity_heads: &[CapacityHead],
+        held: (&[DecisionHead], &[CapacityHead], &[StageHead]),
         inputs: &[EconomicRecordView<'_>],
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        let (heads, capacity_heads, stage_heads) = held;
         let result = (|| {
             s.check_cancelled()?;
             program.require_attempt_owner(s.meter_mut())?;
@@ -182,7 +182,7 @@ impl LocalOperationLocators {
                     &a,
                     &mut r,
                     key,
-                    (&current, heads, capacity_heads),
+                    (&current, heads, capacity_heads, stage_heads),
                 )?;
             }
             let prior = if shape::same_text(m, &head.revision, "1")? {
@@ -206,9 +206,9 @@ impl LocalOperationLocators {
         a: &AuditArena,
         r: &mut Records,
         key: &OperationKey,
-        held: (&Value, &[DecisionHead], &[CapacityHead]),
+        held: (&Value, &[DecisionHead], &[CapacityHead], &[StageHead]),
     ) -> Result<()> {
-        let (current, heads, capacity_heads) = held;
+        let (current, heads, capacity_heads, stage_heads) = held;
         if !w::compare(m, self.required_slots.len(), self.base_required_slots)?.is_gt() {
             return Ok(());
         }
@@ -280,7 +280,15 @@ impl LocalOperationLocators {
         let mut index = self.base_required_slots;
         while w::compare(m, index, self.required_slots.len())?.is_lt() {
             let slot = &self.required_slots[index];
-            let mut needed = false;
+            let mut needed = stage_slot_needed(
+                program,
+                m,
+                a,
+                r,
+                key,
+                (&work, &binding, heads, stage_heads),
+                slot,
+            )?;
             for declaration in
                 shape::array(m, program.original_policy_value(), "app_delayed_costs")?
             {
@@ -1050,6 +1058,102 @@ fn push_authority_slot(
     out.push(cp(m, a, owners, slot)?);
     Ok(())
 }
+fn stage_slot_needed(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    r: &mut Records,
+    key: &OperationKey,
+    held: (&Value, &Value, &[DecisionHead], &[StageHead]),
+    slot: &str,
+) -> Result<bool> {
+    let (work, binding, decisions, heads) = held;
+    if !program.uses_stage_lifecycle_recipe() {
+        return Ok(false);
+    }
+    let Some(value) = work["payload"].get("stage_instance_ref") else {
+        return Ok(false);
+    };
+    let (reference, instance) = load_ref(
+        m,
+        a,
+        r,
+        key,
+        value,
+        "workflow-stage-instance",
+        "ledger-workflow-stage-instance/1",
+    )?;
+    let agreement = txt(m, &instance, "agreement_id")?;
+    let chain = txt(m, &instance, "chain")?;
+    let stage_name = txt(m, &instance, "stage_name")?;
+    let mut selected = None;
+    for head in heads {
+        if shape::same_text(m, &head.agreement, agreement)?
+            && shape::same_text(m, &head.chain, chain)?
+            && shape::same_text(m, &head.stage, stage_name)?
+            && selected.replace(head).is_some()
+        {
+            return Err(shape::fail("duplicate Stage role head"));
+        }
+    }
+    let head = selected.ok_or_else(|| shape::fail("Stage role held head missing"))?;
+    let state = r.get(
+        m,
+        key,
+        &head.reference,
+        "workflow-stage-state",
+        "ledger-workflow-stage-state/1",
+    )?;
+    shape::equal(m, &state["stage_instance_ref"], value)?;
+    let revision = txt(m, &state, "revision")?;
+    if !shape::same_text(m, revision, &head.revision)? {
+        return Err(shape::fail("Stage role head revision"));
+    }
+    let status = txt(m, &state, "state")?;
+    if shape::same_text(m, status, "closed_by_root")? {
+        return Ok(false);
+    }
+    if shape::same_text(m, status, "closed")? {
+        let id = super::stage::closure_decision_id(m, key, &instance)?;
+        let mut selected = None;
+        for head in decisions {
+            if shape::same_text(m, &head.decision_id, &id)? && selected.replace(head).is_some() {
+                return Err(shape::fail("duplicate Stage role monetary head"));
+            }
+        }
+        let head = selected.ok_or_else(|| shape::fail("Stage role current Decision missing"))?;
+        let decision = r.get(
+            m,
+            key,
+            &head.reference,
+            "workflow-decision",
+            "ledger-workflow-decision-revision/1",
+        )?;
+        let status = txt(m, &decision, "status")?;
+        if shape::same_text(m, status, "reversed")? {
+            return Ok(false);
+        }
+    }
+    let _ = reference;
+    let name = txt(m, &instance, "stage_name")?;
+    let stages = shape::array(m, program.original_policy_value(), "stages")?;
+    let stage = shape::named(m, stages, "name", name)?;
+    for rule in shape::array(m, program.original_policy_value(), "rules")? {
+        if !shape::same(m, &rule["activity"], &stage["closure_activity"])? {
+            continue;
+        }
+        let name = txt(m, rule, "binding_slot")?;
+        let defs = shape::array(m, program.original_policy_value(), "binding_slots")?;
+        let def = shape::named(m, defs, "name", name)?;
+        let correction = txt(m, def, "correction_source_slot")?;
+        if shape::same_text(m, correction, slot)? {
+            let rows = shape::array(m, binding, "bindings")?;
+            shape::named(m, rows, "slot", name)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 fn authority_slots(
     program: &SelectedProgram,
     m: &mut CoreMeter,
@@ -1068,7 +1172,7 @@ fn authority_slots(
     if !root && !close && !stage {
         return Ok((Vec::new(), 0));
     }
-    let count = if stage {
+    let count = if stage || (root && program.uses_stage_lifecycle_recipe()) {
         32
     } else if root {
         let closures = shape::array(m, request, "family_closures")?;
@@ -1208,17 +1312,45 @@ fn authority_slots(
     let work_value = super::working_value::owning_reference(m, a, work_ref)?;
     if root {
         let bindings = shape::array(m, &binding, "bindings")?;
-        if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
-            return Err(shape::fail("selected root binding count"));
-        }
+        let selected = if program.uses_stage_lifecycle_recipe() {
+            let mut selected = None;
+            for rule in shape::array(m, program.original_policy_value(), "rules")? {
+                if !shape::same(m, &rule["activity"], &work["payload"]["activity"])? {
+                    continue;
+                }
+                let name = txt(m, rule, "binding_slot")?;
+                let defs = shape::array(m, program.original_policy_value(), "binding_slots")?;
+                let def = shape::named(m, defs, "name", name)?;
+                let book = txt(m, def, "book")?;
+                if !shape::same_text(m, book, "retail")? {
+                    continue;
+                }
+                let row = shape::named(m, bindings, "slot", name)?;
+                if let Some(old) = selected {
+                    shape::equal(m, old, row)?;
+                }
+                selected = Some(row);
+            }
+            selected.ok_or_else(|| shape::fail("Stage root exact original retail slot"))?
+        } else {
+            if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
+                return Err(shape::fail("selected root binding count"));
+            }
+            &bindings[0]
+        };
+        let schema = if program.uses_stage_lifecycle_recipe() {
+            "ledger-workflow-slot-binding-terms/3"
+        } else {
+            "ledger-workflow-slot-binding-terms/7"
+        };
         let (_, terms) = load_ref(
             m,
             a,
             r,
             key,
-            &bindings[0]["binding_ref"],
+            &selected["binding_ref"],
             "workflow-slot-terms",
-            "ledger-workflow-slot-binding-terms/7",
+            schema,
         )?;
         let source_slot = txt(m, &terms, "correction_source_slot")?;
         push_authority_slot(m, a, owners, &mut out, source_slot)?;
@@ -1279,6 +1411,50 @@ fn authority_slots(
                     let slot = txt(m, declaration, "correction_source_slot")?;
                     push_authority_slot(m, a, owners, &mut out, slot)?;
                 }
+            }
+        }
+    }
+    if root && program.uses_stage_lifecycle_recipe() {
+        if let Some(value) = work["payload"].get("stage_instance_ref") {
+            let (_, instance) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                value,
+                "workflow-stage-instance",
+                "ledger-workflow-stage-instance/1",
+            )?;
+            let name = txt(m, &instance, "stage_name")?;
+            let definitions = shape::array(m, program.original_policy_value(), "stages")?;
+            let stage = shape::named(m, definitions, "name", name)?;
+            for rule in shape::array(m, program.original_policy_value(), "rules")? {
+                if !shape::same(m, &rule["activity"], &stage["closure_activity"])? {
+                    continue;
+                }
+                let name = txt(m, rule, "binding_slot")?;
+                let rows = shape::array(m, &binding, "bindings")?;
+                let row = shape::named(m, rows, "slot", name)?;
+                let definitions =
+                    shape::array(m, program.original_policy_value(), "binding_slots")?;
+                let def = shape::named(m, definitions, "name", name)?;
+                let book = txt(m, def, "book")?;
+                let schema = if shape::same_text(m, book, "supplier")? {
+                    "ledger-workflow-slot-binding-terms/8"
+                } else {
+                    "ledger-workflow-slot-binding-terms/3"
+                };
+                let (_, terms) = load_ref(
+                    m,
+                    a,
+                    r,
+                    key,
+                    &row["binding_ref"],
+                    "workflow-slot-terms",
+                    schema,
+                )?;
+                let slot = txt(m, &terms, "correction_source_slot")?;
+                push_authority_slot(m, a, owners, &mut out, slot)?;
             }
         }
     }

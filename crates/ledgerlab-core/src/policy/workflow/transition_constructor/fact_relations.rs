@@ -419,9 +419,7 @@ fn consume(
                 program,
                 payload,
                 subject.1,
-                input.reference(),
-                source,
-                subject.2,
+                (input.reference(), source, subject.2),
             )?;
             continue;
         }
@@ -447,7 +445,7 @@ pub(super) fn facts(
     values: &Value,
     at: &str,
 ) -> Result<()> {
-    facts_original(m, r, key, program, payload, values, at, &key.source)
+    facts_original(m, r, key, program, payload, values, (at, &key.source))
 }
 pub(super) fn facts_original(
     m: &mut CoreMeter,
@@ -456,9 +454,9 @@ pub(super) fn facts_original(
     program: &SelectedProgram,
     payload: &Value,
     values: &Value,
-    at: &str,
-    source: &str,
+    origin: (&str, &str),
 ) -> Result<()> {
+    let (at, source) = origin;
     if !program.uses_work_lifecycle_recipe() {
         return Ok(());
     }

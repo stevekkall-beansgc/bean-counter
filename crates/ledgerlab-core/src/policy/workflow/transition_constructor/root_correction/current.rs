@@ -139,8 +139,7 @@ pub(super) fn verify(
         program,
         &plan.payload,
         &old_eval["facts"],
-        prior_at,
-        original_source,
+        (prior_at, original_source),
     )?;
     let activity = text(m, &plan.payload, "activity")?;
     let instructions = shape::array(

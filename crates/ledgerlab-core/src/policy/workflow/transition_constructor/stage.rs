@@ -74,7 +74,7 @@ fn instance_id(m: &mut CoreMeter, key: &OperationKey, v: &Value) -> Result<Strin
         tuple.value(),
     )
 }
-fn state_id(
+pub(super) fn state_id(
     m: &mut CoreMeter,
     key: &OperationKey,
     instance: &ExactRef,
@@ -280,6 +280,17 @@ fn declaration_chain(
     declaration: &Value,
     state: &DraftStateData,
 ) -> Result<ConstructedEnvelope> {
+    transition_chain(m, r, c, program, declaration, state, None)
+}
+fn transition_chain(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    declaration: &Value,
+    state: &DraftStateData,
+    new_link: Option<&ExactRef>,
+) -> Result<ConstructedEnvelope> {
     let a = arena(m)?;
     let key = super::cost_postings::operation_key(m, &a, c)?;
     let frame = c
@@ -309,9 +320,7 @@ fn declaration_chain(
             r,
             c,
             declaration,
-            reference,
-            &old,
-            &state.links,
+            (reference, &old, &state.links),
             program,
         )?;
         revision = super::meter::add(m, &prior_revision, &1.into())?;
@@ -319,6 +328,9 @@ fn declaration_chain(
         previous = Some(old);
     } else if !state.links.is_empty() {
         return Err(shape::fail("Stage retained links without frozen chain"));
+    }
+    if new_link.is_some() {
+        events = super::meter::add(m, &events, &1.into())?;
     }
     if super::meter::cmp(m, &events, &1000.into())?.is_gt() {
         return Err(crate::Error::new(
@@ -348,11 +360,32 @@ fn declaration_chain(
         refs.push(reference);
     }
     let refs = super::app_cost::reference_set(m, &a, &refs)?;
+    let old_digest = super::records::hash(m, "workflow-link-set", refs.value())?;
+    let old_digest = a.string_value(&old_digest, m)?;
+    if let Some(old) = &previous {
+        shape::equal(m, &old["links_root"], old_digest.value())?;
+    }
+    let refs = if let Some(reference) = new_link {
+        let maximum = w::usize_add(m, state.links.len(), 1)?;
+        let mut values =
+            crate::policy::workflow::selected_program::supplier_projection::Values::new(
+                m, &a, maximum,
+            )?;
+        for value in refs
+            .value()
+            .as_array()
+            .ok_or_else(|| shape::fail("Stage prior Link set"))?
+        {
+            values.unique(m, &a, value)?;
+        }
+        let value = owning_reference(m, &a, reference)?;
+        values.unique(m, &a, value.value())?;
+        values.finish(m, &a, true)?
+    } else {
+        refs
+    };
     let digest = super::records::hash(m, "workflow-link-set", refs.value())?;
     let digest = a.string_value(&digest, m)?;
-    if let Some(old) = &previous {
-        shape::equal(m, &old["links_root"], digest.value())?;
-    }
     let schema = a.string_value("ledger-workflow-chain-state/1", m)?;
     let revision = super::cost_postings::scalar(m, &a, &revision)?;
     let events = super::cost_postings::scalar(m, &a, &events)?;
@@ -600,10 +633,9 @@ pub(super) fn authorize<'a>(
                 &input["business_operation_id"],
             )? && shape::same(m, &row["activity"], &input["activity"])?
                 && shape::same(m, &template["source_slot"], &input["source_slot"])?
+                && member.replace(row).is_some()
             {
-                if member.replace(row).is_some() {
-                    return Err(shape::fail("ambiguous Stage Invocation member"));
-                }
+                return Err(shape::fail("ambiguous Stage Invocation member"));
             }
         }
         let member =
@@ -706,6 +738,24 @@ pub(super) fn authorize<'a>(
         m,
     )?;
     let (terms, authority_value, terms_owner) = resolved.into_local_parts()?;
+    super::app_cost::check_current_consent(
+        program,
+        m,
+        &mut records,
+        c,
+        &terms.binding,
+        &terms.accepted,
+        state,
+    )?;
+    super::supplier_consent::current(
+        program,
+        m,
+        &mut records,
+        c,
+        &terms.binding,
+        &terms.accepted,
+        state.current_party_authorizations,
+    )?;
     let authority =
         body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
     let id = instance_id(m, &c.key, declaration)?;
@@ -1438,3 +1488,53 @@ pub(super) fn work(
         ownership,
     }))
 }
+
+#[path = "stage_close.rs"]
+mod close;
+
+pub(super) fn closure_claim_id(
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    instance: &Value,
+) -> Result<String> {
+    let a = arena(m)?;
+    let store = a.string_value(&key.logical_store_id, m)?;
+    let scope = super::work_keys::scope(m, key)?;
+    let closure = a.string_value("closure", m)?;
+    let tuple = a.array_from_values(
+        &[
+            store.value(),
+            scope.value(),
+            &instance["agreement_id"],
+            &instance["chain"],
+            &instance["stage_name"],
+            closure.value(),
+        ],
+        m,
+    )?;
+    id(
+        m,
+        "wstage_claim_",
+        b"bean-counter/workflow/1/stage-closure\0",
+        tuple.value(),
+    )
+}
+pub(super) fn closure_decision_id(
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    instance: &Value,
+) -> Result<String> {
+    let a = arena(m)?;
+    let claim = closure_claim_id(m, key, instance)?;
+    let claim = a.string_value(&claim, m)?;
+    let tag = a.string_value("stage", m)?;
+    let tuple = a.array_from_values(&[claim.value(), tag.value()], m)?;
+    body::semantic_id(m, "wdecision_", "workflow-decision", tuple.value())
+}
+pub(in crate::policy::workflow::transition_constructor) use close::produce as close_stage;
+
+#[path = "stage_retained.rs"]
+mod retained;
+pub(super) use retained::link as retained_link;
+
+pub(super) use close::prior_net as retained_prior_net;

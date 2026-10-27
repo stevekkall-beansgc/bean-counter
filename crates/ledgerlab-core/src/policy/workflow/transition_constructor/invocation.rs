@@ -463,6 +463,24 @@ pub(super) fn authorize<'a>(
         m,
     )?;
     let (terms, authority_value, terms_owner) = resolved.into_local_parts()?;
+    super::app_cost::check_current_consent(
+        program,
+        m,
+        &mut records,
+        c,
+        &terms.binding,
+        &terms.accepted,
+        state,
+    )?;
+    super::supplier_consent::current(
+        program,
+        m,
+        &mut records,
+        c,
+        &terms.binding,
+        &terms.accepted,
+        state.current_party_authorizations,
+    )?;
     let authority =
         body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
     let (supplier, _offer) = supplier(m, &mut records, c, program, &p, &terms)?;
@@ -721,10 +739,9 @@ pub(super) fn reference_for_work(
     program: &SelectedProgram,
     payload: &Value,
     binding: &Value,
-    reference: &ExactRef,
-    source: &str,
-    at: &str,
+    original: (&ExactRef, &str, &str),
 ) -> Result<()> {
+    let (reference, source, at) = original;
     if !program.uses_stage_lifecycle_recipe() {
         return Err(shape::fail("same Invocation exact Stage recipe"));
     }
@@ -1255,6 +1272,9 @@ pub(super) fn close<'a>(
         m,
     )?;
     let (terms, authority_value, terms_owner) = resolved.into_local_parts()?;
+    // Completion fulfils an original promise; provider revocation is not a
+    // right to erase its retained held exposure or preaccepted liabilities.
+    super::supplier_consent::original(program, m, &mut r, c, &terms.binding, &terms.accepted)?;
     let authority =
         body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
     let mut consumed = amount(m, &current["other_consumed"])?;
@@ -1597,12 +1617,10 @@ pub(super) fn consume_stage_share(
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
-    work: &Value,
-    binding: &Value,
-    supplier_slot: &str,
-    atoms: &num_bigint::BigInt,
+    selected: (&Value, &Value, &str, &num_bigint::BigInt),
     state: &EconomicStateData<'_>,
 ) -> Result<Option<ConstructedEnvelope>> {
+    let (work, binding, supplier_slot, atoms) = selected;
     if !program.uses_stage_lifecycle_recipe() {
         return Err(shape::fail("Stage held consumption recipe"));
     }

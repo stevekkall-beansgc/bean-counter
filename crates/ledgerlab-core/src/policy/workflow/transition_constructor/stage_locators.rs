@@ -33,6 +33,7 @@ pub struct StageOperationLocators {
     stage: String,
     binding: OwnedExactRef,
     instance: Option<OwnedExactRef>,
+    closure: Option<String>,
     members: Vec<StageExpectedHeadLocator>,
     _ownership: ExternalBufferLease,
 }
@@ -51,6 +52,9 @@ impl StageOperationLocators {
     }
     pub fn stage_instance_ref(&self) -> Option<&ExactRef> {
         self.instance.as_ref().map(|v| v.reference())
+    }
+    pub fn closure_decision_id(&self) -> Option<&str> {
+        self.closure.as_deref()
     }
     pub fn expected_work_heads(&self) -> &[StageExpectedHeadLocator] {
         &self.members
@@ -77,14 +81,41 @@ pub fn select_stage_operation_locators(
         let schema = shape::text(m, &payload, "schema")?;
         let authorize = shape::same_text(m, schema, "ledger-workflow-stage-authorize/1")?;
         let close = shape::same_text(m, schema, "ledger-workflow-stage-close/1")?;
-        if !authorize && !close {
+        let root = program.uses_stage_lifecycle_recipe()
+            && (shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?
+                || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?);
+        if !authorize && !close && !root {
             return Ok(None);
         }
         if !program.uses_stage_lifecycle_recipe() {
             return Err(shape::fail("Stage operation lookup recipe"));
         }
-        let mut records = Records::borrowed_selected(m, &arena, key, inputs, &[], program)?;
-        let instance = if close {
+        let mut records = Records::borrowed_parent_selected(m, &arena, key, inputs, program)?;
+        let original_work = if root {
+            let reference = parse_owned_reference(m, &arena, &payload["work_ref"])?;
+            Some(records.get(
+                m,
+                key,
+                reference.reference(),
+                "workflow-work",
+                "ledger-workflow-work-record/1",
+            )?)
+        } else {
+            None
+        };
+        if original_work
+            .as_ref()
+            .is_some_and(|work| work["payload"].get("stage_instance_ref").is_none())
+        {
+            return Ok(None);
+        }
+        let instance = if let Some(work) = &original_work {
+            Some(parse_owned_reference(
+                m,
+                &arena,
+                &work["payload"]["stage_instance_ref"],
+            )?)
+        } else if close {
             Some(parse_owned_reference(
                 m,
                 &arena,
@@ -101,6 +132,11 @@ pub fn select_stage_operation_locators(
                 "workflow-stage-instance",
                 "ledger-workflow-stage-instance/1",
             )?)
+        } else {
+            None
+        };
+        let closure = if let Some(body) = &instance_body {
+            Some(super::stage::closure_decision_id(m, key, body)?)
         } else {
             None
         };
@@ -142,6 +178,7 @@ pub fn select_stage_operation_locators(
         let bytes = w::usize_add(m, bytes, agreement.len())?;
         let bytes = w::usize_add(m, bytes, chain.len())?;
         let bytes = w::usize_add(m, bytes, stage.len())?;
+        let bytes = w::usize_add(m, bytes, 128)?;
         let ownership = arena.reserve_external_payload(bytes, m)?;
         let mut members = Vec::new();
         members
@@ -166,6 +203,7 @@ pub fn select_stage_operation_locators(
             stage: text(m, stage)?,
             binding,
             instance,
+            closure,
             members,
             _ownership: ownership,
         }))

@@ -25,9 +25,9 @@ fn dependency(
     dependent: &str,
     target: &ExactRef,
     family: Option<&str>,
-    selected_operands: (usize, &Value),
+    selection: ((usize, &Value), bool),
 ) -> Result<ConstructedEnvelope> {
-    let (actions, key) = selected_operands;
+    let ((actions, key), stage) = selection;
     let a = m
         .representation_arena()
         .ok_or_else(|| shape::fail("local dependency owner"))?;
@@ -39,7 +39,9 @@ fn dependency(
     let id = body::semantic_id(m, "wdep_", "workflow-dependency", seed.value())?;
     let schema = a.string_value("ledger-workflow-dependency/2", m)?;
     let kind = a.string_value(
-        if family.is_some() {
+        if stage {
+            "work_basis"
+        } else if family.is_some() {
             "outcome_family"
         } else {
             "delayed_cost"
@@ -128,7 +130,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             Some(&f.family_slot),
-            (f.maximum_inverse_actions, key),
+            ((f.maximum_inverse_actions, key), false),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,
@@ -144,7 +146,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             None,
-            (f.maximum_inverse_actions, key),
+            ((f.maximum_inverse_actions, key), false),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,
@@ -160,12 +162,28 @@ pub(in crate::policy::workflow::transition_constructor) fn produce(
             &f.dependent_decision_id,
             &f.target_ref,
             None,
-            (f.maximum_inverse_actions, key),
+            ((f.maximum_inverse_actions, key), false),
         )?);
         edges.push(topology::Reservation {
             ancestor_decision_id: &original.root_decision_id,
             dependent_decision_id: &f.dependent_decision_id,
             maximum_inverse_actions: f.maximum_inverse_actions,
+        });
+    }
+    for stage in &original.stages {
+        expected.push(dependency(
+            m,
+            c,
+            original,
+            &stage.dependent_decision_id,
+            &stage.target_ref,
+            None,
+            ((stage.maximum_inverse_actions, key), true),
+        )?);
+        edges.push(topology::Reservation {
+            ancestor_decision_id: &original.root_decision_id,
+            dependent_decision_id: &stage.dependent_decision_id,
+            maximum_inverse_actions: stage.maximum_inverse_actions,
         });
     }
     let current = if matches!(t.economic.original_work, OriginalWorkPayload::Retained(_)) {
