@@ -41,6 +41,13 @@ fn object(
     }
     a.object_from_fields(&fields, m)
 }
+pub(super) fn names_for_stage(
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    strings: &[String],
+) -> Result<AuditedValue> {
+    names(m, a, strings)
+}
 fn names(m: &mut CoreMeter, a: &AuditArena, strings: &[String]) -> Result<AuditedValue> {
     let mut rows = vector(m, a, strings.len())?;
     for text in strings {
@@ -54,6 +61,45 @@ fn percent(m: &mut CoreMeter, a: &AuditArena, p: &Percent) -> Result<AuditedValu
 }
 fn formula(m: &mut CoreMeter, a: &AuditArena, f: &Formula) -> Result<AuditedValue> {
     match f {
+        Formula::ClosureCap {
+            stage,
+            basis_component_key,
+            ceiling,
+        } => {
+            let ceiling = amount_value(a, m, ceiling)?;
+            object(
+                m,
+                a,
+                &[
+                    ("kind", "closure_cap"),
+                    ("stage", stage),
+                    ("basis_component_key", basis_component_key),
+                ],
+                &[("ceiling", ceiling.value())],
+            )
+        }
+        Formula::ClosureShare {
+            basis_component_key,
+            percent,
+            ceiling,
+            allocation_view,
+        } => {
+            let ceiling = amount_value(a, m, ceiling)?;
+            let allocation = Value::Bool(*allocation_view);
+            object(
+                m,
+                a,
+                &[
+                    ("kind", "closure_share"),
+                    ("basis_component_key", basis_component_key),
+                    ("percent", percent),
+                ],
+                &[
+                    ("ceiling", ceiling.value()),
+                    ("allocation_view", &allocation),
+                ],
+            )
+        }
         Formula::Fixed { amount } => object(m, a, &[("kind", "fixed"), ("amount", amount)], &[]),
         Formula::Unit {
             quantity_field,
@@ -248,12 +294,57 @@ fn predicate(m: &mut CoreMeter, a: &AuditArena, p: &Predicate) -> Result<Audited
         }
     }
 }
+pub(super) fn stage_value(m: &mut CoreMeter, a: &AuditArena, s: &StageDef) -> Result<AuditedValue> {
+    let path = names(m, a, &s.window.anchor_path)?;
+    let w = &s.window;
+    let window = object(
+        m,
+        a,
+        &[
+            ("anchor", &w.anchor),
+            ("start_offset_us", &w.start_offset_us),
+            ("occurrence_us", &w.occurrence_us),
+            ("receipt_grace_us", &w.receipt_grace_us),
+            ("acceptance_grace_us", &w.acceptance_grace_us),
+            ("activation_deadline_us", &w.activation_deadline_us),
+            ("correction_us", &w.correction_us),
+        ],
+        &[("anchor_path", path.value())],
+    )?;
+    let mut expected = vector(m, a, s.expected_slots.len())?;
+    for e in &s.expected_slots {
+        let components = names(m, a, &e.component_keys)?;
+        expected.push(object(
+            m,
+            a,
+            &[
+                ("key", &e.key),
+                ("source_slot", &e.source_slot),
+                ("activity", &e.activity),
+            ],
+            &[("component_keys", components.value())],
+        )?);
+    }
+    let expected = array(m, a, &expected)?;
+    object(
+        m,
+        a,
+        &[
+            ("name", &s.name),
+            ("authorization_source_slot", &s.authorization_source_slot),
+            ("closure_activity", &s.closure_activity),
+            ("closure_component_key", &s.closure_component_key),
+            ("closure_source_slot", &s.closure_source_slot),
+            ("closure_evidence_kind", &s.closure_evidence_kind),
+        ],
+        &[
+            ("window", window.value()),
+            ("expected_slots", expected.value()),
+        ],
+    )
+}
 pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
     let a = m.representation_arena().ok_or_else(fail)?;
-    // The selected compiler has already refused stages before this producer.
-    if !w::compare(m, p.stages.len(), 0usize)?.is_eq() {
-        return Err(fail());
-    }
     let mut bindings = vector(m, &a, p.binding_slots.len())?;
     for b in &p.binding_slots {
         let activities = names(m, &a, &b.allowed_activities)?;
@@ -396,6 +487,15 @@ pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
     let template = reference(m, &a, &p.slot_template_ref)?;
     let compiler = reference(m, &a, &p.compiler_ref)?;
     let empty = a.array_from_values(&[], m)?;
+    let stages = if p.stages.is_empty() {
+        None
+    } else {
+        let mut rows = vector(m, &a, p.stages.len())?;
+        for stage in &p.stages {
+            rows.push(stage_value(m, &a, stage)?);
+        }
+        Some(array(m, &a, &rows)?)
+    };
     let scale = Value::from(p.scale);
     let mut children = vector(m, &a, 13)?;
     for field in [
@@ -407,7 +507,10 @@ pub(super) fn build(m: &mut CoreMeter, p: &Policy) -> Result<AuditedValue> {
         ("binding_slots", bindings.value()),
         ("rules", rules.value()),
         ("families", families.value()),
-        ("stages", empty.value()),
+        (
+            "stages",
+            stages.as_ref().map_or(empty.value(), |v| v.value()),
+        ),
         ("delayed_costs", delayed.value()),
     ] {
         children.push(field);

@@ -405,7 +405,9 @@ fn execute_parsed<'inv, 'raw>(
             }
         }
     }
-    let unsupported_inputs: &[&str] = if program.uses_declared_work_link_recipe() {
+    let unsupported_inputs: &[&str] = if program.uses_stage_lifecycle_recipe() {
+        &[]
+    } else if program.uses_declared_work_link_recipe() {
         &["invocation_refs"]
     } else if program.uses_local_execution_recipe() {
         &["links", "invocation_refs"]
@@ -540,7 +542,7 @@ fn execute_parsed<'inv, 'raw>(
         return Err(shape::fail("original plan substitution"));
     }
     let agreement = &a.binding["agreement_id"];
-    let mut construction_owners = [None, None, None, None, None, None, None, None];
+    let mut construction_owners = [None, None, None, None, None, None, None, None, None];
     if let Some(arena) = m.representation_arena() {
         // Ref payloads/control strings are admitted BEFORE either semantic ID
         // is constructed. Canonical/decoded graphs have independent owners.
@@ -725,6 +727,8 @@ fn execute_parsed<'inv, 'raw>(
         )?;
         (work, claim)
     };
+    let mut invocation_transitions =
+        super::invocation::consume_work(m, &mut r, c, program, &p, &a.binding, complete_state)?;
     let mut stage_transition = super::stage::work(
         m,
         &mut r,
@@ -1134,7 +1138,18 @@ fn execute_parsed<'inv, 'raw>(
             "workflow-chain-state",
             "ledger-workflow-chain-state/1",
         )?;
-        let (old_revision, old_events) = if state.links.is_empty() {
+        let (old_revision, old_events) = if program.uses_stage_lifecycle_recipe() {
+            super::inventory::entry::chain_head_stage(
+                m,
+                &mut r,
+                c,
+                &p,
+                head,
+                &old,
+                &state.links,
+                program,
+            )?
+        } else if state.links.is_empty() {
             super::inventory::entry::chain_head(m, c, &p, head, &old)?
         } else {
             super::inventory::entry::chain_head_with_links(
@@ -1422,6 +1437,13 @@ fn execute_parsed<'inv, 'raw>(
         count = w::usize_add(m, count, targets.records.len())?;
         let added = w::usize_add(m, 4, usize::from(inline_link.is_some()))?;
         let added = w::usize_add(m, added, usize::from(stage_transition.is_some()))?;
+        let added = w::usize_add(
+            m,
+            added,
+            invocation_transitions
+                .as_ref()
+                .map_or(0, |v| v.records.len()),
+        )?;
         count = w::usize_add(m, count, added)?; //authority, evaluation, decision, chain
         let per = std::mem::size_of::<ConstructedEnvelope>();
         ValidationWork::arithmetic(
@@ -1492,6 +1514,10 @@ fn execute_parsed<'inv, 'raw>(
                 .ok_or_else(|| shape::fail("Stage state output consumed twice"))?,
         );
         construction_owners[7] = Some(transition.ownership);
+    }
+    if let Some(transitions) = invocation_transitions.take() {
+        envelopes.extend(transitions.records);
+        construction_owners[8] = Some(transitions.ownership);
     }
     if let Some(proofs) = work_proofs.as_mut() {
         proofs.attach(m, &mut envelopes)?;

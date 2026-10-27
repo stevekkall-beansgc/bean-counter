@@ -394,7 +394,7 @@ pub(super) fn fields(
         return Ok(());
     }
     let inputs = fact_references::select_group(m, program, actual.0, actual.1, false)?;
-    consume(m, r, key, program, subject, &inputs)
+    consume(m, r, key, program, subject, &inputs, None)
 }
 fn consume(
     m: &mut CoreMeter,
@@ -403,8 +403,28 @@ fn consume(
     program: &SelectedProgram,
     subject: (&Value, &Value, &str),
     inputs: &fact_references::FactReferenceInputs,
+    work: Option<(&Value, &str)>,
 ) -> Result<()> {
     for input in inputs.entries() {
+        if program.uses_stage_lifecycle_recipe()
+            && shape::same_text(m, &input.reference().kind, "workflow-invocation")?
+            && shape::same_text(m, input.relation(), "same_invocation")?
+        {
+            let (payload, source) =
+                work.ok_or_else(|| shape::fail("same Invocation requires an actual Work subject"))?;
+            super::invocation::reference_for_work(
+                m,
+                r,
+                key,
+                program,
+                payload,
+                subject.1,
+                input.reference(),
+                source,
+                subject.2,
+            )?;
+            continue;
+        }
         if !shape::same_text(m, &input.reference().kind, "workflow-work")?
             || !shape::same_text(m, input.relation(), "same_binding")?
         {
@@ -427,6 +447,18 @@ pub(super) fn facts(
     values: &Value,
     at: &str,
 ) -> Result<()> {
+    facts_original(m, r, key, program, payload, values, at, &key.source)
+}
+pub(super) fn facts_original(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    key: &OperationKey,
+    program: &SelectedProgram,
+    payload: &Value,
+    values: &Value,
+    at: &str,
+    source: &str,
+) -> Result<()> {
     if !program.uses_work_lifecycle_recipe() {
         return Ok(());
     }
@@ -444,7 +476,15 @@ pub(super) fn facts(
         "workflow-binding",
         "ledger-workflow-binding/2",
     )?;
-    consume(m, r, key, program, (binding_ref, &binding, at), &inputs)
+    consume(
+        m,
+        r,
+        key,
+        program,
+        (binding_ref, &binding, at),
+        &inputs,
+        Some((payload, source)),
+    )
 }
 pub(super) fn context(
     m: &mut CoreMeter,

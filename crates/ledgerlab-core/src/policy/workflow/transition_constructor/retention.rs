@@ -202,7 +202,11 @@ fn subject_owner(m: &mut CoreMeter, c: &DraftContextData, subject: &Value) -> Re
     eq(m, &subject["logical_store_id"], store.value())?;
     eq(m, &subject["scope"], scope.value())
 }
-fn subject_set(m: &mut CoreMeter, arena: &AuditArena, values: &[&Value]) -> Result<AuditedValue> {
+pub(super) fn subject_set(
+    m: &mut CoreMeter,
+    arena: &AuditArena,
+    values: &[&Value],
+) -> Result<AuditedValue> {
     let array = arena.array_from_values(values, m)?;
     let mut object = arena.object_from_fields(&[("refs", array.value())], m)?;
     super::intent::sort_owned_set(&mut object, "refs", false, m, arena)?;
@@ -402,6 +406,7 @@ pub(super) fn execute_complete<'raw>(
         control_owners: [
             Some(ownership),
             Some(transfer),
+            None,
             None,
             None,
             None,
@@ -814,7 +819,84 @@ fn resolve_field(
     } else {
         None
     };
-    let (resolved, binding, work) = if shape::same_text(m, kind, "outcome")? {
+    let (resolved, binding, work) = if shape::same_text(m, kind, "stage")?
+        && program.uses_stage_lifecycle_recipe()
+    {
+        shape::closed(
+            m,
+            subject,
+            &[
+                "kind",
+                "logical_store_id",
+                "scope",
+                "stage_instance_ref",
+                "business_operation_id",
+                "activity",
+                "binding_ref",
+            ],
+            &[],
+        )?;
+        let business = shape::text(m, subject, "business_operation_id")?;
+        text_bound(m, business, 128, true)?;
+        let instance_ref =
+            super::working_value::parse_owned_reference(m, &arena, &subject["stage_instance_ref"])?;
+        let instance = r.get(
+            m,
+            &c.key,
+            instance_ref.reference(),
+            "workflow-stage-instance",
+            "ledger-workflow-stage-instance/1",
+        )?;
+        super::stage::closed_instance(m, &c.key, instance_ref.reference(), &instance)?;
+        eq(m, &instance["binding_ref"], &subject["binding_ref"])?;
+        let stage_name = shape::text(m, &instance, "stage_name")?;
+        let original = super::stage::definition(m, program, stage_name)?;
+        eq(m, &subject["activity"], &original["closure_activity"])?;
+        let binding_ref =
+            super::working_value::parse_owned_reference(m, &arena, &subject["binding_ref"])?;
+        let binding = r.get(
+            m,
+            &c.key,
+            binding_ref.reference(),
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let product = definition(m, program.product_ref())?;
+        let policy = definition(m, program.root_policy_ref())?;
+        eq(m, &binding["product_ref"], product.value())?;
+        eq(m, &binding["policy_ref"], policy.value())?;
+        let empty = arena.array_from_values(&[], m)?;
+        let p = arena.object_from_fields(
+            &[
+                ("binding_ref", &subject["binding_ref"]),
+                ("customer", &instance["customer"]),
+                ("activity", &subject["activity"]),
+                ("product_ref", product.value()),
+                ("policy_ref", policy.value()),
+                ("fact_schema_ref", &att["subject_schema_ref"]),
+                ("evidence_refs", empty.value()),
+            ],
+            m,
+        )?;
+        let slot = issuer_slot.ok_or_else(|| shape::fail("Stage assertion actual field issuer"))?;
+        let namespace = shape::text(m, &binding, "source_namespace")?;
+        let resolved = super::app_cost::binding_resolved(
+            m,
+            r,
+            c,
+            p.value(),
+            program,
+            EconomicMode::EvidenceRetain,
+            (slot, &[], namespace),
+        )?;
+        let binding_ref = owned_ref(m, &arena, binding_ref.reference())?;
+        let instance_ref = owned_ref(m, &arena, instance_ref.reference())?;
+        (
+            resolved,
+            subject_set(m, &arena, &[binding_ref.value(), instance_ref.value()])?,
+            None,
+        )
+    } else if shape::same_text(m, kind, "outcome")? {
         shape::closed(
             m,
             subject,

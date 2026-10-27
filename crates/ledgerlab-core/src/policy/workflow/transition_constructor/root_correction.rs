@@ -513,7 +513,8 @@ fn prepare(
     let normalized =
         super::working_value::NormalizedInput::normalize(m, schema, &evaluation["facts"])?;
     equal(m, normalized.canonical_value(), &evaluation["facts"])?;
-    super::fact_relations::facts(
+    let original_source = text(m, &work["key"], "source")?;
+    super::fact_relations::facts_original(
         m,
         r,
         &c.key,
@@ -521,6 +522,7 @@ fn prepare(
         &payload,
         &evaluation["facts"],
         &c.accepted_at,
+        original_source,
     )?;
     let proof_namespace = text(m, &work, "source_namespace")?;
     let mut proofs = if !program.uses_local_execution_recipe()
@@ -638,7 +640,8 @@ fn prepare(
             super::working_value::NormalizedInput::normalize(m, schema, &replacement_facts)?;
         replacement_facts =
             super::working_value::WorkingValue::copy(m, normalized.canonical_value())?;
-        super::fact_relations::facts(
+        let original_source = text(m, &work["key"], "source")?;
+        super::fact_relations::facts_original(
             m,
             r,
             &c.key,
@@ -646,6 +649,7 @@ fn prepare(
             &payload,
             &replacement_facts,
             &c.accepted_at,
+            original_source,
         )?;
         request.replace(
             m,
@@ -2712,6 +2716,7 @@ fn execute_with_state<'inv, 'raw>(
             effects._ownership,
             root_output_owner,
             plan.proofs.map(super::work_proofs::WorkProofs::into_owner),
+            None,
             None,
             None,
             None,

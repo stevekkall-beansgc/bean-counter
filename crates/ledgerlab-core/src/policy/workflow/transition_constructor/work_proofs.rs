@@ -135,6 +135,21 @@ fn subject(
         .representation_arena()
         .ok_or_else(|| shape::fail("owning Work proof subject"))?;
     let key = super::cost_postings::operation_key(m, &a, c)?;
+    if q.payload["schema"].as_str() == Some("ledger-workflow-stage-close/1") {
+        let kind = a.string_value("stage", m)?;
+        return a.object_from_fields(
+            &[
+                ("kind", kind.value()),
+                ("logical_store_id", &key.value()["logical_store_id"]),
+                ("scope", &key.value()["scope"]),
+                ("stage_instance_ref", &q.payload["stage_instance_ref"]),
+                ("business_operation_id", &q.payload["business_operation_id"]),
+                ("activity", &q.payload["activity"]),
+                ("binding_ref", &q.payload["binding_ref"]),
+            ],
+            m,
+        );
+    }
     let kind = a.string_value("work", m)?;
     let namespace = a.string_value(q.namespace, m)?;
     a.object_from_fields(
@@ -345,7 +360,20 @@ fn checked_value(
     if !shape::same_text(m, primitive, "authenticated-nominated-source-retention/1")? {
         return Err(shape::fail("Work proof verification primitive"));
     }
-    let bindings = a.array_from_values(&[&u.request.payload["binding_ref"]], m)?;
+    let stage = u.program.uses_stage_lifecycle_recipe()
+        && u.request.payload["schema"].as_str() == Some("ledger-workflow-stage-close/1");
+    let bindings = if stage {
+        super::retention::subject_set(
+            m,
+            &a,
+            &[
+                &u.request.payload["binding_ref"],
+                &u.request.payload["stage_instance_ref"],
+            ],
+        )?
+    } else {
+        a.array_from_values(&[&u.request.payload["binding_ref"]], m)?
+    };
     shape::equal(m, &verification["subject_binding_refs"], bindings.value())?;
     let supplemental = shape::array(m, &verification, "verification_evidence_refs")?;
     if !w::compare(m, supplemental.len(), 0usize)?.is_eq() {
@@ -359,8 +387,34 @@ fn checked_value(
         return Err(shape::fail("Work proof raw attestation hash"));
     }
     if u.program.uses_policy_semantics_recipe() {
-        source::work_namespace(m, r, c, u.program, u.request.payload, u.request.namespace)?;
-        if let Some(original) = u.request.worker_authority {
+        if stage {
+            let reference = super::working_value::parse_owned_reference(
+                m,
+                &a,
+                &u.request.payload["stage_instance_ref"],
+            )?;
+            let instance = r.get(
+                m,
+                &c.key,
+                reference.reference(),
+                "workflow-stage-instance",
+                "ledger-workflow-stage-instance/1",
+            )?;
+            super::stage::closed_instance(m, &c.key, reference.reference(), &instance)?;
+            shape::equal(
+                m,
+                &instance["binding_ref"],
+                &u.request.payload["binding_ref"],
+            )?;
+            shape::equal(m, &instance["customer"], &u.request.payload["customer"])?;
+            shape::equal(m, &instance["chain"], &u.request.payload["chain"])?;
+            let name = shape::text(m, &instance, "stage_name")?;
+            let def = super::stage::definition(m, u.program, name)?;
+            shape::equal(m, &def["closure_activity"], &u.request.payload["activity"])?;
+        } else {
+            source::work_namespace(m, r, c, u.program, u.request.payload, u.request.namespace)?;
+        }
+        if let Some(original) = u.request.worker_authority.filter(|_| !stage) {
             let (_, worker) = load(
                 m,
                 r,
@@ -585,6 +639,11 @@ pub(super) fn resolve(
     proofs: &[Value],
     verifications: &[ExactRef],
 ) -> Result<Option<WorkProofs>> {
+    if q.payload["schema"].as_str() == Some("ledger-workflow-stage-close/1")
+        && !program.uses_stage_lifecycle_recipe()
+    {
+        return Err(shape::fail("Stage proof exact recipe"));
+    }
     let s = schema(m, program, q.payload)?;
     let normalized = NormalizedInput::normalize(m, s, q.facts)?;
     let required = normalized.required_proof_fields();

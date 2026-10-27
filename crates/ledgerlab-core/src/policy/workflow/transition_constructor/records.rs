@@ -1673,6 +1673,50 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     }
     /// Fixed original Invocation locator, never a current/latest selection.
     /// The body then passes the ordinary canonical/schema/domain kernel.
+    pub(super) fn stage_declaration_for_operation(
+        &mut self,
+        m: &mut CoreMeter,
+        key: &OperationKey,
+        operation: &Value,
+    ) -> Result<(super::working_value::OwnedExactRef, RecordBody)> {
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| invalid("owning Stage producer locator"))?;
+        let mut found = None;
+        for operand in &self.operands {
+            m.visit("Stage.original_declaration_producer_member")?;
+            if !super::shape::same_text(m, &operand.reference.kind, "workflow-stage-state")? {
+                continue;
+            }
+            let body =
+                m.parse_owned_representation(&arena, &operand.raw, RepresentationKind::Record)?;
+            let revision = super::shape::text(m, body.value(), "revision")?;
+            if !super::shape::same_text(m, revision, "1")?
+                || !super::shape::same(m, &body.value()["operation_key"], operation)?
+            {
+                continue;
+            }
+            if found.is_some() {
+                return Err(invalid("ambiguous Stage declaration producer member"));
+            }
+            let value = super::working_value::owning_reference(m, &arena, &operand.reference)?;
+            found = Some(super::working_value::parse_owned_reference(
+                m,
+                &arena,
+                value.value(),
+            )?);
+        }
+        let reference =
+            found.ok_or_else(|| invalid("missing Stage declaration producer member"))?;
+        let body = self.get(
+            m,
+            key,
+            reference.reference(),
+            "workflow-stage-state",
+            "ledger-workflow-stage-state/1",
+        )?;
+        Ok((reference, body))
+    }
     pub(super) fn original_invocation(
         &mut self,
         m: &mut CoreMeter,

@@ -1562,6 +1562,7 @@ pub(super) fn execute<'inv, 'raw>(
             None,
             None,
             None,
+            None,
         ],
     })
 }
@@ -1596,7 +1597,17 @@ pub(super) fn verify_original_actions(
     )?;
     let p = shape::field(m, work, "payload")?;
     let original_at = shape::text(m, work, "accepted_at")?;
-    super::fact_relations::facts(m, r, &c.key, program, p, &p["facts"], original_at)?;
+    let original_source = shape::text(m, &work["key"], "source")?;
+    super::fact_relations::facts_original(
+        m,
+        r,
+        &c.key,
+        program,
+        p,
+        &p["facts"],
+        original_at,
+        original_source,
+    )?;
     if m.representation_arena().is_some() {
         let namespace = shape::text(m, work, "source_namespace")?;
         let original_claim = r.get(

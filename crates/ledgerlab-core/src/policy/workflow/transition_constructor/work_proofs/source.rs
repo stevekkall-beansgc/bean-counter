@@ -58,6 +58,22 @@ pub(in crate::policy::workflow::transition_constructor) fn proof_only_slot(
             }
         }
     }
+    if program.uses_stage_lifecycle_recipe() {
+        for stage in shape::array(m, policy, "stages")? {
+            for field in ["authorization_source_slot", "closure_source_slot"] {
+                let source = shape::text(m, stage, field)?;
+                if shape::same_text(m, source, slot)? {
+                    return Ok(false);
+                }
+            }
+            for expected in shape::array(m, stage, "expected_slots")? {
+                let source = shape::text(m, expected, "source_slot")?;
+                if shape::same_text(m, source, slot)? {
+                    return Ok(false);
+                }
+            }
+        }
+    }
     for declaration in shape::array(m, policy, "app_delayed_costs")? {
         for name in [
             "work_source_slot",
@@ -97,6 +113,7 @@ fn binding_terms(
     r: &mut Records,
     c: &DraftContextData,
     payload: &Value,
+    program: &SelectedProgram,
 ) -> Result<(
     super::super::record_body::RecordBody,
     super::super::record_body::RecordBody,
@@ -116,21 +133,49 @@ fn binding_terms(
         shape::equal(m, &binding["customer"], customer)?;
     }
     let bindings = shape::array(m, &binding, "bindings")?;
-    if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
-        return Err(shape::fail("field issuer original retail binding"));
-    }
+    let selected = if program.uses_stage_lifecycle_recipe() {
+        let mut selected = None;
+        for rule in shape::array(m, program.original_policy_value(), "rules")? {
+            if !shape::same(m, &rule["activity"], &payload["activity"])? {
+                continue;
+            }
+            let name = shape::text(m, rule, "binding_slot")?;
+            let definitions = shape::array(m, program.original_policy_value(), "binding_slots")?;
+            let definition = shape::named(m, definitions, "name", name)?;
+            let book = shape::text(m, definition, "book")?;
+            if !shape::same_text(m, book, "retail")? {
+                continue;
+            }
+            let actual = shape::named(m, bindings, "slot", name)?;
+            if let Some(previous) = selected {
+                shape::equal(m, previous, actual)?;
+            }
+            selected = Some(actual);
+        }
+        selected.ok_or_else(|| shape::fail("field issuer exact original retail slot"))?
+    } else {
+        if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
+            return Err(shape::fail("field issuer original retail binding"));
+        }
+        &bindings[0]
+    };
+    let schema = if program.uses_stage_lifecycle_recipe() {
+        "ledger-workflow-slot-binding-terms/3"
+    } else {
+        "ledger-workflow-slot-binding-terms/7"
+    };
     let (_, terms) = load(
         m,
         r,
         c,
-        &bindings[0]["binding_ref"],
+        &selected["binding_ref"],
         "workflow-slot-terms",
-        "ledger-workflow-slot-binding-terms/7",
+        schema,
     )?;
     for field in ["customer", "agreement_id"] {
         shape::equal(m, &terms[field], &binding[field])?;
     }
-    shape::equal(m, &terms["slot"], &bindings[0]["slot"])?;
+    shape::equal(m, &terms["slot"], &selected["slot"])?;
     Ok((binding, terms))
 }
 fn enrollment_join(
@@ -188,7 +233,7 @@ pub(in crate::policy::workflow::transition_constructor) fn work_namespace(
     payload: &Value,
     namespace: &str,
 ) -> Result<()> {
-    let (binding, terms) = binding_terms(m, r, c, payload)?;
+    let (binding, terms) = binding_terms(m, r, c, payload, program)?;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning Work subject namespace"))?;
@@ -258,7 +303,7 @@ pub(in crate::policy::workflow::transition_constructor) fn retained(
         return Err(shape::fail("retained field caller provenance"));
     }
     shape::equal(m, &att["evidence_kind"], &provenance["evidence_kind"])?;
-    let (binding, terms) = binding_terms(m, r, c, payload)?;
+    let (binding, terms) = binding_terms(m, r, c, payload, program)?;
     let slot = shape::text(m, provenance, "source_slot")?;
     let nominations = shape::array(m, &binding, "source_slots")?;
     let nomination = shape::named(m, nominations, "name", slot)?;

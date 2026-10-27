@@ -32,6 +32,8 @@ fn mul(m: &mut CoreMeter, a: usize, b: usize) -> Result<usize> {
 const CELL: usize = {
     let values = [
         mem::size_of::<BindingSlot>(),
+        mem::size_of::<StageDef>(),
+        mem::size_of::<StageExpectedSlot>(),
         mem::size_of::<Rule>(),
         mem::size_of::<Family>(),
         mem::size_of::<Code>(),
@@ -57,7 +59,7 @@ type Content = serde::__private229::de::Content<'static>;
 // superset bounds serde's single failure message, including an escaped input
 // field/string (at most six bytes per UTF8 input byte). No input is formatted
 // into an error unless this storage has already been admitted.
-const EXPECTED: &str = stringify!(schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true false eq lt le gt ge in all any not args arg field fact binding_fact context value values kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
+const EXPECTED: &str = stringify!(authorization_source_slot closure_activity closure_component_key closure_source_slot closure_evidence_kind expected_slots component_keys key stage basis_component_key allocation_view closure_cap closure_share schema policy_id version product_ref context_schema_ref slot_template_ref compiler_ref currency scale rounding mode binding_slots rules families stages delayed_costs app_delayed_costs previous_policy_ref name book funding_leg allowed_activities correction_source_slot rule_id activity component_name component_key binding_slot phase when formula dependency op true false eq lt le gt ge in all any not args arg field fact binding_fact context value values kind fixed amount unit quantity_field rate discount basis view percent final_cost supplier_slot evidence_slot multiplier numerator denominator markup ceiling supplier_final_cost app_final_cost evidence_source_slot finalize_within_us on_missing resource_funding_leg usage_field usage_unit work_source_slot cost_source_slot correction_within_us correction_anchor causal_reversal maximum_final_amount cost_basis comparable_quantity_rule allocation root_relation standalone_deadline_effect family_name family_key trigger_activity target_link_slot selector source_slot code_field codes window maximum_premium maximum_discount no_success_close close_source_slot path target_activity code effect none premium anchor anchor_path start_offset_us occurrence_us receipt_grace_us acceptance_grace_us activation_deadline_us correction_us atoms kind id digest);
 fn dimensions(m: &mut CoreMeter, v: &Value, depth: usize) -> Result<(usize, usize)> {
     m.visit("compile.policy_decode_storage_node")?;
     if w::compare(m, depth, 64)?.is_gt() {
@@ -123,6 +125,9 @@ fn dimensions(m: &mut CoreMeter, v: &Value, depth: usize) -> Result<(usize, usiz
     Ok((bytes, strings))
 }
 pub(super) fn payload_bound(m: &mut CoreMeter, v: &Value) -> Result<usize> {
+    payload_bound_selected(m, v, false)
+}
+pub(super) fn payload_bound_selected(m: &mut CoreMeter, v: &Value, stage: bool) -> Result<usize> {
     // All selected recipes already require empty stages. Refuse the unsupported
     // branch before serde could rebuild arbitrary Value/BTreeMap stage bodies.
     // The legacy path retains its original validation order and trace.
@@ -130,7 +135,7 @@ pub(super) fn payload_bound(m: &mut CoreMeter, v: &Value) -> Result<usize> {
     let stages = crate::policy::workflow::facts::source::member(v, "stages", m)?;
     m.visit("compile.policy_stages_type")?;
     if let Some(rows) = stages.and_then(Value::as_array) {
-        if w::compare(m, rows.len(), 0usize)?.is_gt() {
+        if !stage && w::compare(m, rows.len(), 0usize)?.is_gt() {
             return Err(Error::new(
                 "UNSUPPORTED_SCHEMA_PROFILE",
                 "selected policy profile",
@@ -374,6 +379,10 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
         "multiplier",
         "markup",
         "ceiling",
+        "stage",
+        "basis_component_key",
+        "percent",
+        "allocation_view",
     ];
     types(value, m, 0)?;
     paid::error_work(value, m)?;
@@ -423,6 +432,43 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
             m,
         )?;
     }
+    for stage in rows(value, "stages", m)? {
+        object(
+            stage,
+            &[
+                "name",
+                "authorization_source_slot",
+                "closure_activity",
+                "closure_component_key",
+                "closure_source_slot",
+                "closure_evidence_kind",
+                "window",
+                "expected_slots",
+            ],
+            m,
+        )?;
+        object(
+            child(stage, "window", m)?,
+            &[
+                "anchor",
+                "anchor_path",
+                "start_offset_us",
+                "occurrence_us",
+                "receipt_grace_us",
+                "acceptance_grace_us",
+                "activation_deadline_us",
+                "correction_us",
+            ],
+            m,
+        )?;
+        for slot in rows(stage, "expected_slots", m)? {
+            object(
+                slot,
+                &["key", "source_slot", "activity", "component_keys"],
+                m,
+            )?;
+        }
+    }
     for rule in rows(value, "rules", m)? {
         object(
             rule,
@@ -457,6 +503,8 @@ fn decode_work(value: &Value, m: &mut CoreMeter) -> Result<()> {
                 "final_cost",
                 "supplier_final_cost",
                 "app_final_cost",
+                "closure_cap",
+                "closure_share",
             ],
             m,
         )?;

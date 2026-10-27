@@ -2,7 +2,7 @@
 #[path = "predicate.rs"]
 mod predicate;
 use super::super::{
-    transition_constructor::{arithmetic, codec, CoreMeter},
+    transition_constructor::{arithmetic, codec, shape, CoreMeter},
     DefinitionRef, FactSchema, Product, SlotTemplate,
 };
 use super::{
@@ -195,7 +195,9 @@ impl SelectedProgram {
         if !self.uses_local_execution_recipe() {
             return Err(err("supported local admission requires local recipe"));
         }
-        let check = if self.uses_work_lifecycle_recipe() {
+        let check = if self.uses_stage_lifecycle_recipe() {
+            super::local_admission::check_stage
+        } else if self.uses_work_lifecycle_recipe() {
             super::local_admission::check_lifecycle
         } else if self.uses_policy_semantics_recipe() {
             super::local_admission::check_policy
@@ -861,7 +863,9 @@ pub fn compile_selected_program(
         // Compilation also exposes non-owning DATA for source/plan comparison.
         // Check its supported structure here. Actual promise admission still
         // calls require_local_admission and requires this attempt's owner.
-        let check = if program.uses_work_lifecycle_recipe() {
+        let check = if program.uses_stage_lifecycle_recipe() {
+            super::local_admission::check_stage
+        } else if program.uses_work_lifecycle_recipe() {
             super::local_admission::check_lifecycle
         } else if program.uses_policy_semantics_recipe() {
             super::local_admission::check_policy
@@ -1161,6 +1165,32 @@ fn prove_policy_predicates(
         )?;
     }
     Ok(())
+}
+pub(super) fn stage_rule_dependency(
+    m: &mut CoreMeter,
+    stage: &super::model::StageDef,
+    rule: &super::model::Rule,
+    template: &SlotTemplate,
+) -> Result<bool> {
+    if same_literal(m, &stage.closure_activity, &rule.activity)? {
+        return Ok(true);
+    }
+    let component =
+        template.component_named_with_work(&rule.component_key, &rule.component_name, m)?;
+    for expected in &stage.expected_slots {
+        m.visit("Stage.original_expected_rule_dependency")?;
+        if !same_literal(m, &expected.activity, &rule.activity)? {
+            continue;
+        }
+        for key in &expected.component_keys {
+            if same_literal(m, key, &rule.component_key)?
+                || same_literal(m, key, component.root_key())?
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 fn semantic_text_order(m: &mut CoreMeter, left: &str, right: &str) -> Result<std::cmp::Ordering> {
     m.visit("compile.text_order")?;
@@ -1560,6 +1590,11 @@ fn compile_selected_recipe(
                             ) && field["type"]["kind"].as_str() == Some("reference")
                                 && field["type"]["record_kind"].as_str() == Some("workflow-work")
                                 && field["type"]["relation"].as_str() == Some("same_binding"))
+                            || (matches!(recipe, SelectedRecipe::LocalStageLifecycle1)
+                                && field["type"]["kind"].as_str() == Some("reference")
+                                && field["type"]["record_kind"].as_str()
+                                    == Some("workflow-invocation")
+                                && field["type"]["relation"].as_str() == Some("same_invocation"))
                     })? {
                         return Err(err("selected fact type"));
                     }
@@ -1794,7 +1829,11 @@ fn compile_selected_recipe(
         }
     }
     let policy_decode_ownership = if let Some(arena) = m.representation_arena() {
-        let bytes = super::policy_decode::payload_bound(m, &body)?;
+        let bytes = super::policy_decode::payload_bound_selected(
+            m,
+            &body,
+            matches!(recipe, SelectedRecipe::LocalStageLifecycle1),
+        )?;
         Some(arena.reserve_external_payload(bytes, m)?)
     } else {
         None
@@ -1882,10 +1921,17 @@ fn compile_selected_recipe(
             && policy.currency == "USD"
             && policy.scale == 18
             && policy.rounding == "nearest_ties_away"
-            && policy.mode == "component_workflow"
+            && (policy.mode == "component_workflow"
+                || (matches!(recipe, SelectedRecipe::LocalStageLifecycle1)
+                    && policy.mode == "closure_share"))
             && policy.previous_policy_ref.is_none()
-            && policy.stages.is_empty()
-            && (if matches!(
+            && (policy.stages.is_empty() || matches!(recipe, SelectedRecipe::LocalStageLifecycle1))
+            && (if matches!(recipe, SelectedRecipe::LocalStageLifecycle1) {
+                policy
+                    .app_delayed_costs
+                    .as_ref()
+                    .is_none_or(|rows| rows.len() <= 64)
+            } else if matches!(
                 recipe,
                 SelectedRecipe::AppOwnedCost1
                     | SelectedRecipe::AppCostCausal1
@@ -1943,6 +1989,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
         ),
+        matches!(recipe, SelectedRecipe::LocalStageLifecycle1),
     )?;
     for rule in &mut policy.rules {
         m.visit("rule.validate")?;
@@ -1960,7 +2007,9 @@ fn compile_selected_recipe(
                 let book = same_literal(m, &slot.book, "retail")?
                     || matches!(
                         recipe,
-                        SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
+                        SelectedRecipe::OwnerLocalCost1
+                            | SelectedRecipe::SupplierScopedConsent1
+                            | SelectedRecipe::LocalStageLifecycle1
                     ) && same_literal(m, &slot.book, "supplier")?;
                 if !book {
                     continue;
@@ -1986,6 +2035,7 @@ fn compile_selected_recipe(
                                 recipe,
                                 SelectedRecipe::OwnerLocalCost1
                                     | SelectedRecipe::SupplierScopedConsent1
+                                    | SelectedRecipe::LocalStageLifecycle1
                             ) && s.book == "supplier")
                         && s.allowed_activities.contains(&rule.activity)
                 })
@@ -1995,6 +2045,14 @@ fn compile_selected_recipe(
             return Err(err("rule binding slot"));
         }
         match &mut rule.formula {
+            Formula::ClosureCap { ceiling, .. } | Formula::ClosureShare { ceiling, .. } => {
+                if !matches!(recipe, SelectedRecipe::LocalStageLifecycle1)
+                    || policy.mode != "closure_share"
+                {
+                    return Err(err("selected Stage closure formula"));
+                }
+                arithmetic::integer(m, &ceiling.atoms, false)?;
+            }
             Formula::Fixed { amount } => {
                 arithmetic::decimal(m, amount)?;
             }
@@ -2442,7 +2500,7 @@ fn compile_selected_recipe(
                 m.visit("rule.phase_sort")?;
                 let key = |x: &(usize, &super::model::Rule)| {
                     (
-                        if x.1.phase == "base" { 0 } else { 1 },
+                        super::model::instruction_phase(x.1),
                         x.1.binding_slot.clone(),
                         x.0,
                     )
@@ -2481,6 +2539,58 @@ fn compile_selected_recipe(
                         .ok_or_else(|| err("missing prior basis producer"))?
                         .clone()],
                 ),
+                Formula::ClosureCap {
+                    basis_component_key,
+                    ..
+                }
+                | Formula::ClosureShare {
+                    basis_component_key,
+                    ..
+                } => {
+                    let share = matches!(rule.formula, Formula::ClosureShare { .. });
+                    let mut basis = Vec::new();
+                    for ((activity, slot, component), ordinal) in &producers {
+                        m.visit("plan.closure_basis_producer")?;
+                        if !same_literal(m, activity, &rule.activity)? {
+                            continue;
+                        }
+                        let direct = same_literal(m, component, basis_component_key)?;
+                        let mut modifier = false;
+                        if share {
+                            for old in &policy.rules {
+                                m.visit("plan.closure_cap_basis")?;
+                                if let Formula::ClosureCap {
+                                    basis_component_key: root,
+                                    ..
+                                } = &old.formula
+                                {
+                                    if same_literal(m, &old.component_key, component)?
+                                        && same_literal(m, root, basis_component_key)?
+                                    {
+                                        modifier = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (direct || modifier)
+                            && (share || same_literal(m, slot, &rule.binding_slot)?)
+                        {
+                            basis.push(ordinal.clone());
+                        }
+                    }
+                    if basis.is_empty() {
+                        return Err(err("missing closure basis producer"));
+                    }
+                    (
+                        vec![],
+                        if share {
+                            "closure_share"
+                        } else {
+                            "closure_cap"
+                        },
+                        basis,
+                    )
+                }
                 Formula::AppFinalCost { .. } => {
                     let declaration = policy
                         .app_delayed_costs
@@ -2657,6 +2767,27 @@ fn compile_selected_recipe(
             instructions.push(json!({"opcode":"evaluate_family","ordinal":ordinal,"policy_ref":root,"family":family,"fact_slots":indices,"target_component_key":family.selector.component_key}));
             explanations.push(json!({"ordinal":ordinal,"policy_ref":root,"rule_or_family":family.family_key,"fields":fields,"primitive":"family"}));
         }
+        for stage in &policy.stages {
+            m.visit("compile.Stage_close_instruction")?;
+            let ordinal = instructions.len().to_string();
+            for instruction in &instructions {
+                if instruction["opcode"].as_str() != Some("evaluate_rule") {
+                    continue;
+                }
+                let rule_id = shape::text(m, &instruction["rule"], "rule_id")?;
+                for rule in &policy.rules {
+                    if same_literal(m, rule_id, &rule.rule_id)?
+                        && stage_rule_dependency(m, stage, rule, &template)?
+                    {
+                        edges.push(json!({"producer":instruction["ordinal"],"consumer":ordinal}));
+                    }
+                }
+            }
+            instructions.push(
+                json!({"opcode":"close_stage","ordinal":ordinal,"policy_ref":root,"stage":stage}),
+            );
+            explanations.push(json!({"ordinal":ordinal,"policy_ref":root,"rule_or_family":stage.name,"fields":[],"primitive":"stage"}));
+        }
         let activities:Vec<_>=product.canonical_value()["activities"].as_array().unwrap().iter().map(|a|{let mut v=json!({"activity":a["name"],"primitive":a["primitive"],"fact_schema_ref":a["fact_schema"],"source_slot":a["source_slot"]});if let Some(f)=a.get("funding_leg"){v["funding_leg"]=f.clone();}v}).collect();
         let mut plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
         if matches!(
@@ -2819,7 +2950,10 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
         ),
-        supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
+        supplier_scoped_consent_recipe: matches!(
+            recipe,
+            SelectedRecipe::SupplierScopedConsent1 | SelectedRecipe::LocalStageLifecycle1
+        ),
         owner_local_cost_recipe: matches!(
             recipe,
             SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
@@ -2835,6 +2969,169 @@ fn compile_selected_recipe(
         _source_projection_ownership: source_projection_ownership,
         _control_ownership: control_ownership,
     })
+}
+
+/// Bounded fixture-authoring diagnostic only. It invokes the actual selected
+/// source normalizers and rebinds their dependency refs; it neither compiles nor
+/// returns an admitted program, and never mutates the committed source fixture.
+#[cfg(test)]
+pub(in crate::policy::workflow) fn stage_fixture_normalized_source(
+    fixture: &Value,
+    support: &SelectedCompilerSupport,
+    session: &mut crate::validation_work::OriginalAuditSession,
+) -> Result<Value> {
+    fn replace(v: &mut Value, old: &Value, new: &Value) {
+        if v == old {
+            *v = new.clone();
+            return;
+        }
+        match v {
+            Value::Array(rows) => {
+                for row in rows {
+                    replace(row, old, new);
+                }
+            }
+            Value::Object(fields) => {
+                for row in fields.values_mut() {
+                    replace(row, old, new);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn raw_ref(v: &Value) -> Result<Value> {
+        let digest = super::super::document_digest(
+            v["schema"]
+                .as_str()
+                .ok_or_else(|| err("fixture source schema"))?,
+            v,
+        )?;
+        let kind = match v["schema"].as_str().unwrap() {
+            "ledger-workflow-fact-schema/1" => "workflow-fact-schema",
+            "ledger-workflow-product/1" => "workflow-product",
+            "ledger-workflow-slot-template/1" => "workflow-slot-template",
+            "ledger-workflow-policy/4" => "workflow-policy",
+            _ => return Err(err("bounded Stage source authoring family")),
+        };
+        Ok(json!({"kind":kind,"id":format!("wdoc_{}",&digest[7..]),"digest":digest}))
+    }
+    let mut docs = fixture["documents"]
+        .as_array()
+        .ok_or_else(|| err("fixture documents"))?
+        .clone();
+    let m = session.meter_mut();
+    let mut owners = Vec::new();
+    let mut schemas = Vec::new();
+    for i in 0..docs.len() {
+        if docs[i]["schema"] != "ledger-workflow-fact-schema/1" {
+            continue;
+        }
+        let old = raw_ref(&docs[i])?;
+        let raw = canonical::CanonicalBytes::from_value(&docs[i])?;
+        let body = SourceValue::parse(m, raw.as_slice())?;
+        let n = FactSchema::normalization_payload_bound_with_work(&body, m)?;
+        let value = body.projection_with_payload(m, &mut owners, n)?;
+        let typed = FactSchema::from_value_complete_with_work(value, m)?;
+        docs[i] = typed.canonical_value().clone();
+        let new = raw_ref(&docs[i])?;
+        for doc in &mut docs {
+            replace(doc, &old, &new);
+        }
+        schemas.push(typed);
+    }
+    let product_index = docs
+        .iter()
+        .position(|v| v["schema"] == "ledger-workflow-product/1")
+        .ok_or_else(|| err("fixture Product"))?;
+    let original_product = raw_ref(&fixture["documents"][product_index])?;
+    let body = SourceValue::parse(
+        m,
+        canonical::CanonicalBytes::from_value(&docs[product_index])?.as_slice(),
+    )?;
+    let n = Product::normalization_payload_bound_with_work(&body, &schemas, m)?;
+    let value = body.projection_with_payload(m, &mut owners, n)?;
+    let product = Product::from_value_complete_with_work(value, &schemas, m)?;
+    docs[product_index] = product.canonical_value().clone();
+    let product_ref = raw_ref(&docs[product_index])?;
+    for doc in &mut docs {
+        replace(doc, &original_product, &product_ref);
+    }
+    let template_index = docs
+        .iter()
+        .position(|v| v["schema"] == "ledger-workflow-slot-template/1")
+        .ok_or_else(|| err("fixture Template"))?;
+    let original_template = raw_ref(&fixture["documents"][template_index])?;
+    let body = SourceValue::parse(
+        m,
+        canonical::CanonicalBytes::from_value(&docs[template_index])?.as_slice(),
+    )?;
+    let n = SlotTemplate::normalization_payload_bound_with_work(&body, None, m)?;
+    let value = body.projection_with_payload(m, &mut owners, n)?;
+    let template = SlotTemplate::from_value_complete_with_work(value, None, m)?;
+    docs[template_index] = template.canonical_value().clone();
+    let template_ref = raw_ref(&docs[template_index])?;
+    for doc in &mut docs {
+        replace(doc, &original_template, &template_ref);
+    }
+    let index = docs
+        .iter()
+        .position(|v| v["schema"] == "ledger-workflow-policy/4")
+        .ok_or_else(|| err("fixture Policy"))?;
+    docs[index]["compiler_ref"] = json!(support.reference());
+    let body = SourceValue::parse(
+        m,
+        canonical::CanonicalBytes::from_value(&docs[index])?.as_slice(),
+    )?;
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| err("owning fixture policy normalization"))?;
+    let n = super::policy_decode::payload_bound_selected(m, &body, true)?;
+    let owner = a.reserve_external_payload(n, m)?;
+    let value = body.projection(m, &mut owners)?;
+    let (mut policy, _owner) = super::policy_decode::decode(m, value, owner)?;
+    super::normalize::policy(m, &mut policy)?;
+    normalize_policy_predicates(
+        m,
+        &mut policy,
+        &product,
+        &schemas,
+        SelectedRecipe::LocalStageLifecycle1,
+    )?;
+    // This bounded source has no families and already canonical binding names;
+    // use the same semantic comparison as the selected compiler for both sets.
+    for i in 1..policy.binding_slots.len() {
+        let mut j = i;
+        while j > 0
+            && semantic_text_order(
+                m,
+                &policy.binding_slots[j - 1].name,
+                &policy.binding_slots[j].name,
+            )?
+            .is_gt()
+        {
+            policy.binding_slots.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    for i in 1..policy.families.len() {
+        let mut j = i;
+        while j > 0
+            && semantic_text_order(
+                m,
+                &policy.families[j - 1].family_key,
+                &policy.families[j].family_key,
+            )?
+            .is_gt()
+        {
+            policy.families.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+    docs[index] = super::owning_policy::build(m, &policy)?.value().clone();
+    let root = raw_ref(&docs[index])?;
+    Ok(
+        json!({"classification":"Synthetic combined Stage source; normalized authoring DATA only, not execution qualification","documents":docs,"root_policy_ref":root}),
+    )
 }
 
 #[cfg(test)]

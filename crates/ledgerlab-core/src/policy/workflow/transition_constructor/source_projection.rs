@@ -409,6 +409,62 @@ pub fn validate_app_nominated_sources(
                 ("work.reverse", &["correct", "read"]),
             )?;
         }
+        if program.uses_stage_lifecycle_recipe() {
+            for stage in shape::array(m, policy, "stages")? {
+                m.visit("accept.original_stage_source_requirements")?;
+                let activity = shape::text(m, stage, "closure_activity")?;
+                for (field, operation, rights) in [
+                    (
+                        "authorization_source_slot",
+                        "invocation.authorize",
+                        &["invocation", "read"][..],
+                    ),
+                    (
+                        "closure_source_slot",
+                        "outcome.submit",
+                        &["submit", "read"][..],
+                    ),
+                ] {
+                    let slot = shape::text(m, stage, field)?;
+                    requirement(
+                        m,
+                        binding,
+                        frames,
+                        activity,
+                        product_name,
+                        slot,
+                        (operation, rights),
+                    )?;
+                }
+                // Each embedded supplier input is authorized by the original
+                // expected Work source, independently of the Stage declarer.
+                for expected in shape::array(m, stage, "expected_slots")? {
+                    let activity = shape::text(m, expected, "activity")?;
+                    let slot = shape::text(m, expected, "source_slot")?;
+                    let mut supplier = false;
+                    for original in shape::array(m, policy, "binding_slots")? {
+                        let book = shape::text(m, original, "book")?;
+                        let allowed = shape::array(m, original, "allowed_activities")?;
+                        if shape::same_text(m, book, "supplier")?
+                            && text_member(m, allowed, activity)?
+                        {
+                            supplier = true;
+                        }
+                    }
+                    if supplier {
+                        requirement(
+                            m,
+                            binding,
+                            frames,
+                            activity,
+                            product_name,
+                            slot,
+                            ("invocation.authorize", &["invocation", "read"]),
+                        )?;
+                    }
+                }
+            }
+        }
         for family in shape::array(m, policy, "families")? {
             m.visit("accept.original_family_source_requirements")?;
             let selector = shape::field(m, family, "selector")?;
@@ -517,7 +573,12 @@ pub fn validate_app_nominated_sources(
                 )?;
             }
         }
-        for declaration in shape::array(m, slot_terms, "app_cost_terms")? {
+        let app_declarations = if program.uses_stage_lifecycle_recipe() {
+            &[][..]
+        } else {
+            shape::array(m, slot_terms, "app_cost_terms")?
+        };
+        for declaration in app_declarations {
             m.visit("accept.original_app_source_requirements")?;
             let activity = shape::text(m, declaration, "activity")?;
             for (field, operation, rights) in [

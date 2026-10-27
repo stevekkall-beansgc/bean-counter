@@ -95,7 +95,11 @@ fn state_id(
         tuple.value(),
     )
 }
-fn definition<'a>(m: &mut CoreMeter, p: &'a SelectedProgram, name: &str) -> Result<&'a Value> {
+pub(super) fn definition<'a>(
+    m: &mut CoreMeter,
+    p: &'a SelectedProgram,
+    name: &str,
+) -> Result<&'a Value> {
     let mut found = None;
     for d in p.source_documents() {
         m.visit("stage.original_policy")?;
@@ -131,12 +135,274 @@ fn definition<'a>(m: &mut CoreMeter, p: &'a SelectedProgram, name: &str) -> Resu
     Ok(definition)
 }
 
+fn normalize_declaration(
+    m: &mut CoreMeter,
+    value: &Value,
+) -> Result<crate::canonical::audit_arena::AuditedValue> {
+    let a = arena(m)?;
+    let mut declaration = super::working_value::WorkingValue::copy(m, value)?;
+    declaration.normalize_set(m, "authority_refs", false)?;
+    let rows = shape::array(m, &declaration, "expected")?;
+    if rows.is_empty() || w::compare(m, rows.len(), 32usize)?.is_gt() {
+        return Err(shape::fail("Stage expected dimension"));
+    }
+    let per =
+        mem::size_of::<crate::canonical::audit_arena::AuditedValue>() + mem::size_of::<&Value>();
+    w::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&rows.len().into(), &per.into()],
+    )?;
+    let bytes = rows
+        .len()
+        .checked_mul(per)
+        .ok_or_else(|| shape::fail("Stage normalization metadata"))?;
+    let _owner = a.reserve_external_payload(bytes, m)?;
+    let mut ordered = Vec::new();
+    ordered
+        .try_reserve_exact(rows.len())
+        .map_err(|_| shape::fail("Stage expected normalization allocation"))?;
+    for row in rows {
+        let mut row = super::working_value::WorkingValue::copy(m, row)?;
+        row.normalize_set(m, "component_slots", false)?;
+        ordered.push(row.into_owned()?);
+        let mut j = ordered.len() - 1;
+        while j > 0 {
+            let left = shape::text(m, ordered[j - 1].value(), "template_input_key")?;
+            let right = shape::text(m, ordered[j].value(), "template_input_key")?;
+            let size = w::usize_add(m, left.len(), right.len())?;
+            m.scan_bytes(size)?;
+            match left.cmp(right) {
+                std::cmp::Ordering::Equal => {
+                    return Err(shape::fail("duplicate Stage expected template key"))
+                }
+                std::cmp::Ordering::Less => break,
+                std::cmp::Ordering::Greater => {
+                    m.visit("Stage.expected_sort_move")?;
+                    ordered.swap(j - 1, j);
+                    j -= 1;
+                }
+            }
+        }
+    }
+    let mut refs = Vec::new();
+    refs.try_reserve_exact(ordered.len())
+        .map_err(|_| shape::fail("Stage normalized expected views"))?;
+    for row in &ordered {
+        refs.push(row.value());
+    }
+    let rows = a.array_from_values(&refs, m)?;
+    declaration.replace(m, "expected", rows.value())?;
+    declaration.into_owned()
+}
+
+pub(super) fn validate_zero_chain_pin(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    chain: &Value,
+) -> Result<()> {
+    let (state_ref, state) =
+        r.stage_declaration_for_operation(m, &c.key, &chain["operation_key"])?;
+    shape::closed(
+        m,
+        &state,
+        &[
+            "schema",
+            "stage_instance_ref",
+            "revision",
+            "state",
+            "operation_key",
+            "authority_ref",
+            "accepted_at",
+        ],
+        &[],
+    )?;
+    same(m, &state, "state", "declared")?;
+    same(m, &state, "revision", "1")?;
+    shape::equal(m, &state["accepted_at"], &chain["accepted_at"])?;
+    let a = arena(m)?;
+    let reference = parse_owned_reference(m, &a, &state["stage_instance_ref"])?;
+    let instance = r.get(
+        m,
+        &c.key,
+        reference.reference(),
+        "workflow-stage-instance",
+        "ledger-workflow-stage-instance/1",
+    )?;
+    closed_instance(m, &c.key, reference.reference(), &instance)?;
+    for field in ["customer", "chain", "binding_ref"] {
+        shape::equal(m, &instance[field], &chain[field])?;
+    }
+    shape::equal(m, &instance["declared_at"], &state["accepted_at"])?;
+    let expected = state_id(m, &c.key, reference.reference(), &state["revision"])?;
+    if !shape::same_text(m, &expected, &state_ref.reference().id)? {
+        return Err(shape::fail("zero-claim Stage declaration state identity"));
+    }
+    let name = shape::text(m, &instance, "stage_name")?;
+    let def = definition(m, program, name)?;
+    let auth_ref = parse_owned_reference(m, &a, &state["authority_ref"])?;
+    let authority = r.get(
+        m,
+        &c.key,
+        auth_ref.reference(),
+        "workflow-economic-authority",
+        "ledger-workflow-stage-authority/1",
+    )?;
+    shape::equal(
+        m,
+        &authority["source_slot"],
+        &def["authorization_source_slot"],
+    )?;
+    shape::equal(m, &authority["source"], &chain["operation_key"]["source"])?;
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &state["authority_ref"],
+        &authority["canonical_economic_namespace"],
+        Some(&authority["source"]),
+        (
+            "invocation.authorize",
+            &instance["binding_ref"],
+            &instance["declared_at"],
+        ),
+    )?;
+    Ok(())
+}
+
+fn declaration_chain(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    declaration: &Value,
+    state: &DraftStateData,
+) -> Result<ConstructedEnvelope> {
+    let a = arena(m)?;
+    let key = super::cost_postings::operation_key(m, &a, c)?;
+    let frame = c
+        .authorities
+        .first()
+        .ok_or_else(|| shape::fail("Stage declaring authority capture"))?;
+    let accepted = owning_reference(m, &a, &frame.accepted_agreement_ref)?;
+    let activation = owning_reference(m, &a, &frame.activation_ref)?;
+    let mut revision = num_bigint::BigInt::from(1);
+    let mut events = num_bigint::BigInt::from(0);
+    let mut previous = None;
+    if let Some(reference) = &state.chain_head {
+        let old = r.get(
+            m,
+            &c.key,
+            reference,
+            "workflow-chain-state",
+            "ledger-workflow-chain-state/1",
+        )?;
+        for field in ["customer", "chain", "binding_ref"] {
+            shape::equal(m, &old[field], &declaration[field])?;
+        }
+        shape::equal(m, &old["accepted_agreement_ref"], accepted.value())?;
+        shape::equal(m, &old["activation_ref"], activation.value())?;
+        let (prior_revision, prior_events) = super::inventory::entry::chain_head_stage(
+            m,
+            r,
+            c,
+            declaration,
+            reference,
+            &old,
+            &state.links,
+            program,
+        )?;
+        revision = super::meter::add(m, &prior_revision, &1.into())?;
+        events = prior_events;
+        previous = Some(old);
+    } else if !state.links.is_empty() {
+        return Err(shape::fail("Stage retained links without frozen chain"));
+    }
+    if super::meter::cmp(m, &events, &1000.into())?.is_gt() {
+        return Err(crate::Error::new(
+            "CAPACITY_EXCEEDED",
+            "Stage chain event ceiling",
+        ));
+    }
+    let bytes = state
+        .links
+        .len()
+        .checked_mul(mem::size_of::<&ExactRef>())
+        .ok_or_else(|| shape::fail("Stage link views"))?;
+    let _owner = a.reserve_external_payload(bytes, m)?;
+    let mut refs = Vec::new();
+    refs.try_reserve_exact(state.links.len())
+        .map_err(|_| shape::fail("Stage link views"))?;
+    for reference in &state.links {
+        let link = r.get(
+            m,
+            &c.key,
+            reference,
+            "workflow-link",
+            "ledger-workflow-link/1",
+        )?;
+        shape::equal(m, &link["scope"], &key.value()["scope"])?;
+        shape::equal(m, &link["binding_ref"], &declaration["binding_ref"])?;
+        refs.push(reference);
+    }
+    let refs = super::app_cost::reference_set(m, &a, &refs)?;
+    let digest = super::records::hash(m, "workflow-link-set", refs.value())?;
+    let digest = a.string_value(&digest, m)?;
+    if let Some(old) = &previous {
+        shape::equal(m, &old["links_root"], digest.value())?;
+    }
+    let schema = a.string_value("ledger-workflow-chain-state/1", m)?;
+    let revision = super::cost_postings::scalar(m, &a, &revision)?;
+    let events = super::cost_postings::scalar(m, &a, &events)?;
+    let at = a.string_value(&c.accepted_at, m)?;
+    let tuple = a.array_from_values(
+        &[
+            &key.value()["logical_store_id"],
+            &key.value()["scope"],
+            &declaration["customer"],
+            &declaration["chain"],
+            revision.value(),
+        ],
+        m,
+    )?;
+    let id = body::semantic_id(m, "wchain_", "workflow-chain-state", tuple.value())?;
+    let value = a.object_from_fields(
+        &[
+            ("schema", schema.value()),
+            ("logical_store_id", &key.value()["logical_store_id"]),
+            ("scope", &key.value()["scope"]),
+            ("customer", &declaration["customer"]),
+            ("chain", &declaration["chain"]),
+            ("binding_ref", &declaration["binding_ref"]),
+            ("accepted_agreement_ref", accepted.value()),
+            ("activation_ref", activation.value()),
+            ("revision", revision.value()),
+            ("admitted_events", events.value()),
+            ("links_root", digest.value()),
+            ("operation_key", key.value()),
+            ("accepted_at", at.value()),
+        ],
+        m,
+    )?;
+    let value = if let Some(reference) = &state.chain_head {
+        let prior = owning_reference(m, &a, reference)?;
+        super::working_value::WorkingValue::Owned(value)
+            .with_fields(m, &[("prior_ref", prior.value())])?
+            .into_owned()?
+    } else {
+        value
+    };
+    body::record_borrowed(m, &c.key, "workflow-chain-state", id, value.value())
+}
+
 /// The declaration has its own accepted authorizer purpose. Worker, closer
 /// and supplier purposes never substitute for this explicit StageDef slot.
 pub(super) fn authorize<'a>(
     program: &SelectedProgram,
     c: &'a DraftContextData,
-    p: super::working_value::WorkingValue,
+    mut p: super::working_value::WorkingValue,
     inputs: &'a [EconomicRecordView<'a>],
     state: &EconomicStateData<'a>,
     m: &mut CoreMeter,
@@ -158,6 +424,8 @@ pub(super) fn authorize<'a>(
         &[],
     )?;
     same(m, &p, "schema", "ledger-workflow-stage-authorize/1")?;
+    let normalized_declaration = normalize_declaration(m, &p["stage_instance"])?;
+    p.replace(m, "stage_instance", normalized_declaration.value())?;
     let declaration = shape::field(m, &p, "stage_instance")?;
     shape::closed(
         m,
@@ -292,23 +560,116 @@ pub(super) fn authorize<'a>(
         }
     }
     let invocations = shape::array(m, &p, "invocation_inputs")?;
-    if !invocations.is_empty() {
-        return Err(crate::Error::new(
-            "UNSUPPORTED_COMPOSITION",
-            "actual embedded supplier Invocation construction remains required",
-        ));
+    if w::compare(m, invocations.len(), 512usize)?.is_gt() {
+        return Err(shape::fail("Stage Invocation input dimension"));
+    }
+    let invocation_count = w::usize_add(m, invocations.len(), invocations.len())?;
+    let output_count = w::usize_add(m, 4, invocation_count)?;
+    let per = mem::size_of::<ConstructedEnvelope>()
+        + mem::size_of::<crate::canonical::audit_arena::AuditedValue>()
+        + 2 * (64 + 128 + 71);
+    w::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&output_count.into(), &per.into()],
+    )?;
+    let bytes = output_count
+        .checked_mul(per)
+        .ok_or_else(|| shape::fail("Stage Invocation output storage"))?;
+    let invocation_owner = a.reserve_external_payload(bytes, m)?;
+    let mut invocation_outputs = Vec::new();
+    invocation_outputs
+        .try_reserve_exact(output_count)
+        .map_err(|_| shape::fail("Stage Invocation output allocation"))?;
+    let mut normalized_invocations = Vec::new();
+    normalized_invocations
+        .try_reserve_exact(invocations.len())
+        .map_err(|_| shape::fail("Stage Invocation intent allocation"))?;
+    for input in invocations {
+        m.visit("Stage.embedded_Invocation")?;
+        shape::equal(m, &input["binding_ref"], &declaration["binding_ref"])?;
+        shape::equal(m, &input["agreement_id"], &declaration["agreement_id"])?;
+        shape::equal(m, &input["chain_id"], &declaration["chain"])?;
+        let mut member = None;
+        for row in expected {
+            let key = shape::text(m, row, "template_input_key")?;
+            let template = shape::named(m, templates, "key", key)?;
+            if shape::same(
+                m,
+                &row["business_operation_id"],
+                &input["business_operation_id"],
+            )? && shape::same(m, &row["activity"], &input["activity"])?
+                && shape::same(m, &template["source_slot"], &input["source_slot"])?
+            {
+                if member.replace(row).is_some() {
+                    return Err(shape::fail("ambiguous Stage Invocation member"));
+                }
+            }
+        }
+        let member =
+            member.ok_or_else(|| shape::fail("Stage Invocation has no expected member"))?;
+        let mut count = 0usize;
+        for old in invocations {
+            if shape::same(
+                m,
+                &old["business_operation_id"],
+                &input["business_operation_id"],
+            )? {
+                count = w::usize_add(m, count, 1)?;
+            }
+        }
+        if w::compare(m, count, 16usize)?.is_gt() {
+            return Err(shape::fail("Stage per-member Invocation dimension"));
+        }
+        let (outputs, normalized) =
+            super::invocation::embedded_authorize(m, &mut records, c, program, input, state)?;
+        let actual_invocation = outputs[1].decoded(m, 262144)?;
+        shape::equal(m, &actual_invocation["source"], &member["source"])?;
+        for previous in &invocation_outputs {
+            let previous: &ConstructedEnvelope = previous;
+            if shape::same_text(m, &previous.reference.kind, "workflow-invocation")?
+                && shape::same_text(m, &previous.reference.id, &outputs[1].reference.id)?
+            {
+                return Err(shape::fail("duplicate Stage Invocation identity"));
+            }
+        }
+        invocation_outputs.extend(outputs);
+        normalized_invocations.push(normalized.into_owned()?);
     }
     for instruction in shape::array(
         m,
         program.compiled_plan().canonical_value(),
         "typed_instructions",
     )? {
-        m.visit("stage.declaration_supplier_obligation")?;
-        if instruction["rule"]["formula"]["kind"].as_str() == Some("closure_share") {
-            return Err(crate::Error::new(
-                "INVOCATION_REQUIRED",
-                "Stage supplier share requires actual supplier invocation inputs",
-            ));
+        m.visit("Stage.original_supplier_share_coverage")?;
+        if instruction["rule"]["formula"]["kind"].as_str() != Some("closure_share") {
+            continue;
+        }
+        for member in expected {
+            let mut covered = false;
+            for output in &invocation_outputs {
+                if !shape::same_text(m, &output.reference.kind, "workflow-invocation")? {
+                    continue;
+                }
+                let value = output.decoded(m, 262144)?;
+                if shape::same(
+                    m,
+                    &value["supplier_slot"],
+                    &instruction["rule"]["binding_slot"],
+                )? && shape::same(
+                    m,
+                    &value["business_operation_id"],
+                    &member["business_operation_id"],
+                )? {
+                    covered = true;
+                }
+            }
+            if !covered {
+                return Err(crate::Error::new(
+                    "INVOCATION_REQUIRED",
+                    "Stage share lacks original member supplier authorization",
+                ));
+            }
         }
     }
     let requested = shape::text(m, &p, "expected_chain_revision")?;
@@ -360,6 +721,8 @@ pub(super) fn authorize<'a>(
         ],
     )?;
     let instance = body::record_borrowed(m, &c.key, "workflow-stage-instance", id, &instance)?;
+    let instance_body = instance.decoded(m, 262144)?;
+    closed_instance(m, &c.key, &instance.reference, &instance_body)?;
     let instance_ref = owning_reference(m, &a, &instance.reference)?;
     let authority_ref = owning_reference(m, &a, &authority.reference)?;
     let key = super::cost_postings::operation_key(m, &a, c)?;
@@ -377,14 +740,36 @@ pub(super) fn authorize<'a>(
     )?;
     let id = state_id(m, &c.key, &instance.reference, &constants.value()["one"])?;
     let stage = body::record_borrowed(m, &c.key, "workflow-stage-state", id, value.value())?;
+    let mut normalized_views = Vec::new();
+    normalized_views
+        .try_reserve_exact(normalized_invocations.len())
+        .map_err(|_| shape::fail("Stage normalized Invocation views"))?;
+    for value in &normalized_invocations {
+        normalized_views.push(value.value());
+    }
+    let normalized_inputs = a.array_from_values(&normalized_views, m)?;
+    p.replace(m, "invocation_inputs", normalized_inputs.value())?;
+    p.normalize_set(m, "invocation_inputs", false)?;
     let normalized = p.bytes(m)?;
+    let chain = declaration_chain(
+        m,
+        &mut records,
+        c,
+        program,
+        &p["stage_instance"],
+        state.financial,
+    )?;
+    let chain_ref = super::working_value::owning_reference(m, &a, &chain.reference)?;
+    let chain_ref = parse_owned_reference(m, &a, chain_ref.value())?;
     let mut envelopes = Vec::new();
     envelopes
-        .try_reserve_exact(3)
+        .try_reserve_exact(output_count)
         .map_err(|_| shape::fail("Stage authorization output allocation"))?;
     envelopes.push(instance);
     envelopes.push(authority);
     envelopes.push(stage);
+    envelopes.push(chain);
+    envelopes.extend(invocation_outputs);
     Ok(Construction {
         economic: EconomicConstruction {
             terms,
@@ -399,7 +784,11 @@ pub(super) fn authorize<'a>(
         proposed_heads: ProposedHeads {
             decision: Vec::new(),
             family: Vec::new(),
-            chain: None,
+            chain: Some(ExactRef {
+                kind: text(m, &chain_ref.reference().kind)?,
+                id: text(m, &chain_ref.reference().id)?,
+                digest: text(m, &chain_ref.reference().digest)?,
+            }),
         },
         claim_introductions: Vec::new(),
         link_introductions: Vec::new(),
@@ -413,10 +802,25 @@ pub(super) fn authorize<'a>(
         candidate_introductions: None,
         financial_observation: None,
         funding_effects: None,
-        control_owners: [Some(owner), terms_owner, None, None, None, None, None, None],
+        control_owners: [
+            Some(owner),
+            terms_owner,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(invocation_owner),
+        ],
     })
 }
-fn closed_instance(m: &mut CoreMeter, key: &OperationKey, r: &ExactRef, v: &Value) -> Result<()> {
+pub(super) fn closed_instance(
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    r: &ExactRef,
+    v: &Value,
+) -> Result<()> {
     shape::closed(
         m,
         v,

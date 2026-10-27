@@ -350,7 +350,7 @@ pub(in crate::policy::workflow::transition_constructor) fn chain_head(
     reference: &ExactRef,
     old: &Value,
 ) -> Result<(BigInt, BigInt)> {
-    chain_head_data(m, c, p, reference, old, None)
+    chain_head_data(m, c, p, reference, old, (None, false))
 }
 /// The exact current immutable link set is supplied as DATA and each body is
 /// validated before deriving its root; snapshot completeness stays host-owned.
@@ -402,7 +402,36 @@ pub(in crate::policy::workflow::transition_constructor) fn chain_head_with_links
         return Err(shape::fail("duplicate current link identity"));
     }
     let links_root = super::super::records::hash(m, "workflow-link-set", &json!(current))?;
-    chain_head_data(m, c, p, reference, old, Some(&links_root))
+    chain_head_data(m, c, p, reference, old, (Some(&links_root), false))
+}
+/// Only the selected Stage interpreter can consume the authenticated pre-Work
+/// chain pin with zero canonical claims. Older recipes remain positive-only.
+pub(in crate::policy::workflow::transition_constructor) fn chain_head_stage(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    p: &Value,
+    reference: &ExactRef,
+    old: &Value,
+    links: &[ExactRef],
+    program: &crate::policy::workflow::selected_program::SelectedProgram,
+) -> Result<(BigInt, BigInt)> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("Stage chain pin recipe"));
+    }
+    let raw = shape::text(m, old, "admitted_events")?;
+    let count = arithmetic::integer(m, raw, false)?;
+    if meter::cmp(m, &count, &0.into())?.is_eq() {
+        if !links.is_empty() {
+            return Err(shape::fail("zero-claim Stage pin has links"));
+        }
+        super::super::stage::validate_zero_chain_pin(m, r, c, program, old)?;
+        chain_head_data(m, c, p, reference, old, (None, true))
+    } else if links.is_empty() {
+        chain_head(m, c, p, reference, old)
+    } else {
+        chain_head_with_links(m, r, c, p, reference, old, links)
+    }
 }
 fn chain_head_data(
     m: &mut CoreMeter,
@@ -410,8 +439,9 @@ fn chain_head_data(
     p: &Value,
     reference: &ExactRef,
     old: &Value,
-    actual_links_root: Option<&str>,
+    selected: (Option<&str>, bool),
 ) -> Result<(BigInt, BigInt)> {
+    let (actual_links_root, zero_stage_declaration) = selected;
     shape::closed(
         m,
         old,
@@ -448,7 +478,7 @@ fn chain_head_data(
         eq(m, old, key, &want)?;
     }
     let revision = number(m, old, "revision", true)?;
-    let admitted = number(m, old, "admitted_events", true)?;
+    let admitted = number(m, old, "admitted_events", !zero_stage_declaration)?;
     if meter::cmp(m, &admitted, &1000.into())?.is_gt() {
         return Err(shape::fail("chain event ceiling"));
     }

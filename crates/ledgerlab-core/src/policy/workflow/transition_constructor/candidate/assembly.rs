@@ -367,6 +367,30 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
                 payload.value(),
                 &t.new_envelopes,
             )?)
+        } else if local
+            && program.uses_stage_lifecycle_recipe()
+            && payload.value()["schema"].as_str() == Some("ledger-workflow-stage-authorize/1")
+        {
+            let mut selected = None;
+            for state in &t.new_envelopes {
+                if !shape::same_text(m, &state.reference.kind, "workflow-stage-state")? {
+                    continue;
+                }
+                let body = state.decoded(m, 4194304)?;
+                let status = shape::text(m, &body, "state")?;
+                if !shape::same_text(m, status, "declared")? {
+                    continue;
+                }
+                let reference = shape::reference(m, &body["authority_ref"])?;
+                for (i, row) in t.new_envelopes.iter().enumerate() {
+                    if shape::same_ref(m, &reference, &row.reference)?
+                        && selected.replace(i).is_some()
+                    {
+                        return Err(shape::fail("ambiguous Stage declaring authority"));
+                    }
+                }
+            }
+            Some(selected.ok_or_else(|| shape::fail("Stage declaring authority result"))?)
         } else {
             None
         };
@@ -565,7 +589,7 @@ pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnershi
     _introductions: super::introductions::OwnedIntroductions,
     _funding: Option<super::super::funding::OwnedFundingEffects>,
     _consumed: super::super::records::OwnedConsumed,
-    _controls: [Option<ExternalBufferLease>; 8],
+    _controls: [Option<ExternalBufferLease>; 9],
     _metadata: ExternalBufferLease,
     _reservations: super::reservations::OwnedReservations,
     _head_transfer: ExternalBufferLease,

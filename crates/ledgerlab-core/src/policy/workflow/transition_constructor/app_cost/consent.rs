@@ -29,6 +29,11 @@ fn recipe(program: &SelectedProgram) -> Recipe {
         }
     }
 }
+fn paid_copy(m: &mut CoreMeter, value: &str) -> Result<String> {
+    m.scan_bytes(value.len())?;
+    m.write_bytes(value.len())?;
+    Ok(value.to_owned())
+}
 fn eq(m: &mut CoreMeter, a: &Value, b: &Value) -> Result<()> {
     shape::equal(m, a, b)
 }
@@ -294,6 +299,18 @@ fn party(
     accepted: &Value,
     selected_operands: (&ExactRef, &Value),
 ) -> Result<RecordBody> {
+    party_with_basis(recipe, m, r, c, b, accepted, selected_operands, None)
+}
+fn party_with_basis(
+    recipe: Recipe,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    b: &Value,
+    accepted: &Value,
+    selected_operands: (&ExactRef, &Value),
+    supplier_basis: Option<&Value>,
+) -> Result<RecordBody> {
     let (terms_ref, assent) = selected_operands;
     shape::closed(
         m,
@@ -335,20 +352,38 @@ fn party(
         eq(m, &consent[field], &b[field])?;
     }
     roles(m, consent)?;
-    shape::closed(
-        m,
-        &consent["basis"],
-        &["kind", "terms_ref", "terms_digest"],
-        &[],
-    )?;
-    literal(m, &consent["basis"], "kind", "acceptance_terms")?;
-    let terms = owning_reference(m, &arena, terms_ref)?;
-    eq(m, &consent["basis"]["terms_ref"], terms.value())?;
-    eq(
-        m,
-        &consent["basis"]["terms_digest"],
-        &accepted["terms_digest"],
-    )?;
+    if let Some(expected) = supplier_basis {
+        shape::closed(
+            m,
+            &consent["basis"],
+            &["kind", "commitment_ref", "offer_ref", "supplier_terms_ref"],
+            &[],
+        )?;
+        literal(m, &consent["basis"], "kind", "supplier_commitment")?;
+        eq(m, &consent["basis"], expected)?;
+        let provider = arena.string_value("provider", m)?;
+        let roles = shape::array(m, consent, "roles")?;
+        if !w::compare(m, roles.len(), 1usize)?.is_eq()
+            || !shape::member(m, roles, provider.value())?
+        {
+            return Err(shape::fail("supplier successor provider-only consent"));
+        }
+    } else {
+        shape::closed(
+            m,
+            &consent["basis"],
+            &["kind", "terms_ref", "terms_digest"],
+            &[],
+        )?;
+        literal(m, &consent["basis"], "kind", "acceptance_terms")?;
+        let terms = owning_reference(m, &arena, terms_ref)?;
+        eq(m, &consent["basis"]["terms_ref"], terms.value())?;
+        eq(
+            m,
+            &consent["basis"]["terms_digest"],
+            &accepted["terms_digest"],
+        )?;
+    }
     let (auth_ref, auth) = load(
         m,
         r,
@@ -436,7 +471,82 @@ fn party(
     let _ = auth_ref;
     Ok(auth)
 }
-pub(super) fn original(
+pub(in crate::policy::workflow::transition_constructor) fn supplier_original(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    binding: &Value,
+    accepted: &Value,
+    terms_ref: &ExactRef,
+    assent: &Value,
+    basis: &Value,
+) -> Result<RecordBody> {
+    party_with_basis(
+        Recipe {
+            assent: "ledger-workflow-party-assent/3",
+            evidence: "ledger-workflow-party-evidence/3",
+            local_management_authority: true,
+        },
+        m,
+        r,
+        c,
+        binding,
+        accepted,
+        (terms_ref, assent),
+        Some(basis),
+    )
+}
+pub(in crate::policy::workflow::transition_constructor) fn supplier_current(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    binding: &Value,
+    consent: &Value,
+    original: &Value,
+    heads: &[PartyAuthorizationHead],
+) -> Result<ExactRef> {
+    let id = shape::text(m, &original["authorization"], "authorization_id")?;
+    let mut selected = None;
+    for head in heads {
+        if shape::same_text(m, &head.authorization_id, id)? && selected.replace(head).is_some() {
+            return Err(shape::fail("duplicate current supplier party head"));
+        }
+    }
+    let head = selected
+        .ok_or_else(|| shape::fail("actual current supplier party authorization missing"))?;
+    let current = r.get(
+        m,
+        &c.key,
+        &head.reference,
+        "workflow-authority",
+        "ledger-workflow-party-authorization/1",
+    )?;
+    let at = Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
+    authorization(m, &current, binding, at)?;
+    literal(m, &current, "revision", &head.revision)?;
+    literal(m, &current["authorization"], "authorization_id", id)?;
+    for field in ["scope", "customer", "agreement_id", "party", "acceptor"] {
+        eq(m, &current["authorization"][field], &consent[field])?;
+    }
+    let allowed = shape::array(m, &current["authorization"], "roles")?;
+    for role in shape::array(m, consent, "roles")? {
+        if !shape::member(m, allowed, role)? {
+            return Err(shape::fail(
+                "current supplier authorization role intersection",
+            ));
+        }
+    }
+    for field in ["evidence_ref", "operator_attestation_ref", "authority_ref"] {
+        let reference = shape::reference(m, &current[field])?;
+        r.provenance(m, &c.key, &reference)?;
+    }
+    Ok(ExactRef {
+        kind: paid_copy(m, &head.reference.kind)?,
+        id: paid_copy(m, &head.reference.id)?,
+        digest: paid_copy(m, &head.reference.digest)?,
+    })
+}
+pub(in crate::policy::workflow::transition_constructor) fn original(
     program: &SelectedProgram,
     m: &mut CoreMeter,
     r: &mut Records,
@@ -464,14 +574,24 @@ pub(super) fn original(
     let mut platform_count = 0usize;
     for value in assents {
         let reference = shape::reference(m, value)?;
-        let assent = r.get_schemas(
-            m,
-            &c.key,
-            &reference,
-            "workflow-assent",
-            &["ledger-workflow-assent/1", recipe.assent],
-        )?;
+        let stage_schemas = [
+            "ledger-workflow-assent/1",
+            recipe.assent,
+            "ledger-workflow-party-assent/3",
+        ];
+        let old_schemas = ["ledger-workflow-assent/1", recipe.assent];
+        let schemas: &[&str] = if program.uses_stage_lifecycle_recipe() {
+            &stage_schemas
+        } else {
+            &old_schemas
+        };
+        let assent = r.get_schemas(m, &c.key, &reference, "workflow-assent", schemas)?;
         let schema = shape::text(m, &assent, "schema")?;
+        if program.uses_stage_lifecycle_recipe()
+            && shape::same_text(m, schema, "ledger-workflow-party-assent/3")?
+        {
+            continue;
+        }
         if shape::same_text(m, schema, "ledger-workflow-assent/1")? {
             for field in ["customer", "agreement_id"] {
                 eq(m, &assent[field], &b[field])?;
@@ -550,6 +670,25 @@ pub(in crate::policy::workflow::transition_constructor) fn current(
     accepted: &Value,
     state: &EconomicStateData,
 ) -> Result<()> {
+    current_fullterms_heads(
+        program,
+        m,
+        r,
+        c,
+        b,
+        accepted,
+        state.current_party_authorizations,
+    )
+}
+pub(in crate::policy::workflow::transition_constructor) fn current_fullterms_heads(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    b: &Value,
+    accepted: &Value,
+    heads: &[PartyAuthorizationHead],
+) -> Result<()> {
     let recipe = recipe(program);
     let arena = m
         .representation_arena()
@@ -558,14 +697,24 @@ pub(in crate::policy::workflow::transition_constructor) fn current(
     let now = Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
     for value in shape::array(m, b, "assent_refs")? {
         let reference = shape::reference(m, value)?;
-        let assent = r.get_schemas(
-            m,
-            &c.key,
-            &reference,
-            "workflow-assent",
-            &["ledger-workflow-assent/1", recipe.assent],
-        )?;
+        let stage_schemas = [
+            "ledger-workflow-assent/1",
+            recipe.assent,
+            "ledger-workflow-party-assent/3",
+        ];
+        let old_schemas = ["ledger-workflow-assent/1", recipe.assent];
+        let schemas: &[&str] = if program.uses_stage_lifecycle_recipe() {
+            &stage_schemas
+        } else {
+            &old_schemas
+        };
+        let assent = r.get_schemas(m, &c.key, &reference, "workflow-assent", schemas)?;
         let schema = shape::text(m, &assent, "schema")?;
+        if program.uses_stage_lifecycle_recipe()
+            && shape::same_text(m, schema, "ledger-workflow-party-assent/3")?
+        {
+            continue;
+        }
         if shape::same_text(m, schema, "ledger-workflow-assent/1")? {
             continue;
         }
@@ -580,7 +729,7 @@ pub(in crate::policy::workflow::transition_constructor) fn current(
         )?;
         let original_id = shape::text(m, &original["authorization"], "authorization_id")?;
         let mut found = None;
-        for head in state.current_party_authorizations {
+        for head in heads {
             m.visit("app.held_party_head")?;
             if shape::same_text(m, &head.authorization_id, original_id)? {
                 if found.is_some() {

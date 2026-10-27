@@ -267,9 +267,36 @@ pub(super) fn build(
         }
     }
     let instruction_count = w::usize_add(m, p.rules.len(), p.families.len())?;
+    let instruction_count = w::usize_add(m, instruction_count, p.stages.len())?;
     let mut instructions = vector::<AuditedValue>(m, &a, instruction_count)?;
     let mut explanations = vector(m, &a, instruction_count)?;
-    let mut edges = vector(m, &a, p.rules.len())?;
+    let edge_capacity = if p.stages.is_empty() {
+        p.rules.len()
+    } else {
+        // Original fixed matrix bounds, not a new execution or resource quota.
+        w::ValidationWork::arithmetic(
+            m,
+            w::ArithmeticOperation::Multiply,
+            &[&p.rules.len().into(), &p.rules.len().into()],
+        )?;
+        let rules = p
+            .rules
+            .len()
+            .checked_mul(p.rules.len())
+            .ok_or_else(|| fail("Stage rule dependency storage"))?;
+        w::ValidationWork::arithmetic(
+            m,
+            w::ArithmeticOperation::Multiply,
+            &[&p.rules.len().into(), &p.stages.len().into()],
+        )?;
+        let stages = p
+            .rules
+            .len()
+            .checked_mul(p.stages.len())
+            .ok_or_else(|| fail("Stage dependency storage"))?;
+        w::usize_add(m, rules, stages)?
+    };
+    let mut edges = vector(m, &a, edge_capacity)?;
     let mut rule_order = vector(m, &a, p.rules.len())?;
     let mut producers = vector::<(&Rule, usize)>(m, &a, p.rules.len())?;
     let mut rules = vector(m, &a, p.rules.len())?;
@@ -282,12 +309,22 @@ pub(super) fn build(
             m.visit("rule.phase_sort")?;
             let left = rules[j - 1];
             let right = rules[j];
-            let lp = if shape::same_text(m, &left.1.phase, "base")? {
+            let lp = if matches!(
+                left.1.formula,
+                Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
+            ) {
+                super::model::instruction_phase(left.1)
+            } else if shape::same_text(m, &left.1.phase, "base")? {
                 0u8
             } else {
                 1
             };
-            let rp = if shape::same_text(m, &right.1.phase, "base")? {
+            let rp = if matches!(
+                right.1.formula,
+                Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
+            ) {
+                super::model::instruction_phase(right.1)
+            } else if shape::same_text(m, &right.1.phase, "base")? {
                 0u8
             } else {
                 1
@@ -341,7 +378,18 @@ pub(super) fn build(
             1
         };
         let mut field_names = vector(m, &a, explanation_capacity)?;
-        let mut basis = vector(m, &a, 1)?;
+        let mut basis = vector(
+            m,
+            &a,
+            if matches!(
+                rule.formula,
+                Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
+            ) {
+                p.rules.len()
+            } else {
+                1
+            },
+        )?;
         let primitive = match &rule.formula {
             Formula::Fixed { .. } => "fixed",
             Formula::Unit { quantity_field, .. } => {
@@ -365,6 +413,50 @@ pub(super) fn build(
                     a.clone_value(shape::field(m, instructions[prior].value(), "ordinal")?, m)?,
                 );
                 "discount"
+            }
+            Formula::ClosureCap {
+                basis_component_key,
+                ..
+            }
+            | Formula::ClosureShare {
+                basis_component_key,
+                ..
+            } => {
+                let share = matches!(rule.formula, Formula::ClosureShare { .. });
+                for (old, position) in producers.iter() {
+                    m.visit("plan.closure_basis_producer")?;
+                    if !shape::same_text(m, &old.activity, &rule.activity)? {
+                        continue;
+                    }
+                    let direct = shape::same_text(m, &old.component_key, basis_component_key)?;
+                    let modifier = if share {
+                        match &old.formula {
+                            Formula::ClosureCap {
+                                basis_component_key: root,
+                                ..
+                            } => shape::same_text(m, root, basis_component_key)?,
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+                    if (direct || modifier)
+                        && (share || shape::same_text(m, &old.binding_slot, &rule.binding_slot)?)
+                    {
+                        basis.push(a.clone_value(
+                            shape::field(m, instructions[*position].value(), "ordinal")?,
+                            m,
+                        )?);
+                    }
+                }
+                if basis.is_empty() {
+                    return Err(fail("missing closure basis producer"));
+                }
+                if share {
+                    "closure_share"
+                } else {
+                    "closure_cap"
+                }
             }
             Formula::AppFinalCost { .. } => {
                 let mut declaration = None;
@@ -665,6 +757,44 @@ pub(super) fn build(
         paths.push(a.clone_value(shape::field(m, body, "selector")?, m)?);
     }
     let mut activity_table = vector(m, &a, activities.len())?;
+    let opcode = a.string_value("close_stage", m)?;
+    let primitive = a.string_value("stage", m)?;
+    for (index, stage) in p.stages.iter().enumerate() {
+        m.visit("compile.Stage_close_instruction")?;
+        let ord = ordinal(m, &a, instructions.len())?;
+        for (rule, position) in &producers {
+            if super::compiler::stage_rule_dependency(m, stage, rule, template)? {
+                let producer = shape::field(m, instructions[*position].value(), "ordinal")?;
+                edges.push(
+                    a.object_from_fields(&[("producer", producer), ("consumer", ord.value())], m)?,
+                );
+            }
+        }
+        let stages = shape::array(m, policy, "stages")?;
+        let body = stages
+            .get(index)
+            .ok_or_else(|| fail("normalized Stage association"))?;
+        instructions.push(a.object_from_fields(
+            &[
+                ("opcode", opcode.value()),
+                ("ordinal", ord.value()),
+                ("policy_ref", root_value.value()),
+                ("stage", body),
+            ],
+            m,
+        )?);
+        let name = a.string_value(&stage.name, m)?;
+        explanations.push(a.object_from_fields(
+            &[
+                ("ordinal", ord.value()),
+                ("policy_ref", root_value.value()),
+                ("rule_or_family", name.value()),
+                ("fields", empty.value()),
+                ("primitive", primitive.value()),
+            ],
+            m,
+        )?);
+    }
     for activity in activities {
         let fields = [
             ("activity", shape::field(m, activity, "name")?),

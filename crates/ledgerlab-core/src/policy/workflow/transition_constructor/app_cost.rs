@@ -1,7 +1,7 @@
 //! App-owned final attributable costs. These executors share original customer
 //! pricing/posting and actual source validation; no AP record is an operand.
 mod binding;
-mod consent;
+pub(in crate::policy::workflow::transition_constructor) mod consent;
 mod original;
 pub(super) use binding::resolved as binding_resolved;
 pub(super) use binding::resolved_dependent as binding_resolved_dependent;
@@ -298,6 +298,7 @@ impl<'program, 'raw> AppConstruction<'program, 'raw> {
                 Some(monetary._ownership),
                 Some(plan._ownership),
                 Some(plan.original._ownership),
+                None,
                 None,
                 None,
                 None,

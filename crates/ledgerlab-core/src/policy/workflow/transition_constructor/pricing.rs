@@ -125,6 +125,7 @@ fn row_owner(
     instruction: &Value,
     rule: &Value,
     component: &Value,
+    prior: &[PricedInstruction],
 ) -> Result<Option<crate::canonical::audit_arena::ExternalBufferLease>> {
     use crate::validation_work as w;
     let Some(arena) = m.representation_arena() else {
@@ -153,6 +154,19 @@ fn row_owner(
             .ok_or_else(|| fail("pricing typed basis"))?;
         size = w::usize_add(m, size, raw.len())?;
         size = w::usize_add(m, size, std::mem::size_of::<String>())?;
+    }
+    if matches!(
+        rule["formula"]["kind"].as_str(),
+        Some("closure_cap" | "closure_share")
+    ) {
+        let basis = shape::text(m, &rule["formula"], "basis_component_key")?;
+        for row in prior {
+            m.visit("pricing.Stage_basis_storage")?;
+            if shape::same_text(m, &row.root_key, basis)? {
+                size = w::usize_add(m, size, row.component_key.len())?;
+                size = w::usize_add(m, size, std::mem::size_of::<String>())?;
+            }
+        }
     }
     // Output scalar limbs only. Arithmetic-kernel temporaries/native scratch
     // remain a separate containing proof; this lease never credits them.
@@ -559,7 +573,37 @@ fn price_instructions_selected(
         PriceMode::Actual,
     )
 }
+/// Stage's fixed original predecessor net enters the SAME instruction engine.
+/// This value is derived from authenticated named member actions by its caller.
+pub(super) fn stage(
+    program: &SelectedProgram,
+    activity: &str,
+    facts: &Value,
+    original: (&Value, &Value, &str),
+    prior: &BigInt,
+    m: &mut CoreMeter,
+) -> Result<PricedInstructions> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(fail("Stage pricing recipe"));
+    }
+    let plan = program.compiled_plan().canonical_value();
+    let instructions = shape::array(m, plan, "typed_instructions")?;
+    let components = shape::array(m, plan, "component_slots")?;
+    price_instructions_selected_mode(
+        instructions,
+        components,
+        activity,
+        facts,
+        m,
+        (
+            None,
+            Some((program, original.0, Some((original.1, original.2)))),
+        ),
+        PriceMode::Stage(prior),
+    )
+}
 enum PriceMode<'a> {
+    Stage(&'a BigInt),
     Actual,
     Exposure,
     Work(&'a str),
@@ -674,7 +718,7 @@ fn price_instructions_selected_mode(
         }
         let component = component.ok_or_else(|| fail("compiled component missing"))?;
         let formula = &rule["formula"];
-        let row_ownership = row_owner(m, instruction, rule, component)?;
+        let row_ownership = row_owner(m, instruction, rule, component, &output)?;
         let mut basis_components = Vec::new();
         m.visit("pricing.formula_variant")?;
         let predicate_state = if exposure_bound {
@@ -816,6 +860,68 @@ fn price_instructions_selected_mode(
                         &percent,
                     )?
                 }
+                "closure_cap" | "closure_share" => {
+                    let PriceMode::Stage(prior_net) = mode else {
+                        return Err(fail("Stage formula requires fixed original member net"));
+                    };
+                    let kind = shape::text(m, formula, "kind")?;
+                    let base = shape::text(m, formula, "basis_component_key")?;
+                    let mut net = BigInt::from(0);
+                    let mut count = 0usize;
+                    for previous in &output {
+                        m.visit("pricing.Stage_named_booked_basis")?;
+                        if shape::same_text(m, &previous.root_key, base)? {
+                            net = meter::add(m, &net, &previous.atoms.into())?;
+                            count = crate::validation_work::usize_add(m, count, 1)?;
+                        }
+                    }
+                    if count == 0 || meter::cmp(m, &net, &0.into())?.is_lt() {
+                        return Err(fail("Stage named nonnegative booked basis"));
+                    }
+                    if row_ownership.is_some() {
+                        basis_components
+                            .try_reserve_exact(count)
+                            .map_err(|_| fail("Stage pricing basis storage"))?;
+                    }
+                    for previous in &output {
+                        if shape::same_text(m, &previous.root_key, base)? {
+                            basis_components.push(copied(m, &previous.component_key)?);
+                        }
+                    }
+                    if shape::same_text(m, kind, "closure_cap")? {
+                        let raw = shape::text(m, &formula["ceiling"], "atoms")?;
+                        let ceiling = arithmetic::integer(m, raw, false)?;
+                        if meter::cmp(m, prior_net, &0.into())?.is_lt()
+                            || meter::cmp(m, &ceiling, prior_net)?.is_lt()
+                        {
+                            return Err(Error::new(
+                                "CAP_BELOW_BOOKED",
+                                "Stage cap below original prior booked net",
+                            ));
+                        }
+                        let total = meter::add(m, prior_net, &net)?;
+                        let excess = meter::sub(m, &total, &ceiling)?;
+                        let credit = if meter::cmp(m, &excess, &0.into())?.is_gt() {
+                            meter::neg(m, &excess)?
+                        } else {
+                            0.into()
+                        };
+                        arithmetic::rational(m, credit, 1.into())?
+                    } else {
+                        let raw = shape::text(m, formula, "percent")?;
+                        let percent = arithmetic::decimal(m, raw)?;
+                        let denominator = meter::mul(m, &percent.denominator, &100.into())?;
+                        let ratio = arithmetic::rational(m, percent.numerator, denominator)?;
+                        arithmetic::multiply(
+                            m,
+                            &Ratio {
+                                numerator: net,
+                                denominator: 1.into(),
+                            },
+                            &ratio,
+                        )?
+                    }
+                }
                 "app_final_cost" => {
                     let atoms = match &selection {
                         Some(CostSelection::AppFinal { eligible_atoms, .. }) => *eligible_atoms,
@@ -868,7 +974,18 @@ fn price_instructions_selected_mode(
                 _ => return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "selected formula")),
             }
         };
-        let atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
+        let mut atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
+        if matches!(mode, PriceMode::Stage(_)) && formula["kind"].as_str() == Some("closure_share")
+        {
+            let raw = shape::text(m, &formula["ceiling"], "atoms")?;
+            let ceiling = arithmetic::integer(m, raw, false)?;
+            if meter::cmp(m, &atoms.into(), &ceiling)?.is_gt() {
+                use num_traits::ToPrimitive;
+                atoms = ceiling
+                    .to_i128()
+                    .ok_or_else(|| fail("Stage share ceiling atoms"))?;
+            }
+        }
         let final_selection = matches!(selection, Some(CostSelection::AppFinal { .. }));
         #[cfg(test)]
         let final_selection =
@@ -1210,6 +1327,83 @@ pub(super) fn outcome(
 #[cfg(test)]
 mod outcome_tests {
     use super::*;
+    #[test]
+    fn stage_cap_share_uses_booked_atoms_then_rounds_and_limits_supplier_share() {
+        use serde_json::json;
+        let arena = crate::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session =
+            crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let instructions = json!([
+            {"opcode":"evaluate_rule","ordinal":"0","rule":{"activity":"test:close","component_key":"test:premium","binding_slot":"test:retail","formula":{"kind":"fixed","amount":"2"}}},
+            {"opcode":"evaluate_rule","ordinal":"1","rule":{"activity":"test:close","component_key":"test:cap","binding_slot":"test:retail","formula":{"kind":"closure_cap","basis_component_key":"test:premium","ceiling":{"atoms":"3150000000000000000"}}}},
+            {"opcode":"evaluate_rule","ordinal":"2","rule":{"activity":"test:close","component_key":"test:share","binding_slot":"test:supplier","formula":{"kind":"closure_share","basis_component_key":"test:premium","percent":"25","ceiling":{"atoms":"1000000000000000000"}}}}
+        ]);
+        let components = json!([
+            {"key":"test:premium","root_key":"test:premium","role_slot":"test:retail"},
+            {"key":"test:cap","root_key":"test:premium","role_slot":"test:retail"},
+            {"key":"test:share","root_key":"test:share","role_slot":"test:supplier"}
+        ]);
+        let prior = BigInt::from(1_350_000_000_000_000_000i128);
+        let result = price_instructions_selected_mode(
+            instructions.as_array().unwrap(),
+            components.as_array().unwrap(),
+            "test:close",
+            &json!({}),
+            session.meter_mut(),
+            (None, None),
+            PriceMode::Stage(&prior),
+        )
+        .unwrap();
+        assert_eq!(
+            result.iter().map(|v| v.atoms).collect::<Vec<_>>(),
+            [
+                2_000_000_000_000_000_000i128,
+                -200_000_000_000_000_000,
+                450_000_000_000_000_000
+            ]
+        );
+        let zero = BigInt::from(0);
+        let bound = price_instructions_selected_mode(
+            instructions.as_array().unwrap(),
+            components.as_array().unwrap(),
+            "test:close",
+            &json!({}),
+            session.meter_mut(),
+            (None, None),
+            PriceMode::Stage(&zero),
+        )
+        .unwrap();
+        assert_eq!(bound[2].atoms, 500_000_000_000_000_000);
+        let too_high = BigInt::from(4_000_000_000_000_000_000i128);
+        assert_eq!(
+            price_instructions_selected_mode(
+                instructions.as_array().unwrap(),
+                components.as_array().unwrap(),
+                "test:close",
+                &json!({}),
+                session.meter_mut(),
+                (None, None),
+                PriceMode::Stage(&too_high)
+            )
+            .unwrap_err()
+            .code,
+            "CAP_BELOW_BOOKED"
+        );
+        let mut limited = instructions.clone();
+        limited[2]["rule"]["formula"]["ceiling"]["atoms"] = json!("400000000000000000");
+        let result = price_instructions_selected_mode(
+            limited.as_array().unwrap(),
+            components.as_array().unwrap(),
+            "test:close",
+            &json!({}),
+            session.meter_mut(),
+            (None, None),
+            PriceMode::Stage(&prior),
+        )
+        .unwrap();
+        assert_eq!(result[2].atoms, 400_000_000_000_000_000);
+    }
+
     #[test]
     fn declared_unit_ratio_is_exact_until_the_single_monetary_round() {
         let mut m = CoreMeter::new(65_536).unwrap();

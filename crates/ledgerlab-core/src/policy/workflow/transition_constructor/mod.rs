@@ -40,17 +40,26 @@ mod app_cost;
 mod authority;
 pub use alias_authority::{construct_local_work_alias_authority, LocalWorkAliasAuthority};
 pub use candidate::{
-    construct_local_cost_authority_enrollment, normalize_local_cost_authority_enrollment_intent, construct_local_work_alias_candidate,
-    CostAuthorityEnrollmentState, LocalCostAuthorityEnrollment,
+    construct_local_cost_authority_enrollment, construct_local_work_alias_candidate,
+    normalize_local_cost_authority_enrollment_intent, CostAuthorityEnrollmentState,
+    LocalCostAuthorityEnrollment,
 };
 mod invocation;
 pub use invocation::{select_invocation_operation_locators, InvocationOperationLocators};
 mod stage;
 mod stage_locators;
-pub use stage_locators::{select_stage_operation_locators, StageOperationLocators, StageExpectedHeadLocator};
+mod supplier_consent;
 pub use stage::{
     select_stage_work_head_locator, select_work_invocation_head_locators, StageWorkHeadLocator,
     WorkInvocationHeadLocator, WorkInvocationHeadLocators,
+};
+pub use stage_locators::{
+    select_stage_operation_locators, StageExpectedHeadLocator, StageOperationLocators,
+};
+pub use supplier_consent::{
+    derive_local_supplier_commitment, derive_local_supplier_consent_verifications,
+    normalize_local_supplier_assent_with_session, LocalSupplierAssent, LocalSupplierCommitment,
+    LocalSupplierConsentVerifications, SupplierConsentInputs,
 };
 mod body;
 mod close;

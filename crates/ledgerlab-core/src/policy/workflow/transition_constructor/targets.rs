@@ -129,9 +129,43 @@ pub(super) fn frozen_window(
     {
         return Err(fail("own-work family anchor path"));
     }
+    frozen_from_anchor(m, terms, work, at, None)
+}
+/// The Stage supplies the original first-Work deadline independently of its
+/// verified predecessor occurrence anchor. All other endpoints share the same
+/// existing arithmetic and exact FrozenWindow encoding.
+pub(super) fn stage_frozen_window(
+    m: &mut CoreMeter,
+    terms: &Value,
+    work: &ExactRef,
+    at: &str,
+    deadline: &str,
+) -> Result<super::working_value::WorkingValue> {
+    let anchor = shape::text(m, terms, "anchor")?;
+    if !shape::same_text(m, anchor, "verified_predecessor_occurred_at")? {
+        return Err(fail("Stage occurrence window anchor"));
+    }
+    let path = shape::array(m, terms, "anchor_path")?;
+    if path.is_empty() || crate::validation_work::compare(m, path.len(), 4usize)?.is_gt() {
+        return Err(fail("Stage anchor path bound"));
+    }
+    frozen_from_anchor(m, terms, work, at, Some(deadline))?
+        .ok_or_else(|| fail("Stage frozen window"))
+}
+fn frozen_from_anchor(
+    m: &mut CoreMeter,
+    terms: &Value,
+    work: &ExactRef,
+    at: &str,
+    stage_deadline: Option<&str>,
+) -> Result<Option<super::working_value::WorkingValue>> {
     let anchor = BigInt::from(Timestamp::parse_with_work(at, m)?.micros());
-    let deadline_offset = positive_offset(m, terms, "activation_deadline_us")?;
-    let deadline = meter::add(m, &anchor, &deadline_offset)?;
+    let deadline = if let Some(deadline) = stage_deadline {
+        BigInt::from(Timestamp::parse_with_work(deadline, m)?.micros())
+    } else {
+        let deadline_offset = positive_offset(m, terms, "activation_deadline_us")?;
+        meter::add(m, &anchor, &deadline_offset)?
+    };
     let start_offset = call!(number, m, call!(shape::field, m, terms, "start_offset_us")?)?;
     let starts = meter::add(m, &anchor, &start_offset)?;
     let duration = positive_offset(m, terms, "occurrence_us")?;

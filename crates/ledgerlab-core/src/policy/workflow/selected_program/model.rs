@@ -18,7 +18,7 @@ pub(super) struct Policy<R = DefinitionRef> {
     pub binding_slots: Vec<BindingSlot>,
     pub rules: Vec<Rule>,
     pub families: Vec<Family>,
-    pub stages: Vec<serde_json::Value>,
+    pub stages: Vec<StageDef>,
     pub delayed_costs: Vec<DelayedCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_delayed_costs: Option<Vec<AppCostDeclaration>>,
@@ -33,6 +33,26 @@ pub(super) struct BindingSlot {
     pub funding_leg: String,
     pub allowed_activities: Vec<String>,
     pub correction_source_slot: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StageDef {
+    pub name: String,
+    pub authorization_source_slot: String,
+    pub closure_activity: String,
+    pub closure_component_key: String,
+    pub closure_source_slot: String,
+    pub closure_evidence_kind: String,
+    pub window: Window,
+    pub expected_slots: Vec<StageExpectedSlot>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StageExpectedSlot {
+    pub key: String,
+    pub source_slot: String,
+    pub activity: String,
+    pub component_keys: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -133,6 +153,17 @@ impl Operand {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Formula {
+    ClosureCap {
+        stage: String,
+        basis_component_key: String,
+        ceiling: Amount,
+    },
+    ClosureShare {
+        basis_component_key: String,
+        percent: String,
+        ceiling: Amount,
+        allocation_view: bool,
+    },
     Fixed {
         amount: String,
     },
@@ -285,4 +316,14 @@ pub(super) struct Amount {
     pub currency: String,
     pub scale: u8,
     pub atoms: String,
+}
+
+// Existing rule ordering is unchanged; closure share runs after its cap basis.
+pub(super) fn instruction_phase(rule: &Rule) -> u8 {
+    match &rule.formula {
+        Formula::ClosureCap { .. } => 1,
+        Formula::ClosureShare { .. } => 2,
+        _ if rule.phase == "base" => 0,
+        _ => 1,
+    }
 }

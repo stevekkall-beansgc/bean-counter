@@ -131,7 +131,8 @@ pub(super) fn verify(
         super::super::working_value::NormalizedInput::normalize(m, schema, &old_eval["facts"])?;
     equal(m, normalized.canonical_value(), &old_eval["facts"])?;
     let prior_at = text(m, &prior, "accepted_at")?;
-    super::super::fact_relations::facts(
+    let original_source = text(m, &plan.work["key"], "source")?;
+    super::super::fact_relations::facts_original(
         m,
         r,
         &c.key,
@@ -139,6 +140,7 @@ pub(super) fn verify(
         &plan.payload,
         &old_eval["facts"],
         prior_at,
+        original_source,
     )?;
     let activity = text(m, &plan.payload, "activity")?;
     let instructions = shape::array(

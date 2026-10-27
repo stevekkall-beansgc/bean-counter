@@ -399,6 +399,15 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
     }
     for r in &mut p.rules {
         match &mut r.formula {
+            Formula::ClosureCap { ceiling, .. } => {
+                counter_atoms(m, &mut ceiling.atoms)?;
+            }
+            Formula::ClosureShare {
+                percent, ceiling, ..
+            } => {
+                decimal(m, percent)?;
+                counter_atoms(m, &mut ceiling.atoms)?;
+            }
             Formula::Fixed { amount } => decimal(m, amount)?,
             Formula::Unit { rate, .. } => decimal(m, rate)?,
             Formula::Discount { amount, .. } => decimal(m, &mut amount.percent)?,
@@ -435,6 +444,55 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
             owning_set(m, rows, declaration_value)?;
         } else {
             set(m, rows)?;
+        }
+    }
+    for stage in &mut p.stages {
+        for value in [
+            &mut stage.window.start_offset_us,
+            &mut stage.window.occurrence_us,
+            &mut stage.window.receipt_grace_us,
+            &mut stage.window.acceptance_grace_us,
+            &mut stage.window.activation_deadline_us,
+            &mut stage.window.correction_us,
+        ] {
+            counter(m, value)?;
+        }
+        for expected in &mut stage.expected_slots {
+            if m.representation_arena().is_some() {
+                owning_set(m, &mut expected.component_keys, |a, m, v| {
+                    text_value(a, m, v)
+                })?;
+            } else {
+                set(m, &mut expected.component_keys)?;
+            }
+        }
+        if m.representation_arena().is_some() {
+            owning_set(m, &mut stage.expected_slots, |a, m, v| {
+                let components = super::owning_policy::names_for_stage(m, a, &v.component_keys)?;
+                let key = a.string_value(&v.key, m)?;
+                let source = a.string_value(&v.source_slot, m)?;
+                let activity = a.string_value(&v.activity, m)?;
+                a.object_from_fields(
+                    &[
+                        ("key", key.value()),
+                        ("source_slot", source.value()),
+                        ("activity", activity.value()),
+                        ("component_keys", components.value()),
+                    ],
+                    m,
+                )
+            })?;
+        } else {
+            set(m, &mut stage.expected_slots)?;
+        }
+    }
+    if !p.stages.is_empty() {
+        if m.representation_arena().is_some() {
+            owning_set(m, &mut p.stages, |a, m, v| {
+                super::owning_policy::stage_value(m, a, v)
+            })?;
+        } else {
+            set(m, &mut p.stages)?;
         }
     }
     for f in &mut p.families {

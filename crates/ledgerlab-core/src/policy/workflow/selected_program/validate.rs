@@ -12,6 +12,19 @@ use std::cmp::Ordering;
 fn bad(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
 }
+fn closure_ceiling(m: &mut CoreMeter, ceiling: &Amount) -> Result<()> {
+    if !super::compiler::same_literal(m, &ceiling.currency, "USD")?
+        || !crate::validation_work::compare(m, ceiling.scale, 18u8)?.is_eq()
+    {
+        return Err(bad("closure ceiling currency/scale"));
+    }
+    let n = arithmetic::integer(m, &ceiling.atoms, false)?;
+    let maximum = arithmetic::integer(m, "999999999999999999999999999999", false)?;
+    if meter::cmp(m, &n, &0.into())?.is_lt() || meter::cmp(m, &n, &maximum)?.is_gt() {
+        return Err(bad("closure ceiling range"));
+    }
+    Ok(())
+}
 fn cost_component(
     m: &mut CoreMeter,
     r: &Rule,
@@ -166,13 +179,14 @@ pub(super) fn policy(
     schemas: &[FactSchema],
     owner_local_cost: bool,
     independent_field_issuers: bool,
+    stage_lifecycle: bool,
 ) -> Result<()> {
     name(m, &p.policy_id)?;
     if !m.check("policy.bounds", || {
         !p.rules.is_empty()
             && p.rules.len() <= 64
             && p.families.len() <= 64
-            && (if owner_local_cost {
+            && (if owner_local_cost || stage_lifecycle {
                 !p.binding_slots.is_empty() && p.binding_slots.len() <= 16
             } else {
                 p.binding_slots.len() == 1
@@ -191,7 +205,7 @@ pub(super) fn policy(
             name(m, n)?;
         }
         if !m.check("slot.book", || {
-            s.book == "retail" || owner_local_cost && s.book == "supplier"
+            s.book == "retail" || (owner_local_cost || stage_lifecycle) && s.book == "supplier"
         })? {
             return Err(bad("selected book"));
         }
@@ -207,6 +221,9 @@ pub(super) fn policy(
                 .activity_with_work(a, m)?
                 .ok_or_else(|| bad("slot activity"))?;
         }
+    }
+    if stage_lifecycle {
+        stages(m, p, product, template)?;
     }
     for (i, r) in p.rules.iter().enumerate() {
         for n in [
@@ -231,7 +248,17 @@ pub(super) fn policy(
         let a = product
             .activity_with_work(&r.activity, m)?
             .ok_or_else(|| bad("rule activity"))?;
-        if !m.check("rule.primitive", || a.primitive() == Primitive::Work)? {
+        let mut stage_closure = false;
+        if stage_lifecycle {
+            for stage in &p.stages {
+                m.visit("rule.original_stage_activity")?;
+                stage_closure |=
+                    super::compiler::same_literal(m, &stage.closure_activity, &r.activity)?;
+            }
+        }
+        if !m.check("rule.primitive", || {
+            a.primitive() == Primitive::Work || stage_closure && a.primitive() == Primitive::Outcome
+        })? {
             return Err(bad("rule requires work"));
         }
         let c = template.component_named_with_work(&r.component_key, &r.component_name, m)?;
@@ -242,10 +269,12 @@ pub(super) fn policy(
             .ok_or_else(|| bad("binding slot"))?;
         if !m.check("rule.role_book_funding", || {
             (c.book() == TemplateBook::Retail && slot.book == "retail"
-                || owner_local_cost
+                || (owner_local_cost || stage_lifecycle)
                     && c.book() == TemplateBook::Supplier
                     && slot.book == "supplier")
-                && (owner_local_cost || a.funding_leg() == Some(slot.funding_leg.as_str()))
+                && (owner_local_cost
+                    || stage_lifecycle
+                    || a.funding_leg() == Some(slot.funding_leg.as_str()))
                 && slot.allowed_activities.contains(&r.activity)
                 && (r.dependency == "on_missing_refuse"
                     || (p.schema == "ledger-workflow-policy/3"
@@ -256,9 +285,93 @@ pub(super) fn policy(
             return Err(bad("rule role/book/funding/dependency"));
         }
         match &r.formula {
+            Formula::ClosureCap {
+                stage,
+                basis_component_key,
+                ceiling,
+            } => {
+                let mut original_stage = false;
+                for original in &p.stages {
+                    m.visit("cap.original_stage")?;
+                    if super::compiler::same_literal(m, &original.name, stage)?
+                        && super::compiler::same_literal(
+                            m,
+                            &original.closure_activity,
+                            &r.activity,
+                        )?
+                        && super::compiler::same_literal(
+                            m,
+                            &original.closure_component_key,
+                            basis_component_key,
+                        )?
+                    {
+                        original_stage = true;
+                    }
+                }
+                if !stage_lifecycle
+                    || p.mode != "closure_share"
+                    || !stage_closure
+                    || r.phase != "cap"
+                    || c.book() != TemplateBook::Retail
+                    || c.root_key() != basis_component_key
+                    || c.key() == c.root_key()
+                    || !original_stage
+                {
+                    return Err(bad("closure cap stage/root/phase"));
+                }
+                closure_ceiling(m, ceiling)?;
+            }
+            Formula::ClosureShare {
+                basis_component_key,
+                percent,
+                ceiling,
+                ..
+            } => {
+                let mut original_base = false;
+                for base in &p.rules {
+                    m.visit("share.original_basis")?;
+                    if super::compiler::same_literal(m, &base.component_key, basis_component_key)?
+                        && super::compiler::same_literal(m, &base.activity, &r.activity)?
+                        && matches!(base.formula, Formula::Fixed { .. } | Formula::Unit { .. })
+                    {
+                        original_base = true;
+                    }
+                }
+                if !stage_lifecycle
+                    || p.mode != "closure_share"
+                    || !stage_closure
+                    || r.phase != "share"
+                    || c.book() != TemplateBook::Supplier
+                    || c.root_key() != c.key()
+                    || !original_base
+                {
+                    return Err(bad("closure share stage/root/phase"));
+                }
+                percentage(m, percent)?;
+                closure_ceiling(m, ceiling)?;
+            }
             Formula::Fixed { amount } | Formula::Unit { rate: amount, .. } => {
+                let mut stage_premium = false;
+                if stage_lifecycle
+                    && p.mode == "closure_share"
+                    && r.phase == "premium"
+                    && matches!(r.formula, Formula::Fixed { .. })
+                {
+                    for stage in &p.stages {
+                        m.visit("Stage.exact_original_premium_root")?;
+                        if super::compiler::same_literal(m, &stage.closure_activity, &r.activity)?
+                            && super::compiler::same_literal(
+                                m,
+                                &stage.closure_component_key,
+                                &r.component_key,
+                            )?
+                        {
+                            stage_premium = true;
+                        }
+                    }
+                }
                 if !m.check("base.phase_root", || {
-                    r.phase == "base" && c.root_key() == c.key()
+                    (r.phase == "base" || stage_premium) && c.root_key() == c.key()
                 })? {
                     return Err(bad("base phase/root"));
                 }
@@ -399,7 +512,12 @@ pub(super) fn policy(
     if owner_local_cost {
         delayed_costs(m, p)?;
     }
-    if p.schema == "ledger-workflow-policy/3" || p.schema == "ledger-workflow-policy/4" {
+    if (p.schema == "ledger-workflow-policy/3" || p.schema == "ledger-workflow-policy/4")
+        && !(stage_lifecycle
+            && p.app_delayed_costs
+                .as_ref()
+                .is_none_or(|rows| rows.is_empty()))
+    {
         super::app_declarations::validate(m, p, product, schemas)?;
     }
     for (i, f) in p.families.iter().enumerate() {
@@ -560,6 +678,164 @@ pub(super) fn policy(
             {
                 return Err(bad("family amount bound"));
             }
+        }
+    }
+    Ok(())
+}
+fn stages(m: &mut CoreMeter, p: &Policy, product: &Product, template: &SlotTemplate) -> Result<()> {
+    use super::compiler::same_literal as same;
+    if crate::validation_work::compare(m, p.stages.len(), 16usize)?.is_gt() {
+        return Err(bad("Stage count"));
+    }
+    if !p.stages.is_empty() && !same(m, &p.mode, "closure_share")? {
+        return Err(bad("Stage policy mode"));
+    }
+    if same(m, &p.mode, "closure_share")?
+        && (!p.families.is_empty()
+            || !p.delayed_costs.is_empty()
+            || p.app_delayed_costs.as_ref().is_some_and(|v| !v.is_empty()))
+    {
+        return Err(bad(
+            "closure share excludes component families and delayed costs",
+        ));
+    }
+    for (i, stage) in p.stages.iter().enumerate() {
+        m.visit("compile.stage_definition")?;
+        for value in [
+            &stage.name,
+            &stage.authorization_source_slot,
+            &stage.closure_activity,
+            &stage.closure_component_key,
+            &stage.closure_source_slot,
+        ] {
+            name(m, value)?;
+        }
+        // Evidence kind is a closed literal rather than a qualified Name.
+        if !same(m, &stage.closure_evidence_kind, "outcome")? {
+            return Err(bad("Stage closure evidence"));
+        }
+        for old in &p.stages[..i] {
+            if same(m, &stage.name, &old.name)?
+                || same(m, &stage.closure_activity, &old.closure_activity)?
+            {
+                return Err(bad("duplicate Stage identity/activity"));
+            }
+        }
+        let activity = product
+            .activity_with_work(&stage.closure_activity, m)?
+            .ok_or_else(|| bad("Stage closure activity"))?;
+        if activity.primitive() != Primitive::Outcome
+            || !same(m, activity.source_slot(), &stage.closure_source_slot)?
+        {
+            return Err(bad("Stage closure source/primitive"));
+        }
+        if stage.expected_slots.is_empty()
+            || crate::validation_work::compare(m, stage.expected_slots.len(), 32usize)?.is_gt()
+        {
+            return Err(bad("Stage expected count"));
+        }
+        if !same(m, &stage.window.anchor, "verified_predecessor_occurred_at")? {
+            return Err(bad("Stage occurrence anchor"));
+        }
+        for text in [
+            &stage.window.start_offset_us,
+            &stage.window.occurrence_us,
+            &stage.window.receipt_grace_us,
+            &stage.window.acceptance_grace_us,
+            &stage.window.activation_deadline_us,
+            &stage.window.correction_us,
+        ] {
+            arithmetic::integer(m, text, false)?;
+        }
+        let mut anchor = false;
+        for (j, expected) in stage.expected_slots.iter().enumerate() {
+            for value in [&expected.key, &expected.activity, &expected.source_slot] {
+                name(m, value)?;
+            }
+            for old in &stage.expected_slots[..j] {
+                if same(m, &expected.key, &old.key)? {
+                    return Err(bad("duplicate expected Stage key"));
+                }
+            }
+            let work = product
+                .activity_with_work(&expected.activity, m)?
+                .ok_or_else(|| bad("Stage expected activity"))?;
+            if work.primitive() != Primitive::Work
+                || !same(m, work.source_slot(), &expected.source_slot)?
+            {
+                return Err(bad("Stage expected Work source"));
+            }
+            if expected.component_keys.is_empty()
+                || crate::validation_work::compare(m, expected.component_keys.len(), 128usize)?
+                    .is_gt()
+            {
+                return Err(bad("Stage expected components"));
+            }
+            for component in &expected.component_keys {
+                name(m, component)?;
+                let mut found = false;
+                for rule in &p.rules {
+                    m.visit("Stage.expected_component_producer")?;
+                    if same(m, &rule.activity, &expected.activity)?
+                        && same(m, &rule.component_key, component)?
+                    {
+                        template.component_named_with_work(component, &rule.component_name, m)?;
+                        found = true;
+                    }
+                }
+                if !found {
+                    return Err(bad("Stage expected component producer"));
+                }
+            }
+            let last = stage
+                .window
+                .anchor_path
+                .last()
+                .ok_or_else(|| bad("Stage anchor path"))?;
+            let link = product
+                .link_with_work(last, m)?
+                .ok_or_else(|| bad("Stage anchor link"))?;
+            for target in link.predecessor_activities() {
+                if same(m, target, &expected.activity)? {
+                    product.validate_selector_path_with_work(
+                        &stage.closure_activity,
+                        &stage.window.anchor_path,
+                        &expected.activity,
+                        m,
+                    )?;
+                    anchor = true;
+                }
+            }
+        }
+        if !anchor {
+            return Err(bad("Stage anchor expected member path"));
+        }
+        let mut cap = 0usize;
+        let mut share = 0usize;
+        let mut base = false;
+        for rule in &p.rules {
+            m.visit("Stage.closure_rule")?;
+            if !same(m, &rule.activity, &stage.closure_activity)? {
+                continue;
+            }
+            match &rule.formula {
+                Formula::ClosureCap { stage: name, .. } if same(m, name, &stage.name)? => {
+                    cap = crate::validation_work::usize_add(m, cap, 1)?;
+                }
+                Formula::ClosureShare { .. } => {
+                    share = crate::validation_work::usize_add(m, share, 1)?;
+                }
+                Formula::Fixed { .. } | Formula::Unit { .. } => {
+                    base |= same(m, &rule.component_key, &stage.closure_component_key)?;
+                }
+                _ => return Err(bad("closure share formula matrix")),
+            }
+        }
+        if !base
+            || !crate::validation_work::compare(m, cap, 1usize)?.is_eq()
+            || crate::validation_work::compare(m, share, 1usize)?.is_gt()
+        {
+            return Err(bad("Stage closure base/cap/share"));
         }
     }
     Ok(())

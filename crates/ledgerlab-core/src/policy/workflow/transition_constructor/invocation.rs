@@ -164,7 +164,7 @@ fn supplier(
         c,
         &selected["binding_ref"],
         "workflow-slot-terms",
-        "ledger-workflow-slot-binding-terms/5",
+        "ledger-workflow-slot-binding-terms/8",
     )?;
     shape::closed(
         m,
@@ -224,7 +224,7 @@ fn supplier(
         c,
         &terms["offer_ref"],
         "workflow-offer",
-        "ledger-workflow-offer/3",
+        "ledger-workflow-offer/4",
     )?;
     shape::closed(
         m,
@@ -275,6 +275,28 @@ fn supplier(
         return Err(shape::fail("Invocation must precede start deadline"));
     }
     let field = quantity_field(m, &terms, &offer, p)?;
+    let mut selected_schema = None;
+    for document in program.source_documents() {
+        m.visit("invocation.original_activity_quantity")?;
+        if !shape::same_text(m, document.reference().kind(), "workflow-product")? {
+            continue;
+        }
+        let activity_name = shape::text(m, p, "activity")?;
+        let activities = shape::array(m, document.canonical_value(), "activities")?;
+        let activity = shape::named(m, activities, "name", activity_name)?;
+        shape::equal(m, &activity["source_slot"], &p["source_slot"])?;
+        literal(m, activity, "primitive", "work")?;
+        for (reference, schema) in program.fact_schemas() {
+            let owner = arena(m)?;
+            let value = super::working_value::owning_definition(m, &owner, reference)?;
+            if shape::same(m, value.value(), &activity["fact_schema"])? {
+                selected_schema = Some(schema);
+            }
+        }
+    }
+    let schema = selected_schema.ok_or_else(|| shape::fail("Invocation original Work schema"))?;
+    let unit = schema.quantity_unit_with_work(field, m)?;
+    literal(m, p, "unit", unit)?;
     let raw = shape::text(m, p, "maximum_quantity")?;
     let quantity = arithmetic::decimal(m, raw)?;
     let mut ceiling = false;
@@ -444,7 +466,15 @@ pub(super) fn authorize<'a>(
     let authority =
         body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
     let (supplier, _offer) = supplier(m, &mut records, c, program, &p, &terms)?;
-    let instance = authorization_record(m, c, &p, &terms, &supplier, &authority.reference, state)?;
+    let instance = authorization_record(
+        m,
+        c,
+        &p,
+        &terms,
+        &supplier,
+        (&authority.reference, authority_value.value()),
+        state,
+    )?;
     let mut envelopes = Vec::new();
     envelopes
         .try_reserve_exact(2)
@@ -457,8 +487,109 @@ pub(super) fn authorize<'a>(
         terms,
         records,
         envelopes,
-        [Some(owner), terms_owner, None, None, None, None, None, None],
+        [
+            Some(owner),
+            terms_owner,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
     )
+}
+pub(super) fn embedded_authorize(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    input: &Value,
+    state: &EconomicStateData,
+) -> Result<([ConstructedEnvelope; 2], WorkingValue)> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("embedded Invocation recipe"));
+    }
+    let a = arena(m)?;
+    let mut p = WorkingValue::copy(m, input)?;
+    shape::closed(
+        m,
+        &p,
+        &[
+            "schema",
+            "agreement_id",
+            "binding_ref",
+            "business_operation_id",
+            "chain_id",
+            "activity",
+            "supplier_slot",
+            "source_slot",
+            "unit",
+            "maximum_quantity",
+            "maximum_exposure",
+            "start_before",
+            "evidence_refs",
+        ],
+        &[],
+    )?;
+    literal(m, &p, "schema", "ledger-workflow-invocation-authorize/1")?;
+    let scalar = super::super::facts::SignedScalar::parse_with_work(
+        shape::text(m, &p, "maximum_quantity")?,
+        18,
+        m,
+    )?;
+    let normalized = a.string_value(scalar.as_str(), m)?;
+    p.replace(m, "maximum_quantity", normalized.value())?;
+    p.normalize_set(m, "evidence_refs", false)?;
+    let evidence = shape::array(m, &p, "evidence_refs")?;
+    if evidence.is_empty() || w::compare(m, evidence.len(), 16usize)?.is_gt() {
+        return Err(shape::fail("embedded Invocation evidence bound"));
+    }
+    let binding = load(
+        m,
+        r,
+        c,
+        &p["binding_ref"],
+        "workflow-binding",
+        "ledger-workflow-binding/2",
+    )?;
+    let purpose = a.object_from_fields(
+        &[
+            ("binding_ref", &p["binding_ref"]),
+            ("customer", &binding["customer"]),
+            ("product_ref", &binding["product_ref"]),
+            ("policy_ref", &binding["policy_ref"]),
+            ("activity", &p["activity"]),
+            ("evidence_refs", &p["evidence_refs"]),
+        ],
+        m,
+    )?;
+    let slot = shape::text(m, &p, "source_slot")?;
+    let namespace = shape::text(m, &binding, "source_namespace")?;
+    let resolved = super::app_cost::binding_resolved_dependent(
+        m,
+        r,
+        c,
+        purpose.value(),
+        program,
+        EconomicMode::InvocationAuthorize,
+        (slot, &[], namespace),
+    )?;
+    let (terms, authority_value, _terms_owner) = resolved.into_local_parts()?;
+    let authority =
+        body::document_borrowed(m, "workflow-economic-authority", authority_value.value())?;
+    let (supplier, _offer) = supplier(m, r, c, program, &p, &terms)?;
+    let instance = authorization_record(
+        m,
+        c,
+        &p,
+        &terms,
+        &supplier,
+        (&authority.reference, authority_value.value()),
+        state,
+    )?;
+    Ok(([authority, instance], p))
 }
 fn authorization_record(
     m: &mut CoreMeter,
@@ -466,7 +597,7 @@ fn authorization_record(
     p: &Value,
     retail: &Terms,
     supplier: &Value,
-    authority: &ExactRef,
+    authority: (&ExactRef, &Value),
     state: &EconomicStateData,
 ) -> Result<ConstructedEnvelope> {
     let a = arena(m)?;
@@ -494,11 +625,11 @@ fn authorization_record(
     }
     let constants=m.parse_owned_representation(&a,br#"{"schema":"ledger-workflow-invocation/1","one":"1","state":"authorized","zero":{"currency":"USD","scale":18,"atoms":"0"},"empty":[]}"#,RepresentationKind::SourceDefinition)?;
     let identifier = a.string_value(&id, m)?;
-    let source = a.string_value(&c.key.source, m)?;
-    let namespace = a.string_value(&c.canonical_economic_namespace, m)?;
+    let source = a.clone_value(&authority.1["source"], m)?;
+    let namespace = a.clone_value(&retail.binding["source_namespace"], m)?;
     let at = a.string_value(&c.accepted_at, m)?;
     shape::equal(m, namespace.value(), &retail.binding["source_namespace"])?;
-    let authority = owning_reference(m, &a, authority)?;
+    let authority = owning_reference(m, &a, authority.0)?;
     let operation_key = super::cost_postings::operation_key(m, &a, c)?;
     let bindings = shape::array(m, &retail.binding, "bindings")?;
     let slot = shape::text(m, p, "supplier_slot")?;
@@ -549,7 +680,7 @@ fn construction<'a>(
     terms: Terms,
     records: Records<'a, 'a>,
     envelopes: Vec<ConstructedEnvelope>,
-    owners: [Option<ExternalBufferLease>; 8],
+    owners: [Option<ExternalBufferLease>; 9],
 ) -> Result<Construction<'a, 'a>> {
     Ok(Construction {
         economic: EconomicConstruction {
@@ -582,28 +713,333 @@ fn construction<'a>(
         control_owners: owners,
     })
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    #[test]
-    fn accepted_usage_quantity_is_unique_without_a_unit_price_formula() {
-        let a = AuditArena::new().unwrap();
-        let mut s =
-            crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
-        let m = s.meter_mut();
-        let terms = json!({"quantity_ceilings":[{"activity":"test:prepare","field":"test:quantity","unit":"test:item","maximum":"3"}]});
-        let mut offer = json!({"unit_ceilings":[{"activity":"test:prepare","field":"test:quantity","unit":"test:item","maximum":"2"}]});
-        let input = json!({"activity":"test:prepare","unit":"test:item","maximum_quantity":"1"});
-        assert_eq!(
-            quantity_field(m, &terms, &offer, &input).unwrap(),
-            "test:quantity"
-        );
-        offer["unit_ceilings"][0]["field"] = json!("test:other");
-        assert!(quantity_field(m, &terms, &offer, &input).is_err());
-        let empty = json!({"quantity_ceilings":[]});
-        assert!(quantity_field(m, &empty, &offer, &input).is_err());
+
+pub(super) fn reference_for_work(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    key: &OperationKey,
+    program: &SelectedProgram,
+    payload: &Value,
+    binding: &Value,
+    reference: &ExactRef,
+    source: &str,
+    at: &str,
+) -> Result<()> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("same Invocation exact Stage recipe"));
     }
+    let a = arena(m)?;
+    let original = r.get(
+        m,
+        key,
+        reference,
+        "workflow-invocation",
+        "ledger-workflow-invocation/1",
+    )?;
+    closed(m, &original)?;
+    literal(m, &original, "revision", "1")?;
+    literal(m, &original, "state", "authorized")?;
+    literal(m, &original, "invocation_id", &reference.id)?;
+    literal(m, &original, "source", source)?;
+    if original.get("prior_ref").is_some() {
+        return Err(shape::fail(
+            "same Invocation is not its original authorization",
+        ));
+    }
+    let value = owning_reference(m, &a, reference)?;
+    member(m, payload, "invocation_refs", value.value())?;
+    for (field, expected) in [
+        ("original_binding_ref", &payload["binding_ref"]),
+        ("customer", &payload["customer"]),
+        ("business_operation_id", &payload["business_operation_id"]),
+        ("chain_id", &payload["chain"]),
+        ("activity", &payload["activity"]),
+        ("source_namespace", &binding["source_namespace"]),
+        ("agreement_id", &binding["agreement_id"]),
+    ] {
+        shape::equal(m, &original[field], expected)?;
+    }
+    let auth_ref = parse_owned_reference(m, &a, &original["original_authority_ref"])?;
+    let auth = r.get(
+        m,
+        key,
+        auth_ref.reference(),
+        "workflow-economic-authority",
+        "ledger-workflow-stage-authority/1",
+    )?;
+    literal(m, &auth, "operation", "invocation.authorize")?;
+    literal(m, &auth, "source", source)?;
+    let scope = super::work_keys::scope(m, key)?;
+    shape::equal(m, &auth["scope"], scope.value())?;
+    for (field, expected) in [
+        ("original_binding_ref", &payload["binding_ref"]),
+        ("source_slot", &original["source_slot"]),
+        ("observed_at", &original["authorized_at"]),
+        ("customer", &payload["customer"]),
+        ("canonical_economic_namespace", &binding["source_namespace"]),
+    ] {
+        shape::equal(m, &auth[field], expected)?;
+    }
+    let enrollment_ref = parse_owned_reference(m, &a, &auth["enrollment_ref"])?;
+    let enrollment = r.get(
+        m,
+        key,
+        enrollment_ref.reference(),
+        "workflow-source-enrollment",
+        "ledger-workflow-source-enrollment/1",
+    )?;
+    let grant_ref = parse_owned_reference(m, &a, &auth["current_grant_ref"])?;
+    let grant = r.get(
+        m,
+        key,
+        grant_ref.reference(),
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+    )?;
+    let enrollment_value = owning_reference(m, &a, enrollment_ref.reference())?;
+    shape::equal(m, &grant["original_ceiling_ref"], enrollment_value.value())?;
+    shape::equal(m, &grant["grant_id"], &enrollment["enrollment_id"])?;
+    for field in ["source", "principal_id", "canonical_economic_namespace"] {
+        shape::equal(m, &grant[field], &enrollment["ceiling"][field])?;
+    }
+    shape::equal(m, &grant["source"], &auth["source"])?;
+    shape::equal(m, &grant["principal_id"], &auth["actor"])?;
+    let authorized = time(m, &original, "authorized_at")?;
+    let accepted = Timestamp::parse_with_work(at, m)?.micros();
+    if w::compare(m, authorized, accepted)?.is_gt() {
+        return Err(shape::fail("same Invocation authorized after Work"));
+    }
+    let activity_name = shape::text(m, payload, "activity")?;
+    let source_slot = shape::text(m, &original, "source_slot")?;
+    let mut product_id = None;
+    for document in program.source_documents() {
+        if !shape::same_text(m, document.reference().kind(), "workflow-product")? {
+            continue;
+        }
+        let activities = shape::array(m, document.canonical_value(), "activities")?;
+        let activity = shape::named(m, activities, "name", activity_name)?;
+        shape::equal(m, &activity["source_slot"], &original["source_slot"])?;
+        shape::equal(m, &activity["fact_schema"], &payload["fact_schema_ref"])?;
+        product_id = Some(shape::text(m, document.canonical_value(), "product_id")?);
+    }
+    let product_id = product_id.ok_or_else(|| shape::fail("same Invocation original Product"))?;
+    let token = InvocationToken::new();
+    super::authority::grant_shape(m, &grant)?;
+    super::authority::grant_intersection(
+        m,
+        &token,
+        &grant,
+        &enrollment["ceiling"],
+        &authorized.into(),
+    )?;
+    for original in shape::array(m, &auth, "original_grant_refs")? {
+        member(m, binding, "authority_refs", original)?;
+        let reference = parse_owned_reference(m, &a, original)?;
+        let grant = r.get(
+            m,
+            key,
+            reference.reference(),
+            "workflow-source-grant",
+            "ledger-workflow-source-grant/1",
+        )?;
+        super::authority::grant_coverage(
+            m,
+            &grant,
+            &binding["customer"],
+            activity_name,
+            product_id,
+            source_slot,
+            ("invocation.authorize", &["invocation", "read"]),
+        )?;
+    }
+    super::authority::grant_coverage(
+        m,
+        &grant,
+        &binding["customer"],
+        activity_name,
+        product_id,
+        source_slot,
+        ("invocation.authorize", &["invocation", "read"]),
+    )?;
+    Ok(())
+}
+pub(super) struct WorkInvocations {
+    pub records: Vec<ConstructedEnvelope>,
+    pub ownership: ExternalBufferLease,
+}
+/// A final Work consumes its one start eligibility, not the promised financial
+/// hold. Later close/Stage/correction operate on this immutable authorization.
+pub(super) fn consume_work(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    p: &Value,
+    binding: &Value,
+    state: Option<&EconomicStateData>,
+) -> Result<Option<WorkInvocations>> {
+    let refs = shape::array(m, p, "invocation_refs")?;
+    if refs.is_empty() {
+        return Ok(None);
+    }
+    if !program.uses_stage_lifecycle_recipe() || w::compare(m, refs.len(), 16usize)?.is_gt() {
+        return Err(shape::fail("Work Invocation recipe/count"));
+    }
+    let supplier = state
+        .and_then(|v| v.supplier)
+        .ok_or_else(|| shape::fail("actual held Work Invocation heads"))?;
+    let a = arena(m)?;
+    let per = mem::size_of::<ConstructedEnvelope>() + 64 + 128 + 71;
+    w::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&refs.len().into(), &per.into()],
+    )?;
+    let size = refs
+        .len()
+        .checked_mul(per)
+        .ok_or_else(|| shape::fail("Work Invocation storage"))?;
+    let size = w::usize_add(m, size, mem::size_of::<WorkInvocations>())?;
+    let ownership = a.reserve_external_payload(size, m)?;
+    let mut outputs = Vec::new();
+    outputs
+        .try_reserve_exact(refs.len())
+        .map_err(|_| shape::fail("Work Invocation allocation"))?;
+    let work_at = Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
+    for reference in refs {
+        m.visit("Work.actual_original_Invocation")?;
+        let reference = parse_owned_reference(m, &a, reference)?;
+        let original = r.get(
+            m,
+            &c.key,
+            reference.reference(),
+            "workflow-invocation",
+            "ledger-workflow-invocation/1",
+        )?;
+        closed(m, &original)?;
+        literal(m, &original, "revision", "1")?;
+        literal(m, &original, "state", "authorized")?;
+        literal(m, &original, "invocation_id", &reference.reference().id)?;
+        if original.get("prior_ref").is_some() {
+            return Err(shape::fail("Work Invocation original predecessor"));
+        }
+        for (field, value) in [
+            ("original_binding_ref", &p["binding_ref"]),
+            ("customer", &p["customer"]),
+            ("business_operation_id", &p["business_operation_id"]),
+            ("activity", &p["activity"]),
+            ("chain_id", &p["chain"]),
+            ("agreement_id", &binding["agreement_id"]),
+        ] {
+            shape::equal(m, &original[field], value)?;
+        }
+        literal(m, &original, "source", &c.key.source)?;
+        literal(
+            m,
+            &original,
+            "source_namespace",
+            &c.canonical_economic_namespace,
+        )?;
+        let at = time(m, &original, "authorized_at")?;
+        let end = time(m, &original, "start_before")?;
+        if w::compare(m, work_at, at)?.is_lt() || !w::compare(m, work_at, end)?.is_lt() {
+            return Err(shape::fail(
+                "Work outside original Invocation start interval",
+            ));
+        }
+        super::authority::historical_namespace(
+            m,
+            r,
+            c,
+            &original["original_authority_ref"],
+            &original["source_namespace"],
+            Some(&original["source"]),
+            (
+                "invocation.authorize",
+                &original["original_binding_ref"],
+                &original["authorized_at"],
+            ),
+        )?;
+        let mut head = None;
+        for candidate in supplier.invocation_heads {
+            if shape::same_text(m, &candidate.invocation_id, &reference.reference().id)?
+                && head.replace(candidate).is_some()
+            {
+                return Err(shape::fail("duplicate held Work Invocation"));
+            }
+        }
+        let head = head.ok_or_else(|| shape::fail("missing held Work Invocation"))?;
+        let current = r.get(
+            m,
+            &c.key,
+            &head.reference,
+            "workflow-invocation",
+            "ledger-workflow-invocation/1",
+        )?;
+        closed(m, &current)?;
+        immutable(m, &original, &current)?;
+        literal(m, &current, "revision", &head.revision)?;
+        literal(m, &current, "state", "authorized")?;
+        // Authorization is once-only. An existing terminal/completed head can
+        // retain money, but cannot start another Work under the same identity.
+        let supplied = super::super::facts::counter_with_work(&head.revision, m)?;
+        if !w::compare(m, supplied, 1u64)?.is_eq()
+            || !shape::same_ref(m, &head.reference, reference.reference())?
+        {
+            return Err(shape::fail("Work Invocation start already consumed"));
+        }
+        let terms = load(
+            m,
+            r,
+            c,
+            &original["supplier_terms_ref"],
+            "workflow-slot-terms",
+            "ledger-workflow-slot-binding-terms/8",
+        )?;
+        let offer = load(
+            m,
+            r,
+            c,
+            &original["offer_ref"],
+            "workflow-offer",
+            "ledger-workflow-offer/4",
+        )?;
+        let field = quantity_field(m, &terms, &offer, &original)?;
+        let raw_quantity = shape::text(m, &p["facts"], field)?;
+        let quantity = arithmetic::decimal(m, raw_quantity)?;
+        ratio_bound(m, &quantity, &original["maximum_quantity"])?;
+        let revision = a.string_value("2", m)?;
+        let completed = a.string_value("completed", m)?;
+        let prior = owning_reference(m, &a, &head.reference)?;
+        let key = super::cost_postings::operation_key(m, &a, c)?;
+        let value = WorkingValue::copy(m, &current)?.with_fields(
+            m,
+            &[
+                ("revision", revision.value()),
+                ("state", completed.value()),
+                ("prior_ref", prior.value()),
+                ("operation_key", key.value()),
+            ],
+        )?;
+        closed(m, &value)?;
+        let id = text(m, &head.invocation_id)?;
+        outputs.push(body::record_borrowed(
+            m,
+            &c.key,
+            "workflow-invocation",
+            id,
+            &value,
+        )?);
+    }
+    Ok(Some(WorkInvocations {
+        records: outputs,
+        ownership,
+    }))
+}
+fn text(m: &mut CoreMeter, value: &str) -> Result<String> {
+    m.scan_bytes(value.len())?;
+    m.write_bytes(value.len())?;
+    Ok(value.to_owned())
 }
 fn closed(m: &mut CoreMeter, v: &Value) -> Result<()> {
     shape::closed(
@@ -976,7 +1412,17 @@ pub(super) fn close<'a>(
         terms,
         r,
         envelopes,
-        [Some(owner), terms_owner, None, None, None, None, None, None],
+        [
+            Some(owner),
+            terms_owner,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
     )
 }
 /// Owning lookup DATA for the actual invocation purpose. These fields select
@@ -1141,4 +1587,226 @@ pub fn select_invocation_operation_locators(
         s.invalidate();
     }
     result
+}
+
+/// Fulfil the already-authorized Stage share from its actual member's original
+/// Invocation. A completed close preserves this hold; it grants no new Work,
+/// release, replenishment, supplier choice or authorization.
+pub(super) fn consume_stage_share(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    work: &Value,
+    binding: &Value,
+    supplier_slot: &str,
+    atoms: &num_bigint::BigInt,
+    state: &EconomicStateData<'_>,
+) -> Result<Option<ConstructedEnvelope>> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("Stage held consumption recipe"));
+    }
+    if meter::cmp(m, atoms, &0.into())?.is_lt() {
+        return Err(shape::fail("negative Stage supplier consumption"));
+    }
+    let a = arena(m)?;
+    let payload = shape::field(m, work, "payload")?;
+    let mut selected = None;
+    for value in shape::array(m, payload, "invocation_refs")? {
+        let reference = parse_owned_reference(m, &a, value)?;
+        let original = r.get(
+            m,
+            &c.key,
+            reference.reference(),
+            "workflow-invocation",
+            "ledger-workflow-invocation/1",
+        )?;
+        closed(m, &original)?;
+        literal(m, &original, "revision", "1")?;
+        literal(m, &original, "state", "authorized")?;
+        if original.get("prior_ref").is_some() {
+            return Err(shape::fail("Stage original Invocation predecessor"));
+        }
+        let slot = shape::text(m, &original, "supplier_slot")?;
+        if !shape::same_text(m, slot, supplier_slot)? {
+            continue;
+        }
+        if selected.replace((reference, original)).is_some() {
+            return Err(shape::fail("ambiguous original Stage supplier Invocation"));
+        }
+    }
+    let (reference, original) =
+        selected.ok_or_else(|| shape::fail("Stage share has no original member Invocation"))?;
+    for (inv, member) in [
+        ("original_binding_ref", "binding_ref"),
+        ("customer", "customer"),
+        ("chain_id", "chain"),
+        ("business_operation_id", "business_operation_id"),
+        ("activity", "activity"),
+    ] {
+        shape::equal(m, &original[inv], &payload[member])?;
+    }
+    shape::equal(m, &original["source"], &work["key"]["source"])?;
+    shape::equal(m, &original["source_namespace"], &work["source_namespace"])?;
+    shape::equal(
+        m,
+        &original["source_namespace"],
+        &binding["source_namespace"],
+    )?;
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &original["original_authority_ref"],
+        &original["source_namespace"],
+        Some(&original["source"]),
+        (
+            "invocation.authorize",
+            &original["original_binding_ref"],
+            &original["authorized_at"],
+        ),
+    )?;
+    let terms = load(
+        m,
+        r,
+        c,
+        &original["supplier_terms_ref"],
+        "workflow-slot-terms",
+        "ledger-workflow-slot-binding-terms/8",
+    )?;
+    let offer = load(
+        m,
+        r,
+        c,
+        &original["offer_ref"],
+        "workflow-offer",
+        "ledger-workflow-offer/4",
+    )?;
+    let rows = shape::array(m, binding, "bindings")?;
+    let row = shape::named(m, rows, "slot", supplier_slot)?;
+    shape::equal(m, &row["binding_ref"], &original["supplier_terms_ref"])?;
+    shape::equal(m, &terms["offer_ref"], &original["offer_ref"])?;
+    for field in [
+        "cost_authority_ref",
+        "provider_account_identity",
+        "role_ref",
+        "funding_leg",
+    ] {
+        shape::equal(m, &original[field], &terms[field])?;
+    }
+    let field = quantity_field(m, &terms, &offer, &original)?;
+    let raw = shape::text(m, &payload["facts"], field)?;
+    let quantity = arithmetic::decimal(m, raw)?;
+    ratio_bound(m, &quantity, &original["maximum_quantity"])?;
+    let supplier = state
+        .supplier
+        .ok_or_else(|| shape::fail("actual Stage Invocation head absent"))?;
+    let mut selected_head = None;
+    for head in supplier.invocation_heads {
+        if shape::same_text(m, &head.invocation_id, &reference.reference().id)?
+            && selected_head.replace(head).is_some()
+        {
+            return Err(shape::fail("duplicate Stage Invocation current head"));
+        }
+    }
+    let head = selected_head.ok_or_else(|| shape::fail("Stage Invocation held head absent"))?;
+    let current = r.get(
+        m,
+        &c.key,
+        &head.reference,
+        "workflow-invocation",
+        "ledger-workflow-invocation/1",
+    )?;
+    closed(m, &current)?;
+    immutable(m, &original, &current)?;
+    literal(m, &current, "revision", &head.revision)?;
+    let status = shape::text(m, &current, "state")?;
+    if !shape::same_text(m, status, "completed")?
+        && !shape::same_text(m, status, "closed_completed")?
+    {
+        return Err(shape::fail(
+            "Stage fulfilment needs actual completed member Invocation",
+        ));
+    }
+    let held = amount(m, &current["held"])?;
+    if meter::cmp(m, atoms, &held)?.is_gt() {
+        return Err(Error::new(
+            "EXPOSURE_EXCEEDED",
+            "Stage supplier hold is insufficient",
+        ));
+    }
+    if meter::cmp(m, atoms, &0.into())?.is_eq() {
+        return Ok(None);
+    }
+    let held = meter::sub(m, &held, atoms)?;
+    let consumed = amount(m, &current["consumed"])?;
+    let consumed = meter::add(m, &consumed, atoms)?;
+    let other = amount(m, &current["other_consumed"])?;
+    let other = meter::add(m, &other, atoms)?;
+    let revision = arithmetic::integer(m, &head.revision, false)?;
+    let revision = meter::add(m, &revision, &1.into())?;
+    let revision = super::cost_postings::scalar(m, &a, &revision)?;
+    if w::compare(
+        m,
+        revision
+            .value()
+            .as_str()
+            .ok_or_else(|| shape::fail("Stage Invocation revision"))?
+            .len(),
+        19usize,
+    )?
+    .is_gt()
+    {
+        return Err(shape::fail("Stage Invocation revision Counter bound"));
+    }
+    let held = super::cost_postings::amount(m, &a, &held)?;
+    let consumed = super::cost_postings::amount(m, &a, &consumed)?;
+    let other = super::cost_postings::amount(m, &a, &other)?;
+    let prior = owning_reference(m, &a, &head.reference)?;
+    let key = super::cost_postings::operation_key(m, &a, c)?;
+    let value = WorkingValue::copy(m, &current)?.with_fields(
+        m,
+        &[
+            ("revision", revision.value()),
+            ("prior_ref", prior.value()),
+            ("held", held.value()),
+            ("consumed", consumed.value()),
+            ("other_consumed", other.value()),
+            ("operation_key", key.value()),
+        ],
+    )?;
+    closed(m, &value)?;
+    immutable(m, &original, &value)?;
+    let id = text(m, &head.invocation_id)?;
+    Ok(Some(body::record_borrowed(
+        m,
+        &c.key,
+        "workflow-invocation",
+        id,
+        &value,
+    )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn accepted_usage_quantity_is_unique_without_a_unit_price_formula() {
+        let a = AuditArena::new().unwrap();
+        let mut s =
+            crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let m = s.meter_mut();
+        let terms = json!({"quantity_ceilings":[{"activity":"test:prepare","field":"test:quantity","unit":"test:item","maximum":"3"}]});
+        let mut offer = json!({"unit_ceilings":[{"activity":"test:prepare","field":"test:quantity","unit":"test:item","maximum":"2"}]});
+        let input = json!({"activity":"test:prepare","unit":"test:item","maximum_quantity":"1"});
+        assert_eq!(
+            quantity_field(m, &terms, &offer, &input).unwrap(),
+            "test:quantity"
+        );
+        offer["unit_ceilings"][0]["field"] = json!("test:other");
+        assert!(quantity_field(m, &terms, &offer, &input).is_err());
+        let empty = json!({"quantity_ceilings":[]});
+        assert!(quantity_field(m, &empty, &offer, &input).is_err());
+    }
 }

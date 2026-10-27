@@ -58,6 +58,25 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     #[cfg(not(test))]
     validate_data(m, program, b, catalog, inst, t, (role, Some(current_grant)))
 }
+pub(in crate::policy::workflow::transition_constructor) fn validate_original_projection(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    binding: &Value,
+    catalog: &Value,
+    instantiation: &Value,
+    terms: &Value,
+    role: &Value,
+) -> Result<()> {
+    validate_data(
+        m,
+        program,
+        binding,
+        catalog,
+        instantiation,
+        terms,
+        (role, None),
+    )
+}
 fn validate_data(
     m: &mut CoreMeter,
     program: &SelectedProgram,
@@ -218,7 +237,7 @@ fn validate_data(
         }
     }
     let terms_schema = shape::text(m, t, "schema")?;
-    let app = program.uses_app_owned_cost_recipe();
+    let app = program.uses_app_owned_cost_recipe() && !program.uses_stage_lifecycle_recipe();
     let original_work_scope = if app {
         let expected = if program.uses_app_cost_causal_recipe() {
             "ledger-workflow-slot-binding-terms/7"
@@ -464,16 +483,32 @@ fn validate_data(
     }
     invoke!(amount, m, &data_field!(m, &t, "exposure_ceiling"))?;
     let exposures = invoke!(shape::array, m, b, "exposure_ceilings")?;
-    invoke!(count, m, exposures, 1)?;
-    invoke!(
-        shape::closed,
-        m,
-        &exposures[0],
-        &["binding_slot", "maximum"],
-        &[]
-    )?;
-    invoke!(copy, m, &exposures[0], "binding_slot", t, "slot")?;
-    invoke!(amount, m, &exposures[0]["maximum"])?;
+    if program.uses_stage_lifecycle_recipe() {
+        bounds(m, exposures.len(), 1, 16)?;
+        let mut selected = None;
+        for row in exposures {
+            shape::closed(m, row, &["binding_slot", "maximum"], &[])?;
+            amount(m, &row["maximum"])?;
+            if shape::same(m, &row["binding_slot"], &t["slot"])? && selected.replace(row).is_some()
+            {
+                return Err(shape::fail("duplicate Stage slot exposure"));
+            }
+        }
+        if selected.is_none() {
+            return Err(shape::fail("missing Stage slot exposure"));
+        }
+    } else {
+        invoke!(count, m, exposures, 1)?;
+        invoke!(
+            shape::closed,
+            m,
+            &exposures[0],
+            &["binding_slot", "maximum"],
+            &[]
+        )?;
+        invoke!(copy, m, &exposures[0], "binding_slot", t, "slot")?;
+        invoke!(amount, m, &exposures[0]["maximum"])?;
+    }
     if app {
         let declarations = shape::array(m, policy, "app_delayed_costs")?;
         let accepted = shape::array(m, t, "app_cost_terms")?;
@@ -719,6 +754,15 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_
             continue;
         }
         funding_literal(m, leg, "mode", "platform")?;
+        if program.uses_stage_lifecycle_recipe() {
+            let slot = shape::text(m, leg, "supplier_binding_slot")?;
+            let definitions = shape::array(m, program.original_policy_value(), "binding_slots")?;
+            let original = shape::named(m, definitions, "name", slot)?;
+            funding_literal(m, original, "book", "supplier")?;
+            shape::equal(m, &original["funding_leg"], &leg["name"])?;
+            shape::equal(m, &leg["resource_owner"], &leg["payer"])?;
+            continue;
+        }
         if leg.get("supplier_binding_slot").is_some() {
             return Err(shape::fail("app cannot assert supplier funding"));
         }

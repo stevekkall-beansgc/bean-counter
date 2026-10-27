@@ -78,6 +78,57 @@ pub(super) fn check_lifecycle(
 ) -> Result<()> {
     check_inner(m, p, docs, schemas, (declared_link, true, true))
 }
+// This is structural admission for the selected Stage recipe. Source/type,
+// original slot purposes and runtime obligations are checked by the shared
+// compiler, acceptance and producers; no business names enter this decision.
+pub(super) fn check_stage(
+    m: &mut CoreMeter,
+    p: &Policy,
+    docs: &[SelectedDocument],
+    schemas: &[(DefinitionRef, FactSchema)],
+    declared_link: bool,
+) -> Result<()> {
+    if same_literal(m, &p.mode, "component_workflow")? && p.stages.is_empty() {
+        return check_lifecycle(m, p, docs, schemas, declared_link);
+    }
+    require!(
+        m,
+        same_literal(m, &p.mode, "closure_share")? && !p.stages.is_empty(),
+        "selected Stage closure structure"
+    )?;
+    require!(
+        m,
+        p.families.is_empty()
+            && p.delayed_costs.is_empty()
+            && p.app_delayed_costs.as_ref().is_none_or(|v| v.is_empty()),
+        "closure share excludes component outcomes and final costs"
+    )?;
+    for rule in &p.rules {
+        m.visit("local.Stage_formula")?;
+        require!(
+            m,
+            matches!(
+                rule.formula,
+                Formula::Fixed { .. }
+                    | Formula::Unit { .. }
+                    | Formula::ClosureCap { .. }
+                    | Formula::ClosureShare { .. }
+            ),
+            "selected Stage formula"
+        )?;
+    }
+    for (_, schema) in schemas {
+        for field in shape::array(m, schema.canonical_value(), "fields")? {
+            require!(
+                m,
+                field_is(m, &field["provenance"], "kind", "caller")?
+                    || field_is(m, &field["provenance"], "kind", "attested")?,
+                "Stage fact provenance"
+            )?;
+        }
+    }
+    Ok(())
+}
 fn check_inner(
     m: &mut CoreMeter,
     p: &Policy,

@@ -4,6 +4,8 @@ mod support;
 pub use support::SelectedCompilerSupport;
 
 mod compiler;
+#[cfg(test)]
+pub(in crate::policy::workflow) use compiler::stage_fixture_normalized_source;
 pub use compiler::{
     compile_selected_program, compile_selected_publication, load_local_selected_execution,
     normalize_local_publication_input, rehydrate_selected_execution, restore_selected_program,
@@ -17,8 +19,7 @@ mod tests;
 mod validate;
 
 mod normalize;
-// Optional AP projection implementation remains retained in supplier_projection.rs;
-// the current app compilation/publication dependency does not execute AP support.
+pub(in crate::policy::workflow) mod supplier_projection;
 
 mod app_declarations;
 mod owning_plan;
@@ -33,9 +34,9 @@ mod local_admission;
 pub use local::{
     local_compiler_descriptor_with_session, local_conditional_compiler_descriptor_with_session,
     local_declared_link_compiler_descriptor_with_session,
-    local_policy_semantics_compiler_descriptor_with_session,
     local_policy_context_compiler_descriptor_with_session,
-    local_work_lifecycle_compiler_descriptor_with_session,
+    local_policy_semantics_compiler_descriptor_with_session,
     local_shared_namespace_compiler_descriptor_with_session,
     local_stage_lifecycle_compiler_descriptor_with_session,
+    local_work_lifecycle_compiler_descriptor_with_session,
 };

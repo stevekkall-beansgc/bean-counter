@@ -241,7 +241,9 @@ pub(super) fn resolve_role(
         }
         &slots[0]
     };
-    let schema = if program.uses_app_cost_causal_recipe() {
+    let schema = if program.uses_stage_lifecycle_recipe() {
+        "ledger-workflow-slot-binding-terms/3"
+    } else if program.uses_app_cost_causal_recipe() {
         "ledger-workflow-slot-binding-terms/7"
     } else {
         "ledger-workflow-slot-binding-terms/6"
