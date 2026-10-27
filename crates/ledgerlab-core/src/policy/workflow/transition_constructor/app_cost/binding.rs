@@ -121,7 +121,11 @@ pub(super) fn resolve_role(
     for field in ["agreement_id", "customer", "version"] {
         eq(m, &acceptance[field], &binding[field])?;
     }
-    inventory::binding::validate_app(m, &binding, &acceptance)?;
+    if program.uses_stage_lifecycle_recipe() {
+        inventory::binding::validate_stage(program, m, &binding, &acceptance)?;
+    } else {
+        inventory::binding::validate_app(m, &binding, &acceptance)?;
+    }
     let bytes = r.canonical(m, &acceptance_ref)?;
     let digest =
         super::super::records::hash_parts(m, "workflow-acceptance-terms", &[bytes], false)?;

@@ -706,7 +706,7 @@ pub fn derive_local_supplier_consent_verifications(
             "workflow-acceptance-terms",
             "ledger-workflow-acceptance-terms/2",
         )?;
-        inventory::binding::validate_app(m, binding, &accepted_terms)?;
+        inventory::binding::validate_stage(program, m, binding, &accepted_terms)?;
         let registered = records.get(
             m,
             key,

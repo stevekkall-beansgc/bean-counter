@@ -1,6 +1,7 @@
 //! Closed selected Binding/Terms declarations, distinct from host authentication.
 use super::super::{codec, meter, shape, CoreMeter};
 use super::check::*;
+use crate::policy::workflow::selected_program::SelectedProgram;
 use crate::Result;
 use serde_json::{json, Value};
 const INPUTS: &[&str] = &[
@@ -91,17 +92,34 @@ pub(in crate::policy::workflow::transition_constructor) fn ordered(
     }
     Ok(())
 }
+#[derive(Clone, Copy)]
+enum InputsRecipe<'a> {
+    Legacy,
+    App,
+    Stage(&'a SelectedProgram),
+}
+impl InputsRecipe<'_> {
+    fn app(self) -> bool {
+        !matches!(self, Self::Legacy)
+    }
+}
 pub(super) fn inputs(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()> {
     #[cfg(test)]
     {
         m.diagnostic_scope("inventory::binding::inputs", |m| {
-            inputs_data(m, v, assented, false)
+            inputs_data(m, v, assented, InputsRecipe::Legacy)
         })
     }
     #[cfg(not(test))]
-    inputs_data(m, v, assented, false)
+    inputs_data(m, v, assented, InputsRecipe::Legacy)
 }
-fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app: bool) -> Result<()> {
+fn inputs_data(
+    m: &mut CoreMeter,
+    v: &Value,
+    assented: bool,
+    recipe: InputsRecipe<'_>,
+) -> Result<()> {
+    let app = recipe.app();
     let mut required = INPUTS.to_vec();
     if !assented {
         required.extend(["assent_refs", "authority_refs"]);
@@ -181,7 +199,20 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app: bool) -> Resul
         }
     }
     let bindings = invoke!(shape::array, m, v, "bindings")?;
-    count(m, bindings, 1)?;
+    if let InputsRecipe::Stage(program) = recipe {
+        bounds(m, bindings.len(), 1, 16)?;
+        super::slots::keyed_order(m, bindings, "slot", false)?;
+        let declared = shape::array(m, program.original_policy_value(), "binding_slots")?;
+        count(m, bindings, declared.len())?;
+        for row in bindings {
+            let slot = shape::text(m, row, "slot")?;
+            let definition = shape::named(m, declared, "name", slot)?;
+            let book = shape::text(m, definition, "book")?;
+            one_of(m, book, &["retail", "supplier"])?;
+        }
+    } else {
+        count(m, bindings, 1)?;
+    }
     for slot in bindings {
         shape::closed(m, slot, &["slot", "binding_ref"], &[])?;
         invoke!(qualified, m, invoke!(shape::text, m, slot, "slot")?)?;
@@ -205,7 +236,26 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app: bool) -> Resul
         if app {
             let mode = shape::text(m, leg, "mode")?;
             one_of(m, mode, &["customer_local", "platform"])?;
-            if leg.get("supplier_binding_slot").is_some() {
+            if let InputsRecipe::Stage(program) = recipe {
+                if shape::same_text(m, mode, "platform")? {
+                    let slot = shape::text(m, leg, "supplier_binding_slot")?;
+                    let declared =
+                        shape::array(m, program.original_policy_value(), "binding_slots")?;
+                    let definition = shape::named(m, declared, "name", slot)?;
+                    let book = shape::text(m, definition, "book")?;
+                    if !shape::same_text(m, book, "supplier")? {
+                        return Err(shape::fail(
+                            "Stage platform leg requires original supplier slot",
+                        ));
+                    }
+                    shape::equal(m, &definition["funding_leg"], &leg["name"])?;
+                    shape::named(m, bindings, "slot", slot)?;
+                } else if leg.get("supplier_binding_slot").is_some() {
+                    return Err(shape::fail(
+                        "Stage customer leg cannot select supplier slot",
+                    ));
+                }
+            } else if leg.get("supplier_binding_slot").is_some() {
                 return Err(shape::fail("app funding cannot introduce AP slot"));
             }
         } else {
@@ -298,7 +348,46 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_app(
     }
     validate_data(m, b, terms, true)
 }
+/// Stage-selected declaration DATA uses the original Policy's complete slot set.
+/// Supplier/party/source/account authority remains in its existing consumers.
+pub(in crate::policy::workflow::transition_constructor) fn validate_stage(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    b: &Value,
+    terms: &Value,
+) -> Result<()> {
+    program.require_attempt_owner(m)?;
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("exact Stage binding recipe required"));
+    }
+    eq(m, b, "schema", &json!("ledger-workflow-binding/2"))?;
+    eq(
+        m,
+        terms,
+        "schema",
+        &json!("ledger-workflow-acceptance-terms/2"),
+    )?;
+    validate_data_recipe(m, b, terms, InputsRecipe::Stage(program))
+}
 fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app: bool) -> Result<()> {
+    validate_data_recipe(
+        m,
+        b,
+        terms,
+        if app {
+            InputsRecipe::App
+        } else {
+            InputsRecipe::Legacy
+        },
+    )
+}
+fn validate_data_recipe(
+    m: &mut CoreMeter,
+    b: &Value,
+    terms: &Value,
+    recipe: InputsRecipe<'_>,
+) -> Result<()> {
+    let app = recipe.app();
     // Projection creates no trusted document. Every consumed input field still
     // enters the paid closed declaration validator and exact terms comparison.
     if let Some(arena) = m.representation_arena() {
@@ -326,7 +415,7 @@ fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app: bool) -> Resu
         }
         let projected = arena.object_from_fields(&fields, m)?;
         if app {
-            inputs_data(m, projected.value(), false, true)?;
+            inputs_data(m, projected.value(), false, recipe)?;
         } else {
             inputs(m, projected.value(), false)?;
         }
@@ -360,7 +449,7 @@ fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app: bool) -> Resu
     )?;
     let signed = data_field!(m, terms, "binding_inputs");
     if app {
-        inputs_data(m, signed, true, true)?;
+        inputs_data(m, signed, true, recipe)?;
     } else {
         inputs(m, signed, true)?;
     }
@@ -397,4 +486,114 @@ pub(in crate::policy::workflow::transition_constructor) fn selected_declarations
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        canonical::{audit_arena::AuditArena, CanonicalBytes},
+        policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+        },
+        validation_work::{OriginalAuditSession, ResourceLimits},
+    };
+    fn reference(kind: &str, digit: char) -> Value {
+        let hex = digit.to_string().repeat(64);
+        json!({"kind":kind,"id":format!("wdoc_{hex}"),"digest":format!("sha256:{hex}")})
+    }
+    fn signed(binding: &Value) -> Value {
+        let mut inputs = binding.clone();
+        for field in ["schema", "assent_refs", "authority_refs"] {
+            inputs.as_object_mut().unwrap().remove(field);
+        }
+        json!({"schema":"ledger-workflow-acceptance-terms/2","scope":["example-company","local"],"publication_ref":reference("workflow-publication",'9'),"agreement_id":binding["agreement_id"],"customer":binding["customer"],"version":binding["version"],"binding_inputs":inputs})
+    }
+    #[test]
+    fn stage_binding_consumes_original_slots_and_supplier_leg_without_changing_app_recipe() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| CanonicalBytes::from_value(row).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        let fixture: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../../examples/workflow-stage/business.json"
+        ))
+        .unwrap();
+        // These Ref values are structural DATA only. This focused validator is
+        // deliberately not supplier consent, account custody or source authority.
+        let mut binding = fixture["binding"].clone();
+        binding["schema"] = json!("ledger-workflow-binding/2");
+        binding["slot_catalog_ref"] = reference("workflow-slot-catalog", '1');
+        binding["slot_instantiation_ref"] = reference("workflow-slot-instantiation", '2');
+        binding["roles_refs"] = json!([
+            reference("workflow-roles", '3'),
+            reference("workflow-roles", '4')
+        ]);
+        binding["assent_refs"] = json!([reference("workflow-assent", '5')]);
+        binding["authority_refs"] = json!([reference("workflow-source-grant", '6')]);
+        binding["accepted_context"] =
+            json!({"fact_schema_ref":program.context_schema_ref(),"facts":{}});
+        binding["bindings"] = json!([{"slot":"support:retail","binding_ref":reference("workflow-slot-terms",'7')},{"slot":"support:supplier","binding_ref":reference("workflow-slot-terms",'8')}]);
+        let terms = signed(&binding);
+        let mut consumer = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        validate_stage(&program, consumer.meter_mut(), &binding, &terms).unwrap();
+        let mut old = binding.clone();
+        old["bindings"].as_array_mut().unwrap().pop();
+        let mut old_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(
+            validate_app(old_session.meter_mut(), &old, &signed(&old))
+                .unwrap_err()
+                .detail,
+            "app funding cannot introduce AP slot"
+        );
+        for mut changed in [binding.clone(), binding.clone(), binding.clone()]
+            .into_iter()
+            .enumerate()
+        {
+            match changed.0 {
+                0 => {
+                    changed.1["bindings"].as_array_mut().unwrap().pop();
+                }
+                1 => {
+                    changed.1["funding_legs"][1]["supplier_binding_slot"] = json!("support:retail");
+                }
+                _ => {
+                    changed.1["funding_legs"][1]["name"] = json!("support:wrong-provider");
+                }
+            }
+            let mut refusal = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(validate_stage(
+                &program,
+                refusal.meter_mut(),
+                &changed.1,
+                &signed(&changed.1)
+            )
+            .is_err());
+        }
+        let mut unsigned = binding.clone();
+        unsigned["quantity_ceilings"][0]["maximum"] = json!("2");
+        let mut refusal = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(validate_stage(&program, refusal.meter_mut(), &unsigned, &terms).is_err());
+    }
 }
