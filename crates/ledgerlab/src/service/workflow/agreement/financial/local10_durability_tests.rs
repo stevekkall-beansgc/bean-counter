@@ -3,6 +3,7 @@
 //! runner output (RUN.json, main-work.request.json, installation/).
 //! Only a private temporary copy is opened; no raw financial append is used.
 use super::*;
+use crate::store::ports::AcceptanceStore;
 use sqlx::{sqlite::SqliteConnectOptions, AssertSqlSafe, Connection, SqliteConnection};
 use std::{
     fs,
@@ -141,6 +142,47 @@ fn operations(snapshot: &[(String, Vec<String>)]) -> usize {
         .unwrap()
         .1
         .len()
+}
+
+#[tokio::test]
+#[ignore = "requires the exact stopped synthetic Stage source3 request; private copy only"]
+async fn saved_source3_enrollment_prepares_then_rolls_back_without_append() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("alias-enroll.request.json")).unwrap();
+    assert_eq!(records::raw_hash(&raw), "10fc380333fc6e0f4fe5964782250edd5a1f096375c65d56f7d5f24fd0ceaaaa");
+    let request = super::super::request::Request::parse(&raw).unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary.path().canonicalize().unwrap().join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 14);
+    let ledger = LocalWorkflowLedger::open_local(&installation).await.unwrap();
+    let mut tx = ledger.store.begin(crate::service::workflow::local::deadline()).await.unwrap();
+    let key = request.key();
+    let result = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
+        ledger.admin.read(&ledger.store, tx, key).await?;
+        let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
+        let root = tx.workflow_agreement_root_candidate(&key.logical_store_id, &key.scope).await
+            .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+        verify::document_origin(tx, key, &root.reference).await?;
+        verify::root(&canonical_body(&root)?, key, Some(&key.source))?;
+        let payload = super::super::service::normalize_payload(&request)?;
+        let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+        let prepared = super::super::source::prepare(tx, key, &payload, &setup, &at, "real_local", &root.reference).await?;
+        require(prepared.results.len() == 3, "INTEGRITY_FAILURE")?;
+        let target = prepared.documents.iter().find(|d| d.reference.kind == "workflow-source-enrollment"
+            && prepared.results.contains(&d.reference)).ok_or(ServiceError::IntegrityFailure)?;
+        let body = canonical_body(target)?;
+        require(body["ceiling"] == payload["ceiling"] && body["evidence_ref"] == payload["evidence_ref"], "INTEGRITY_FAILURE")?;
+        Ok(())
+    })).await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
 }
 
 #[tokio::test]

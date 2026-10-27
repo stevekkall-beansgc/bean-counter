@@ -186,9 +186,7 @@ pub(super) async fn prepare(
                 let enrollment_ref =
                     reference(&verify::checked(&state.bytes, 262144)?["enrollment_ref"])?;
                 let enrollment = loaded(tx, key, &enrollment_ref).await?;
-                let enrollment =
-                    ledgerlab_core::policy::workflow::SourceEnrollment::parse(&enrollment.bytes)
-                        .map_err(|_| ServiceError::IntegrityFailure)?;
+                let enrollment = source::enrollment_data(tx, key, &enrollment).await?;
                 if enrollment.scope() != &key.scope
                     || json!(enrollment.reference()) != json!(enrollment_ref)
                 {

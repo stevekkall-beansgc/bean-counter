@@ -169,8 +169,7 @@ pub(super) async fn source_as_of(
     // Data only until the complete original revision1 birth certificate below
     // authenticates this exact enrollment. Avoid reproving that same origin.
     let document = loaded(tx, key, enrollment_ref).await?;
-    let enrollment =
-        SourceEnrollment::parse(&document.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+    let enrollment = source::enrollment_data(tx, key, &document).await?;
     if enrollment.scope() != &key.scope
         || json!(enrollment.reference()) != json!(enrollment_ref)
         || enrollment

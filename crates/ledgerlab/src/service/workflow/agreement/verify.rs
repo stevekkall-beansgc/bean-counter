@@ -215,10 +215,9 @@ fn dependencies(body: &Value, kind: &str, key: &OperationKey) -> Result<Vec<Reco
             ])
         }
         "workflow-source-enrollment" => {
-            let e =
-                ledgerlab_core::policy::workflow::SourceEnrollment::parse(&records::bytes(body)?)
-                    .map_err(|_| ServiceError::IntegrityFailure)?;
-            if e.scope() != &key.scope {
+            // The complete typed enrollment is checked after its original
+            // recipe and canonical owner have joined this bounded closure.
+            if body["scope"] != json!(key.scope) {
                 return Err(ServiceError::IntegrityFailure);
             }
             let mut refs: Vec<RecordRef> = serde_json::from_value(body["customer_refs"].clone())
@@ -311,6 +310,12 @@ pub(super) async fn closure(
             .ok_or(ServiceError::IntegrityFailure)?;
         require(total <= 8 * 1024 * 1024, "PROGRAM_BUDGET_EXCEEDED")?;
         todo.extend(dependencies(&body, &r.kind, key)?);
+        if r.kind == "workflow-source-enrollment" {
+            let payload = source::enrollment_payload(tx, key, &r).await?;
+            if source::shared_namespace_schema(&payload) {
+                todo.push(parse_ref(&payload["namespace_owner_enrollment_ref"])?);
+            }
+        }
         loaded.insert(r.id.clone(), d);
     }
     for d in loaded.values() {
@@ -371,7 +376,7 @@ pub(super) async fn closure(
             }
         }
     }
-    source::verify_closure(key, &loaded)?;
+    source::verify_closure(tx, key, &loaded).await?;
     Ok(loaded.into_values().collect())
 }
 pub(super) async fn locator_dependencies(
@@ -573,7 +578,7 @@ async fn retained_local(
         }
         records::bytes(&json!(["customer.register", body["customer"]]))?
     } else {
-        source::verify_intent(key, &payload, &results, &docs)?
+        source::verify_intent(tx, key, &payload, &results, &docs).await?
     };
     let original = tx
         .workflow_agreement_semantic(&key.logical_store_id, &key.scope, &o.kind, &semantic)

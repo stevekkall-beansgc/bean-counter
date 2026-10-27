@@ -137,7 +137,7 @@ pub(super) async fn enrollment(
 ) -> Result<SourceEnrollment> {
     verify::document_origin(tx, key, r).await?;
     let d = loaded(tx, key, r).await?;
-    let e = SourceEnrollment::parse(&d.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+    let e = enrollment_data(tx, key, &d).await?;
     if json!(e.reference()) != json!(r) || e.scope() != &key.scope {
         return Err(ServiceError::IntegrityFailure);
     }
@@ -156,6 +156,57 @@ pub(super) async fn enrollment(
         return Err(ServiceError::IntegrityFailure);
     }
     Ok(e)
+}
+
+/// Select the original enrollment recipe from its exact immutable producer.
+/// This is acquisition DATA; callers still complete the original certificate.
+pub(super) async fn enrollment_payload(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+) -> Result<Value> {
+    let (identity, kind, sequence) = tx
+        .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let original = tx.workflow_agreement_lookup(&identity).await
+        .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    let saved_key = OperationKey::parse(&identity)?;
+    let operation = verify::checked(&original.operation_bytes, 8388608)?;
+    let request = &operation["request_evidence"]["normalized_request"];
+    require(
+        kind == "authority.change" && original.kind == kind
+            && original.sequence == sequence && original.members.contains(reference)
+            && saved_key.logical_store_id == key.logical_store_id && saved_key.scope == key.scope
+            && operation["key"] == json!(saved_key) && request["key"] == json!(saved_key)
+            && request["kind"] == "authority.change"
+            && operation["result_refs"].as_array().is_some_and(|refs| refs.contains(&json!(reference))),
+        "INTEGRITY_FAILURE",
+    )?;
+    let payload = &request["payload"];
+    require(payload["action"] == "source.enroll", "INTEGRITY_FAILURE")?;
+    let normalized = normalize(payload).map_err(|_| ServiceError::IntegrityFailure)?;
+    require(normalized == *payload, "INTEGRITY_FAILURE")?;
+    Ok(normalized)
+}
+
+pub(super) async fn enrollment_data(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    document: &Document,
+) -> Result<SourceEnrollment> {
+    let payload = enrollment_payload(tx, key, &document.reference).await?;
+    if shared_namespace_schema(&payload) {
+        let owner: RecordRef = serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+        let owner = loaded(tx, key, &owner).await?;
+        let owner = SourceEnrollment::parse(&owner.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+        SourceEnrollment::parse_shared_namespace(&document.bytes, &payload, &owner)
+            .map_err(|_| ServiceError::IntegrityFailure)
+    } else {
+        SourceEnrollment::parse(&document.bytes).map_err(|_| ServiceError::IntegrityFailure)
+    }
 }
 async fn by_id(tx: &mut SqliteTx, key: &OperationKey, id: &str) -> Result<Document> {
     tx.workflow_document_by_id(id, &key.logical_store_id, &key.scope[0], &key.scope[1])
@@ -261,7 +312,7 @@ pub(super) async fn prepare(
         if mapping.is_some_and(|n| n != ceiling.canonical_economic_namespace()) {
             return Err(ServiceError::IntegrityFailure);
         }
-        if let Some(owner) = &p.namespace_owner_enrollment_ref {
+        let namespace_owner = if let Some(owner) = &p.namespace_owner_enrollment_ref {
             let anchor = enrollment(tx, key, owner).await?;
             require(
                 anchor.ceiling().source() == anchor.ceiling().canonical_economic_namespace()
@@ -269,7 +320,8 @@ pub(super) async fn prepare(
                     && anchor.ceiling().principal_id() == setup.operator,
                 "AUTHORITY_REQUIRED",
             )?;
-        }
+            Some(anchor)
+        } else { None };
         let dependencies = verify::authenticated_closure(
             tx,
             key,
@@ -324,8 +376,12 @@ pub(super) async fn prepare(
             "INSTALLATION_MODE_MISMATCH",
         )?;
         let body = json!({"schema":"ledger-workflow-source-enrollment/1","scope":key.scope,"enrollment_id":p.enrollment_id,"customer_refs":p.customer_refs,"ceiling":p.ceiling,"evidence_ref":p.evidence_ref,"enrolled_by":setup.operator,"enrolled_at":at,"authority_ref":root,"installation_mode":mode});
-        let e = SourceEnrollment::parse(&records::bytes(&body)?)
-            .map_err(|_| ServiceError::IntegrityFailure)?;
+        let bytes = records::bytes(&body)?;
+        let e = if let Some(owner) = &namespace_owner {
+            SourceEnrollment::parse_shared_namespace(&bytes, payload, owner)
+        } else {
+            SourceEnrollment::parse(&bytes)
+        }.map_err(|_| ServiceError::IntegrityFailure)?;
         let enrollment_doc = data_document(
             "workflow-source-enrollment",
             e.canonical_value()
@@ -468,16 +524,21 @@ fn doc<'a>(
     }
     Ok(d)
 }
-pub(super) fn verify_closure(
+pub(super) async fn verify_closure(
+    tx: &mut SqliteTx,
     key: &OperationKey,
     documents: &std::collections::BTreeMap<String, Document>,
 ) -> Result<()> {
+    let mut enrollments = std::collections::BTreeMap::new();
+    for document in documents.values().filter(|d| d.reference.kind == "workflow-source-enrollment") {
+        let e = enrollment_data(tx, key, document).await?;
+        enrollments.insert(document.reference.id.clone(), e);
+    }
     for d in documents.values() {
         let body = canonical_body(d)?;
         match d.reference.kind.as_str() {
             "workflow-source-enrollment" => {
-                let e = SourceEnrollment::parse(&d.bytes)
-                    .map_err(|_| ServiceError::IntegrityFailure)?;
+                let e = enrollments.get(&d.reference.id).ok_or(ServiceError::IntegrityFailure)?;
                 if e.canonical_bytes() != d.bytes
                     || json!(e.reference()) != json!(d.reference)
                     || e.scope() != &key.scope
@@ -526,8 +587,7 @@ pub(super) fn verify_closure(
             "workflow-source-grant" => {
                 let g = SourceGrant::parse(&d.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
                 let original = doc(documents, &body["original_ceiling_ref"])?;
-                let e = SourceEnrollment::parse(&original.bytes)
-                    .map_err(|_| ServiceError::IntegrityFailure)?;
+                let e = enrollments.get(&original.reference.id).ok_or(ServiceError::IntegrityFailure)?;
                 if g.canonical_bytes() != d.bytes
                     || g.document_id() != d.reference.id
                     || g.content_digest() != d.reference.digest
@@ -540,10 +600,9 @@ pub(super) fn verify_closure(
             }
             "workflow-source-state" => {
                 let original = doc(documents, &body["enrollment_ref"])?;
-                let e = SourceEnrollment::parse(&original.bytes)
-                    .map_err(|_| ServiceError::IntegrityFailure)?;
+                let e = enrollments.get(&original.reference.id).ok_or(ServiceError::IntegrityFailure)?;
                 let s =
-                    SourceState::parse(&d.bytes, &e).map_err(|_| ServiceError::IntegrityFailure)?;
+                    SourceState::parse(&d.bytes, e).map_err(|_| ServiceError::IntegrityFailure)?;
                 if s.canonical_bytes() != d.bytes
                     || json!(s.reference()) != json!(d.reference)
                     || s.logical_store_id() != key.logical_store_id
@@ -561,7 +620,7 @@ pub(super) fn verify_closure(
                     .transpose()?;
                 let prior = if let Some(r) = body.get("prior_state_ref") {
                     let p = doc(documents, r)?;
-                    let state = SourceState::parse(&p.bytes, &e)
+                    let state = SourceState::parse(&p.bytes, e)
                         .map_err(|_| ServiceError::IntegrityFailure)?;
                     let pbody = canonical_body(p)?;
                     let grant =
@@ -571,7 +630,7 @@ pub(super) fn verify_closure(
                 } else {
                     None
                 };
-                s.validate_lineage(&e, current.as_ref(), prior.as_ref().map(|(s, g)| (s, g)))
+                s.validate_lineage(e, current.as_ref(), prior.as_ref().map(|(s, g)| (s, g)))
                     .map_err(|_| ServiceError::IntegrityFailure)?;
             }
             _ => {}
@@ -627,7 +686,8 @@ fn document_map(documents: &[Document]) -> std::collections::BTreeMap<String, Do
         })
         .collect()
 }
-pub(super) fn verify_intent(
+pub(super) async fn verify_intent(
+    tx: &mut SqliteTx,
     key: &OperationKey,
     payload: &Value,
     results: &[RecordRef],
@@ -641,7 +701,7 @@ pub(super) fn verify_intent(
     let state_doc = map.get(&sr.id).ok_or(ServiceError::IntegrityFailure)?;
     let state_body = canonical_body(state_doc)?;
     let original = doc(&map, &state_body["enrollment_ref"])?;
-    let e = SourceEnrollment::parse(&original.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+    let e = enrollment_data(tx, key, original).await?;
     let state =
         SourceState::parse(&state_doc.bytes, &e).map_err(|_| ServiceError::IntegrityFailure)?;
     if let Some(current) = state.current_grant_ref() {
@@ -810,15 +870,7 @@ pub(super) async fn namespace_owner_locator(
     key: &OperationKey,
     enrollment: &RecordRef,
 ) -> Result<RecordRef> {
-    let (identity, kind, _) = tx.workflow_agreement_document_origin(
-        &key.logical_store_id, &key.scope, enrollment,
-    ).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
-    require(kind == "authority.change", "INTEGRITY_FAILURE")?;
-    let original = tx.workflow_agreement_lookup(&identity).await
-        .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
-    let saved = canonical::parse_bounded(&original.operation_bytes, 4194304)
-        .map_err(|_| ServiceError::IntegrityFailure)?;
-    let payload = &saved["request_evidence"]["normalized_request"]["payload"];
+    let payload = enrollment_payload(tx, key, enrollment).await?;
     require(payload["schema"] == "ledger-workflow-source-enroll/3", "INTEGRITY_FAILURE")?;
     let owner: RecordRef = serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
         .map_err(|_| ServiceError::IntegrityFailure)?;
