@@ -210,7 +210,7 @@ class StageJourney(MeteredJourney):
         att = self.evidence("provider-authority-attestation", "ledger-workflow-party-evidence-retain/1", subject,
             {"purpose": "party_operator_attestation", "statement": "operator_verified_party_acceptor_authority", "target_evidence_ref": ev})
         result = self.submit("provider-authorize", "authority.change", {"schema": "ledger-workflow-party-authorize/1",
-            "action": "party.authorize", "expected_revision": "0", "authorization": authorization,
+            "expected_revision": "0", "authorization": authorization,
             "evidence_ref": ev, "operator_attestation_ref": att})
         auth = unique(result, "workflow-authority")
         consent = {**subject, "scope": self.scope, "roles": ["provider"], "authorization_ref": auth,
