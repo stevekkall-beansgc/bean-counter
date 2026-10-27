@@ -177,3 +177,92 @@ async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow(
     tx.rollback().await.unwrap();
     store.close().await;
 }
+
+#[tokio::test]
+async fn management_guards_accept_migrated_stage18_and_reject_unknown_schema() {
+    use crate::store::sqlite::workflow::financial::FinancialReadError;
+    use ledgerlab_core::{
+        canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
+    };
+    let (_dir, _path, store) = create().await;
+    enable(&store).await;
+    let mut tx = store.begin(deadline()).await.unwrap();
+    tx.workflow_enable_financial_schema().await.unwrap();
+    tx.workflow_enable_supplier_schema().await.unwrap();
+    tx.workflow_enable_app_schema().await.unwrap();
+    tx.workflow_enable_assertion_schema().await.unwrap();
+    tx.workflow_enable_resource_schema().await.unwrap();
+    tx.workflow_enable_stage_schema().await.unwrap();
+    tx.commit().await.unwrap();
+    for (version, sequence) in [(18i64, true), (19, true), (19, false)] {
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut tx = store
+            .begin_with_resource_session(deadline(), &mut session)
+            .await
+            .unwrap();
+        assert_eq!(tx.billing_schema_version().await.unwrap(), 18);
+        let before = tx.workflow_management_changes(&mut session).await.unwrap();
+        if version == 19 {
+            sqlx::query("PRAGMA user_version=19")
+                .execute(tx.conn())
+                .await
+                .unwrap();
+        }
+        if sequence {
+            let result = tx.workflow_management_sequence(&mut session).await;
+            if version == 18 {
+                assert_eq!(result.unwrap(), 1);
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(FinancialReadError::Store(
+                        StoreError::BillingUpgradeRequired
+                    ))
+                ));
+            }
+        }
+        if version == 18 || !sequence {
+            // Connection-local temporary data changes total_changes(), exercising
+            // the real post-mutation capacity/version branch without appending
+            // an economic or administrative operation to the migrated store.
+            sqlx::query("CREATE TEMP TABLE management_guard_probe(value INTEGER)")
+                .execute(tx.conn())
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO management_guard_probe VALUES(1)")
+                .execute(tx.conn())
+                .await
+                .unwrap();
+            let result = tx
+                .workflow_management_commit_guard(Some(before), &mut session)
+                .await;
+            if version == 18 {
+                result.unwrap();
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(FinancialReadError::Store(StoreError::InvalidStore(
+                        "unsupported guarded workflow schema"
+                    )))
+                ));
+            }
+        }
+        tx.rollback().await.unwrap();
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA user_version")
+            .fetch_one(&store.inner.writer)
+            .await
+            .unwrap(),
+        18
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM workflow_operations")
+            .fetch_one(&store.inner.writer)
+            .await
+            .unwrap(),
+        0
+    );
+    store.close().await;
+}
