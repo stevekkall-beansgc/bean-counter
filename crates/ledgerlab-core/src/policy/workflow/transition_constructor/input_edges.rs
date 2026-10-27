@@ -520,6 +520,12 @@ pub fn select_local_input_edges(
                 "current_party_authorization_refs",
                 "local_admin_ref",
             ]),
+            "ledger-workflow-stage-causal-authority/1" => Some(&[
+                "stage_instance_ref",
+                "prior_stage_decision_ref",
+                "causal_root_ref",
+                "component_checks",
+            ]),
             "ledger-workflow-allocation/1" => Some(&[
                 "stage_instance_ref",
                 "allocation_parent",
