@@ -90,13 +90,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             canonical_body: body.as_slice(),
         })
         .collect::<Vec<_>>();
+    // Compilation and commitment derivation are separate audit attempts.
+    // Retain the actual Program/support owners in the same paid arena.
+    let mut derivation = OriginalAuditSession::for_resource_profile_v2(&arena)?;
     let commitment = derive_local_supplier_commitment(
         &program,
         &key,
         &input["binding_inputs"],
         &input["supplier_terms_projection"],
         &views,
-        &mut session,
+        &mut derivation,
     )?;
     let output = PathBuf::from(&args[1]);
     fs::create_dir_all(&output)?;
