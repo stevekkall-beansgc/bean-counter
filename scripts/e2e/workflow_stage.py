@@ -41,6 +41,38 @@ class StageJourney(MeteredJourney):
             key["source"] = self.corrector
         return key
 
+    def submit(self, name, kind, payload):
+        self.last_submission = name
+        return super().submit(name, kind, payload)
+
+    def preserve_first_failure(self):
+        name = getattr(self, "last_submission", None)
+        if name is None:
+            return
+        path = self.root / (name + ".request.json")
+        if not path.exists():
+            return
+        raw = path.read_bytes()
+        request = json.loads(raw)
+        failure = {"operation": name, "request_path": str(path),
+                   "raw_sha256": sha(raw), "key": request["key"]}
+        committed = self.root / (name + ".committed.json")
+        if committed.exists():
+            failure["saved_result"] = json.loads(committed.read_bytes())
+        if "failed_original_status" not in self.meta:
+            try:
+                before = self.snapshot()
+                (self.root / "first-failure-status-before.json").write_bytes(canonical(before))
+                self.meta["failed_original_status"] = self.workflow("first-failure-status", "status",
+                    self.write("first-failure.key.json", request["key"]))
+                after = self.snapshot()
+                (self.root / "first-failure-status-after.json").write_bytes(canonical(after))
+                failure["status_no_append"] = before == after
+            except Exception as error:
+                self.meta["failed_original_status"] = {"status": "unknown", "error_type": type(error).__name__}
+        self.meta["first_unexpected_original"] = failure
+        self.save()
+
     def snapshot(self):
         value = Journey.snapshot(self)
         value["billing_configuration_sha256"] = sha((self.installation / "billing.json").read_bytes())
@@ -430,6 +462,7 @@ def main():
         journey.sequence()
     except Exception:
         journey.meta["status"] = "STOPPED_FIRST_UNEXPECTED_RESULT"
+        journey.preserve_first_failure()
         raise
     finally:
         if (journey.installation / ".ledger/local.db").exists():
