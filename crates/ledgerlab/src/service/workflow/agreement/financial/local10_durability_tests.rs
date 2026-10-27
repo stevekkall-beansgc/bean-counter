@@ -248,9 +248,11 @@ async fn platform_evidence_retention_account_original_route_rolls_back() {
         ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
             .unwrap();
     let mut tx = resource.begin(&ledger.store, &mut s).await.unwrap();
-    tx.workflow_main_session = true;
     let result = proof_session::with_proofs(&mut tx, &key, |tx| Box::pin(async {
         let retained_ref = retain_platform_test_input(&ledger, tx, &raw).await?;
+        // Prerequisite retention owns its read attempt before the account
+        // coordinator starts its main attempt.
+        tx.workflow_main_session = true;
         let retained = loaded(tx, &key, &retained_ref).await?;
         let body = canonical_body(&retained)?;
         require(body["schema"] == "ledger-workflow-retained-evidence/2", "INTEGRITY_FAILURE")?;
@@ -267,10 +269,13 @@ async fn platform_evidence_retention_account_original_route_rolls_back() {
         let management = ManagementObservation::capture(&ledger, tx, incoming.key(), request_wrapper::field(incoming.value(), "key", &mut s)?, &mut s).await?;
         local_cost_authority::prepare_append(&ledger, tx, &incoming, &management, &mut s).await?;
         proof_session::after_append(tx, incoming.key())?;
-        let identity = s.canonical_representation(&enrollment["key"], ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
-        let acquired = prefix::target(tx, incoming.key(), identity, &mut s).await?;
-        let original = acquired.checked_wrappers(tx, &mut s).await?;
-        require(local_cost_authority::verify_original(tx, &original, None, &mut s).await?, "INTEGRITY_FAILURE")?;
+        // A saved-original query is a distinct audit attempt. The fresh
+        // account attempt has already consumed its sole economic child.
+        let mut original_session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+        let identity = original_session.canonical_representation(&enrollment["key"], ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+        let acquired = prefix::target(tx, incoming.key(), identity, &mut original_session).await?;
+        let original = acquired.checked_wrappers(tx, &mut original_session).await?;
+        require(local_cost_authority::verify_original(tx, &original, None, &mut original_session).await?, "INTEGRITY_FAILURE")?;
         let op = original.wrappers().operation();
         let snapshot = &op["authority_snapshot"];
         let basis = &snapshot["local_admin_snapshot"]["basis"];
