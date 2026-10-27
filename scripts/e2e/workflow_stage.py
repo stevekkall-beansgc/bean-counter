@@ -20,6 +20,9 @@ class StageJourney(MeteredJourney):
     fixture_directory = REPO / "examples/workflow-stage"
     reopen_retry = LifecycleJourney.reopen_retry
 
+    def source_documents(self):
+        return Journey.source_documents(self)
+
     def __init__(self, args):
         Journey.__init__(self, args)
         self.worker = self.business["worker_source"]

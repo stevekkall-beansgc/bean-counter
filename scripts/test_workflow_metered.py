@@ -16,6 +16,7 @@ import workflow_attested as attested
 import workflow_conditional as conditional
 import workflow_declared_link as declared
 import workflow_supported as supported
+import workflow_stage as stage
 
 
 def ref(name, kind="workflow-decision"):
@@ -40,6 +41,26 @@ class DeclaredSourceRoutingTests(unittest.TestCase):
             self.assertEqual(len(actual), len(documents))
             self.assertTrue((journey.inputs / "product.json").is_file())
             self.assertTrue((journey.inputs / "policy.json").is_file())
+
+
+class StageSourceRoutingTests(unittest.TestCase):
+    def test_stage_writes_exact_frozen_source_without_metered_parameters(self):
+        fixture = stage.StageJourney.fixture_directory / "source.json"
+        original = fixture.read_bytes()
+        expected = json.loads(original)["documents"]
+        with tempfile.TemporaryDirectory() as directory:
+            journey = stage.StageJourney.__new__(stage.StageJourney)
+            journey.inputs = Path(directory)
+            self.assertFalse(hasattr(journey, "parameters"))
+            with patch.object(journey, "command", side_effect=AssertionError("product call")), \
+                 patch.object(journey, "submit", side_effect=AssertionError("product call")):
+                self.assertEqual(journey.source_documents(), expected)
+                journey.write_source_documents()
+            actual = [json.loads(p.read_bytes()) for p in journey.inputs.iterdir()]
+            self.assertCountEqual(actual, expected)
+            self.assertEqual(len(actual), len(expected))
+            self.assertEqual(fixture.read_bytes(), original)
+            self.assertFalse(hasattr(journey, "parameters"))
 
 
 class MeteredDriverTests(unittest.TestCase):
