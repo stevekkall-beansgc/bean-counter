@@ -145,6 +145,83 @@ fn operations(snapshot: &[(String, Vec<String>)]) -> usize {
 }
 
 #[tokio::test]
+#[ignore = "requires exact stopped Stage publication fixture; private transaction rolls back"]
+async fn saved_stage_publication_prepares_and_verifies_original_then_rolls_back() {
+    assert!(
+        crate::build_identity::embedded_inputs().is_ok(),
+        "requires actual captured build inputs"
+    );
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("publication.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "e3d493df3354d2b24c897c16b8e792d8a85ee79a303484ed4ca6e409c13bde26"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let before = snapshot_tables(&installation, true).await;
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 15);
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let resource = ledger.resource_snapshot().unwrap();
+    let arena = resource.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let incoming = ingress::IncomingRequest::parse_publication(&raw, &mut s).unwrap();
+    let mut tx = resource.begin(&ledger.store, &mut s).await.unwrap();
+    tx.workflow_main_session = true;
+    let result = proof_session::with_proofs(&mut tx, incoming.key(), |tx| {
+        Box::pin(async {
+            let reply = local_publication::prepare_append(
+                &ledger,
+                tx,
+                &raw,
+                publication_prepare::local_support,
+                &mut s,
+            )
+            .await?;
+            let saved = reply.into_legacy_value();
+            let identity = s
+                .canonical_representation(
+                    &json!(incoming.key()),
+                    ledgerlab_core::validation_work::RepresentationKind::Record,
+                )
+                .map_err(core_error)?;
+            let acquired = prefix::target(tx, incoming.key(), identity, &mut s).await?;
+            let original = acquired.checked_wrappers(tx, &mut s).await?;
+            require(
+                local_publication::verify_original(tx, &original, &mut s)
+                    .await?
+                    .is_some(),
+                "INTEGRITY_FAILURE",
+            )?;
+            let evidence = request_wrapper::field(
+                original.wrappers().operation(),
+                "request_evidence",
+                &mut s,
+            )?;
+            require(saved["request_evidence"] == *evidence, "INTEGRITY_FAILURE")?;
+            Ok(())
+        })
+    })
+    .await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
+}
+
+#[tokio::test]
 #[ignore = "requires the exact stopped synthetic Stage source3 request; private copy only"]
 async fn saved_source3_enrollment_prepares_then_rolls_back_without_append() {
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());

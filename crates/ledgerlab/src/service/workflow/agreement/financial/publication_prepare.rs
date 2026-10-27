@@ -568,6 +568,9 @@ mod support_selection_tests {
             SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut s).unwrap();
         let lifecycle_ref = serde_json::to_value(lifecycle.reference()).unwrap();
         assert_ne!(lifecycle_ref, context_ref);
+        let stage =
+            SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut s).unwrap();
+        let stage_ref = serde_json::to_value(stage.reference()).unwrap();
         for reference in [
             &old_ref,
             &new_ref,
@@ -575,6 +578,7 @@ mod support_selection_tests {
             &policy_ref,
             &context_ref,
             &lifecycle_ref,
+            &stage_ref,
         ] {
             let selected = local_support(reference, &mut s).unwrap();
             assert_eq!(
