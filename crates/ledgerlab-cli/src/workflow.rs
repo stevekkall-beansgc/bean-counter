@@ -66,7 +66,7 @@ pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
                     "USAGE",
                     "use workflow resources show|set FILE",
                     2,
-                )))
+                )));
             }
         };
         let ledger = LocalWorkflowLedger::open_local(&directory).await?;
@@ -115,6 +115,22 @@ pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
     ledger.close().await;
     result.map(|result| (result, 0)).map_err(LocalError::from)
 }
+fn financial_evidence_schema(schema: Option<&str>) -> bool {
+    matches!(
+        schema,
+        Some(
+            "ledger-workflow-fact-attest/1"
+                | "ledger-workflow-family-close-attest/1"
+                | "ledger-workflow-supplier-cost-attest/1"
+                | "ledger-workflow-app-observe/1"
+                | "ledger-workflow-app-cost-attest/1"
+                | "ledger-workflow-party-evidence-retain/1"
+                | "ledger-workflow-party-evidence-retain/2"
+                | "ledger-workflow-party-evidence-retain/3"
+        )
+    )
+}
+
 async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutput, ServiceError> {
     // This header is only routing. Each actual host entry revalidates its
     // closed request and global original identity before fresh authorization.
@@ -131,22 +147,7 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
             "local-publication"
         }
         Some("policy.publish") => "policy.publish",
-        Some("evidence.retain")
-            if matches!(
-                payload_schema,
-                Some(
-                    "ledger-workflow-fact-attest/1"
-                        | "ledger-workflow-family-close-attest/1"
-                        | "ledger-workflow-supplier-cost-attest/1"
-                        | "ledger-workflow-app-observe/1"
-                        | "ledger-workflow-app-cost-attest/1"
-                        | "ledger-workflow-party-evidence-retain/1"
-                        | "ledger-workflow-party-evidence-retain/2"
-                )
-            ) =>
-        {
-            "financial"
-        }
+        Some("evidence.retain") if financial_evidence_schema(payload_schema) => "financial",
         Some("authority.change")
             if matches!(
                 payload_schema,
@@ -202,5 +203,29 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
             .await
             .map(CommandOutput::Workflow),
         _ => Err(ServiceError::IntegrityFailure),
+    }
+}
+
+#[cfg(test)]
+mod routing_tests {
+    use super::*;
+
+    #[test]
+    fn supplier_consent_evidence_routes_exact_versions_to_financial_host() {
+        for schema in [
+            "ledger-workflow-party-evidence-retain/1",
+            "ledger-workflow-party-evidence-retain/2",
+            "ledger-workflow-party-evidence-retain/3",
+        ] {
+            assert!(financial_evidence_schema(Some(schema)));
+        }
+        for schema in [
+            None,
+            Some("ledger-workflow-party-evidence-retain/4"),
+            Some("ledger-workflow-evidence-retain/2"),
+            Some("foreign"),
+        ] {
+            assert!(!financial_evidence_schema(schema));
+        }
     }
 }
