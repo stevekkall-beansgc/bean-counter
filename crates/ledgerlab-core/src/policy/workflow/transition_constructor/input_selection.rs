@@ -263,6 +263,31 @@ fn work_terms_row<'a>(
     }
 }
 
+fn stage_work_terms_association(
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    payload: &Value,
+    binding: &Value,
+    selected_row: &Value,
+    terms: &Value,
+) -> Result<()> {
+    // Binding2 deliberately has no scope member. The actual held operation
+    // key is the scoped association, just as in the consuming interpreter.
+    let scope = super::work_keys::scope(m, key)?;
+    shape::equal(m, &terms["scope"], scope.value())?;
+    for field in ["agreement_id", "customer"] {
+        shape::equal(m, &terms[field], &binding[field])?;
+    }
+    shape::equal(m, &terms["slot"], &selected_row["slot"])?;
+    let activities = shape::array(m, terms, "allowed_activities")?;
+    if !shape::member(m, activities, &payload["activity"])? {
+        return Err(shape::fail(
+            "Stage work activity absent original retail Terms",
+        ));
+    }
+    Ok(())
+}
+
 /// Actual original Binding/Terms source group and initial-state locator. No
 /// authority predicate or original receipt is inferred from this selection.
 /// In particular the matched original group is DERIVED from accepted Terms,
@@ -328,16 +353,14 @@ pub fn select_work_input_seeds<'a>(
             schema,
         )?;
         if program.uses_stage_lifecycle_recipe() {
-            for field in ["scope", "agreement_id", "customer"] {
-                shape::equal(m, &terms[field], &binding[field])?;
-            }
-            shape::equal(m, &terms["slot"], &selected_row["slot"])?;
-            let activities = shape::array(m, &terms, "allowed_activities")?;
-            if !shape::member(m, activities, &p.value()["activity"])? {
-                return Err(shape::fail(
-                    "Stage work activity absent original retail Terms",
-                ));
-            }
+            stage_work_terms_association(
+                m,
+                capture.key,
+                p.value(),
+                &binding,
+                selected_row,
+                &terms,
+            )?;
         }
         let originals = shape::array(m, &terms, "source_grant_refs")?;
         let binding_grants = shape::array(m, &binding, "authority_refs")?;
@@ -910,15 +933,42 @@ mod tests {
             .find(|v| v["name"] == "support:prepare")
             .unwrap();
         let payload = json!({"activity":"support:prepare","product_ref":product.reference(),"policy_ref":program.root_policy_ref(),"fact_schema_ref":activity["fact_schema"]});
-        let reference = |name: &str| json!({"kind":"workflow-slot-terms","id":name,"digest":format!("sha256:{}","a".repeat(64))});
-        let binding = json!({"product_ref":product.reference(),"policy_ref":program.root_policy_ref(),"bindings":[{"slot":"support:retail","binding_ref":reference("retail")},{"slot":"support:supplier","binding_ref":reference("supplier")}]});
+        // Closed Binding2/Terms3 bodies from the saved private39 Stage case.
+        // Only Program refs below are rebound to this immutable compiler fixture;
+        // this structural DATA test does not assert their producer authority.
+        let mut binding: Value = serde_json::from_str(r#"{"accepted_at":"2026-10-28T00:30:57.771741Z","accepted_by":"example-operator","accepted_context":{"fact_schema_ref":{"digest":"sha256:9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369","id":"wdoc_9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369","kind":"workflow-fact-schema"},"facts":{}},"agreement_id":"stage-support","assent_refs":[{"digest":"sha256:06677e18263549a3fca53efe2f5067e1d206df1b904b4c8a183fb0e41845929e","id":"wdoc_06677e18263549a3fca53efe2f5067e1d206df1b904b4c8a183fb0e41845929e","kind":"workflow-assent"},{"digest":"sha256:ccf0eff66c1a22edf9f237c3bcd66d0b83ce36da479686137b21785d3066fc98","id":"wdoc_ccf0eff66c1a22edf9f237c3bcd66d0b83ce36da479686137b21785d3066fc98","kind":"workflow-assent"},{"digest":"sha256:cfc4b036d6fcbb8c24393df834f4ea43e2d79a3b0b70300035cd58ea0d9e4c03","id":"wdoc_cfc4b036d6fcbb8c24393df834f4ea43e2d79a3b0b70300035cd58ea0d9e4c03","kind":"workflow-assent"}],"authority_refs":[{"digest":"sha256:230eb9176b3ed8a29b45511f66e16082edeee2beba23513dc2ec9e037c650d26","id":"wdoc_230eb9176b3ed8a29b45511f66e16082edeee2beba23513dc2ec9e037c650d26","kind":"workflow-source-grant"},{"digest":"sha256:53f41ede58047505403098ce4efe9ad9f9e4aa581b2dcf034d7df801bf777d00","id":"wdoc_53f41ede58047505403098ce4efe9ad9f9e4aa581b2dcf034d7df801bf777d00","kind":"workflow-authority"},{"digest":"sha256:63af239330c177b1b292665a7c9a446aaa6d5f26e7f4029bc77c864999050448","id":"wdoc_63af239330c177b1b292665a7c9a446aaa6d5f26e7f4029bc77c864999050448","kind":"workflow-source-grant"},{"digest":"sha256:75673b0ba6c7340c24d5f58e2d2fc6cd07e85d7fed5e2274fdb857c99a656cc2","id":"wdoc_75673b0ba6c7340c24d5f58e2d2fc6cd07e85d7fed5e2274fdb857c99a656cc2","kind":"workflow-source-grant"},{"digest":"sha256:860701d2b7b6c756df38ad4d614610970768e4d9a74207ec076572027d356860","id":"wdoc_860701d2b7b6c756df38ad4d614610970768e4d9a74207ec076572027d356860","kind":"workflow-source-grant"},{"digest":"sha256:afe90befe301c8a9a4668acaa66e4a0fa974f3435e51e46ed759ec81d123ba5f","id":"wdoc_afe90befe301c8a9a4668acaa66e4a0fa974f3435e51e46ed759ec81d123ba5f","kind":"workflow-authority"},{"digest":"sha256:d5c977e2114b3f7d1cca6aaed0b7a8a8de140b8da1fc63b22299b65728ac22ab","id":"wdoc_d5c977e2114b3f7d1cca6aaed0b7a8a8de140b8da1fc63b22299b65728ac22ab","kind":"workflow-source-grant"}],"bindings":[{"binding_ref":{"digest":"sha256:20e61a781ba4676ab7736f569863c581c2941393cfb8d2fb362834be807e3d32","id":"wdoc_20e61a781ba4676ab7736f569863c581c2941393cfb8d2fb362834be807e3d32","kind":"workflow-slot-terms"},"slot":"support:retail"},{"binding_ref":{"digest":"sha256:027377f192a33c538fef707fc1ff939fa89aa3f6b25d3278a752b35f15c9196e","id":"wdoc_027377f192a33c538fef707fc1ff939fa89aa3f6b25d3278a752b35f15c9196e","kind":"workflow-slot-terms"},"slot":"support:supplier"}],"compiled_plan_ref":{"digest":"sha256:f28f5a8feb06b5c3c021dbf9dbcbfb7d905dc8c222991f20c4270eb44068594e","id":"wplan_f28f5a8feb06b5c3c021dbf9dbcbfb7d905dc8c222991f20c4270eb44068594e","kind":"workflow-compiled-plan"},"customer":"customer-stage","evaluator":"ledger-workflow-evaluator/1","exposure_ceilings":[{"binding_slot":"support:retail","maximum":{"atoms":"4000000000000000000","currency":"USD","scale":18}},{"binding_slot":"support:supplier","maximum":{"atoms":"1000000000000000000","currency":"USD","scale":18}}],"fact_schema_refs":[{"digest":"sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67","id":"wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67","kind":"workflow-fact-schema"},{"digest":"sha256:0bbb98a2dcb00202b49224edfa2ab834abb47abb1b3174eba5fcb2bf39b9be81","id":"wdoc_0bbb98a2dcb00202b49224edfa2ab834abb47abb1b3174eba5fcb2bf39b9be81","kind":"workflow-fact-schema"}],"funding_legs":[{"evidence_refs":[],"mode":"customer_local","name":"support:customer","payer":"customer-stage","resource_owner":"customer-stage"},{"evidence_refs":[{"digest":"sha256:303f07451b2f3ae877858fd0e1afdcd57646a9168912ff2f50c5a5e2fdd7056c","id":"wdoc_303f07451b2f3ae877858fd0e1afdcd57646a9168912ff2f50c5a5e2fdd7056c","kind":"workflow-evidence"}],"mode":"platform","name":"support:provider","payer":"platform-P","resource_owner":"platform-P","supplier_binding_slot":"support:supplier"}],"policy_ref":{"digest":"sha256:342f2472e0e9cf6451e952ddc9b4e8bd1aa86419c25f70aa8bedd5f4b561b6a2","id":"wdoc_342f2472e0e9cf6451e952ddc9b4e8bd1aa86419c25f70aa8bedd5f4b561b6a2","kind":"workflow-policy"},"product_ref":{"digest":"sha256:48524e0263104d1ae6a54f770286c2d43626edfb70fd08358fe7ea7c0669c85f","id":"wdoc_48524e0263104d1ae6a54f770286c2d43626edfb70fd08358fe7ea7c0669c85f","kind":"workflow-product"},"quantity_ceilings":[{"activity":"support:prepare","field":"support:quantity","maximum":"1","unit":"support:item"}],"roles_refs":[{"digest":"sha256:2469b759b94fc14ee11293df2efe7cbda2decf1ed0ed993df29bf6b902d06b85","id":"wdoc_2469b759b94fc14ee11293df2efe7cbda2decf1ed0ed993df29bf6b902d06b85","kind":"workflow-roles"},{"digest":"sha256:7571af1d7348b9588366ab2463a25eb441cc86392ca1774bd2181dc3b39fc26e","id":"wdoc_7571af1d7348b9588366ab2463a25eb441cc86392ca1774bd2181dc3b39fc26e","kind":"workflow-roles"}],"schema":"ledger-workflow-binding/2","slot_catalog_ref":{"digest":"sha256:54aa3326a51170f83eea8d40f530070a7ad674a132e9bd6a7210322525b3b9d8","id":"wdoc_54aa3326a51170f83eea8d40f530070a7ad674a132e9bd6a7210322525b3b9d8","kind":"workflow-slot-catalog"},"slot_instantiation_ref":{"digest":"sha256:2b1c9874a4207842297a7023da93df719ae1486f6f466602afbabd67b4eec659","id":"wdoc_2b1c9874a4207842297a7023da93df719ae1486f6f466602afbabd67b4eec659","kind":"workflow-slot-instantiation"},"source_namespace":"urn:example:stage-worker","source_slots":[{"evidence_kinds":["occurrence","outcome"],"name":"support:closer","sources":["urn:example:stage-closer"]},{"evidence_kinds":[],"name":"support:corrector","sources":["urn:example:stage-corrector"]},{"evidence_kinds":[],"name":"support:stage-authorizer","sources":["urn:example:stage-admin"]},{"evidence_kinds":[],"name":"support:supplier-authorizer","sources":["urn:example:stage-closer"]},{"evidence_kinds":["occurrence"],"name":"support:worker","sources":["urn:example:stage-reporter","urn:example:stage-worker"]}],"starts_at":"2000-01-01T00:00:00.000000Z","version":"1"}"#).unwrap();
+        let terms: Value = serde_json::from_str(r#"{"agreement_id":"stage-support","allowed_activities":["support:close","support:prepare"],"book":"retail","causal_reversal_clauses":[],"correction_source_slot":"support:corrector","customer":"customer-stage","exposure_ceiling":{"atoms":"4000000000000000000","currency":"USD","scale":18},"exposure_scope":"original_work","funding_leg":"support:customer","quantity_ceilings":[{"activity":"support:prepare","field":"support:quantity","maximum":"1","unit":"support:item"}],"role_ref":{"digest":"sha256:7571af1d7348b9588366ab2463a25eb441cc86392ca1774bd2181dc3b39fc26e","id":"wdoc_7571af1d7348b9588366ab2463a25eb441cc86392ca1774bd2181dc3b39fc26e","kind":"workflow-roles"},"role_slot":"support:retail-role","schema":"ledger-workflow-slot-binding-terms/3","scope":["example-company","local"],"slot":"support:retail","source_grant_refs":[{"digest":"sha256:230eb9176b3ed8a29b45511f66e16082edeee2beba23513dc2ec9e037c650d26","id":"wdoc_230eb9176b3ed8a29b45511f66e16082edeee2beba23513dc2ec9e037c650d26","kind":"workflow-source-grant"},{"digest":"sha256:63af239330c177b1b292665a7c9a446aaa6d5f26e7f4029bc77c864999050448","id":"wdoc_63af239330c177b1b292665a7c9a446aaa6d5f26e7f4029bc77c864999050448","kind":"workflow-source-grant"},{"digest":"sha256:75673b0ba6c7340c24d5f58e2d2fc6cd07e85d7fed5e2274fdb857c99a656cc2","id":"wdoc_75673b0ba6c7340c24d5f58e2d2fc6cd07e85d7fed5e2274fdb857c99a656cc2","kind":"workflow-source-grant"},{"digest":"sha256:860701d2b7b6c756df38ad4d614610970768e4d9a74207ec076572027d356860","id":"wdoc_860701d2b7b6c756df38ad4d614610970768e4d9a74207ec076572027d356860","kind":"workflow-source-grant"},{"digest":"sha256:d5c977e2114b3f7d1cca6aaed0b7a8a8de140b8da1fc63b22299b65728ac22ab","id":"wdoc_d5c977e2114b3f7d1cca6aaed0b7a8a8de140b8da1fc63b22299b65728ac22ab","kind":"workflow-source-grant"}]}"#).unwrap();
+        assert!(binding.get("scope").is_none());
+        binding["policy_ref"] = serde_json::to_value(program.root_policy_ref()).unwrap();
+        binding["product_ref"] = serde_json::to_value(product.reference()).unwrap();
+
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         work_activity(&program, &payload, session.meter_mut()).unwrap();
         let (row, schema) =
             work_terms_row(&program, &payload, &binding, session.meter_mut()).unwrap();
         assert_eq!(row["slot"], "support:retail");
-        assert_eq!(row["binding_ref"], reference("retail"));
+        assert_eq!(row["binding_ref"], binding["bindings"][0]["binding_ref"]);
         assert_eq!(schema, "ledger-workflow-slot-binding-terms/3");
+        let key = OperationKey {
+            logical_store_id: "scope-test-store".into(),
+            scope: ["example-company".into(), "local".into()],
+            source: "worker".into(),
+            operation_id: "scope-test".into(),
+        };
+        stage_work_terms_association(session.meter_mut(), &key, &payload, &binding, row, &terms)
+            .unwrap();
+        let mut wrong_scope = terms.clone();
+        wrong_scope["scope"][1] = json!("another-scope");
+        assert!(stage_work_terms_association(
+            session.meter_mut(),
+            &key,
+            &payload,
+            &binding,
+            row,
+            &wrong_scope
+        )
+        .is_err());
+
         // Locator DATA only: supplier promises and original/current source
         // authority are still independently checked by the actual consumer.
         for mut invalid in [binding.clone(), binding.clone(), binding.clone()]
