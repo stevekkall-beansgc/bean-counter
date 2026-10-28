@@ -51,10 +51,7 @@ pub(super) async fn reconstruct(
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?
     {
-        let kind = request_wrapper::text(r, "kind", s)?;
-        let own = kind == "workflow-operation"
-            && request_wrapper::text(r, "id", s)?.as_bytes() == w.operation_identity().0;
-        if !own {
+        if !w.is_own_operation(r, s)? {
             pool.add_value(r, s)?;
         }
     }
@@ -84,12 +81,16 @@ pub(super) async fn reconstruct(
     let prior = sequence
         .checked_sub(1)
         .ok_or(ServiceError::IntegrityFailure)?;
-    let economic = prefix::next(tx, key, prior, sequence, s)
+    let mut original_session =
+        OriginalAuditSession::for_resource_profile_v2(s.arena()).map_err(core_error)?;
+    let economic = prefix::next(tx, key, prior, sequence, &mut original_session)
         .await?
         .ok_or(ServiceError::IntegrityFailure)?
-        .checked_wrappers(tx, s)
+        .checked_wrappers(tx, &mut original_session)
         .await?;
-    let reconstructed = local_original_work::reconstruct(ledger, tx, &economic, &saved, s).await?;
+    let reconstructed =
+        local_original_work::reconstruct(ledger, tx, &economic, &saved, &mut original_session)
+            .await?;
     let mut activation = None;
     for row in reconstructed.introduced() {
         if row.reference().kind == "workflow-chain-state" {

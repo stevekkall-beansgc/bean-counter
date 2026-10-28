@@ -1319,7 +1319,66 @@ impl FoldedInventory {
             .semantic_work()
             .visit(Visit::Constraint)
             .map_err(core_error)?;
-        require(self._inventory.has(r, session)?, "INTEGRITY_FAILURE")
+        if self._inventory.has(r, session)? {
+            return Ok(());
+        }
+        // Receipts are immutable wrapper inputs, not native document rows.
+        // Only pointers credited AFTER the prior origin's complete semantic
+        // and custody fold can satisfy this documentary input requirement.
+        session
+            .semantic_work()
+            .scan_bytes(r.kind.len() + "workflow-receipt".len())
+            .map_err(core_error)?;
+        if r.kind == "workflow-receipt" {
+            let block_size =
+                ledgerlab_core::policy::workflow::transition_constructor::ORIGIN_POINTER_BLOCK;
+            let mut first = 0;
+            loop {
+                session
+                    .semantic_work()
+                    .arithmetic(Op::Compare, &[&first.into(), &self.pointers.len().into()])
+                    .map_err(core_error)?;
+                if first >= self.pointers.len() {
+                    break;
+                }
+                let block = self.pointers.block(first, session).map_err(core_error)?;
+                for (index, entry) in block
+                    .entries(session)
+                    .map_err(core_error)?
+                    .iter()
+                    .enumerate()
+                {
+                    session
+                        .semantic_work()
+                        .visit(Visit::RefLookup)
+                        .map_err(core_error)?;
+                    let raw = self
+                        ._inventory
+                        .origin_pointer(entry.sequence() as i64, session)?;
+                    block
+                        .validate_raw(index, raw.bytes(), session)
+                        .map_err(core_error)?;
+                    let pointer = session
+                        .parse_representation(raw.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let (receipt, _owner) = current::source::from_value_local(
+                        request_wrapper::field(pointer.value(), "receipt_ref", session)?,
+                        session,
+                    )?;
+                    if super::local_original_work::same_ref(r, &receipt, session)? {
+                        return Ok(());
+                    }
+                }
+                session
+                    .semantic_work()
+                    .arithmetic(Op::Add, &[&first.into(), &block_size.into()])
+                    .map_err(core_error)?;
+                first = first
+                    .checked_add(block_size)
+                    .ok_or(ServiceError::IntegrityFailure)?;
+            }
+        }
+        Err(ServiceError::IntegrityFailure)
     }
     pub(super) fn match_source(
         &mut self,

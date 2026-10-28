@@ -84,9 +84,9 @@ pub(super) async fn select(
     let digest = wire::string(decoded(claim.digest.bytes(), s)?, s)?;
     let encoded = wire::object(
         &[
-            ("kind", kind.bytes()),
-            ("id", id.bytes()),
             ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", kind.bytes()),
         ],
         262144,
         s,
@@ -158,14 +158,24 @@ pub(in super::super::super) async fn construct(
         .sequence
         .checked_sub(1)
         .ok_or(ServiceError::IntegrityFailure)?;
-    let original = prefix::next(tx, req.key(), prior, alias.sequence, s)
+    // The responsible Work original owns its own single economic attempt.
+    // Keep this session and the sealed result alive while the alias parent
+    // retains current delivery DATA and performs its distinct construction.
+    let mut original_session =
+        OriginalAuditSession::for_resource_profile_v2(s.arena()).map_err(core_error)?;
+    let original = prefix::next(tx, req.key(), prior, alias.sequence, &mut original_session)
         .await?
         .ok_or(ServiceError::IntegrityFailure)?
-        .checked_wrappers(tx, s)
+        .checked_wrappers(tx, &mut original_session)
         .await?;
-    let reconstructed =
-        super::super::super::local_original_work::reconstruct(ledger, tx, &original, req, s)
-            .await?;
+    let reconstructed = super::super::super::local_original_work::reconstruct(
+        ledger,
+        tx,
+        &original,
+        req,
+        &mut original_session,
+    )
+    .await?;
     let pointer = original.wrappers().origin_pointer(s)?;
     let pointer = s
         .parse_representation(pointer.bytes(), RepresentationKind::Record)
@@ -193,7 +203,7 @@ pub(in super::super::super) async fn construct(
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?
     {
-        if check::text(r, "kind", s)? != "workflow-operation" {
+        if !original.wrappers().is_own_operation(r, s)? {
             pool.add_value(r, s)?;
         }
     }

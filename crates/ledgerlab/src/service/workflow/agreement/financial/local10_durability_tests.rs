@@ -1159,6 +1159,10 @@ async fn stage_work_occurrence_bootstrap_rolls_back() {
             "37474d9a7d659753ed586d243a09a7191fd180b1b73ddb4eaab1c7d9a18d1c95",
             39,
         ),
+        "shared-work-alias" => (
+            "f837cf5b2ba4b2b3a6ecc7fff333f54792f3ce05c1330381733b4730f6a2fb9f",
+            40,
+        ),
         _ => panic!("exact maintained Stage operand required"),
     };
     let raw = fs::read(root.join(format!("{operation}.request.json"))).unwrap();

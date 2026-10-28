@@ -245,9 +245,9 @@ pub(super) async fn retain_invocation_operation(
         let digest = wire::string(head_text(head.digest.bytes(), s)?, s)?;
         let value = wire::object(
             &[
-                ("kind", kind.bytes()),
-                ("id", id.bytes()),
                 ("digest", digest.bytes()),
+                ("id", id.bytes()),
+                ("kind", kind.bytes()),
             ],
             262144,
             s,
@@ -278,9 +278,9 @@ pub(super) async fn retain_invocation_operation(
             let digest = wire::string(head_text(row.digest.bytes(), s)?, s)?;
             let value = wire::object(
                 &[
-                    ("kind", kind.bytes()),
-                    ("id", id.bytes()),
                     ("digest", digest.bytes()),
+                    ("id", id.bytes()),
+                    ("kind", kind.bytes()),
                 ],
                 262144,
                 s,
@@ -476,9 +476,9 @@ fn read_locator_reference(
     let digest = wire::string(head_text(digest, s)?, s)?;
     let value = wire::object(
         &[
-            ("kind", kind.bytes()),
-            ("id", id.bytes()),
             ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", kind.bytes()),
         ],
         262144,
         s,

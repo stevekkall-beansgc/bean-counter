@@ -180,9 +180,9 @@ pub(super) async fn prepare_append(
             let digest = wire::string(decode(hit.authority.digest.bytes())?, s)?;
             let bytes = wire::object(
                 &[
-                    ("kind", kind.bytes()),
-                    ("id", id.bytes()),
                     ("digest", digest.bytes()),
+                    ("id", id.bytes()),
+                    ("kind", kind.bytes()),
                 ],
                 262144,
                 s,
@@ -392,7 +392,7 @@ async fn reproduce_original(
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?
     {
-        if request_wrapper::text(member, "kind", s)? != "workflow-operation" {
+        if !w.is_own_operation(member, s)? {
             pool.add_value(member, s)?;
         }
     }
@@ -403,7 +403,8 @@ async fn reproduce_original(
     )?;
     let (inputs, _views_owner) = pool.owned_views(0, s)?;
     let descriptors = request_wrapper::field(resolution, "descriptors", s)?
-        .as_array().ok_or(ServiceError::IntegrityFailure)?;
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
     require(descriptors.len() == 1, "INTEGRITY_FAILURE")?;
     let support = publication_prepare::local_support(&descriptors[0], s)?;
     let state = core::CostAuthorityEnrollmentState {
