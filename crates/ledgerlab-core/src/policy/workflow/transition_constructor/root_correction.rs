@@ -1710,6 +1710,53 @@ fn slot_context(
         source_observation_inputs: pending,
     }))
 }
+fn root_binding_row<'a>(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    payload: &Value,
+    binding: &'a Value,
+) -> Result<&'a Value> {
+    let bindings = shape::array(m, binding, "bindings")?;
+    if !program.uses_stage_lifecycle_recipe() {
+        if !meter::cmp(m, &bindings.len().into(), &1.into())?.is_eq() {
+            return Err(unsupported("selected retail binding count"));
+        }
+        return Ok(&bindings[0]);
+    }
+    let mut selected = None;
+    for rule in shape::array(m, program.original_policy_value(), "rules")? {
+        if !shape::same(m, &rule["activity"], &payload["activity"])? {
+            continue;
+        }
+        let name = text(m, rule, "binding_slot")?;
+        let defs = shape::array(m, program.original_policy_value(), "binding_slots")?;
+        let def = shape::named(m, defs, "name", name)?;
+        let book = text(m, def, "book")?;
+        if !shape::same_text(m, book, "retail")? {
+            continue;
+        }
+        let row = shape::named(m, bindings, "slot", name)?;
+        if let Some(old) = selected {
+            shape::equal(m, old, row)?;
+        }
+        selected = Some(row);
+    }
+    selected.ok_or_else(|| shape::fail("Stage root exact original retail slot"))
+}
+fn root_terms_schemas(program: &SelectedProgram) -> &'static [&'static str] {
+    if program.uses_stage_lifecycle_recipe() {
+        &["ledger-workflow-slot-binding-terms/3"]
+    } else if program.uses_app_cost_causal_recipe() {
+        &["ledger-workflow-slot-binding-terms/7"]
+    } else if program.uses_app_owned_cost_recipe() {
+        &["ledger-workflow-slot-binding-terms/6"]
+    } else {
+        &[
+            "ledger-workflow-slot-binding-terms/2",
+            "ledger-workflow-slot-binding-terms/3",
+        ]
+    }
+}
 fn root_context(
     program: &SelectedProgram,
     m: &mut CoreMeter,
@@ -1737,26 +1784,14 @@ fn root_context(
             "ledger-workflow-binding/1"
         },
     )?;
-    let bindings = shape::array(m, &binding, "bindings")?;
-    if !meter::cmp(m, &bindings.len().into(), &1.into())?.is_eq() {
-        return Err(unsupported("selected retail binding count"));
-    }
-    let terms_ref = shape::reference(m, &bindings[0]["binding_ref"])?;
+    let row = root_binding_row(program, m, &work["payload"], &binding)?;
+    let terms_ref = shape::reference(m, &row["binding_ref"])?;
     let terms = r.get_schemas(
         m,
         &c.key,
         &terms_ref,
         "workflow-slot-terms",
-        if program.uses_app_cost_causal_recipe() {
-            &["ledger-workflow-slot-binding-terms/7"]
-        } else if program.uses_app_owned_cost_recipe() {
-            &["ledger-workflow-slot-binding-terms/6"]
-        } else {
-            &[
-                "ledger-workflow-slot-binding-terms/2",
-                "ledger-workflow-slot-binding-terms/3",
-            ]
-        },
+        root_terms_schemas(program),
     )?;
     let slot = text(m, &terms, "correction_source_slot")?;
     if program.uses_work_lifecycle_recipe() {
@@ -2838,4 +2873,88 @@ pub(super) fn normalize_object_field(m: &mut CoreMeter, p: &mut Value, field: &s
     }
     p[field] = json!(ordered.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        canonical::{self, audit_arena::AuditArena},
+        policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+        },
+        validation_work::OriginalAuditSession,
+    };
+
+    #[test]
+    fn stage_root_context_selects_original_declared_retail_without_legacy_relaxation() {
+        let arena = AuditArena::new().unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        // Exercise only the row-selection DATA kernel; original closed-record,
+        // producer and authority checks remain in the consuming constructor.
+        // Supplier is deliberately first: neither position nor book inference
+        // may choose the correction's retail terms.
+        let binding = json!({"bindings":[
+            {"slot":"support:supplier","binding_ref":"supplier"},
+            {"slot":"support:retail","binding_ref":"retail"}
+        ]});
+        let payload = json!({"activity":"support:prepare"});
+        let mut check = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(
+            root_binding_row(&program, check.meter_mut(), &payload, &binding).unwrap(),
+            &binding["bindings"][1]
+        );
+        assert_eq!(
+            root_terms_schemas(&program),
+            &["ledger-workflow-slot-binding-terms/3"]
+        );
+        let missing = json!({"bindings":[binding["bindings"][0].clone()]});
+        assert!(root_binding_row(&program, check.meter_mut(), &payload, &missing).is_err());
+        let duplicate =
+            json!({"bindings":[binding["bindings"][1].clone(),binding["bindings"][1].clone()]});
+        assert!(root_binding_row(&program, check.meter_mut(), &payload, &duplicate).is_err());
+        assert!(root_binding_row(
+            &program,
+            check.meter_mut(),
+            &json!({"activity":"unpriced"}),
+            &binding
+        )
+        .is_err());
+
+        let legacy = super::super::lifecycle_consumer_tests::program(&arena);
+        assert!(!legacy.uses_stage_lifecycle_recipe());
+        assert!(root_binding_row(&legacy, check.meter_mut(), &payload, &binding).is_err());
+        let single = json!({"bindings":[binding["bindings"][1].clone()]});
+        assert_eq!(
+            root_binding_row(&legacy, check.meter_mut(), &payload, &single).unwrap(),
+            &single["bindings"][0]
+        );
+        assert_eq!(
+            root_terms_schemas(&legacy),
+            &["ledger-workflow-slot-binding-terms/7"]
+        );
+    }
 }
