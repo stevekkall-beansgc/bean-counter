@@ -4,7 +4,7 @@ use super::super::selected_program::SelectedProgram;
 use super::{
     body,
     data::{EconomicRecordView, ExactRef, OperationKey},
-    input_edges::{select_local_input_edges, LocalInputEdges},
+    input_edges::{select_local_input_edges, select_stage_local_input_edges, LocalInputEdges},
     records::Records,
     shape, CoreMeter,
 };
@@ -74,11 +74,18 @@ pub fn select_lifecycle_input_edges(
         if !program.uses_work_lifecycle_recipe() {
             return Err(shape::fail("exact lifecycle input recipe required"));
         }
-        let explicit = select_local_input_edges(key, input, session)?;
+        let explicit = if program.uses_stage_lifecycle_recipe() {
+            let registry = program
+                .execution_registry()
+                .ok_or_else(|| shape::fail("selected Stage edge registry"))?;
+            select_stage_local_input_edges(registry, key, input, session)?
+        } else {
+            select_local_input_edges(key, input, session)?
+        };
         let a = session.arena().shared_handle();
         let m = session.meter_mut();
         let inputs = [input];
-        let mut r = Records::borrowed_parent_app(m, &a, key, &inputs)?;
+        let mut r = Records::borrowed_parent_selected(m, &a, key, &inputs, program)?;
         let v = r.provenance(m, key, input.reference)?;
         let schema = shape::text(m, &v, "schema")?;
         let work = shape::same_text(m, schema, "ledger-workflow-work-record/1")?;

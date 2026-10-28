@@ -313,6 +313,7 @@ pub(super) struct Records<'inv, 'raw> {
     _metadata: Option<ExternalBufferLease>,
     owner_key: Option<&'raw OperationKey>,
     app_records: bool,
+    stage_records: bool,
     // Coordinator DATA lookup, never an economic inventory/semantic proof.
     parent_data: bool,
     parent_selected_bytes: usize,
@@ -374,6 +375,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             _metadata: None,
             owner_key: None,
             app_records: false,
+            stage_records: false,
             parent_data: false,
             parent_selected_bytes: 0,
             parent_selected_refs: 0,
@@ -431,6 +433,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     ) -> Result<Self> {
         let mut result = Self::borrowed_mode(m, arena, key, inputs, &[], true, true)?;
         result.app_records = true;
+        result.stage_records = true;
         Ok(result)
     }
     pub(super) fn borrowed_parent_selected(
@@ -445,6 +448,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         }
         let mut result = Self::borrowed_mode(m, arena, key, inputs, &[], true, true)?;
         result.app_records = true;
+        result.stage_records = true;
         Ok(result)
     }
     pub(super) fn borrowed_selected(
@@ -460,6 +464,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         }
         let mut result = Self::borrowed_mode(m, arena, key, inputs, pending, true, false)?;
         result.app_records = true;
+        result.stage_records = true;
         Ok(result)
     }
     fn borrowed_mode(
@@ -592,6 +597,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             _metadata: Some(metadata),
             owner_key: Some(key),
             app_records: false,
+            stage_records: false,
             parent_data,
             parent_selected_bytes: 0,
             parent_selected_refs: 0,
@@ -1470,6 +1476,20 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             return Err(invalid("wrong required schema"));
         }
         let prefix = match expected_kind {
+            "workflow-offer" if self.stage_records => {
+                if !super::shape::same_text(m, schema, "ledger-workflow-supplier-commitment/2")?
+                    && !super::shape::same_text(m, schema, "ledger-workflow-offer/4")?
+                {
+                    return Err(invalid("wrong selected Stage offer schema"));
+                }
+                "wdoc_"
+            }
+            "workflow-allocation" if self.stage_records => {
+                if !super::shape::same_text(m, schema, "ledger-workflow-allocation/1")? {
+                    return Err(invalid("wrong selected Stage allocation schema"));
+                }
+                "wdoc_"
+            }
             "workflow-cost"
             | "workflow-party-evidence"
             | "workflow-party-authorization"

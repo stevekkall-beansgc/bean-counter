@@ -483,12 +483,41 @@ pub fn select_local_input_edges(
     input: EconomicRecordView<'_>,
     s: &mut OriginalAuditSession,
 ) -> Result<LocalInputEdges> {
+    select_local_input_edges_inner(key, input, None, s)
+}
+/// Exact selected Stage explicit-edge DATA. The authenticated original/selected
+/// registry chooses only this bounded vocabulary; this is never origin authority.
+pub fn select_stage_local_input_edges(
+    registry: &str,
+    key: &OperationKey,
+    input: EconomicRecordView<'_>,
+    s: &mut OriginalAuditSession,
+) -> Result<LocalInputEdges> {
+    select_local_input_edges_inner(key, input, Some(registry), s)
+}
+fn select_local_input_edges_inner(
+    key: &OperationKey,
+    input: EconomicRecordView<'_>,
+    stage_registry: Option<&str>,
+    s: &mut OriginalAuditSession,
+) -> Result<LocalInputEdges> {
     let result = (|| {
         s.check_cancelled()?;
         let a = s.arena().shared_handle();
         let m = s.meter_mut();
         let inputs = [input];
-        let mut records = Records::borrowed_parent_app(m, &a, key, &inputs)?;
+        let mut records = if let Some(registry) = stage_registry {
+            if !shape::same_text(
+                m,
+                registry,
+                super::super::selected_program::local::LOCAL_STAGE_LIFECYCLE_REGISTRY,
+            )? {
+                return Err(shape::fail("exact selected Stage edge registry required"));
+            }
+            Records::borrowed_parent_stage(m, &a, key, &inputs)?
+        } else {
+            Records::borrowed_parent_app(m, &a, key, &inputs)?
+        };
         let v = records.provenance(m, key, input.reference)?;
         let schema = shape::text(m, &v, "schema")?;
         let fields: Option<&[&str]> = match schema {
@@ -902,6 +931,170 @@ mod local_family_lineage_tests {
         assert_eq!(
             edges.direct_refs().collect::<Vec<_>>(),
             vec![&old_decision.reference]
+        );
+    }
+}
+
+#[cfg(test)]
+mod stage_document_edges_tests {
+    use super::*;
+    use crate::{
+        canonical::{audit_arena::AuditArena, CanonicalBytes},
+        policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+        },
+        validation_work::ResourceLimits,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn selected_stage_documents_share_exact_parent_and_child_domains() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| CanonicalBytes::from_value(row).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        let registry = program.execution_registry().unwrap();
+        let key = OperationKey {
+            logical_store_id: "edge-store".into(),
+            scope: ["edge-company".into(), "local".into()],
+            source: "stage-source".into(),
+            operation_id: "edge-selection".into(),
+        };
+        let mut producer = CoreMeter::new(65536).unwrap();
+        let root = super::super::body::document(
+            &mut producer,
+            "workflow-authority",
+            json!({"schema":"ledger-local-authority-snapshot/1"}),
+        )
+        .unwrap();
+        let r = &root.reference;
+        // These canonical envelopes exercise identity domains and fixed DATA
+        // edges only. Full closed body/consent/custody validation stays with
+        // the actual semantic producer and host original/member verification.
+        let commitment = super::super::body::document(&mut producer,"workflow-offer",json!({"schema":"ledger-workflow-supplier-commitment/2","program":{"source_contract_refs":[r]},"acceptance":{"accepted_context":{"fact_schema_ref":r,"facts":{}},"terms":{"role_ref":r,"source_grant_refs":[r],"cost_authority_ref":r},"funding_leg":{"evidence_refs":[r]},"additional_bindings":[]}})).unwrap();
+        let offer = super::super::body::document(&mut producer,"workflow-offer",json!({"schema":"ledger-workflow-offer/4","role_refs":[r],"evidence_refs":[r],"commitment_ref":commitment.reference})).unwrap();
+        let terms = super::super::body::document(&mut producer,"workflow-slot-terms",json!({"schema":"ledger-workflow-slot-binding-terms/8","role_ref":r,"source_grant_refs":[r],"offer_ref":offer.reference,"commitment_ref":commitment.reference,"cost_authority_ref":r})).unwrap();
+        let assent = super::super::body::document(&mut producer,"workflow-assent",json!({"schema":"ledger-workflow-party-assent/3","consent":{"authorization_ref":r,"basis":{"kind":"supplier_commitment","commitment_ref":commitment.reference,"offer_ref":offer.reference,"supplier_terms_ref":terms.reference}},"evidence_ref":r,"operator_attestation_ref":r})).unwrap();
+        let verification = super::super::body::document(&mut producer,"workflow-verification",json!({"schema":"ledger-workflow-supplier-consent-verification/2","commitment_ref":commitment.reference,"offer_ref":offer.reference,"supplier_terms_ref":terms.reference,"party_assent_refs":[assent.reference],"local_admin_ref":r})).unwrap();
+        let evidence = super::super::body::document(&mut producer,"workflow-party-evidence",json!({"schema":"ledger-workflow-party-evidence/3","authority_ref":r,"metadata":{"purpose":"party_consent","consent":{"authorization_ref":r,"basis":{"commitment_ref":commitment.reference,"offer_ref":offer.reference,"supplier_terms_ref":terms.reference}}}})).unwrap();
+        let allocation = super::super::body::document(&mut producer,"workflow-allocation",json!({"schema":"ledger-workflow-allocation/1","stage_instance_ref":r,"allocation_parent":r,"inputs":[r]})).unwrap();
+        let records = [
+            &commitment,
+            &offer,
+            &terms,
+            &assent,
+            &verification,
+            &evidence,
+            &allocation,
+        ];
+        for record in records {
+            let view = EconomicRecordView {
+                reference: &record.reference,
+                canonical_body: &record.canonical_body,
+            };
+            let mut parent = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let selected =
+                select_stage_local_input_edges(registry, &key, view, &mut parent).unwrap();
+            assert!(selected.direct_refs().next().is_some());
+            let mut lifecycle = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let repeated =
+                super::super::select_lifecycle_input_edges(&program, &key, view, &mut lifecycle)
+                    .unwrap();
+            assert_eq!(
+                selected.direct_refs().collect::<Vec<_>>(),
+                repeated.direct_refs().collect::<Vec<_>>()
+            );
+        }
+        let retained = records[..6]
+            .iter()
+            .map(|record| EconomicRecordView {
+                reference: &record.reference,
+                canonical_body: &record.canonical_body,
+            })
+            .collect::<Vec<_>>();
+        let pending = [super::super::RecordInput {
+            reference: allocation.reference.clone(),
+            canonical_body: allocation.canonical_body.to_vec(),
+        }];
+        let mut invocation = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child = invocation.meter_mut().local_economic_meter().unwrap();
+        let mut inventory =
+            Records::borrowed_selected(&mut child, &arena, &key, &retained, &pending, &program)
+                .unwrap();
+        for (record, schema) in [
+            (&commitment, "ledger-workflow-supplier-commitment/2"),
+            (&offer, "ledger-workflow-offer/4"),
+            (&allocation, "ledger-workflow-allocation/1"),
+        ] {
+            inventory
+                .get(
+                    &mut child,
+                    &key,
+                    &record.reference,
+                    &record.reference.kind,
+                    schema,
+                )
+                .unwrap();
+        }
+        invocation.meter_mut().finish_local_economic(child).unwrap();
+        let mut legacy = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let offered = EconomicRecordView {
+            reference: &records[1].reference,
+            canonical_body: &records[1].canonical_body,
+        };
+        assert_eq!(
+            select_local_input_edges(&key, offered, &mut legacy)
+                .err()
+                .unwrap()
+                .detail,
+            "unknown required record kind"
+        );
+        let mut foreign = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(
+            select_stage_local_input_edges("sha256:foreign", &key, offered, &mut foreign).is_err()
+        );
+        let unknown = super::super::body::document(
+            &mut producer,
+            "workflow-offer",
+            json!({"schema":"ledger-workflow-offer/99"}),
+        )
+        .unwrap();
+        let mut refusal = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(
+            select_stage_local_input_edges(
+                registry,
+                &key,
+                EconomicRecordView {
+                    reference: &unknown.reference,
+                    canonical_body: &unknown.canonical_body
+                },
+                &mut refusal
+            )
+            .err()
+            .unwrap()
+            .detail,
+            "wrong selected Stage offer schema"
         );
     }
 }
