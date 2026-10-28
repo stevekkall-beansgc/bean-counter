@@ -214,6 +214,10 @@ impl<'a> SuppliedRecords<'a> {
                     false,
                 )?;
                 result.app_records = true;
+                // The sole BorrowedApp constructor derives this mode from the
+                // actual selected Program's Stage recipe (construct.rs). Keep
+                // its native inventory identical to borrowed_selected.
+                result.stage_records = financial_revisions;
                 result.install_initial_source_outputs(m, sources)?;
                 Ok(result)
             }
@@ -1550,15 +1554,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             | "workflow-fact-attestation"
             | "workflow-evidence-verification"
             | "workflow-evaluation" => "wdoc_",
-            _ => {
-                // Temporary source-held attribution only: all cases still refuse.
-                let detail = match (expected_kind, schema, self.stage_records) {
-                    ("workflow-offer", "ledger-workflow-offer/4", false) => "unknown required record kind: workflow-offer ledger-workflow-offer/4 stage_records=false",
-                    ("workflow-offer", "ledger-workflow-supplier-commitment/2", false) => "unknown required record kind: workflow-offer ledger-workflow-supplier-commitment/2 stage_records=false",
-                    _ => "unknown required record kind",
-                };
-                return Err(invalid(detail));
-            }
+            _ => return Err(invalid("unknown required record kind")),
         };
         m.visit("resolve.id_family")?;
         let head =
@@ -1912,6 +1908,140 @@ mod owning_tests {
     use crate::validation_work::OriginalAuditSession;
     use serde_json::json;
 
+    #[test]
+    fn work_supplied_records_preserve_actual_selected_stage_inventory_and_legacy_refusal() {
+        use crate::policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+        };
+        let arena = AuditArena::new().unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                crate::canonical::CanonicalBytes::from_value(v)
+                    .unwrap()
+                    .into_vec()
+            })
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let stage = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-work-lifecycle/source.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                crate::canonical::CanonicalBytes::from_value(v)
+                    .unwrap()
+                    .into_vec()
+            })
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let legacy = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        let key = OperationKey {
+            logical_store_id: "store".into(),
+            scope: ["scope".into(), "test".into()],
+            source: "source".into(),
+            operation_id: "operation".into(),
+        };
+        // Framing/dispatch only, through the actual Work-owned table constructor.
+        // These canonical frames are not original producer or consent proofs.
+        for (kind, schema, known) in [
+            ("workflow-offer", "ledger-workflow-offer/4", true),
+            (
+                "workflow-offer",
+                "ledger-workflow-supplier-commitment/2",
+                true,
+            ),
+            ("workflow-allocation", "ledger-workflow-allocation/1", true),
+            ("workflow-offer", "ledger-workflow-offer/99", false),
+        ] {
+            let body = json!({"schema":schema});
+            let mut producer = CoreMeter::new(65536).unwrap();
+            let digest = hash(&mut producer, "workflow-document", &json!([schema, body])).unwrap();
+            let reference = ExactRef {
+                kind: kind.into(),
+                id: format!("wdoc_{}", &digest[7..]),
+                digest,
+            };
+            let bytes = crate::canonical::CanonicalBytes::from_value(&body).unwrap();
+            let views = [EconomicRecordView {
+                reference: &reference,
+                canonical_body: bytes.as_slice(),
+            }];
+            let pending = [RecordInput {
+                reference: reference.clone(),
+                canonical_body: bytes.as_slice().to_vec(),
+            }];
+            for program in [&stage, &legacy] {
+                for is_pending in [false, true] {
+                    let mut session =
+                        OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                    let mut child = session.meter_mut().local_economic_meter().unwrap();
+                    let mut records = SuppliedRecords::BorrowedApp {
+                        records: if is_pending { &[] } else { &views },
+                        arena: arena.shared_handle(),
+                        sources: &[],
+                        financial_revisions: program.uses_stage_lifecycle_recipe(),
+                    }
+                    .resolve(&mut child, &key, if is_pending { &pending } else { &[] })
+                    .unwrap();
+                    assert!(records.app_records);
+                    assert_eq!(records.stage_records, program.uses_stage_lifecycle_recipe());
+                    let selected = records.get(&mut child, &key, &reference, kind, schema);
+                    if program.uses_stage_lifecycle_recipe() && known {
+                        assert_eq!(&*selected.unwrap(), &body);
+                        assert_eq!(records.consumed().len(), usize::from(!is_pending));
+                        assert_eq!(records.used_pending_count(), usize::from(is_pending));
+                    } else {
+                        let error = selected.unwrap_err();
+                        assert_eq!(
+                            error.detail,
+                            if program.uses_stage_lifecycle_recipe() {
+                                "wrong selected Stage offer schema"
+                            } else {
+                                "unknown required record kind"
+                            }
+                        );
+                    }
+                    drop(records);
+                    session.meter_mut().finish_local_economic(child).unwrap();
+                }
+            }
+        }
+    }
     #[test]
     fn matching_metadata_does_not_establish_reference_grammar() {
         // A same-table exact metadata match is only a locator. Both required
