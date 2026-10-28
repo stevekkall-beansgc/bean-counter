@@ -224,6 +224,41 @@ impl ValidatedOriginPointers {
     }
 }
 impl OriginPointerBlock<'_> {
+    /// Rebind scratch bytes to one actual table entry before consuming its
+    /// pointer fields. The minted digest binds the complete canonical framing,
+    /// sequence, operation key and Refs; scratch offsets remain lookup DATA.
+    /// This establishes neither origin completion nor witness membership.
+    pub fn validate_raw(
+        &self,
+        entry_index: usize,
+        raw: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let result = (|| {
+            let entries = self.entries(s)?;
+            let arena = s.arena().shared_handle();
+            let m = s.meter_mut();
+            if !w::compare(m, entry_index, entries.len())?.is_lt() {
+                return Err(fail("pointer raw entry ordinal"));
+            }
+            let entry = &entries[entry_index];
+            if !w::compare(m, raw.len(), usize::from(entry.length))?.is_eq() {
+                return Err(fail("pointer raw canonical length"));
+            }
+            let digest = m.hash_owned_representation(&arena, raw, RepresentationKind::Record)?;
+            ValidationWork::visit(m, w::ValidationVisit::MemberCompare)?;
+            m.scan_bytes(64)?;
+            if digest != entry.digest {
+                return Err(fail("pointer raw exact bytes"));
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.cancellation.cancel();
+            s.invalidate();
+        }
+        result
+    }
     /// All location-presence checks were performed by the actual producer.
     /// This single aggregate check replaces repeating Option tests at every
     /// consumer entry. Offsets remain DATA and require exact raw digest rebind.
@@ -536,5 +571,70 @@ impl EconomicAuditStream<'_> {
             Ok(())
         })();
         self.terminal(s, result)
+    }
+}
+
+#[cfg(test)]
+mod raw_binding_tests {
+    use super::*;
+    use crate::canonical::audit_arena::AuditArena;
+    use serde_json::json;
+
+    fn pointer(sequence: &str, digit: &str) -> Value {
+        let reference = |kind: &str, prefix: &str| json!({"kind":kind,"id":format!("{prefix}{}",digit.repeat(64)),"digest":format!("sha256:{}",digit.repeat(64))});
+        json!({"commit_sequence":sequence,"operation_key":{"logical_store_id":"store","scope":["org","project"],"source":"source","operation_id":"operation"},"operation_ref":reference("workflow-operation","wop_"),"manifest_ref":reference("workflow-manifest","wmanifest_"),"receipt_ref":reference("workflow-receipt","wreceipt_")})
+    }
+    #[test]
+    fn scratch_pointer_bytes_rebind_exact_entry_and_attempt() {
+        for defect in [
+            "none", "length", "receipt", "sequence", "ordinal", "foreign",
+        ] {
+            let arena = AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut table = ValidatedOriginPointers::new(&mut s).unwrap();
+            let value = pointer("7", "6");
+            let raw = canonical::CanonicalBytes::from_value(&value).unwrap();
+            let owned = s
+                .parse_representation(raw.as_slice(), RepresentationKind::Record)
+                .unwrap();
+            table.record_at(&owned, 19, &mut s).unwrap();
+            let block = table.block(0, &mut s).unwrap();
+            let entry = &block.located_entries(&mut s).unwrap()[0];
+            assert_eq!(entry.sequence(), 7);
+            assert_eq!(entry.scratch_location(), Some((19, raw.as_slice().len())));
+            let mut changed = value;
+            match defect {
+                "receipt" => {
+                    changed["receipt_ref"] = pointer("7", "8")["receipt_ref"].clone();
+                }
+                "sequence" => {
+                    changed["commit_sequence"] = json!("8");
+                }
+                _ => {}
+            }
+            let changed = canonical::CanonicalBytes::from_value(&changed).unwrap();
+            let bytes = if defect == "length" {
+                &changed.as_slice()[1..]
+            } else {
+                changed.as_slice()
+            };
+            if defect == "foreign" {
+                let foreign = AuditArena::new().unwrap();
+                let mut other = OriginalAuditSession::for_resource_profile_v2(&foreign).unwrap();
+                assert!(block.validate_raw(0, bytes, &mut other).is_err());
+                assert!(other.work().visit(w::ValidationVisit::Constraint).is_err());
+                assert!(s.check_cancelled().is_err());
+            } else {
+                let index = usize::from(defect == "ordinal");
+                let result = block.validate_raw(index, bytes, &mut s);
+                if defect == "none" {
+                    result.unwrap();
+                    assert!(s.check_cancelled().is_ok());
+                } else {
+                    assert!(result.is_err());
+                    assert!(s.check_cancelled().is_err());
+                }
+            }
+        }
     }
 }
