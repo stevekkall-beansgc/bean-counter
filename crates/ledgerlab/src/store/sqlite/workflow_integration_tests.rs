@@ -194,7 +194,7 @@ async fn management_guards_accept_migrated_stage18_and_reject_unknown_schema() {
     tx.workflow_enable_resource_schema().await.unwrap();
     tx.workflow_enable_stage_schema().await.unwrap();
     tx.commit().await.unwrap();
-    for (version, sequence) in [(18i64, true), (19, true), (19, false)] {
+    for (version, sequence) in [(18i64, true), (20, true), (20, false)] {
         let arena = AuditArena::new().unwrap();
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let mut tx = store
@@ -203,8 +203,8 @@ async fn management_guards_accept_migrated_stage18_and_reject_unknown_schema() {
             .unwrap();
         assert_eq!(tx.billing_schema_version().await.unwrap(), 18);
         let before = tx.workflow_management_changes(&mut session).await.unwrap();
-        if version == 19 {
-            sqlx::query("PRAGMA user_version=19")
+        if version == 20 {
+            sqlx::query("PRAGMA user_version=20")
                 .execute(tx.conn())
                 .await
                 .unwrap();
@@ -265,4 +265,104 @@ async fn management_guards_accept_migrated_stage18_and_reject_unknown_schema() {
         0
     );
     store.close().await;
+}
+
+impl SqliteTx {
+    /// Fixed physical controls after the genuine Work append and owning replay.
+    /// These rejected SQL writes never serve as economic or authority inputs.
+    pub(crate) async fn test_invocation_revision_storage_controls(
+        &mut self,
+        invocation_id: &str,
+        store: &str,
+        scope: &[String; 2],
+    ) {
+        let rows: Vec<(String, String, Vec<u8>)> = sqlx::query_as(
+            "SELECT digest,schema_name,canonical_bytes FROM workflow_documents WHERE kind='workflow-invocation' AND id=? ORDER BY digest",
+        ).bind(invocation_id).fetch_all(self.conn()).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.1 == "ledger-workflow-invocation/1"));
+        let bodies: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| serde_json::from_slice(&r.2).unwrap())
+            .collect();
+        let first = bodies.iter().position(|v| v["revision"] == "1").unwrap();
+        let second = bodies.iter().position(|v| v["revision"] == "2").unwrap();
+        assert_eq!(bodies[second]["prior_ref"]["id"], invocation_id);
+        assert_eq!(bodies[second]["prior_ref"]["digest"], rows[first].0);
+        let bytes: i64 = sqlx::query_scalar("SELECT sum(octet_length(canonical_bytes)) FROM workflow_documents WHERE kind='workflow-invocation' AND id=?")
+            .bind(invocation_id).fetch_one(self.conn()).await.unwrap();
+        assert_eq!(bytes as usize, rows[0].2.len() + rows[1].2.len());
+        let ordinary:(String,String,String,String,Vec<u8>)=sqlx::query_as("SELECT kind,id,digest,schema_name,canonical_bytes FROM workflow_documents WHERE kind<>'workflow-invocation' ORDER BY id LIMIT 1")
+            .fetch_one(self.conn()).await.unwrap();
+        let mut changed = rows[first].2.clone();
+        changed.push(b' ');
+        let controls = [
+            (
+                "workflow-invocation",
+                invocation_id,
+                rows[first].0.as_str(),
+                "ledger-workflow-invocation/1",
+                changed.as_slice(),
+                "immutable workflow full reference",
+            ),
+            (
+                ordinary.0.as_str(),
+                ordinary.1.as_str(),
+                rows[second].0.as_str(),
+                ordinary.3.as_str(),
+                ordinary.4.as_slice(),
+                "immutable workflow document identity",
+            ),
+            (
+                ordinary.0.as_str(),
+                invocation_id,
+                rows[second].0.as_str(),
+                ordinary.3.as_str(),
+                ordinary.4.as_slice(),
+                "immutable workflow document identity",
+            ),
+            (
+                "workflow-invocation",
+                ordinary.1.as_str(),
+                rows[second].0.as_str(),
+                "ledger-workflow-invocation/1",
+                rows[second].2.as_slice(),
+                "immutable workflow document identity",
+            ),
+            (
+                "workflow-invocation",
+                invocation_id,
+                ordinary.2.as_str(),
+                "ledger-workflow-invocation/2",
+                rows[second].2.as_slice(),
+                "immutable workflow document identity",
+            ),
+        ];
+        for (kind, id, digest, schema, body, expected) in controls {
+            let error=sqlx::query("INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?)")
+                .bind(kind).bind(id).bind(digest).bind(schema).bind(body).execute(self.conn()).await.unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+        assert!(
+            sqlx::query("PRAGMA foreign_key_check")
+                .fetch_all(self.conn())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        super::workflow::capacity::check(self.conn(), 0, 0)
+            .await
+            .unwrap();
+        let error = self
+            .workflow_document_by_id(invocation_id, store, &scope[0], &scope[1])
+            .await
+            .err()
+            .expect("ambiguous ID must refuse");
+        assert!(matches!(
+            error,
+            StoreError::Integrity("ambiguous workflow document id")
+        ));
+        // That intentional failed read poisons this attempt. Only rollback
+        // follows; no guard is reset to continue financial execution.
+    }
 }

@@ -654,11 +654,12 @@ impl LocatedAppAcceptance {
         &mut self,
         tx: &mut SqliteTx,
         key: &OperationKey,
-        setup: &crate::service::billing::Setup,
+        owner: (&LocalWorkflowLedger, &crate::service::billing::Setup),
         sources: &[current::source::ObservedSource],
         before: i64,
         parent: &mut OriginalAuditSession,
     ) -> Result<()> {
+        let (ledger, setup) = owner;
         if self._prefix.is_none() {
             for source in sources {
                 for r in source.record_refs() {
@@ -763,6 +764,7 @@ impl LocatedAppAcceptance {
                     // Every later PUB registers its own exact execution reload
                     // key. The accepted program remains its original PUB.
                     let _later_publication = fold_origin(
+                        ledger,
                         tx,
                         &origin,
                         self._prefix
@@ -1075,6 +1077,7 @@ pub(super) async fn fold_original_prefix(
                 }
             }
             if let Some(program) = fold_origin(
+                        ledger,
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
@@ -1103,6 +1106,7 @@ pub(super) async fn fold_original_prefix(
             }
         }
         fold_origin(
+                        ledger,
             tx,
             selected,
             inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
@@ -1173,7 +1177,7 @@ pub(super) async fn party_before_observed(
         before_inputs(ledger, tx, key, None, before, Some(management), parent).await?;
     Ok(inventory)
 }
-async fn before_inputs(
+pub(super) async fn before_inputs(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
@@ -1212,7 +1216,9 @@ async fn before_inputs(
             let Some(input) = next(tx, key, after, through, &mut session).await? else {
                 break;
             };
+
             let origin = input.checked_wrappers(tx, &mut session).await?;
+
             session
                 .semantic_work()
                 .arithmetic(
@@ -1238,7 +1244,9 @@ async fn before_inputs(
                     });
                 }
             }
+
             if let Some(program) = fold_origin(
+                        ledger,
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
@@ -1618,6 +1626,7 @@ async fn folded_publication(
     Ok(loaded)
 }
 async fn fold_origin(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     origin: &LocatedWrappers,
     prefix: &mut FoldedInventory,
@@ -1640,9 +1649,71 @@ async fn fold_origin(
             "ledger-cost-authority-enroll/1",
             s,
         )?;
+
     let publication = if cost_enrollment {
         super::local_cost_authority::fold_original(tx, origin, &mut prefix._inventory, setup, s)
             .await?;
+        None
+    } else if origin.wrappers().class() == wrappers::WireClass::Agreement
+        && request_wrapper::text(literal, "schema", s)? == "ledger-workflow-activation/1"
+    {
+        // Resolve the original accepted Binding, not an invented publication
+        // operand on an activation payload. The recursive acquisition ends
+        // strictly before this transition and returns the owning acceptance.
+        let wanted = request_wrapper::field(literal, "accepted_binding_ref", s)?;
+        let bytes = {
+            let acquire = acceptance_for_original(
+                ledger,
+                tx,
+                origin.key(),
+                wanted,
+                origin.wrappers().sequence(),
+                s,
+            );
+            std::mem::size_of_val(&acquire)
+        };
+        let _acquisition = s.reserve_external_payload(bytes).map_err(core_error)?;
+        let accepted = Box::pin(acceptance_for_original(
+            ledger,
+            tx,
+            origin.key(),
+            wanted,
+            origin.wrappers().sequence(),
+            s,
+        ))
+        .await?;
+        let replay = super::activation::reconstruct_initial(
+            tx,
+            origin,
+            accepted.acceptance.audited()?,
+            &accepted.publication,
+            prefix,
+            setup,
+            s,
+        )
+        .await?;
+        let binding = s
+            .parse_representation(
+                accepted.acceptance.binding.bytes(),
+                RepresentationKind::Record,
+            )
+            .map_err(core_error)?;
+        replay.fold(origin, prefix, binding.value(), s)?;
+        None
+    } else if origin.wrappers().class() == wrappers::WireClass::Financial
+        && request_wrapper::text(origin.wrappers().operation(), "schema", s)?
+            == "ledger-workflow-economic-operation/10"
+    {
+        let candidate = if request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?
+            == "semantic_alias"
+        {
+            super::local_alias_original::reconstruct(ledger, tx, origin, None, s)
+                .await?
+                .ok_or(ServiceError::IntegrityFailure)?
+        } else {
+            super::local_original_work::reconstruct_selected(ledger, tx, origin, prefix, s).await?
+        };
+        prefix.fold_local_candidate(origin, &candidate, s)?;
         None
     } else if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
@@ -1669,6 +1740,7 @@ async fn fold_origin(
         };
         let reconstructed =
             super::acceptance::reconstruct_held(tx, origin, publication, prefix, setup, s).await?;
+
         reconstructed.fold_original(origin, prefix, s)?;
         None
     } else {
@@ -1690,7 +1762,9 @@ async fn fold_origin(
             source::FoldedSource::Other => None,
         }
     };
+
     finish_origin(origin, prefix, s)?;
+
     if let Some(key) = initial_source {
         prefix
             .programs
@@ -1914,6 +1988,235 @@ impl FoldedInventory {
         self._inventory
             .set_head(&boundary, records.activation.reference(), s)?;
         self._inventory.set_head(&head, records.head.reference(), s)
+    }
+}
+
+pub(super) fn local_claim_key(
+    claim: &ledgerlab_core::policy::workflow::transition_constructor::PermanentClaimKey,
+    s: &mut OriginalAuditSession,
+) -> Result<inventory::StateKey> {
+    use ledgerlab_core::policy::workflow::transition_constructor::PermanentClaimKey;
+    let (domain, parts, count): (_, [&str; 5], usize) = match claim {
+        PermanentClaimKey::Assertion {
+            verified_source,
+            attestation_id,
+            ..
+        } => (
+            "local-original-assertion",
+            [verified_source, attestation_id, "", "", ""],
+            2,
+        ),
+        PermanentClaimKey::Work {
+            source_namespace,
+            business_operation_id,
+            completion,
+            ..
+        } => (
+            "local-original-work-key",
+            [source_namespace, business_operation_id, completion, "", ""],
+            3,
+        ),
+        PermanentClaimKey::Outcome {
+            agreement_id,
+            family_slot,
+            target_id,
+            source_namespace,
+            business_outcome_token,
+            ..
+        } => (
+            "local-original-outcome-key",
+            [
+                agreement_id,
+                family_slot,
+                target_id,
+                source_namespace,
+                business_outcome_token,
+            ],
+            5,
+        ),
+        _ => return Err(reject("UNSUPPORTED_COMPOSITION")),
+    };
+    let parts = &parts[..count];
+    let _controls = s
+        .reserve_external_payload(
+            parts.len()
+                * (std::mem::size_of::<ledgerlab_core::canonical::audit_arena::AuditedBytes>()
+                    + std::mem::size_of::<&[u8]>()),
+        )
+        .map_err(core_error)?;
+    let values: Vec<_> = parts
+        .iter()
+        .map(|v| wire::string(v, s))
+        .collect::<Result<_>>()?;
+    let parts: Vec<_> = values.iter().map(|v| v.bytes()).collect();
+    inventory::StateKey::new(domain, &parts, s)
+}
+impl FoldedInventory {
+    pub(super) fn original_input<'a>(
+        &mut self,
+        domain: &'static str,
+        values: &[&Value],
+        inputs: &'a [ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'a>],
+        s: &mut OriginalAuditSession,
+    ) -> Result<
+        Option<ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'a>>,
+    > {
+        let key = super::local_original_heads::state_key(domain, values, s)?;
+        let Some(body) = self._inventory.head_body(&key, s)? else {
+            return Ok(None);
+        };
+        let mut found = None;
+        for input in inputs {
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(body.bytes().len())
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(input.canonical_body.len())
+                .map_err(core_error)?;
+            if body.bytes() == input.canonical_body {
+                require(found.replace(*input).is_none(), "INTEGRITY_FAILURE")?;
+            }
+        }
+        found.map(Some).ok_or(ServiceError::IntegrityFailure)
+    }
+    fn fold_local_candidate(
+        &mut self,
+        origin: &LocatedWrappers,
+        candidate: &ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        use ledgerlab_core::policy::workflow::transition_constructor::{
+            FinancialHeadKey, PermanentClaimKey,
+        };
+        for reference in candidate.consumed_refs() {
+            self.require_record(reference, s)?;
+        }
+        for claim in candidate.claims() {
+            let key = local_claim_key(claim.key(), s)?;
+            self._inventory.absent(&key, s)?;
+        }
+        for record in candidate.introduced() {
+            self._inventory.introduce(
+                record.reference(),
+                record.canonical_body(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
+        }
+        // Head keys come from the SAME sealed constructor effects as SQLite
+        // append. Bodies do not invent an ID-only or schema-field projection.
+        for head in candidate.heads() {
+            let record = candidate
+                .introduced()
+                .get(head.introduced_position())
+                .ok_or(ServiceError::IntegrityFailure)?;
+            require(
+                super::local_original_work::same_ref(head.proposed(), record.reference(), s)?,
+                "INTEGRITY_FAILURE",
+            )?;
+            let key = match head.key() {
+                FinancialHeadKey::Decision { decision_id } => {
+                    let id = wire::string(decision_id, s)?;
+                    inventory::StateKey::new("local-original-decision", &[id.bytes()], s)?
+                }
+                FinancialHeadKey::Capacity { root_decision_id } => {
+                    let id = wire::string(root_decision_id, s)?;
+                    inventory::StateKey::new("local-original-capacity", &[id.bytes()], s)?
+                }
+                FinancialHeadKey::Invocation { invocation_id } => {
+                    let id = wire::string(invocation_id, s)?;
+                    inventory::StateKey::new("local-original-invocation", &[id.bytes()], s)?
+                }
+                FinancialHeadKey::Chain {
+                    customer, chain, ..
+                } => {
+                    let customer = wire::string(customer, s)?;
+                    let chain = wire::string(chain, s)?;
+                    inventory::StateKey::new(
+                        "local-original-chain",
+                        &[customer.bytes(), chain.bytes()],
+                        s,
+                    )?
+                }
+                FinancialHeadKey::Family {
+                    target_ref,
+                    family_slot,
+                } => {
+                    let target = wire::reference(target_ref, s)?;
+                    let slot = wire::string(family_slot, s)?;
+                    inventory::StateKey::new(
+                        "local-original-family",
+                        &[target.bytes(), slot.bytes()],
+                        s,
+                    )?
+                }
+                FinancialHeadKey::Stage {
+                    agreement,
+                    chain,
+                    stage,
+                } => {
+                    let body = s
+                        .parse_representation(record.canonical_body(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    request_wrapper::same_text(
+                        request_wrapper::text(body.value(), "schema", s)?,
+                        "ledger-workflow-stage-state/1",
+                        s,
+                    )?;
+                    let instance = request_wrapper::field(body.value(), "stage_instance_ref", s)?;
+                    let key = super::local_original_heads::state_key(
+                        "local-original-stage",
+                        &[instance],
+                        s,
+                    )?;
+                    self._inventory.set_head(&key, head.proposed(), s)?;
+                    let agreement = wire::string(agreement, s)?;
+                    let chain = wire::string(chain, s)?;
+                    let stage = wire::string(stage, s)?;
+                    inventory::StateKey::new(
+                        "local-original-stage-name",
+                        &[agreement.bytes(), chain.bytes(), stage.bytes()],
+                        s,
+                    )?
+                }
+                _ => return Err(reject("UNSUPPORTED_COMPOSITION")),
+            };
+            self._inventory.set_head(&key, head.proposed(), s)?;
+        }
+        for claim in candidate.claims() {
+            let key = local_claim_key(claim.key(), s)?;
+            self._inventory.set_head(&key, claim.record_ref(), s)?;
+            if matches!(claim.key(), PermanentClaimKey::Work { .. }) {
+                let id = wire::string(&claim.record_ref().id, s)?;
+                let key = inventory::StateKey::new("local-original-work-claim", &[id.bytes()], s)?;
+                self._inventory.set_head(&key, claim.record_ref(), s)?;
+            }
+        }
+        // Wrapper regeneration checked the exact operation and member union
+        // before this fold; this introduces only that checked operation.
+        let pointer = origin.wrappers().origin_pointer(s)?;
+        let pointer = s
+            .parse_representation(pointer.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let (reference, _owner) = current::source::from_value_local(
+            request_wrapper::field(pointer.value(), "operation_ref", s)?,
+            s,
+        )?;
+        let operation = s
+            .canonical_representation(
+                origin.wrappers().operation(),
+                RepresentationKind::OperationFrame,
+            )
+            .map_err(core_error)?;
+        self._inventory.introduce(
+            &reference,
+            operation.bytes(),
+            origin.wrappers().sequence(),
+            s,
+        )
     }
 }
 

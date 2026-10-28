@@ -1,4 +1,4 @@
-use super::{read, write, Inner};
+use super::{Inner, read, write};
 use crate::store::{
     errors::{CommitError, StoreError},
     ports::AcceptanceTx,
@@ -6,12 +6,12 @@ use crate::store::{
 };
 use sqlx::{Connection as _, Sqlite, SqliteConnection, Transaction};
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 use tokio::{
-    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
-    time::{timeout_at, Instant},
+    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
+    time::{Instant, timeout_at},
 };
 
 // Set the poison bit before every database await. If its future is dropped the
@@ -819,7 +819,7 @@ impl SqliteTx {
                     before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
                 if after != before {
                     match self.billing_schema_version().await? {
-                        12..=18 => {
+                        12..=19 => {
                             super::workflow::capacity::check(self.conn(), 0, 0).await?;
                         }
                         11 => {} // A verified opt-in attempt rolled back.

@@ -6,6 +6,8 @@ use ledgerlab_core::policy::workflow::transition_constructor::{EconomicCandidate
 
 pub(super) const MATCH_DOCUMENT: &str = "SELECT kind=? AND digest=? AND schema_name=? AND canonical_bytes=? FROM workflow_documents WHERE id=?";
 pub(super) const INSERT_DOCUMENT: &str = "INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING";
+pub(super) const MATCH_FULL_DOCUMENT: &str = "SELECT kind=?1 AND digest=?2 AND schema_name=?3 AND canonical_bytes=?4 FROM workflow_documents WHERE id=?5 AND kind=?1 AND digest=?2";
+pub(super) const INSERT_FULL_DOCUMENT: &str = "INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?) ON CONFLICT(kind,id,digest) DO NOTHING";
 pub(super) const INSERT_OPERATION: &str = "INSERT INTO workflow_operations(identity_key,logical_store_id,tenant,environment,source,operation_id,operation_record_id,operation_digest,operation_bytes,normalized_request_hash,manifest_id,manifest_digest,manifest_bytes,receipt_id,receipt_digest,receipt_bytes,publication_id,plan_id,commit_sequence,accepted_at_us,operation_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,?)";
 
 pub(crate) struct FinancialDocument<'a> {
@@ -17,13 +19,18 @@ pub(crate) struct FinancialDocument<'a> {
 /// witness, so the test exercises the actual VALUES parameter list.
 pub(super) fn insert_document<'a>(
     document: &'a FinancialDocument<'_>,
+    full_ref_layout: bool,
 ) -> sqlx::query::Query<'a, sqlx::Sqlite, sqlx::sqlite::SqliteArguments> {
-    sqlx::query(INSERT_DOCUMENT)
-        .bind(&document.reference.kind)
-        .bind(&document.reference.id)
-        .bind(&document.reference.digest)
-        .bind(document.schema)
-        .bind(document.canonical_bytes)
+    sqlx::query(if full_ref_layout {
+        INSERT_FULL_DOCUMENT
+    } else {
+        INSERT_DOCUMENT
+    })
+    .bind(&document.reference.kind)
+    .bind(&document.reference.id)
+    .bind(&document.reference.digest)
+    .bind(document.schema)
+    .bind(document.canonical_bytes)
 }
 pub(crate) struct FinancialJournal<'a> {
     pub identity: &'a [u8],
@@ -284,9 +291,11 @@ impl SqliteTx {
             && !resource_compare(session, version, 16)?.is_eq()
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
+            && !resource_compare(session, version, 19)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
+        let full_ref_layout = resource_compare(session, version, 19)?.is_eq();
         if !journal_framing(documents, o, session)? {
             return Err(StoreError::Integrity("financial prepared framing").into());
         }
@@ -331,14 +340,21 @@ impl SqliteTx {
             // returns only a boolean and has no request-sized packed result.
             let payload = io::binding_payload(&bindings, &[], 0, 4194304, session)?;
             self.financial_reserve_io(session, payload)?;
-            let retained: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
-                .bind(&d.reference.kind)
-                .bind(&d.reference.digest)
-                .bind(d.schema)
-                .bind(d.canonical_bytes)
-                .bind(&d.reference.id)
-                .fetch_optional(self.conn())
-                .await?;
+            let invocation = full_ref_layout
+                && same_text(&d.reference.kind, "workflow-invocation", session)?
+                && same_text(d.schema, "ledger-workflow-invocation/1", session)?;
+            let retained: Option<bool> = sqlx::query_scalar(if invocation {
+                MATCH_FULL_DOCUMENT
+            } else {
+                MATCH_DOCUMENT
+            })
+            .bind(&d.reference.kind)
+            .bind(&d.reference.digest)
+            .bind(d.schema)
+            .bind(d.canonical_bytes)
+            .bind(&d.reference.id)
+            .fetch_optional(self.conn())
+            .await?;
             self.financial_finish_io(session).await?;
             match retained {
                 Some(false) => {
@@ -376,9 +392,17 @@ impl SqliteTx {
                 d.schema.as_bytes(),
                 d.canonical_bytes,
             ];
-            // Exact three MakeRecord sites in the pinned direct VALUES VM:
-            // full row, (kind,id,digest,rowid), (id,rowid). SCopy is shallow.
-            let packed = [
+            // Full row and exact index key packings. Schema19 retains one
+            // fullRef PK, a generated unique guard and an id lookup index.
+            let guard = if full_ref_layout
+                && same_text(&r.kind, "workflow-invocation", session)?
+                && same_text(d.schema, "ledger-workflow-invocation/1", session)?
+            {
+                &[][..]
+            } else {
+                r.id.as_bytes()
+            };
+            let legacy = [
                 r.kind.as_bytes(),
                 r.id.as_bytes(),
                 r.digest.as_bytes(),
@@ -389,9 +413,29 @@ impl SqliteTx {
                 r.digest.as_bytes(),
                 r.id.as_bytes(),
             ];
-            let payload = io::binding_payload(&bound, &packed, 2, 0, session)?;
+            let native = [
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                d.schema.as_bytes(),
+                d.canonical_bytes,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                guard,
+                r.id.as_bytes(),
+            ];
+            // Trigger CASE tests length before comparing a matching fullRef
+            // body: only an equal-length retained BLOB can materialize here.
+            let payload = if full_ref_layout {
+                io::binding_payload(&bound, &native, 3, d.canonical_bytes.len(), session)?
+            } else {
+                io::binding_payload(&bound, &legacy, 2, 0, session)?
+            };
             self.financial_reserve_io(session, payload)?;
-            insert_document(d).execute(self.conn()).await?;
+            insert_document(d, full_ref_layout)
+                .execute(self.conn())
+                .await?;
             self.financial_finish_io(session).await?;
         }
         let bound = [
@@ -508,13 +552,24 @@ impl SqliteTx {
                     }
                 }
             } else if same_text(kind, "workflow-receipt", session)? {
-                let bound = [key.logical_store_id.as_bytes(), key.scope[0].as_bytes(), key.scope[1].as_bytes(), id.as_bytes(), digest.as_bytes()];
+                let bound = [
+                    key.logical_store_id.as_bytes(),
+                    key.scope[0].as_bytes(),
+                    key.scope[1].as_bytes(),
+                    id.as_bytes(),
+                    digest.as_bytes(),
+                ];
                 let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
                 self.financial_reserve_io(session, payload)?;
                 let present:bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND receipt_id=? AND receipt_digest=? AND commit_sequence<?)")
                     .bind(key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1]).bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
                 self.financial_finish_io(session).await?;
-                if !present { return Err(StoreError::Integrity("alias receipt member is not an earlier scoped original").into()); }
+                if !present {
+                    return Err(StoreError::Integrity(
+                        "alias receipt member is not an earlier scoped original",
+                    )
+                    .into());
+                }
             } else {
                 let bound = [kind.as_bytes(), id.as_bytes(), digest.as_bytes()];
                 let payload = io::binding_payload(&bound, &[], 0, 0, session)?;

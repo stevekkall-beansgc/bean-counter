@@ -6,11 +6,11 @@ use sqlx::Connection;
 use std::{
     future::Future,
     pin::Pin,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 use tokio::{
-    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
+    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
     time::Instant,
 };
 
@@ -402,11 +402,13 @@ mod tests {
             .unwrap();
         tx.financial_reserve_io(&mut session, 1048576).unwrap();
         let payload = vec![b'x'; 262144];
-        assert!(sqlx::query("SELECT json_extract(CAST(? AS TEXT), '$')")
-            .bind(payload.as_slice())
-            .fetch_one(tx.conn())
-            .await
-            .is_err());
+        assert!(
+            sqlx::query("SELECT json_extract(CAST(? AS TEXT), '$')")
+                .bind(payload.as_slice())
+                .fetch_one(tx.conn())
+                .await
+                .is_err()
+        );
         assert!(tx.conn().cached_statements_size() > 0);
         drop(payload);
         tx.financial_finish_io(&mut session).await.unwrap();
@@ -437,10 +439,10 @@ mod tests {
 #[cfg(test)]
 mod statement_source_tests {
     use super::super::append::{
-        insert_document, FinancialDocument, INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT,
+        FinancialDocument, INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT, insert_document,
     };
     use ledgerlab_core::policy::workflow::transition_constructor::ExactRef;
-    use sqlx::{sqlite::SqliteConnectOptions, Connection, Executor, Row, SqliteConnection};
+    use sqlx::{Connection, Executor, Row, SqliteConnection, sqlite::SqliteConnectOptions};
     #[tokio::test]
     async fn direct_document_values_keep_preflight_and_check_failures() {
         let mut conn = SqliteConnection::connect_with(
@@ -475,9 +477,15 @@ mod statement_source_tests {
             schema: "opaque",
             canonical_bytes: &[1u8],
         };
-        let append = insert_document(&document).execute(&mut conn).await.unwrap();
+        let append = insert_document(&document, false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
         assert_eq!(append.rows_affected(), 1);
-        let reused = insert_document(&document).execute(&mut conn).await.unwrap();
+        let reused = insert_document(&document, false)
+            .execute(&mut conn)
+            .await
+            .unwrap();
         assert_eq!(reused.rows_affected(), 0);
         let different: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
             .bind("workflow-product")
@@ -489,8 +497,8 @@ mod statement_source_tests {
             .await
             .unwrap();
         assert_eq!(different, Some(false)); // caller's immutable preflight refuses
-                                            // ON CONFLICT(id) must not suppress kind or byte-size CHECK failures,
-                                            // including when that id already exists.
+        // ON CONFLICT(id) must not suppress kind or byte-size CHECK failures,
+        // including when that id already exists.
         for (kind, bytes) in [
             ("workflow-unknown", &[1u8][..]),
             ("workflow-product", &[][..]),
@@ -505,7 +513,12 @@ mod statement_source_tests {
                 schema: "opaque",
                 canonical_bytes: bytes,
             };
-            assert!(insert_document(&document).execute(&mut conn).await.is_err());
+            assert!(
+                insert_document(&document, false)
+                    .execute(&mut conn)
+                    .await
+                    .is_err()
+            );
         }
     }
     #[tokio::test]

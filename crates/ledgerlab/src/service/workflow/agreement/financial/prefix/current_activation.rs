@@ -18,7 +18,7 @@ fn same(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<()> {
     require(a == b, "INTEGRITY_FAILURE")
 }
 impl FoldedInventory {
-    fn completed_initial_activation(
+    pub(in super::super) fn completed_initial_activation(
         &mut self,
         binding_ref: &ExactRef,
         binding: &Value,

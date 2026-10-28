@@ -6,12 +6,12 @@ use crate::store::sqlite::workflow::financial::RetainedDocument;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     policy::workflow::{
+        DefinitionRef,
         selected_program::{
-            load_local_selected_execution, rehydrate_selected_execution, restore_selected_program,
             SelectedExecutionReloadKey, SelectedProgram, SelectedSourceInput,
+            load_local_selected_execution, rehydrate_selected_execution, restore_selected_program,
         },
         transition_constructor::ExactRef,
-        DefinitionRef,
     },
 };
 use sha2::{Digest, Sha256};
@@ -54,7 +54,7 @@ impl RecompiledPublication {
             &self.authority.reference,
         ])
     }
-    pub(super) fn compare_completed_inputs(
+    pub(in super::super) fn compare_completed_inputs(
         &self,
         inventory: &mut inventory::Inventory,
         s: &mut OriginalAuditSession,

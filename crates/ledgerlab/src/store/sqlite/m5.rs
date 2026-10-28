@@ -1,8 +1,8 @@
 //! Additive M5 persistence primitives. The coordinator owns terms, authority,
 //! arithmetic and statement composition; this module owns exact retained bytes.
 use crate::store::errors::StoreError;
-use ledgerlab_core::canonical::{parse_bounded, CanonicalBytes};
-use serde_json::{json, Value};
+use ledgerlab_core::canonical::{CanonicalBytes, parse_bounded};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 use std::collections::{BTreeMap, BTreeSet};
@@ -307,7 +307,8 @@ pub(crate) async fn recurrence_state(
         && schema != 15
         && schema != 16
         && schema != 17
-            && schema != 18
+        && schema != 18
+        && schema != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -459,7 +460,8 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1164,7 +1166,8 @@ pub(crate) async fn ad_hoc_state(
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1292,7 +1295,8 @@ pub(crate) async fn term_state(
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1349,7 +1353,8 @@ pub(crate) async fn term_transition_state(
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1438,7 +1443,8 @@ pub(crate) async fn period_resolve_state(
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1494,7 +1500,8 @@ pub(crate) async fn period_close_state(
         && version != 15
         && version != 16
         && version != 17
-            && version != 18
+        && version != 18
+        && version != 19
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -4514,9 +4521,11 @@ mod tests {
             hex(&hash(b"bean-counter/m5/response/1\0", &response)),
             command["response_hash_storage_only"]
         );
-        assert!(command["result"]["receipt"]
-            .get("command_sequence")
-            .is_none());
+        assert!(
+            command["result"]["receipt"]
+                .get("command_sequence")
+                .is_none()
+        );
     }
 
     #[test]

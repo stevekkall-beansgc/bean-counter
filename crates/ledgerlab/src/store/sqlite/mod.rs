@@ -30,15 +30,15 @@ use std::{
     fs::OpenOptions,
     path::Path,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 use tokio::{
     sync::{RwLock, Semaphore},
     task::JoinHandle,
-    time::{timeout_at, Instant},
+    time::{Instant, timeout_at},
 };
 pub(crate) use tx::{FinancialCommitError, SqliteTx, WorkflowProofFailureHandle};
 
@@ -216,7 +216,8 @@ impl SqliteStore {
                         || schema_version == 15
                         || schema_version == 16
                         || schema_version == 17
-                        || schema_version == 18,
+                        || schema_version == 18
+                        || schema_version == 19,
                 ),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),

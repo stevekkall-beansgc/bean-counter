@@ -247,7 +247,7 @@ pub(super) async fn verify_original(
         .checked_add(1)
         .ok_or(ServiceError::IntegrityFailure)?;
     completed
-        .current_sources(tx, origin.key(), &setup, &[], before, s)
+        .current_sources(tx, origin.key(), (ledger, &setup), &[], before, s)
         .await?;
     completed.require_original_sequence(original.sequence(), s)?;
     if let Some(incoming) = incoming {

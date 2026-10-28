@@ -3,7 +3,7 @@
 use super::*;
 use ledgerlab_core::{
     policy::workflow::transition_constructor::{
-        locate_local_subject_binding, normalize_local_saved_intent, OperationKey as CoreKey,
+        OperationKey as CoreKey, locate_local_subject_binding, normalize_local_saved_intent,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -69,7 +69,7 @@ async fn verify_intent(
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?
     {
-        if request_wrapper::text(r, "kind", s)? != "workflow-operation" {
+        if !w.is_own_operation(r, s)? {
             pool.add_value(r, s)?;
         }
     }

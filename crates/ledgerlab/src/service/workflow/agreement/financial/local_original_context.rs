@@ -28,16 +28,25 @@ pub(super) fn capture(
     activation: &ExactRef,
     s: &mut OriginalAuditSession,
 ) -> Result<(DraftContextData, ExternalBufferLease)> {
+    capture_selected(op, activation, false, s)
+}
+pub(super) fn capture_selected(
+    op: &Value,
+    activation: &ExactRef,
+    stage: bool,
+    s: &mut OriginalAuditSession,
+) -> Result<(DraftContextData, ExternalBufferLease)> {
     let key = request_wrapper::field(op, "key", s)?;
     let scope = request_wrapper::field(key, "scope", s)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?;
     require(scope.len() == 2, "INTEGRITY_FAILURE")?;
     let snapshot = request_wrapper::field(op, "authority_snapshot", s)?;
-    request_wrapper::same_text(
-        request_wrapper::text(snapshot, "schema", s)?,
-        "ledger-workflow-economic-authority/8",
-        s,
+    let schema = request_wrapper::text(snapshot, "schema", s)?;
+    require(
+        schema == "ledger-workflow-economic-authority/8"
+            || (stage && schema == "ledger-workflow-stage-authority/1"),
+        "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let originals = request_wrapper::field(snapshot, "original_grant_refs", s)?
         .as_array()

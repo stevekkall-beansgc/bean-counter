@@ -73,6 +73,7 @@ impl SqliteTx {
             && !resource_compare(s, version, 16)?.is_eq()
             && !resource_compare(s, version, 17)?.is_eq()
             && !resource_compare(s, version, 18)?.is_eq()
+            && !resource_compare(s, version, 19)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -113,6 +114,13 @@ impl SqliteTx {
             let values=[kind,id,schema,store,&scope[0],&scope[1]];
             for v in values {heads::locator_text(v,256,s)?;}
             let bound=values.map(str::as_bytes);
+            let payload = io::binding_payload(&bound, &[], 0, 0, s)?;
+            self.financial_reserve_io(s, payload)?;
+            s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
+            let count:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.schema_name=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?) LIMIT 2)")
+                .bind(kind).bind(id).bind(schema).bind(store).bind(&scope[0]).bind(&scope[1]).fetch_one(self.conn()).await?;
+            self.financial_finish_io(s).await?;
+            if resource_compare(s,count,1)?.is_gt() { return Err(StoreError::Integrity("ambiguous local record identity").into()); }
             self.read_financial_claim_projection(
                 "SELECT octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.schema_name=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)",
                 "SELECT d.kind,d.id,d.digest FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.schema_name=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)",&values,&bound,s).await

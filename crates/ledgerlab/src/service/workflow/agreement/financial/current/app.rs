@@ -200,6 +200,7 @@ pub(in super::super) async fn observe(
         }
         let (slot, seeds, heads, predecessor) =
             work_capture::select(&observed, key, payload, index, &received_at, session)?;
+
         let observed_heads = work_heads::observe(
             tx,
             &mut observed.original,
@@ -214,6 +215,7 @@ pub(in super::super) async fn observe(
             observed.parties.as_ref().ok_or(ServiceError::Unavailable)?,
             session,
         )?;
+
         let parsed_heads = session
             .parse_representation(observed_heads.seeds.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
@@ -230,6 +232,7 @@ pub(in super::super) async fn observe(
                 Some(pool) => pool,
                 None => super::super::local_inputs::LocalInputs::new(session)?,
             };
+            pool.select_stage_recipe(observed.original.publication.program());
             if let Some(predecessor) = predecessor.as_ref() {
                 let held = work_heads::observe_relation_decision(
                     tx,
@@ -325,6 +328,7 @@ pub(in super::super) async fn observe(
                     }
                 }
             }
+
             let proofs = check::field(payload, "fact_proofs", session)?
                 .as_array()
                 .ok_or(ServiceError::IntegrityFailure)?;
@@ -367,8 +371,11 @@ pub(in super::super) async fn observe(
                     }
                 }
             }
+
             pool.complete(tx, key, observed.before, session).await?;
+
             stage::retain_work_head(&mut observed, &mut state, &mut pool, tx, key, payload, session).await?;
+
             let program = observed.original.publication.program();
             if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
                 let mut links = chain_links::acquire(
@@ -394,6 +401,7 @@ pub(in super::super) async fn observe(
                 state.financial.links = std::mem::take(&mut links.references);
                 observed._chain_storage = Some(links);
             }
+
             if program.uses_work_lifecycle_recipe() {
                 pool.complete_lifecycle(program, tx, key, observed.before, session).await?;
             }
@@ -410,6 +418,7 @@ pub(in super::super) async fn observe(
                 .retain_economic_inputs(explicit, session)?;
             observed.work_input_bodies = Some(input_bodies);
         }
+
         observed.work_source_slot = Some(slot);
         observed.work_source_index = Some(index);
         observed.work_input_seeds = Some(seeds);
@@ -737,7 +746,7 @@ async fn observe_binding(
             sources.push(observed);
         }
         original
-            .current_sources(tx, key, &setup, &sources, before, session)
+            .current_sources(tx, key, (ledger, &setup), &sources, before, session)
             .await?;
         // Stop remains the existing Authority2 recipe: current admission
         // mapping expiry/revocation cannot erase the right to stop accrued

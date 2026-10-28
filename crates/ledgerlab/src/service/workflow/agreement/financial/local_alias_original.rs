@@ -12,17 +12,28 @@ pub(super) async fn verify(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
+    Ok(reconstruct(ledger, tx, original, incoming, s)
+        .await?
+        .is_some())
+}
+pub(super) async fn reconstruct(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<core::EconomicCandidate>> {
     let w = original.wrappers();
     if w.class() != wrappers::WireClass::Financial
         || request_wrapper::text(w.receipt(), "result_kind", s)? != "semantic_alias"
         || request_wrapper::text(w.operation(), "kind", s)? != "work.accept"
     {
-        return Ok(false);
+        return Ok(None);
     }
     let ev = request_wrapper::field(w.operation(), "request_evidence", s)?;
     let resolution = request_wrapper::field(ev, "descriptor_resolution", s)?;
     if !wrappers::is_local_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)? {
-        return Ok(false);
+        return Ok(None);
     }
     require(
         local_financial_original::verify_alias_transport(tx, original, incoming, s).await?,
@@ -175,7 +186,7 @@ pub(super) async fn verify(
     let payload = s
         .canonical_representation(saved_payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
-    let (inputs,_views_owner) = pool.owned_views(0,s)?;
+    let (inputs, _views_owner) = pool.owned_views(0, s)?;
     let candidate = core::construct_local_work_alias_candidate(
         publication.program(),
         &capture,
@@ -235,5 +246,5 @@ pub(super) async fn verify(
         s,
     )?;
     journal.compare_original(w, s)?;
-    Ok(true)
+    Ok(Some(candidate))
 }

@@ -3,8 +3,8 @@ use super::workflow::capacity::SessionWork;
 use super::workflow::financial::FinancialReadError;
 use super::*;
 use crate::service::billing::{
-    ValidatedEntry, MAX_RETAINED_ALIASES, MAX_RETAINED_ALIAS_BYTES, MAX_RETAINED_ENTRIES,
-    MAX_RETAINED_ENTRY_BYTES,
+    MAX_RETAINED_ALIAS_BYTES, MAX_RETAINED_ALIASES, MAX_RETAINED_ENTRIES, MAX_RETAINED_ENTRY_BYTES,
+    ValidatedEntry,
 };
 use ledgerlab_core::validation_work::{
     ArithmeticOperation as ResourceOp, NoopValidationWork, OriginalAuditSession, ValidationVisit,
@@ -240,6 +240,7 @@ impl SqliteTx {
             && version != 16
             && version != 17
             && version != 18
+            && version != 19
         {
             return Err(StoreError::BillingUpgradeRequired);
         }
@@ -256,6 +257,7 @@ impl SqliteTx {
             && version != 16
             && version != 17
             && version != 18
+            && version != 19
         {
             return Err(StoreError::BillingUpgradeRequired);
         }
@@ -270,7 +272,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            11..=18 => {
+            11..=19 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
             }
@@ -405,7 +407,7 @@ impl SqliteTx {
             s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
             let version = self.billing_schema_version().await?;
             let mut supported = false;
-            for allowed in [11, 12, 13, 14, 15, 16, 17, 18] {
+            for allowed in [11, 12, 13, 14, 15, 16, 17, 18, 19] {
                 if billing_resource_compare(version, allowed, s.semantic_work())?.is_eq() {
                     supported = true;
                     break;
@@ -826,9 +828,15 @@ impl SqliteTx {
             .collect::<Vec<_>>()
             .join(",");
         let sql = match tier {
-            1 => format!("SELECT ordinal,NULL,source,external_id,semantic_key,ingress,facts,bundle,NULL,NULL,NULL FROM billing_entries WHERE ordinal IN ({list}) ORDER BY ordinal"),
-            2 => format!("SELECT ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version FROM billing_m2_entries WHERE ordinal IN ({list}) ORDER BY ordinal"),
-            _ => format!("SELECT ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version FROM billing_m3_entries WHERE ordinal IN ({list}) ORDER BY ordinal"),
+            1 => format!(
+                "SELECT ordinal,NULL,source,external_id,semantic_key,ingress,facts,bundle,NULL,NULL,NULL FROM billing_entries WHERE ordinal IN ({list}) ORDER BY ordinal"
+            ),
+            2 => format!(
+                "SELECT ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version FROM billing_m2_entries WHERE ordinal IN ({list}) ORDER BY ordinal"
+            ),
+            _ => format!(
+                "SELECT ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version FROM billing_m3_entries WHERE ordinal IN ({list}) ORDER BY ordinal"
+            ),
         };
         type Row = (
             i64,
@@ -1185,7 +1193,7 @@ impl SqliteTx {
             let ordinal = entry_count + 1;
             let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
                 .fetch_one(self.conn()).await?;
-            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 || schema == 17 || schema == 18 {
+            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 || schema == 17 || schema == 18 || schema == 19 {
                 super::m5::assignment_for_m3(self.conn(), plan).await?
             } else {
                 None
@@ -1899,16 +1907,18 @@ mod tests {
             .expect("the newest decision is addressable");
         assert_eq!(newest.ordinal, 1001);
         // An exact semantic lookup stays exact at the raised ceiling.
-        assert!(tx
-            .billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-777")
-            .await
-            .unwrap()
-            .is_some());
-        assert!(tx
-            .billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-7777")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            tx.billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-777")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            tx.billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-7777")
+                .await
+                .unwrap()
+                .is_none()
+        );
         tx.rollback().await.unwrap();
         store.close().await;
         // The same holds after a reopen, so nothing depended on one connection.
@@ -2164,9 +2174,11 @@ mod tests {
                 .all(|entry| entry["target"] == serde_json::json!(target_a)),
             "A's own report explains A alone"
         );
-        assert!(rows(&report_b)
-            .iter()
-            .all(|entry| entry["target"] == serde_json::json!(target_b)));
+        assert!(
+            rows(&report_b)
+                .iter()
+                .all(|entry| entry["target"] == serde_json::json!(target_b))
+        );
         assert_eq!(
             a_rows
                 .iter()

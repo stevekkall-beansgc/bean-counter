@@ -143,6 +143,9 @@ impl SqliteTx {
         self.failed = true;
         let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM (SELECT 1 FROM workflow_documents d WHERE d.id=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?) LIMIT 2)")
+                .bind(id).bind(store).bind(tenant).bind(environment).fetch_one(self.conn()).await?;
+            if count > 1 { return Err(StoreError::Integrity("ambiguous workflow document id")); }
             let row:Option<(String,String,String,Vec<u8>)>=sqlx::query_as("SELECT d.kind,d.digest,d.schema_name,d.canonical_bytes FROM workflow_documents d WHERE d.id=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)").bind(id).bind(store).bind(tenant).bind(environment).fetch_optional(self.conn()).await?;
             Ok(row.map(|(kind,digest,schema,bytes)|Document{reference:RecordRef{kind,id:id.into(),digest},schema,bytes}))
         }).await.map_err(|_|StoreError::Deadline)?;
@@ -162,6 +165,7 @@ impl SqliteTx {
             && version != 16
             && version != 17
             && version != 18
+            && version != 19
         {
             return Err(StoreError::BillingUpgradeRequired);
         }

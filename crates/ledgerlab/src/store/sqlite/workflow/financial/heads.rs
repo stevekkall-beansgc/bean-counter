@@ -25,7 +25,11 @@ pub(crate) enum HeadKey<'a> {
     },
     Capacity(&'a str),
     Invocation(&'a str),
-    Stage { agreement: &'a str, chain: &'a str, stage: &'a str },
+    Stage {
+        agreement: &'a str,
+        chain: &'a str,
+        stage: &'a str,
+    },
     Cost(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
     AppCost(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
     CostConsumption(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
@@ -44,7 +48,11 @@ impl<'a> HeadKey<'a> {
             Self::Chain { customer, chain } => ("chain", [customer, chain, "", ""]),
             Self::Capacity(id) => ("capacity", [id, "", "", ""]),
             Self::Invocation(id) => ("invocation", [id, "", "", ""]),
-            Self::Stage { agreement, chain, stage } => ("stage", [agreement, chain, stage, ""]),
+            Self::Stage {
+                agreement,
+                chain,
+                stage,
+            } => ("stage", [agreement, chain, stage, ""]),
             Self::AppCost(r) => ("app_cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::Cost(r) => ("cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::CostConsumption(r) => ("cost_consumption", [&r.kind, &r.id, &r.digest, ""]),
@@ -221,6 +229,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 16)?.is_eq()
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
+            && !resource_compare(session, version, 19)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -229,6 +238,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 16)?.is_eq()
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
+            && !resource_compare(session, version, 19)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }

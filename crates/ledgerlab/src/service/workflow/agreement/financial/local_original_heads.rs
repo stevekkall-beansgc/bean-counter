@@ -11,7 +11,7 @@ use prefix::inventory::{Inventory, StateKey};
 pub(super) struct OriginalHeads {
     inventory: Option<Inventory>,
 }
-fn state_key(
+pub(super) fn state_key(
     domain: &'static str,
     values: &[&Value],
     s: &mut OriginalAuditSession,
@@ -145,11 +145,34 @@ impl OriginalHeads {
                             ],
                             &mut s,
                         )?),
-                        "workflow-correction-capacity" => Some(state_key(
-                            "local-original-capacity",
-                            &[request_wrapper::field(v, "root_decision_id", &mut s)?],
-                            &mut s,
-                        )?),
+                        "workflow-correction-capacity" => {
+                            let root = if schema == "ledger-correction-capacity/2" {
+                                let (reference, _lease) = current::source::from_value_local(
+                                    request_wrapper::field(v, "root_ref", &mut s)?,
+                                    &mut s,
+                                )?;
+                                request_wrapper::same_text(
+                                    &reference.kind,
+                                    "workflow-decision",
+                                    &mut s,
+                                )?;
+                                Some(
+                                    s.parse_representation(
+                                        pool.body(&reference)?,
+                                        RepresentationKind::Record,
+                                    )
+                                    .map_err(core_error)?,
+                                )
+                            } else {
+                                None
+                            };
+                            let id = if let Some(root) = &root {
+                                request_wrapper::field(root.value(), "decision_id", &mut s)?
+                            } else {
+                                request_wrapper::field(v, "root_decision_id", &mut s)?
+                            };
+                            Some(state_key("local-original-capacity", &[id], &mut s)?)
+                        }
                         "workflow-invocation" => Some(state_key(
                             "local-original-invocation",
                             &[request_wrapper::field(v, "invocation_id", &mut s)?],

@@ -215,9 +215,12 @@ impl Snapshot {
         self.recheck()?;
         if self.settings.is_some() {
             require(
-                matches!(tx.billing_schema_version()
-                    .await
-                    .map_err(crate::service::store_error)?, 17 | 18),
+                matches!(
+                    tx.billing_schema_version()
+                        .await
+                        .map_err(crate::service::store_error)?,
+                    17..=19
+                ),
                 "UNSUPPORTED_SCHEMA_PROFILE",
             )?;
         }
