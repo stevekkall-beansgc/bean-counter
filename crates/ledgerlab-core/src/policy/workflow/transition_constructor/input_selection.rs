@@ -194,6 +194,75 @@ pub fn select_work_source_frame<'a>(
     result
 }
 
+/// Fixed locator DATA from the same original activity/rule/Policy association
+/// that the consuming Stage binding interpreter repeats. No first-row fallback.
+fn work_terms_row<'a>(
+    program: &SelectedProgram,
+    payload: &Value,
+    binding: &'a Value,
+    m: &mut CoreMeter,
+) -> Result<(&'a Value, &'static str)> {
+    let rows = shape::array(m, binding, "bindings")?;
+    if program.uses_stage_lifecycle_recipe() {
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| shape::fail("owning Stage work selector"))?;
+        let policy = super::working_value::owning_definition(m, &arena, program.root_policy_ref())?;
+        shape::equal(m, &binding["policy_ref"], policy.value())?;
+        for field in ["policy_ref", "product_ref"] {
+            shape::equal(m, &binding[field], &payload[field])?;
+        }
+        if rows.is_empty() || w::compare(m, rows.len(), 16usize)?.is_gt() {
+            return Err(shape::fail("Stage work binding slot bound"));
+        }
+        super::inventory::slots::keyed_order(m, rows, "slot", false)?;
+        let definitions = shape::array(m, program.original_policy_value(), "binding_slots")?;
+        if !w::compare(m, rows.len(), definitions.len())?.is_eq() {
+            return Err(shape::fail("Stage work complete original binding slots"));
+        }
+        for row in rows {
+            let name = shape::text(m, row, "slot")?;
+            shape::named(m, definitions, "name", name)?;
+        }
+        let mut selected = None;
+        for instruction in shape::array(
+            m,
+            program.compiled_plan().canonical_value(),
+            "typed_instructions",
+        )? {
+            m.visit("work.parent_stage_actual_retail_slot")?;
+            if !shape::same(m, &instruction["rule"]["activity"], &payload["activity"])? {
+                continue;
+            }
+            let name = shape::text(m, &instruction["rule"], "binding_slot")?;
+            let definition = shape::named(m, definitions, "name", name)?;
+            let book = shape::text(m, definition, "book")?;
+            if !shape::same_text(m, book, "retail")? {
+                continue;
+            }
+            let candidate = shape::named(m, rows, "slot", name)?;
+            if let Some(old) = selected {
+                shape::equal(m, old, candidate)?;
+            }
+            selected = Some(candidate);
+        }
+        let row = selected.ok_or_else(|| shape::fail("Stage work's exact retail binding slot"))?;
+        Ok((row, "ledger-workflow-slot-binding-terms/3"))
+    } else {
+        if !w::compare(m, rows.len(), 1usize)?.is_eq() {
+            return Err(crate::Error::new("UNSUPPORTED_COMPOSITION", "work parent app binding selector requires the same implemented single retail binding"));
+        }
+        Ok((
+            &rows[0],
+            if program.uses_app_cost_causal_recipe() {
+                "ledger-workflow-slot-binding-terms/7"
+            } else {
+                "ledger-workflow-slot-binding-terms/6"
+            },
+        ))
+    }
+}
+
 /// Actual original Binding/Terms source group and initial-state locator. No
 /// authority predicate or original receipt is inferred from this selection.
 /// In particular the matched original group is DERIVED from accepted Terms,
@@ -248,17 +317,9 @@ pub fn select_work_input_seeds<'a>(
             let expected = shape::field(m, p.value(), "binding_ref")?;
             shape::equal(m, actual, expected)?;
         }
-        let rows = shape::array(m, &binding, "bindings")?;
-        if !w::compare(m, rows.len(), 1usize)?.is_eq() {
-            return Err(crate::Error::new("UNSUPPORTED_COMPOSITION","work parent app binding selector requires the same implemented single retail binding"));
-        }
-        let terms_value = shape::field(m, &rows[0], "binding_ref")?;
+        let (selected_row, schema) = work_terms_row(program, p.value(), &binding, m)?;
+        let terms_value = shape::field(m, selected_row, "binding_ref")?;
         let terms_ref = super::working_value::parse_owned_reference(m, &arena, terms_value)?;
-        let schema = if program.uses_app_cost_causal_recipe() {
-            "ledger-workflow-slot-binding-terms/7"
-        } else {
-            "ledger-workflow-slot-binding-terms/6"
-        };
         let terms = r.get(
             m,
             capture.key,
@@ -266,6 +327,18 @@ pub fn select_work_input_seeds<'a>(
             "workflow-slot-terms",
             schema,
         )?;
+        if program.uses_stage_lifecycle_recipe() {
+            for field in ["scope", "agreement_id", "customer"] {
+                shape::equal(m, &terms[field], &binding[field])?;
+            }
+            shape::equal(m, &terms["slot"], &selected_row["slot"])?;
+            let activities = shape::array(m, &terms, "allowed_activities")?;
+            if !shape::member(m, activities, &p.value()["activity"])? {
+                return Err(shape::fail(
+                    "Stage work activity absent original retail Terms",
+                ));
+            }
+        }
         let originals = shape::array(m, &terms, "source_grant_refs")?;
         let binding_grants = shape::array(m, &binding, "authority_refs")?;
         let mut count = 0usize;
@@ -796,6 +869,91 @@ mod tests {
     };
     use super::*;
     use crate::canonical::{self, audit_arena::AuditArena};
+    #[test]
+    fn stage_work_terms_locator_uses_original_activity_and_complete_binding_without_legacy_fallback(
+    ) {
+        use serde_json::json;
+        let arena = AuditArena::new().unwrap();
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compiler)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compiler,
+        )
+        .unwrap();
+        let product = program
+            .source_documents()
+            .iter()
+            .find(|v| v.canonical_value()["schema"] == "ledger-workflow-product/1")
+            .unwrap();
+        let activity = product.canonical_value()["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == "support:prepare")
+            .unwrap();
+        let payload = json!({"activity":"support:prepare","product_ref":product.reference(),"policy_ref":program.root_policy_ref(),"fact_schema_ref":activity["fact_schema"]});
+        let reference = |name: &str| json!({"kind":"workflow-slot-terms","id":name,"digest":format!("sha256:{}","a".repeat(64))});
+        let binding = json!({"product_ref":product.reference(),"policy_ref":program.root_policy_ref(),"bindings":[{"slot":"support:retail","binding_ref":reference("retail")},{"slot":"support:supplier","binding_ref":reference("supplier")}]});
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        work_activity(&program, &payload, session.meter_mut()).unwrap();
+        let (row, schema) =
+            work_terms_row(&program, &payload, &binding, session.meter_mut()).unwrap();
+        assert_eq!(row["slot"], "support:retail");
+        assert_eq!(row["binding_ref"], reference("retail"));
+        assert_eq!(schema, "ledger-workflow-slot-binding-terms/3");
+        // Locator DATA only: supplier promises and original/current source
+        // authority are still independently checked by the actual consumer.
+        for mut invalid in [binding.clone(), binding.clone(), binding.clone()]
+            .into_iter()
+            .enumerate()
+        {
+            match invalid.0 {
+                0 => {
+                    invalid.1["bindings"].as_array_mut().unwrap().pop();
+                }
+                1 => {
+                    invalid.1["bindings"][1] = invalid.1["bindings"][0].clone();
+                }
+                _ => {
+                    invalid.1["policy_ref"]["digest"] = json!(format!("sha256:{}", "0".repeat(64)));
+                }
+            }
+            let mut check = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(work_terms_row(&program, &payload, &invalid.1, check.meter_mut()).is_err());
+        }
+        for (raw,causal) in [(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json").as_slice(),false),(include_bytes!("../../../../../../examples/workflow-work-lifecycle/source.json").as_slice(),true)] {
+            let mut compiler=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let support=if causal {SelectedCompilerSupport::local_work_lifecycle_execution_with_session(&mut compiler).unwrap()} else {SelectedCompilerSupport::builtin().unwrap()};
+            let source:Value=serde_json::from_slice(raw).unwrap();
+            let mut documents=source["documents"].as_array().unwrap().iter().map(|v|canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect::<Vec<_>>();
+            if causal {documents.push(support.canonical_bytes().to_vec());}
+            let legacy=compile_selected_publication(SelectedSourceInput{documents,root_policy_ref:serde_json::from_value(source["root_policy_ref"].clone()).unwrap()},&support,&mut compiler).unwrap();
+            assert!(!legacy.uses_stage_lifecycle_recipe());
+            let mut check=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(work_terms_row(&legacy,&payload,&binding,check.meter_mut()).is_err());
+            let mut single=binding.clone(); single["bindings"].as_array_mut().unwrap().pop();
+            let (_,schema)=work_terms_row(&legacy,&payload,&single,check.meter_mut()).unwrap();
+            assert_eq!(schema,if causal {"ledger-workflow-slot-binding-terms/7"} else {"ledger-workflow-slot-binding-terms/6"});
+        }
+    }
     #[test]
     fn parent_work_locator_uses_same_compiled_activity_without_observation_refs() {
         let (_, c, raw, inputs) = super::super::first_work_tests::test_inputs();
