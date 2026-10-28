@@ -355,9 +355,9 @@ fn state_started(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
-    program: &SelectedProgram,
     instance: &Value,
     instance_ref: &OwnedExactRef,
+    def: &Value,
     state: &DraftStateData,
 ) -> Result<(RecordBody, OwnedExactRef)> {
     let a = arena(m)?;
@@ -389,18 +389,92 @@ fn state_started(
             "Stage is not eligible for its permanent closure",
         ));
     }
+    shape::closed(
+        m,
+        &current,
+        &[
+            "schema",
+            "stage_instance_ref",
+            "revision",
+            "state",
+            "operation_key",
+            "authority_ref",
+            "accepted_at",
+            "prior_ref",
+            "first_work_ref",
+            "first_work_accepted_at",
+            "activation_deadline",
+        ],
+        &[],
+    )?;
+    same(m, &current, "revision", "2")?;
     if !shape::same_text(m, &head.revision, "2")? {
         return Err(shape::fail("Stage current head revision"));
     }
-    validate_started(
+    let expected = state_id(m, &c.key, instance_ref.reference(), &current["revision"])?;
+    if !shape::same_text(m, &head.reference.id, &expected)? {
+        return Err(shape::fail("Stage started state identity"));
+    }
+    let instance_value = owning_reference(m, &a, instance_ref.reference())?;
+    shape::equal(m, &current["stage_instance_ref"], instance_value.value())?;
+    let prior = parse_owned_reference(m, &a, &current["prior_ref"])?;
+    let declared = r.get(
         m,
-        r,
-        c,
-        program,
-        (instance_ref.reference(), instance),
-        (&head.reference, &current),
-        &c.accepted_at,
+        &c.key,
+        prior.reference(),
+        "workflow-stage-state",
+        "ledger-workflow-stage-state/1",
     )?;
+    shape::closed(
+        m,
+        &declared,
+        &[
+            "schema",
+            "stage_instance_ref",
+            "revision",
+            "state",
+            "operation_key",
+            "authority_ref",
+            "accepted_at",
+        ],
+        &[],
+    )?;
+    same(m, &declared, "revision", "1")?;
+    same(m, &declared, "state", "declared")?;
+    shape::equal(m, &declared["stage_instance_ref"], instance_value.value())?;
+    shape::equal(m, &declared["accepted_at"], &instance["declared_at"])?;
+    let expected = state_id(m, &c.key, instance_ref.reference(), &declared["revision"])?;
+    if !shape::same_text(m, &prior.reference().id, &expected)? {
+        return Err(shape::fail("Stage declaration state identity"));
+    }
+    let first_ref = parse_owned_reference(m, &a, &current["first_work_ref"])?;
+    let first = r.get(
+        m,
+        &c.key,
+        first_ref.reference(),
+        "workflow-work",
+        "ledger-workflow-work-record/1",
+    )?;
+    shape::equal(
+        m,
+        &first["payload"]["stage_instance_ref"],
+        instance_value.value(),
+    )?;
+    shape::equal(m, &first["accepted_at"], &current["accepted_at"])?;
+    shape::equal(m, &first["accepted_at"], &current["first_work_accepted_at"])?;
+    shape::equal(m, &first["key"], &current["operation_key"])?;
+    let first_time = timestamp(m, &first, "accepted_at")?;
+    let declared_time = timestamp(m, instance, "declared_at")?;
+    if w::compare(m, first_time, declared_time)?.is_lt() {
+        return Err(shape::fail("Stage first Work before declaration"));
+    }
+    let duration = shape::text(m, &def["window"], "activation_deadline_us")?;
+    let duration = tc::arithmetic::integer(m, duration, false)?;
+    let deadline = tc::meter::add(m, &first_time.into(), &duration)?;
+    let saved_deadline = timestamp(m, &current, "activation_deadline")?;
+    if !tc::meter::cmp(m, &deadline, &saved_deadline.into())?.is_eq() {
+        return Err(shape::fail("Stage original first-Work activation deadline"));
+    }
     let current_value = owning_reference(m, &a, &head.reference)?;
     let current_ref = parse_owned_reference(m, &a, current_value.value())?;
     Ok((current, current_ref))
@@ -510,15 +584,8 @@ pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
     for field in ["product_ref", "policy_ref"] {
         shape::equal(m, &p[field], &binding[field])?;
     }
-    let (started, started_ref) = state_started(
-        m,
-        &mut r,
-        c,
-        program,
-        &instance,
-        &instance_ref,
-        state.financial,
-    )?;
+    let (started, started_ref) =
+        state_started(m, &mut r, c, &instance, &instance_ref, def, state.financial)?;
     let now = Timestamp::parse_with_work(&c.accepted_at, m)?;
     let deadline = timestamp(m, &started, "activation_deadline")?;
     if w::compare(m, now.micros(), deadline)?.is_gt() {
