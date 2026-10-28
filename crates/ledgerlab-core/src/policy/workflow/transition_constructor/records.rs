@@ -1466,15 +1466,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 }
             }
         }
-        // Temporary attribution-only detail; retains the same lookup refusal.
-        // Remove after the copied original-Work input gap is identified.
-        let body = found.ok_or_else(|| {
-            invalid(&format!(
-                "missing exact required record: requested=({},{},{}) expected_kind={} schemas={:?} app_records={} stage_records={} parent_data={} provenance_only={}",
-                r.kind, r.id, r.digest, expected_kind, schemas,
-                self.app_records, self.stage_records, self.parent_data, provenance_only,
-            ))
-        })?;
+        let body = found.ok_or_else(|| invalid("missing exact required record"))?;
         m.visit("resolve.expected_schema")?;
         let schema = super::shape::text(m, &body, "schema")?;
         let mut selected = provenance_only;
