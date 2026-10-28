@@ -685,6 +685,7 @@ pub fn produce_local_financial_request_evidence<'a>(
                 reference.value(),
                 body.value(),
                 (
+                    program,
                     candidate,
                     state,
                     payload.value(),
@@ -732,6 +733,29 @@ pub fn produce_local_financial_request_evidence<'a>(
     result
 }
 
+// These native owner-local-cost definitions already belong to the selected
+// Stage contract catalogue. Their authenticated full Refs are supporting
+// operands, not new self-descriptors or an inferred authority capability.
+fn stage_account_mapping(
+    program: &SelectedProgram,
+    kind: &str,
+    schema: &str,
+) -> Option<(&'static str, &'static str, u8, bool)> {
+    if program.uses_stage_lifecycle_recipe()
+        && matches!(
+            (kind, schema),
+            (
+                "workflow-authority",
+                "ledger-cost-authority/1" | "ledger-cost-owner-activation/1"
+            )
+        )
+    {
+        Some(("evidence", "evidence_input", 0, true))
+    } else {
+        None
+    }
+}
+
 fn selected_anchor(
     m: &mut CoreMeter,
     a: &AuditArena,
@@ -740,6 +764,7 @@ fn selected_anchor(
     reference: &Value,
     body: &Value,
     selected_operands: (
+        &SelectedProgram,
         &EconomicCandidate,
         &EconomicStateData<'_>,
         &Value,
@@ -748,10 +773,15 @@ fn selected_anchor(
         &Value,
     ),
 ) -> Result<()> {
-    let (candidate, state, payload, subject, compiler, empty) = selected_operands;
+    let (program, candidate, state, payload, subject, compiler, empty) = selected_operands;
     let schema = shape::text(m, body, "schema")?;
     m.visit("local.evidence_closed_schema_dispatch")?;
     let (role, relation, descriptor_mode, support) = match (r.kind.as_str(), schema) {
+        ("workflow-authority", "ledger-cost-authority/1" | "ledger-cost-owner-activation/1") => {
+            stage_account_mapping(program, &r.kind, schema).ok_or_else(|| {
+                shape::fail("selected local semantic operand has no exact descriptor mapping")
+            })?
+        }
         ("workflow-source-grant", "ledger-workflow-source-grant/1")
         | ("workflow-source-state", "ledger-workflow-source-state/1")
         | (
@@ -1189,6 +1219,74 @@ mod tests {
                 .as_slice(),
         );
         format!("sha256:{}", canonical::hex(&h.finalize()))
+    }
+    #[test]
+    fn selected_stage_account_operands_keep_exact_native_mapping_and_foreign_refusal() {
+        use crate::policy::workflow::selected_program::{
+            compile_selected_program, compile_selected_publication, SelectedCompilerSupport,
+            SelectedSourceInput,
+        };
+        let a = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut session)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut session,
+        )
+        .unwrap();
+        for schema in ["ledger-cost-authority/1", "ledger-cost-owner-activation/1"] {
+            assert_eq!(
+                stage_account_mapping(&program, "workflow-authority", schema),
+                Some(("evidence", "evidence_input", 0, true))
+            );
+            assert_eq!(
+                stage_account_mapping(&program, "workflow-evidence", schema),
+                None
+            );
+        }
+        assert_eq!(
+            stage_account_mapping(&program, "workflow-authority", "ledger-cost-authority/2"),
+            None
+        );
+        let source: Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
+        let mut meter = CoreMeter::for_compile(1_048_576).unwrap();
+        let legacy = compile_selected_program(
+            SelectedSourceInput {
+                documents: source["documents"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &SelectedCompilerSupport::builtin().unwrap(),
+            &mut meter,
+        )
+        .unwrap();
+        for schema in ["ledger-cost-authority/1", "ledger-cost-owner-activation/1"] {
+            assert_eq!(
+                stage_account_mapping(&legacy, "workflow-authority", schema),
+                None
+            );
+        }
     }
     #[test]
     fn local_descriptor_and_request_use_frozen_normalization2_domains() {
