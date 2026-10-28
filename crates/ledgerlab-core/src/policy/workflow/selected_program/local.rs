@@ -495,6 +495,44 @@ mod tests {
                 loaded.uses_platform_funding_evidence_recipe(),
                 program.uses_platform_funding_evidence_recipe()
             );
+            assert!(loaded.uses_supplier_scoped_consent_recipe());
+            assert_eq!(
+                (
+                    loaded.uses_family_close_recipe(),
+                    loaded.uses_owner_local_cost_recipe(),
+                    loaded.uses_app_owned_cost_recipe(),
+                    loaded.uses_app_cost_causal_recipe(),
+                    loaded.uses_supplier_scoped_consent_recipe()
+                ),
+                (
+                    program.uses_family_close_recipe(),
+                    program.uses_owner_local_cost_recipe(),
+                    program.uses_app_owned_cost_recipe(),
+                    program.uses_app_cost_causal_recipe(),
+                    program.uses_supplier_scoped_consent_recipe()
+                ),
+            );
+            // Saved Plan8 must retain the exact compiled supplier dependency
+            // capability, not merely the Stage descriptor and plan bytes.
+            let mut projection = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let original = super::super::supplier_projection::program_projection(
+                projection.meter_mut(),
+                &arena,
+                program,
+                "support:supplier",
+            )
+            .unwrap();
+            let restored = super::super::supplier_projection::program_projection(
+                projection.meter_mut(),
+                &arena,
+                &loaded,
+                "support:supplier",
+            )
+            .unwrap();
+            assert_eq!(
+                canonical::CanonicalBytes::from_value(original.value()).unwrap(),
+                canonical::CanonicalBytes::from_value(restored.value()).unwrap()
+            );
         }
         let mut foreign = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         assert!(compile_selected_publication(input(old_raw, &old), &new, &mut foreign).is_err());

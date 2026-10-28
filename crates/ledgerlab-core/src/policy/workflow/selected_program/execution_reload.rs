@@ -415,7 +415,12 @@ fn rehydrate_inner(
             recipe,
             SelectedRecipe::OwnerLocalCost1 | SelectedRecipe::SupplierScopedConsent1
         ),
-        supplier_scoped_consent_recipe: matches!(recipe, SelectedRecipe::SupplierScopedConsent1),
+        supplier_scoped_consent_recipe: matches!(
+            recipe,
+            SelectedRecipe::SupplierScopedConsent1
+                | SelectedRecipe::LocalStageLifecycle1
+                | SelectedRecipe::LocalStageLifecycle2
+        ),
         app_owned_cost_recipe: matches!(
             recipe,
             SelectedRecipe::AppOwnedCost1
