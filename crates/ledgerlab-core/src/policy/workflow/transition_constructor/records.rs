@@ -1550,7 +1550,15 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             | "workflow-fact-attestation"
             | "workflow-evidence-verification"
             | "workflow-evaluation" => "wdoc_",
-            _ => return Err(invalid("unknown required record kind")),
+            _ => {
+                // Temporary source-held attribution only: all cases still refuse.
+                let detail = match (expected_kind, schema, self.stage_records) {
+                    ("workflow-offer", "ledger-workflow-offer/4", false) => "unknown required record kind: workflow-offer ledger-workflow-offer/4 stage_records=false",
+                    ("workflow-offer", "ledger-workflow-supplier-commitment/2", false) => "unknown required record kind: workflow-offer ledger-workflow-supplier-commitment/2 stage_records=false",
+                    _ => "unknown required record kind",
+                };
+                return Err(invalid(detail));
+            }
         };
         m.visit("resolve.id_family")?;
         let head =
