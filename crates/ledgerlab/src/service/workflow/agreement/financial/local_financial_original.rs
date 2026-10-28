@@ -14,10 +14,17 @@ pub(super) async fn verify(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    if request_wrapper::text(original.wrappers().receipt(), "result_kind", s)? == "semantic_alias" { return Ok(false); }
+    if request_wrapper::text(original.wrappers().receipt(), "result_kind", s)? == "semantic_alias" {
+        return Ok(false);
+    }
     verify_intent(tx, original, incoming, false, s).await
 }
-pub(super) async fn verify_alias_transport(tx: &mut SqliteTx, original: &prefix::LocatedWrappers, incoming: Option<&ingress::IncomingRequest>, s: &mut OriginalAuditSession) -> Result<bool> {
+pub(super) async fn verify_alias_transport(
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
     verify_intent(tx, original, incoming, false, s).await
 }
 /// The enclosing adapter authenticates the actual mapped caller and permanent
@@ -82,8 +89,14 @@ async fn verify_intent(
         None
     } else {
         Some(
-            locate_local_subject_binding(&ck, normalized.bytes(), &pool.views(), s)
-                .map_err(core_error)?,
+            if let Some(subject) =
+                local_inputs::bootstrap_work_subject(tx, key, payload, before, s).await?
+            {
+                subject
+            } else {
+                locate_local_subject_binding(&ck, normalized.bytes(), &pool.views(), s)
+                    .map_err(core_error)?
+            },
         )
     };
     let work_binding;
@@ -150,7 +163,10 @@ async fn verify_intent(
         "INTEGRITY_FAILURE",
     )?;
     if semantic_work_alias {
-        require(publication.program().uses_shared_namespace_recipe() && saved.kind() == "work.accept", "UNSUPPORTED_SCHEMA_PROFILE")?;
+        require(
+            publication.program().uses_shared_namespace_recipe() && saved.kind() == "work.accept",
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
     }
     if let Some(incoming) = incoming {
         require(incoming.kind() == saved.kind(), "IDENTITY_CONFLICT")?;

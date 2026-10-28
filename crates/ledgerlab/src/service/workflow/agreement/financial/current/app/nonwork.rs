@@ -73,6 +73,21 @@ pub(in super::super::super) async fn observe(
         pool.select_saved_registry(super::super::super::wrappers::STAGE_LIFECYCLE_REGISTRY, s)?;
     }
 
+    // Work facts name their Binding directly; root corrections name one exact
+    // retained Work. Resolve those typed operands before unrelated graph rows.
+    let bootstrap =
+        super::super::super::local_inputs::bootstrap_work_subject(tx, key, payload, before, s)
+            .await?;
+    let kind = core_operation_kind(payload, s)?;
+    let mut observed = if let Some(subject) = bootstrap.as_ref() {
+        let binding = serde_json::to_value(subject.original_binding_ref())
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+        let o = observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?;
+        pool.select_stage_recipe(o.original.publication.program());
+        Some(o)
+    } else {
+        None
+    };
     pool.payload_refs(payload, s)?;
     pool.complete(tx, key, before, s).await?;
     let ck = core::OperationKey {
@@ -84,12 +99,32 @@ pub(in super::super::super) async fn observe(
     let raw = s
         .canonical_representation(payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
-    let subject = core::locate_local_subject_binding(&ck, raw.bytes(), &pool.views(), s)
-        .map_err(core_error)?;
+    let subject = if bootstrap.is_some() {
+        super::super::super::local_inputs::bootstrap_work_subject(tx, key, payload, before, s)
+            .await?
+            .ok_or(ServiceError::IntegrityFailure)?
+    } else {
+        core::locate_local_subject_binding(&ck, raw.bytes(), &pool.views(), s)
+            .map_err(core_error)?
+    };
     let binding = serde_json::to_value(subject.original_binding_ref())
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    let kind = core_operation_kind(payload, s)?;
-    let mut o = observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?;
+    let mut o = if let Some(o) = observed.take() {
+        require(
+            work_capture::same_reference(
+                bootstrap
+                    .as_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .original_binding_ref(),
+                subject.original_binding_ref(),
+                s,
+            )?,
+            "INTEGRITY_FAILURE",
+        )?;
+        o
+    } else {
+        observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?
+    };
     if stage_subject {
         require(
             o.original

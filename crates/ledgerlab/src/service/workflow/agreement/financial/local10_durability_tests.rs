@@ -1129,3 +1129,57 @@ async fn stage_authorization_actual_coordinator_rolls_back() {
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
     result.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires exact private Stage38 Work-occurrence fixture; actual Work-fact prepare/append rollback"]
+async fn stage_work_occurrence_bootstrap_rolls_back() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("work-occurrence.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "c0e5c0e2a8573bae83547d416a3885ba7961d38c4d9cddf628eac57353e20809"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 38);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let snapshot = ledger.resource_snapshot().unwrap();
+    let arena = snapshot.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let request = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+    let mut tx = snapshot.begin(&ledger.store, &mut s).await.unwrap();
+    tx.workflow_main_session = true;
+    let result = proof_session::with_proofs(&mut tx, request.key(), |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, request.key()).await?;
+            let held = ledger
+                .admin
+                .read_management(&ledger.store, tx, request.key(), &mut s)
+                .await?;
+            let reply = fresh_reply_in(&ledger, tx, &request, held, &mut s).await?;
+            require(
+                matches!(reply, TransactionResult::Appended(_)),
+                "INTEGRITY_FAILURE",
+            )?;
+            Ok(())
+        })
+    })
+    .await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
+}

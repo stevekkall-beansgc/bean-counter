@@ -444,3 +444,61 @@ impl LocalInputs {
         })
     }
 }
+
+/// Fixed subject DATA before dependency expansion. The actual original Binding
+/// selects the Program; full origin/membership and constructor checks follow.
+/// Compatible legacy Work facts and corrections do not imply a Stage recipe.
+pub(super) async fn bootstrap_work_subject(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    payload: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<ledgerlab_core::policy::workflow::transition_constructor::LocalSubjectBinding>> {
+    use ledgerlab_core::policy::workflow::transition_constructor::locate_local_subject_binding;
+    let schema = request_wrapper::text(payload, "schema", s)?;
+    let work = match schema {
+        "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2" => Some(
+            current::source::retained_local_record(
+                tx,
+                key,
+                request_wrapper::field(payload, "work_ref", s)?,
+                ("workflow-work", "ledger-workflow-work-record/1"),
+                before,
+                s,
+            )
+            .await?,
+        ),
+        "ledger-workflow-fact-attest/1"
+            if request_wrapper::text(
+                request_wrapper::field(
+                    request_wrapper::field(payload, "attestation", s)?,
+                    "subject",
+                    s,
+                )?,
+                "kind",
+                s,
+            )? == "work" =>
+        {
+            None
+        }
+        _ => return Ok(None),
+    };
+    let key = CoreKey {
+        logical_store_id: key.logical_store_id.clone(),
+        scope: key.scope.clone(),
+        source: key.source.clone(),
+        operation_id: key.operation_id.clone(),
+    };
+    let raw = s
+        .canonical_representation(payload, RepresentationKind::OriginalRequest)
+        .map_err(core_error)?;
+    let view = work.as_ref().map(|record| EconomicRecordView {
+        reference: record.reference(),
+        canonical_body: record.canonical_body(),
+    });
+    let inputs = view.as_slice();
+    locate_local_subject_binding(&key, raw.bytes(), inputs, s)
+        .map(Some)
+        .map_err(core_error)
+}
