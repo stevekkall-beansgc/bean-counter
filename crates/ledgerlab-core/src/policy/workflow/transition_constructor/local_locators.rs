@@ -801,8 +801,10 @@ pub fn select_local_operation_locators(
         let m = s.meter_mut();
         super::codec::validate_selected_types(m, p.value())?;
         let _schema = txt(m, p.value(), "schema")?;
-        if _schema == "ledger-workflow-cost-observation-attest/1"
-            && !program.uses_component_lifecycle_recipe()
+        if matches!(
+            _schema,
+            "ledger-workflow-cost-observation-attest/1" | "ledger-workflow-link-assert/1"
+        ) && !program.uses_component_lifecycle_recipe()
         {
             return Err(shape::fail(
                 "exact Component observation locator recipe required",
@@ -894,7 +896,9 @@ pub fn select_local_operation_locators(
         let selector =
             collect_selector_heads(program, m, &a, &mut r, capture.key, &subject, &mut copies)?;
         let payload_schema = txt(m, v, "schema")?;
-        let fresh_selector = shape::same_text(m, payload_schema, "ledger-workflow-outcome/2")?;
+        let fresh_selector = shape::same_text(m, payload_schema, "ledger-workflow-outcome/2")?
+            || (program.uses_component_lifecycle_recipe()
+                && shape::same_text(m, payload_schema, "ledger-workflow-link-assert/1")?);
         let n = if let Some(heads) = &work {
             let count = w::usize_add(m, heads.family_keys().len(), heads.app_decision_ids().len())?;
             let both = w::usize_add(m, count, count)?;
@@ -1151,7 +1155,7 @@ fn collect_selector_heads(
     };
     let mut path = None;
     let mut final_work = None;
-    if program.uses_component_lifecycle_recipe() {
+    if program.uses_component_lifecycle_recipe() && subject.target_ref().is_some() {
         let target_ref = subject
             .target_ref()
             .ok_or_else(|| shape::fail("selector original Target"))?;
@@ -1247,8 +1251,15 @@ fn collect_selector_heads(
             let binding =
                 super::working_value::owning_reference(m, a, subject.original_binding_ref())?;
             shape::equal(m, &work["payload"]["binding_ref"], binding.value())?;
-            let link = super::declared_links::validate_inputs(m, program, &work["payload"])?
-                .ok_or_else(|| shape::fail("selector intermediate declared link"))?;
+            super::declared_links::validate_inputs(m, program, &work["payload"])?;
+            let link = super::declared_links::report_link(
+                m,
+                r,
+                key,
+                program,
+                reference.reference(),
+                &work,
+            )?;
             shape::equal(m, &link["slot"], &path[index + 1])?;
             current = a.clone_value(&link["predecessor"], m)?;
         }
@@ -1449,7 +1460,9 @@ fn authority_slots(
     let stage = program.uses_stage_lifecycle_recipe() && stage_subject(request);
     let observation = program.uses_component_lifecycle_recipe()
         && schema == "ledger-workflow-cost-observation-attest/1";
-    if !root && !close && !stage && !observation {
+    let link_assertion =
+        program.uses_component_lifecycle_recipe() && schema == "ledger-workflow-link-assert/1";
+    if !root && !close && !stage && !observation && !link_assertion {
         return Ok((Vec::new(), 0));
     }
     let count = if stage || (root && program.uses_structural_binding_recipe()) {
@@ -1559,6 +1572,22 @@ fn authority_slots(
         }
         let n = out.len();
         return Ok((out, n));
+    }
+    if link_assertion {
+        let reference = subject
+            .original_work_ref()
+            .ok_or_else(|| shape::fail("LinkAssert child locator"))?;
+        let child = r.get(
+            m,
+            key,
+            reference,
+            "workflow-work",
+            "ledger-workflow-work-record/1",
+        )?;
+        let (_, activity) = super::input_selection::work_activity(program, &child["payload"], m)?;
+        let slot = txt(m, activity, "source_slot")?;
+        push_authority_slot(m, a, owners, &mut out, slot)?;
+        return Ok((out, 1));
     }
     if observation {
         let binding = r.get(
@@ -2369,7 +2398,9 @@ fn subject_refs(
     let mut family_slot = None;
     let mut component_slot = None;
     let mut work_ref = None;
-    let mut selector_ref = if schema == "ledger-workflow-outcome/2" {
+    let mut selector_ref = if schema == "ledger-workflow-link-assert/1" {
+        Some(parse_owned_reference(m, a, &p["link"]["predecessor"])?)
+    } else if schema == "ledger-workflow-outcome/2" {
         Some(parse_owned_reference(m, a, &p["selector_start_work_ref"])?)
     } else {
         None
@@ -2378,6 +2409,20 @@ fn subject_refs(
     let v = p;
     m.visit("local.locator_payload_dispatch")?;
     let original_work = match schema {
+        "ledger-workflow-link-assert/1" => {
+            let (_, child) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &v["child"],
+                "workflow-work",
+                "ledger-workflow-work-record/1",
+            )?;
+            shape::equal(m, &child["payload"]["binding_ref"], &v["binding_ref"])?;
+            shape::equal(m, &child["payload"]["product_ref"], &v["product_ref"])?;
+            Some(&v["child"])
+        }
         "ledger-workflow-app-observe/1" | "ledger-workflow-app-cost-attest/1" => {
             Some(&v["attestation"]["subject"]["original_work_ref"])
         }

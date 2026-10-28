@@ -26,8 +26,8 @@ fn hop(
     shape::equal(m, &work["payload"]["policy_ref"], &p["policy_ref"])?;
     shape::equal(m, &work["payload"]["product_ref"], &p["product_ref"])?;
     shape::equal(m, &work["payload"]["status"], &json!("succeeded"))?;
-    let input = validate_inputs(m, program, &work["payload"])?
-        .ok_or_else(|| shape::fail("report declared predecessor"))?;
+    validate_inputs(m, program, &work["payload"])?;
+    let input = report_link(m, r, &c.key, program, &reference, &work)?;
     shape::equal(m, &input["slot"], selected.3)?;
     let product = product(m, program, p)?;
     let defs = shape::array(m, product, "links")?;
@@ -139,8 +139,7 @@ pub(super) fn select(
             (&reference, child.value(), &path[index], &path[index + 1]),
             current,
         )?;
-        let input = validate_inputs(m, program, &value.work["payload"])?
-            .ok_or_else(|| shape::fail("component report link missing"))?;
+        let input = report_link(m, r, &c.key, program, &value.reference, &value.work)?;
         next = arena.clone_value(&input["predecessor"], m)?;
         child = arena.clone_value(&value.work["payload"]["activity"], m)?;
         reports.push(value);

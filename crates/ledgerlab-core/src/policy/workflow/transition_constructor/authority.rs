@@ -67,6 +67,7 @@ pub(super) enum EconomicMode {
     QuantityCorrect,
     WorkReverse,
     EvidenceRetain,
+    LinkAssert,
     OutcomeClose,
     DeadlineClose,
     CostFinalize,
@@ -83,6 +84,7 @@ impl EconomicMode {
             Self::QuantityCorrect => "quantity.correct",
             Self::WorkReverse => "work.reverse",
             Self::EvidenceRetain => "evidence.retain",
+            Self::LinkAssert => "link.assert",
             Self::OutcomeClose => "outcome.close",
             Self::DeadlineClose => "outcome.close",
             Self::CostFinalize => "cost.finalize",
@@ -100,6 +102,7 @@ impl EconomicMode {
             Self::DeadlineClose => &["close", "read"],
             Self::InvocationAuthorize => &["invocation", "read"],
             Self::InvocationClose => &["close", "read"],
+            Self::LinkAssert => &["link", "read"],
             Self::OutcomeCorrect
             | Self::QuantityCorrect
             | Self::WorkReverse

@@ -16,7 +16,7 @@ fn product<'a>(m: &mut CoreMeter, program: &'a SelectedProgram, p: &Value) -> Re
     }
     Err(shape::fail("declared link original Product"))
 }
-fn definition<'a>(
+pub(super) fn definition<'a>(
     m: &mut CoreMeter,
     program: &'a SelectedProgram,
     p: &Value,
@@ -44,6 +44,9 @@ pub(super) fn validate_inputs<'a>(
         }
         return Ok(None);
     };
+    if program.uses_component_lifecycle_recipe() && inputs.is_empty() && optional_wait(m, def)? {
+        return Ok(None);
+    }
     if !w::compare(m, inputs.len(), 1usize)?.is_eq() {
         return Err(shape::fail("required single inline predecessor"));
     }
@@ -52,6 +55,31 @@ pub(super) fn validate_inputs<'a>(
     shape::equal(m, &input["slot"], &def["name"])?;
     shape::reference(m, &input["predecessor"])?;
     Ok(Some(input))
+}
+/// Exact selected optional report declaration, never a mandatory placeholder.
+pub(super) fn optional_wait(m: &mut CoreMeter, def: &Value) -> Result<bool> {
+    Ok(shape::same(m, &def["minimum"], &json!("0"))?
+        && shape::same(m, &def["maximum"], &json!("1"))?
+        && shape::same(m, &def["on_missing"], &json!("wait"))?)
+}
+/// Resolve only the declared slot; inline and later asserted edges retain
+/// distinct original producers. The returned body still needs retained checks.
+pub(super) fn report_link(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    key: &OperationKey,
+    program: &SelectedProgram,
+    work_ref: &ExactRef,
+    work: &Value,
+) -> Result<super::record_body::RecordBody> {
+    let def = definition(m, program, &work["payload"])?
+        .ok_or_else(|| shape::fail("report original declared slot"))?;
+    let (_, link) = r
+        .declared_work_link(m, key, work_ref, &def["name"])?
+        .ok_or_else(|| {
+            crate::Error::new("MISSING_DEPENDENCY", "declared optional edge is waiting")
+        })?;
+    Ok(link)
 }
 /// Stage closure owns its fixed member/birth and clock checks. This repeats
 /// the original Product association without the older two-hop success rule.
@@ -140,7 +168,7 @@ pub(super) fn rights(
     }
     Ok(())
 }
-fn endpoint(
+pub(super) fn endpoint(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -179,7 +207,9 @@ fn endpoint(
     // concrete acyclic two-hop shape without treating declaration reachability
     // as authorization or walking arbitrary history.
     let prior_links = shape::array(m, original, "links")?;
-    if !w::compare(m, prior_links.len(), 0usize)?.is_eq() {
+    if !program.uses_component_lifecycle_recipe()
+        && !w::compare(m, prior_links.len(), 0usize)?.is_eq()
+    {
         return Err(shape::fail("priced root has predecessor"));
     }
     let claim_id = shape::text(m, &work, "claim_id")?;
@@ -323,8 +353,11 @@ pub(super) fn retained_work(
     work: &Value,
 ) -> Result<ExactRef> {
     let p = shape::field(m, work, "payload")?;
-    let input =
-        validate_inputs(m, program, p)?.ok_or_else(|| shape::fail("report inline link missing"))?;
+    let input = validate_inputs(m, program, p)?;
+    if input.is_none() && program.uses_component_lifecycle_recipe() {
+        return super::link_assert::retained(m, r, c, program, work_ref, work);
+    }
+    let input = input.ok_or_else(|| shape::fail("report inline link missing"))?;
     let child_at = shape::text(m, work, "accepted_at")?;
     endpoint(m, r, c, program, p, &input["predecessor"], child_at)?;
     let id = body::semantic_id(
@@ -751,6 +784,19 @@ pub(super) fn validate_chain(
         let def = definition(m, program, payload)?
             .ok_or_else(|| shape::fail("declared Link producer activity"))?;
         shape::equal(m, &link["slot"], &def["name"])?;
+        if work_child
+            && program.uses_component_lifecycle_recipe()
+            && validate_inputs(m, program, payload)?.is_none()
+        {
+            let actual = super::link_assert::retained(m, r, c, program, &child, &child_body)?;
+            if !shape::same_ref(m, &actual, reference)? {
+                return Err(shape::fail("late Link complete chain membership"));
+            }
+            for field in ["customer", "chain"] {
+                shape::equal(m, &payload[field], &current[field])?;
+            }
+            continue;
+        }
         if work_child {
             let input = validate_inputs(m, program, payload)?
                 .ok_or_else(|| shape::fail("chain Work link nomination"))?;

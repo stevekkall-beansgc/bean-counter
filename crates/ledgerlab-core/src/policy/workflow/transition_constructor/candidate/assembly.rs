@@ -95,6 +95,7 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(
         ),
         ("ledger-workflow-invocation-close/1", "invocation.close"),
         ("ledger-workflow-stage-close/1", "outcome.submit"),
+        ("ledger-workflow-link-assert/1", "link.assert"),
         ("ledger-workflow-work/1", "work.accept"),
         ("ledger-workflow-outcome/1", "outcome.submit"),
         ("ledger-workflow-outcome/2", "outcome.submit"),
@@ -246,7 +247,13 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
             && matches!(kind, "invocation.authorize" | "invocation.close");
         // Invocation producers validate their own held conservation. No Work
         // decision/root is fabricated for these administrative transitions.
-        if local && !shape::same_text(m, kind, "evidence.retain")? && !invocation_transition {
+        let link_assertion =
+            program.uses_component_lifecycle_recipe() && shape::same_text(m, kind, "link.assert")?;
+        if local
+            && !shape::same_text(m, kind, "evidence.retain")?
+            && !invocation_transition
+            && !link_assertion
+        {
             capacity::local::produce(m, c, program, state, &mut t)?;
         }
         if !local
@@ -554,10 +561,7 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
         }
         let actual_members = capacity::actual_members(m, &t)?;
         Ok(Self {
-            result_kind: if local
-                && program.uses_stage_lifecycle_recipe()
-                && matches!(kind, "invocation.authorize" | "invocation.close")
-            {
+            result_kind: if local && (invocation_transition || link_assertion) {
                 super::CandidateResultKind::Administrative
             } else {
                 super::CandidateResultKind::Economic

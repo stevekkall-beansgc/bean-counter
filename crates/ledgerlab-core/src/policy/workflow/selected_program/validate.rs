@@ -569,7 +569,8 @@ pub(super) fn policy(
         }
         for prior in &p.families[..i] {
             if m.check("family.unique", || {
-                prior.family_key == f.family_key || !component_lifecycle && prior.selector == f.selector
+                prior.family_key == f.family_key
+                    || !component_lifecycle && prior.selector == f.selector
             })? {
                 return Err(bad("duplicate selected target family"));
             }
@@ -631,11 +632,26 @@ pub(super) fn policy(
             let l = product
                 .link_with_work(link, m)?
                 .ok_or_else(|| bad("path link"))?;
+            let mut priced_child = false;
+            if component_lifecycle && l.minimum() == 0 {
+                for rule in &p.rules {
+                    m.visit("path.optional_report_instruction")?;
+                    priced_child |= super::super::transition_constructor::shape::same_text(
+                        m,
+                        &rule.activity,
+                        l.child_activity(),
+                    )?;
+                }
+            }
             if !m.check("path.selected", || {
                 l.maximum() == 1
-                    && l.minimum() == 1
                     && l.binding_relation() == BindingRelation::SameBinding
-                    && l.on_missing() == MissingDependency::Refuse
+                    && ((l.minimum() == 1 && l.on_missing() == MissingDependency::Refuse)
+                        || (component_lifecycle
+                            && l.minimum() == 0
+                            && l.on_missing() == MissingDependency::Wait
+                            && l.child_primitive() == Primitive::Work
+                            && !priced_child))
             })? {
                 return Err(bad("bounded monetary link"));
             }

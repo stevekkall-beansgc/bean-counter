@@ -264,6 +264,10 @@ fn normalized(
             super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
         super::cost::normalize_request(session.meter_mut(), &mut value)?;
         *incoming = value.into_owned()?;
+    } else if shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-link-assert/1")? {
+        let mut value = super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
+        super::link_assert::normalize(program, session.meter_mut(), &mut value)?;
+        *incoming = value.into_owned()?;
     } else if shape::same_text(
         session.meter_mut(),
         old_schema,

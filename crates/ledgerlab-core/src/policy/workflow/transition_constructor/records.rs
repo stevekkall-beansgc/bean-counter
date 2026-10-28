@@ -1695,6 +1695,54 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         let body = self.get(m, key, &reference, kind, schema)?;
         Ok((reference, body))
     }
+    /// Fixed declared-slot lookup. A complete supplied original closure and
+    /// permanent Chain membership are independently checked by the consumer.
+    pub(super) fn declared_work_link(
+        &mut self,
+        m: &mut CoreMeter,
+        key: &OperationKey,
+        child: &ExactRef,
+        slot: &Value,
+    ) -> Result<Option<(super::working_value::OwnedExactRef, RecordBody)>> {
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| invalid("owning declared Link locator"))?;
+        let expected = super::working_value::owning_reference(m, &arena, child)?;
+        let mut found = None;
+        for operand in &self.operands {
+            m.visit("declared_link.exact_child_slot")?;
+            if !super::shape::same_text(m, &operand.reference.kind, "workflow-link")? {
+                continue;
+            }
+            let body =
+                m.parse_owned_representation(&arena, &operand.raw, RepresentationKind::Record)?;
+            if !super::shape::same(m, &body.value()["child"], expected.value())?
+                || !super::shape::same(m, &body.value()["slot"], slot)?
+            {
+                continue;
+            }
+            if found.is_some() {
+                return Err(invalid("ambiguous permanent declared Link slot"));
+            }
+            let value = super::working_value::owning_reference(m, &arena, &operand.reference)?;
+            found = Some(super::working_value::parse_owned_reference(
+                m,
+                &arena,
+                value.value(),
+            )?);
+        }
+        let Some(reference) = found else {
+            return Ok(None);
+        };
+        let body = self.get(
+            m,
+            key,
+            reference.reference(),
+            "workflow-link",
+            "ledger-workflow-link/1",
+        )?;
+        Ok(Some((reference, body)))
+    }
     /// Fixed original Invocation locator, never a current/latest selection.
     /// The body then passes the ordinary canonical/schema/domain kernel.
     pub(super) fn stage_declaration_for_operation(

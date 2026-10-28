@@ -70,6 +70,7 @@ mod correction;
 mod cost;
 mod cost_postings;
 mod declared_links;
+mod link_assert;
 mod input_selection;
 mod source_authority;
 mod source_projection;

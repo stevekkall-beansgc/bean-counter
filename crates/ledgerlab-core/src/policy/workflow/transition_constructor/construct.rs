@@ -74,6 +74,19 @@ pub(super) fn execute_complete<'raw>(
     let schema = shape::text(m, &p, "schema")?;
     let fresh_supplier_promise = program.uses_stage_lifecycle_recipe()
         && shape::same_text(m, schema, "ledger-workflow-work/1")?;
+    if program.uses_component_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-link-assert/1")?
+    {
+        let mut construction = super::link_assert::produce(program, c, p, inputs, state, m)?;
+        construction.candidate_heads =
+            Some(super::candidate::heads::derive(m, c, state, &construction)?);
+        construction.candidate_introductions = Some(super::candidate::introductions::derive(
+            m,
+            c,
+            &construction,
+        )?);
+        return Ok(construction);
+    }
     if program.uses_stage_lifecycle_recipe()
         && shape::same_text(m, schema, "ledger-workflow-stage-close/1")?
     {
