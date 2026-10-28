@@ -53,6 +53,26 @@ pub(in super::super::super) async fn observe(
         .await
         .map_err(crate::service::store_error)?;
     let mut pool = super::super::super::local_inputs::LocalInputs::new(s)?;
+    // Match the core subject locator's disjoint Stage DATA vocabulary before
+    // expanding any supplied operands. This grants no selected-program
+    // authority; the authenticated original Binding below must select Stage.
+    let schema = check::text(payload, "schema", s)?;
+    let stage_subject = matches!(
+        schema,
+        "ledger-workflow-invocation-authorize/1"
+            | "ledger-workflow-invocation-close/1"
+            | "ledger-workflow-stage-authorize/1"
+            | "ledger-workflow-stage-close/1"
+    ) || (schema == "ledger-workflow-fact-attest/1"
+        && check::text(
+            check::field(check::field(payload, "attestation", s)?, "subject", s)?,
+            "kind",
+            s,
+        )? == "stage");
+    if stage_subject {
+        pool.select_saved_registry(super::super::super::wrappers::STAGE_LIFECYCLE_REGISTRY, s)?;
+    }
+
     pool.payload_refs(payload, s)?;
     pool.complete(tx, key, before, s).await?;
     let ck = core::OperationKey {
@@ -70,6 +90,15 @@ pub(in super::super::super) async fn observe(
         .map_err(|_| ServiceError::IntegrityFailure)?;
     let kind = core_operation_kind(payload, s)?;
     let mut o = observe_binding(ledger, tx, key, kind, &binding, (None, None), s).await?;
+    if stage_subject {
+        require(
+            o.original
+                .publication
+                .program()
+                .uses_stage_lifecycle_recipe(),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+    }
     pool.select_stage_recipe(o.original.publication.program());
     let original_binding = s
         .parse_representation(

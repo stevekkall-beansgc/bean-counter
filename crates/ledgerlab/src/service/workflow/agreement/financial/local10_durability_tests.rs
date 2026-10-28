@@ -1073,3 +1073,59 @@ async fn stage_acceptance_actual_coordinator_rolls_back() {
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
     result.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires exact quiescent Stage authorization fixture; private whole-copy rollback"]
+async fn stage_authorization_actual_coordinator_rolls_back() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("stage-authorize.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "4c6c58eb787cdce5bff9566a88967d8204ca8b9ffe8b1f7b8b7cbd520d7f5822"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 37);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let snapshot = ledger.resource_snapshot().unwrap();
+    let arena = snapshot.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let incoming = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+    let mut tx = snapshot.begin(&ledger.store, &mut s).await.unwrap();
+    tx.workflow_main_session = true;
+    let result = proof_session::with_proofs(&mut tx, incoming.key(), |tx| {
+        Box::pin(async {
+            let management = ManagementObservation::capture(
+                &ledger,
+                tx,
+                incoming.key(),
+                request_wrapper::field(incoming.value(), "key", &mut s)?,
+                &mut s,
+            )
+            .await?;
+            let reply =
+                local_financial::prepare_work_append(&ledger, tx, &incoming, &management, &mut s)
+                    .await?;
+            drop(reply);
+            Ok(())
+        })
+    })
+    .await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
+}
