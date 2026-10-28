@@ -1317,7 +1317,11 @@ pub(super) fn validate_started(
     instance: (&ExactRef, &Value),
     state: (&ExactRef, &Value),
     accepted_at: &str,
-) -> Result<()> {
+) -> Result<(
+    super::record_body::RecordBody,
+    super::record_body::RecordBody,
+    super::record_body::RecordBody,
+)> {
     let (instance_ref, instance) = instance;
     let (state_ref, started) = state;
     let a = arena(m)?;
@@ -1415,12 +1419,6 @@ pub(super) fn validate_started(
         &decision_id,
         "ledger-workflow-decision-revision/1",
     )?;
-    same(m, &decision, "kind", "work")?;
-    same(m, &decision, "transition", "initial")?;
-    same(m, &decision, "status", "active")?;
-    shape::equal(m, &decision["decision_id"], permanent.value())?;
-    shape::equal(m, &decision["original_terms_ref"], &instance["binding_ref"])?;
-    shape::equal(m, &decision["operation_key"], &first["key"])?;
     shape::equal(m, &decision["subject_ref"], &started["first_work_ref"])?;
     shape::equal(m, &decision["authority_ref"], &started["authority_ref"])?;
     shape::equal(m, &decision["accepted_at"], &first["accepted_at"])?;
@@ -1472,21 +1470,7 @@ pub(super) fn validate_started(
     if !super::meter::cmp(m, &deadline, &actual.micros().into())?.is_eq() {
         return Err(shape::fail("Stage immutable original activation deadline"));
     }
-    validate_declaration_authority(m, r, c, program, instance, &initial)?;
-    super::authority::historical_namespace(
-        m,
-        r,
-        c,
-        &decision["authority_ref"],
-        &first["source_namespace"],
-        Some(&first["key"]["source"]),
-        (
-            "work.accept",
-            &first["payload"]["binding_ref"],
-            &first["accepted_at"],
-        ),
-    )?;
-    Ok(())
+    Ok((initial, first, decision))
 }
 /// Historical membership and immutable first-Work clock, independent of today's head.
 pub(super) fn retained_work(
@@ -1514,7 +1498,7 @@ pub(super) fn retained_work(
         &identity,
         "ledger-workflow-stage-state/1",
     )?;
-    validate_started(
+    let (initial, first, decision) = validate_started(
         m,
         r,
         c,
@@ -1522,7 +1506,31 @@ pub(super) fn retained_work(
         (reference.reference(), &instance),
         (&state_ref, &state),
         at,
-    )
+    )?;
+    let claim_id = shape::text(m, &first, "claim_id")?;
+    let permanent = super::work_keys::decision(m, claim_id)?;
+    let permanent = a.string_value(&permanent, m)?;
+    same(m, &decision, "kind", "work")?;
+    same(m, &decision, "transition", "initial")?;
+    same(m, &decision, "status", "active")?;
+    shape::equal(m, &decision["decision_id"], permanent.value())?;
+    shape::equal(m, &decision["original_terms_ref"], &instance["binding_ref"])?;
+    shape::equal(m, &decision["operation_key"], &first["key"])?;
+    validate_declaration_authority(m, r, c, program, &instance, &initial)?;
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &decision["authority_ref"],
+        &first["source_namespace"],
+        Some(&first["key"]["source"]),
+        (
+            "work.accept",
+            &first["payload"]["binding_ref"],
+            &first["accepted_at"],
+        ),
+    )?;
+    Ok(())
 }
 
 pub(super) struct WorkTransition {
