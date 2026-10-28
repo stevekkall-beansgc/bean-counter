@@ -65,9 +65,13 @@ class StageSourceRoutingTests(unittest.TestCase):
         restored = copy.deepcopy(expected)
         for before, after in zip(old, restored):
             if before["schema"] == "ledger-workflow-policy/4":
-                self.assertEqual(after["version"], "2")
+                self.assertEqual(after["version"], "3")
                 after["compiler_ref"] = before["compiler_ref"]
                 after["version"] = before["version"]
+                after["product_ref"] = before["product_ref"]
+            if before["schema"] == "ledger-workflow-product/1":
+                self.assertEqual(after["product_id"], "support:product")
+                after["product_id"] = before["product_id"]
         self.assertEqual(restored, old)
 
     def test_platform_ownership_encoding_preserves_actual_content_and_funding(self):

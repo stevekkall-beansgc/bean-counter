@@ -19,8 +19,8 @@ from workflow_work_lifecycle import LifecycleJourney
 class StageJourney(MeteredJourney):
     fixture_directory = REPO / "examples/workflow-stage"
     reopen_retry = LifecycleJourney.reopen_retry
-    source_filename = "source-platform-funding-v2.json"
-    publication_operation = "publication-platform-funding-v2"
+    source_filename = "source-authorized-product-v3.json"
+    publication_operation = "publication-authorized-product-v3"
     ownership_operation = "supplier-owner-evidence-platform"
 
     def source_documents(self):
@@ -216,9 +216,9 @@ class StageJourney(MeteredJourney):
         consent = {**subject, "scope": self.scope, "roles": ["provider"], "authorization_ref": auth,
             "basis": {"kind": "supplier_commitment", "commitment_ref": commitment,
                       "offer_ref": offer, "supplier_terms_ref": terms}, "accepted_at": now()}
-        ev = self.evidence("provider-consent-evidence", "ledger-workflow-party-evidence-retain/3", subject,
+        ev = self.evidence("provider-consent-evidence-v3", "ledger-workflow-party-evidence-retain/3", subject,
                            {"purpose": "party_consent", "consent": consent})
-        att = self.evidence("provider-consent-attestation", "ledger-workflow-party-evidence-retain/3", subject,
+        att = self.evidence("provider-consent-attestation-v3", "ledger-workflow-party-evidence-retain/3", subject,
             {"purpose": "party_operator_attestation", "statement": "operator_verified_party_exact_consent", "target_evidence_ref": ev})
         return auth, {"schema": "ledger-workflow-party-assent/3", "consent": consent,
             "mode": "real", "evidence_ref": ev, "operator": self.operator, "operator_attestation_ref": att}
@@ -232,9 +232,9 @@ class StageJourney(MeteredJourney):
         identity = json.loads((self.inputs / "acceptance-terms.identity.json").read_bytes())
         digest, accepted_at = identity["terms_digest"], now()
         subject = {"customer": self.customer, "agreement_id": self.agreement}
-        ev = self.evidence("customer-assent-evidence", "ledger-workflow-evidence-retain/1", subject,
+        ev = self.evidence("customer-assent-evidence-v3", "ledger-workflow-evidence-retain/1", subject,
             {"terms_digest": digest, "acceptor": self.operator, "accepted_at": accepted_at}, "assent")
-        att = self.evidence("customer-assent-attestation", "ledger-workflow-evidence-retain/1", subject,
+        att = self.evidence("customer-assent-attestation-v3", "ledger-workflow-evidence-retain/1", subject,
             {"terms_digest": digest, "acceptor": self.operator, "assent_evidence_ref": ev,
              "statement": "operator_verified_exact_terms_acceptance"}, "operator_attestation")
         customer_assent = {"schema": "ledger-workflow-assent/1", "scope": self.scope, "customer": self.customer,
@@ -242,9 +242,9 @@ class StageJourney(MeteredJourney):
             "accepted_at": accepted_at, "evidence_ref": ev, "operator": self.operator, "operator_attestation_ref": att}
         consent = {**platform_subject, "scope": self.scope, "roles": roles, "authorization_ref": auth,
             "basis": {"kind": "acceptance_terms", "terms_ref": identity["reference"], "terms_digest": digest}, "accepted_at": accepted_at}
-        ev = self.evidence("platform-assent-evidence", "ledger-workflow-party-evidence-retain/2", platform_subject,
+        ev = self.evidence("platform-assent-evidence-v3", "ledger-workflow-party-evidence-retain/2", platform_subject,
                            {"purpose": "party_consent", "consent": consent})
-        att = self.evidence("platform-assent-attestation", "ledger-workflow-party-evidence-retain/2", platform_subject,
+        att = self.evidence("platform-assent-attestation-v3", "ledger-workflow-party-evidence-retain/2", platform_subject,
             {"purpose": "party_operator_attestation", "statement": "operator_verified_party_exact_consent", "target_evidence_ref": ev})
         platform_assent = {"schema": "ledger-workflow-party-assent/2", "consent": consent,
             "mode": "real", "evidence_ref": ev, "operator": self.operator, "operator_attestation_ref": att}
@@ -445,7 +445,7 @@ class StageJourney(MeteredJourney):
             assert not self.document(current_decision)["active_action_refs"]
         _, _, final_values = self.invocation_state(original_invocation)
         assert final_values["consumed"] == consumed_values["consumed"], "inverse replenished consumed supplier exposure"
-        self.reopen_retry(["alias-enroll", "supplier-account-enroll", "provider-consent-evidence", self.publication_operation,
+        self.reopen_retry(["alias-enroll", "supplier-account-enroll", "provider-consent-evidence-v3", self.publication_operation,
             "acceptance", "activation", "stage-authorize", "work-occurrence", "member-work", "shared-work-alias",
             "invocation-completed", "stage-close", "member-reverse"])
         restored_root = self.root / "restored-final-history"

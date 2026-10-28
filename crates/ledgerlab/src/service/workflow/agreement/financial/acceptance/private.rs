@@ -209,10 +209,19 @@ pub(super) fn normalize_inline(
         maximum = maximum
             .checked_add(assents.len())
             .ok_or(ServiceError::Unavailable)?;
-        s.semantic_work().arithmetic(Op::Multiply,&[&bindings.len().into(),&2usize.into()]).map_err(core_error)?;
-        let offers=bindings.len().checked_mul(2).ok_or(ServiceError::Unavailable)?;
-        s.semantic_work().arithmetic(Op::Add,&[&maximum.into(),&offers.into()]).map_err(core_error)?;
-        maximum=maximum.checked_add(offers).ok_or(ServiceError::Unavailable)?;
+        s.semantic_work()
+            .arithmetic(Op::Multiply, &[&bindings.len().into(), &2usize.into()])
+            .map_err(core_error)?;
+        let offers = bindings
+            .len()
+            .checked_mul(2)
+            .ok_or(ServiceError::Unavailable)?;
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&maximum.into(), &offers.into()])
+            .map_err(core_error)?;
+        maximum = maximum
+            .checked_add(offers)
+            .ok_or(ServiceError::Unavailable)?;
     }
     s.semantic_work()
         .arithmetic(
@@ -338,14 +347,43 @@ pub(super) fn normalize_inline(
                 // These are proposed immutable DATA. The actual owning
                 // supplier verifier rederives Commitment2 byte-for-byte and
                 // repeats Offer4's entire closed contract before framing.
-                let fields: &[&str] = if family==6 {
-                    &["schema","agreement_id","version","provider","valuation_mode","role_refs","activity_names","unit_ceilings","exposure_ceiling","allowed_component_slots","source_slots","starts_at","ends_at","evidence_refs","commitment_ref"]
+                let fields: &[&str] = if family == 6 {
+                    &[
+                        "schema",
+                        "agreement_id",
+                        "version",
+                        "provider",
+                        "valuation_mode",
+                        "role_refs",
+                        "activity_names",
+                        "unit_ceilings",
+                        "exposure_ceiling",
+                        "allowed_component_slots",
+                        "source_slots",
+                        "starts_at",
+                        "ends_at",
+                        "evidence_refs",
+                        "commitment_ref",
+                    ]
                 } else {
-                    &["schema","scope","customer","agreement_id","supplier_slot","projection_recipe","program","acceptance"]
+                    &[
+                        "schema",
+                        "scope",
+                        "customer",
+                        "agreement_id",
+                        "supplier_slot",
+                        "projection_recipe",
+                        "program",
+                        "acceptance",
+                    ]
                 };
-                request_wrapper::closed(body,fields,s)?;
-                let schema=if family==6 {"ledger-workflow-offer/4"}else{"ledger-workflow-supplier-commitment/2"};
-                ("workflow-offer",schema,raw)
+                request_wrapper::closed(body, fields, s)?;
+                let schema = if family == 6 {
+                    "ledger-workflow-offer/4"
+                } else {
+                    "ledger-workflow-supplier-commitment/2"
+                };
+                ("workflow-offer", schema, raw)
             }
             _ => return Err(ServiceError::IntegrityFailure),
         };
@@ -387,14 +425,31 @@ pub(super) fn normalize_inline(
                     break;
                 }
             }
-        } else if family==6 || family==7 {
-            let field=if family==6 {"offer_ref"}else{"commitment_ref"};
+        } else if family == 6 || family == 7 {
+            let field = if family == 6 {
+                "offer_ref"
+            } else {
+                "commitment_ref"
+            };
             for proposed in documents {
-                s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-                if !same_recipe_text(request_wrapper::text(proposed,"schema",s)?,"ledger-workflow-slot-binding-terms/8",s)? {continue;}
-                let actual=encode(request_wrapper::field(proposed,field,s)?,s)?;
-                s.semantic_work().scan_bytes(actual.bytes().len()+expected.bytes().len()).map_err(core_error)?;
-                if actual.bytes()==expected.bytes() {found=true;break;}
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                if !same_recipe_text(
+                    request_wrapper::text(proposed, "schema", s)?,
+                    "ledger-workflow-slot-binding-terms/8",
+                    s,
+                )? {
+                    continue;
+                }
+                let actual = encode(request_wrapper::field(proposed, field, s)?, s)?;
+                s.semantic_work()
+                    .scan_bytes(actual.bytes().len() + expected.bytes().len())
+                    .map_err(core_error)?;
+                if actual.bytes() == expected.bytes() {
+                    found = true;
+                    break;
+                }
             }
         } else if family == 3 {
             for row in bindings {
@@ -682,6 +737,17 @@ pub(super) fn validate_slots(
             .map_err(core_error)?;
         let terms = documents.body(request_wrapper::field(row, "binding_ref", s)?, s)?;
         let role = documents.body(request_wrapper::field(terms, "role_ref", s)?, s)?;
+        if publication.program().uses_stage_lifecycle_recipe() {
+            let schema =
+                stage_terms_schema(publication, request_wrapper::text(row, "slot", s)?, s)?;
+            request_wrapper::same_text(request_wrapper::text(terms, "schema", s)?, schema, s)?;
+            if schema == "ledger-workflow-slot-binding-terms/8" {
+                // The mandatory supplier::derive consumer validates this exact
+                // original supplier slot and emits its complete Verification2.
+                // This retail projection also validates the whole catalog map.
+                continue;
+            }
+        }
         ledgerlab_core::policy::workflow::transition_constructor::validate_app_slot_projection(
             publication.program(),
             scope,
@@ -696,7 +762,7 @@ pub(super) fn validate_slots(
     Ok(())
 }
 
-/// Select a slot's declared book from the actual owning original template.
+/// Select a slot's declared book from the actual owning original Policy.
 /// Matching terms still undergo the complete original graph/rights validator.
 fn stage_terms_schema(
     publication: &prefix::RecompiledPublication,
@@ -708,7 +774,7 @@ fn stage_terms_schema(
         program.uses_stage_lifecycle_recipe(),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    let target = program.template_ref();
+    let target = program.root_policy_ref();
     let mut selected = None;
     for document in program.source_documents() {
         s.semantic_work()

@@ -376,35 +376,73 @@ async fn saved_stage_publication_prepares_and_verifies_original_then_rolls_back(
 async fn saved_source3_enrollment_prepares_then_rolls_back_without_append() {
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
     let raw = fs::read(root.join("alias-enroll.request.json")).unwrap();
-    assert_eq!(records::raw_hash(&raw), "10fc380333fc6e0f4fe5964782250edd5a1f096375c65d56f7d5f24fd0ceaaaa");
+    assert_eq!(
+        records::raw_hash(&raw),
+        "10fc380333fc6e0f4fe5964782250edd5a1f096375c65d56f7d5f24fd0ceaaaa"
+    );
     let request = super::super::request::Request::parse(&raw).unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let installation = temporary.path().canonicalize().unwrap().join("installation");
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
     copy_private_tree(&root.join("failed-quiescent-installation"), &installation);
     let config = fs::read(installation.join("billing.json")).unwrap();
     let before = snapshot_tables(&installation, true).await;
     assert_eq!(before.len(), 117);
     assert_eq!(operations(&before), 14);
-    let ledger = LocalWorkflowLedger::open_local(&installation).await.unwrap();
-    let mut tx = ledger.store.begin(crate::service::workflow::local::deadline()).await.unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
     let key = request.key();
-    let result = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
-        ledger.admin.read(&ledger.store, tx, key).await?;
-        let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
-        let root = tx.workflow_agreement_root_candidate(&key.logical_store_id, &key.scope).await
-            .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
-        verify::document_origin(tx, key, &root.reference).await?;
-        verify::root(&canonical_body(&root)?, key, Some(&key.source))?;
-        let payload = super::super::service::normalize_payload(&request)?;
-        let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-        let prepared = super::super::source::prepare(tx, key, &payload, &setup, &at, "real_local", &root.reference).await?;
-        require(prepared.results.len() == 3, "INTEGRITY_FAILURE")?;
-        let target = prepared.documents.iter().find(|d| d.reference.kind == "workflow-source-enrollment"
-            && prepared.results.contains(&d.reference)).ok_or(ServiceError::IntegrityFailure)?;
-        let body = canonical_body(target)?;
-        require(body["ceiling"] == payload["ceiling"] && body["evidence_ref"] == payload["evidence_ref"], "INTEGRITY_FAILURE")?;
-        Ok(())
-    })).await;
+    let result = proof_session::with_proofs(&mut tx, key, |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, key).await?;
+            let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
+            let root = tx
+                .workflow_agreement_root_candidate(&key.logical_store_id, &key.scope)
+                .await
+                .map_err(crate::service::store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            verify::document_origin(tx, key, &root.reference).await?;
+            verify::root(&canonical_body(&root)?, key, Some(&key.source))?;
+            let payload = super::super::service::normalize_payload(&request)?;
+            let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+            let prepared = super::super::source::prepare(
+                tx,
+                key,
+                &payload,
+                &setup,
+                &at,
+                "real_local",
+                &root.reference,
+            )
+            .await?;
+            require(prepared.results.len() == 3, "INTEGRITY_FAILURE")?;
+            let target = prepared
+                .documents
+                .iter()
+                .find(|d| {
+                    d.reference.kind == "workflow-source-enrollment"
+                        && prepared.results.contains(&d.reference)
+                })
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let body = canonical_body(target)?;
+            require(
+                body["ceiling"] == payload["ceiling"]
+                    && body["evidence_ref"] == payload["evidence_ref"],
+                "INTEGRITY_FAILURE",
+            )?;
+            Ok(())
+        })
+    })
+    .await;
     tx.rollback().await.unwrap();
     ledger.close().await;
     assert_eq!(snapshot_tables(&installation, true).await, before);
@@ -415,15 +453,31 @@ async fn saved_source3_enrollment_prepares_then_rolls_back_without_append() {
 #[tokio::test]
 #[ignore = "requires the explicit completed lifecycle fixture; reads a private copy only"]
 async fn current_reads_preserve_completed_lifecycle_and_use_actual_owner() {
-    let root=PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").expect("explicit completed lifecycle fixture"));
-    let run:Value=serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(run["classification"].as_str().unwrap().to_ascii_lowercase().contains("synthetic"));
-    let temporary=tempfile::tempdir().unwrap();
-    let installation=temporary.path().canonicalize().unwrap().join("installation");
-    copy_private_tree(&root.join("recovery-completed-quiescent-installation"),&installation);
-    let before=snapshot_tables(&installation,true).await;
-    let config=fs::read(installation.join("billing.json")).unwrap();
-    let ledger=LocalWorkflowLedger::open_local(&installation).await.unwrap();
+    let root = PathBuf::from(
+        std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE")
+            .expect("explicit completed lifecycle fixture"),
+    );
+    let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(
+        &root.join("recovery-completed-quiescent-installation"),
+        &installation,
+    );
+    let before = snapshot_tables(&installation, true).await;
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
     let result=async {
         for (name,revision,status) in [("fixed-work","1",None),("failed-work","3",Some("reversed")),("rounded-work","2",Some("reversed"))] {
             let command=run["commands"].as_array().unwrap().iter().find(|v|v["name"]==name).unwrap();
@@ -439,8 +493,8 @@ async fn current_reads_preserve_completed_lifecycle_and_use_actual_owner() {
         Result::<()>::Ok(())
     }.await;
     ledger.close().await;
-    assert_eq!(snapshot_tables(&installation,true).await,before);
-    assert_eq!(fs::read(installation.join("billing.json")).unwrap(),config);
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
     result.unwrap();
 }
 
@@ -935,4 +989,87 @@ async fn policy_original_acceptance_status_after_issuer_revocation_and_closure()
     assert_eq!(retry["duplicate_kind"], "identity");
     assert_eq!(retry["receipt"], saved["receipt"]);
     assert_eq!(retry["request_evidence"], saved["request_evidence"]);
+}
+
+#[tokio::test]
+#[ignore = "requires exact quiescent Stage acceptance fixture; private whole-copy rollback"]
+async fn stage_acceptance_actual_coordinator_rolls_back() {
+    let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
+    let raw = fs::read(root.join("acceptance.request.json")).unwrap();
+    assert_eq!(
+        records::raw_hash(&raw),
+        "533c51228653f917545aa9c19f7c06ae96dd064058d039cb09d044eac9a97f09"
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(&root.join("prepared-quiescent-installation"), &installation);
+    let before = snapshot_tables(&installation, true).await;
+    assert_eq!(before.len(), 117);
+    assert_eq!(operations(&before), 35);
+    let config = fs::read(installation.join("billing.json")).unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
+    let snapshot = ledger.resource_snapshot().unwrap();
+    let arena = snapshot.arena().unwrap();
+    let mut s =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let incoming = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+    let mut tx = snapshot.begin(&ledger.store, &mut s).await.unwrap();
+    tx.workflow_main_session = true;
+    let result = proof_session::with_proofs(&mut tx, incoming.key(), |tx| {
+        Box::pin(async {
+            let management = ManagementObservation::capture(
+                &ledger,
+                tx,
+                incoming.key(),
+                request_wrapper::field(incoming.value(), "key", &mut s)?,
+                &mut s,
+            )
+            .await?;
+            let reply =
+                local_acceptance::prepare_append(&ledger, tx, &incoming, &management, &mut s)
+                    .await?;
+            drop(reply);
+            proof_session::after_append(tx, incoming.key())?;
+            let mut original_session =
+                ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
+                    &arena,
+                )
+                .map_err(core_error)?;
+            let key_body = request_wrapper::field(incoming.value(), "key", &mut original_session)?;
+            let identity = original_session
+                .canonical_representation(
+                    key_body,
+                    ledgerlab_core::validation_work::RepresentationKind::Record,
+                )
+                .map_err(core_error)?;
+            let selected =
+                prefix::target(tx, incoming.key(), identity, &mut original_session).await?;
+            let original = selected.checked_wrappers(tx, &mut original_session).await?;
+            require(
+                local_acceptance::verify_original(
+                    &ledger,
+                    tx,
+                    &original,
+                    None,
+                    &mut original_session,
+                )
+                .await?,
+                "INTEGRITY_FAILURE",
+            )?;
+            Ok(())
+        })
+    })
+    .await;
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    assert_eq!(snapshot_tables(&installation, true).await, before);
+    assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
+    result.unwrap();
 }

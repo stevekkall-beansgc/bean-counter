@@ -4,7 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::transition_constructor::{
-        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_local_input_edges,
+        select_local_input_edges, select_stage_local_input_edges, EconomicRecordView, ExactRef,
+        OperationKey as CoreKey,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -197,7 +198,17 @@ impl LocalInputs {
             self.rows[index].native_schema = Some(schema);
         }
         for record in records {
-            let edges = select_local_input_edges(&ck, *record, s).map_err(core_error)?;
+            let edges = if self.stage_invocation_revisions {
+                select_stage_local_input_edges(
+                    super::wrappers::STAGE_LIFECYCLE_REGISTRY,
+                    &ck,
+                    *record,
+                    s,
+                )
+            } else {
+                select_local_input_edges(&ck, *record, s)
+            }
+            .map_err(core_error)?;
             for reference in edges.direct_refs() {
                 self.add(reference, s)?;
             }
@@ -369,14 +380,20 @@ impl LocalInputs {
                 .map_err(core_error)?;
             // SAME canonical/schema/domain/fullRef kernel before selecting only this
             // recipe's concrete semantic roles. No generic historical Ref closure.
-            let edges = select_local_input_edges(
-                &ck,
-                EconomicRecordView {
-                    reference: r,
-                    canonical_body: body.bytes(),
-                },
-                s,
-            )
+            let input = EconomicRecordView {
+                reference: r,
+                canonical_body: body.bytes(),
+            };
+            let edges = if self.stage_invocation_revisions {
+                select_stage_local_input_edges(
+                    super::wrappers::STAGE_LIFECYCLE_REGISTRY,
+                    &ck,
+                    input,
+                    s,
+                )
+            } else {
+                select_local_input_edges(&ck, input, s)
+            }
             .map_err(core_error)?;
             self.rows[i].body = Some(body);
             self.rows[i].native_schema = Some(stored.schema);

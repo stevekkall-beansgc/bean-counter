@@ -254,40 +254,50 @@ fn validate_selected(
             } else {
                 require_local_source_shape(binding, &frames.values, s)?;
             }
-            let catalog =
-                documents.body(request_wrapper::field(binding, "slot_catalog_ref", s)?, s)?;
-            let families = request_wrapper::field(catalog, "families", s)?
-                .as_array()
-                .ok_or(ServiceError::IntegrityFailure)?;
-            s.semantic_work()
-                .arithmetic(Op::Compare, &[&families.len().into(), &1usize.into()])
-                .map_err(core_error)?;
-            require(families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
-            let mut policy = None;
-            for document in publication.program().source_documents() {
-                s.semantic_work()
-                    .visit(Visit::Element)
+            if publication.program().uses_stage_lifecycle_recipe() {
+                // The actual Stage profile has no family promise. Its original
+                // closure-share structure is checked by the selected compiler;
+                // all current/original source purposes above remain mandatory.
+                publication
+                    .program()
+                    .require_local_admission_with_session(s)
                     .map_err(core_error)?;
-                if equal(
-                    document.reference().id(),
-                    publication.program().root_policy_ref().id(),
-                    s,
-                )? {
-                    policy = Some(document.canonical_value());
+            } else {
+                let catalog =
+                    documents.body(request_wrapper::field(binding, "slot_catalog_ref", s)?, s)?;
+                let families = request_wrapper::field(catalog, "families", s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&families.len().into(), &1usize.into()])
+                    .map_err(core_error)?;
+                require(families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
+                let mut policy = None;
+                for document in publication.program().source_documents() {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    if equal(
+                        document.reference().id(),
+                        publication.program().root_policy_ref().id(),
+                        s,
+                    )? {
+                        policy = Some(document.canonical_value());
+                    }
                 }
+                let policy = policy.ok_or(ServiceError::IntegrityFailure)?;
+                let policy_families = request_wrapper::field(policy, "families", s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .arithmetic(
+                        Op::Compare,
+                        &[&policy_families.len().into(), &1usize.into()],
+                    )
+                    .map_err(core_error)?;
+                require(policy_families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
+                require_local_causal_clause(terms, &families[0], &policy_families[0], s)?;
             }
-            let policy = policy.ok_or(ServiceError::IntegrityFailure)?;
-            let policy_families = request_wrapper::field(policy, "families", s)?
-                .as_array()
-                .ok_or(ServiceError::IntegrityFailure)?;
-            s.semantic_work()
-                .arithmetic(
-                    Op::Compare,
-                    &[&policy_families.len().into(), &1usize.into()],
-                )
-                .map_err(core_error)?;
-            require(policy_families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
-            require_local_causal_clause(terms, &families[0], &policy_families[0], s)?;
         }
     }
     Ok(())

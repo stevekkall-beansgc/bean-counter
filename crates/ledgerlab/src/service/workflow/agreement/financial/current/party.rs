@@ -725,7 +725,10 @@ fn equal_text(a: &str, b: &str, session: &mut OriginalAuditSession) -> Result<bo
 pub(in super::super) async fn platform_consent(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    terms: (
+        &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+        &str,
+    ),
     resource_leg: &str,
     assent: &Value,
     context: (&Timestamp, i64),
@@ -745,7 +748,10 @@ pub(in super::super) async fn platform_consent(
 async fn platform_consent_inner(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    terms: (
+        &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+        &str,
+    ),
     resource_leg: &str,
     assent: &Value,
     at: &Timestamp,
@@ -880,7 +886,10 @@ impl OriginalPlatformConsent {
 pub(in super::super) async fn platform_consent_original(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    terms: (
+        &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+        &str,
+    ),
     resource_leg: &str,
     assent: &Value,
     context: (&Timestamp, i64),
@@ -936,13 +945,17 @@ pub(in super::super) async fn platform_consent_original(
 async fn platform_material(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    terms: (
+        &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+        &str,
+    ),
     mapping_body: &Value,
     resource_leg: &str,
     context: (&Value, &Timestamp, i64),
     session: &mut OriginalAuditSession,
 ) -> Result<PlatformMaterial> {
     let (assent, at, before) = context;
+    let (terms, registry) = terms;
     let terms_body = terms.canonical_value();
     check::same_text(
         check::text(terms_body, "schema", session)?,
@@ -973,13 +986,17 @@ async fn platform_material(
     check::same_text(check::text(leg, "mode", session)?, "platform", session)?;
     let platform = id(leg, "payer", 128, session)?;
     check::same_text(id(leg, "resource_owner", 128, session)?, platform, session)?;
-    // The exact app-only leg has no supplier binding. Check field absence by
-    // actual candidate comparisons, without an opaque JSON map lookup.
-    for (name, _) in leg.as_object().ok_or(ServiceError::IntegrityFailure)? {
-        require(
-            !equal_text(name, "supplier_binding_slot", session)?,
-            "UNSUPPORTED_COMPOSITION",
-        )?;
+    // Only the selected Stage recipe admits a supplier platform leg. The
+    // enclosing mandatory Stage Binding/supplier verifier repeats its original
+    // Policy slot association; payer fullterms and mapping checks below remain
+    // independent of provider consent.
+    if !equal_text(registry, wrappers::STAGE_LIFECYCLE_REGISTRY, session)? {
+        for (name, _) in leg.as_object().ok_or(ServiceError::IntegrityFailure)? {
+            require(
+                !equal_text(name, "supplier_binding_slot", session)?,
+                "UNSUPPORTED_COMPOSITION",
+            )?;
+        }
     }
     check::closed(
         assent,
