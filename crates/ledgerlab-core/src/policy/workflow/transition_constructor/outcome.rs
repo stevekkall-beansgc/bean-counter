@@ -210,6 +210,267 @@ pub(super) fn local_ordinary_head_count(
     }
     Ok(ordinary)
 }
+pub(super) struct ComponentHeadInputs<'a> {
+    pub work_ref: &'a ExactRef,
+    pub binding: &'a Value,
+    pub instantiation: &'a Value,
+    pub state: &'a DraftStateData,
+    pub report: Option<&'a super::declared_links::ReportPath>,
+}
+/// Exact Component head vocabulary: this Work's root, its original declared
+/// family decisions and the actually selected fresh report path. Other heads
+/// are not excluded merely because their bodies share a Binding.
+pub(super) fn component_heads(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: ComponentHeadInputs<'_>,
+) -> Result<()> {
+    if !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail("Component head recipe"));
+    }
+    let a = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("Component head owner"))?;
+    let _scratch = a.reserve_external_payload(3 * (std::mem::size_of::<String>() + 128), m)?;
+    m.write_bytes(3 * (std::mem::size_of::<String>() + 128))?;
+    let work = r.get(
+        m,
+        &c.key,
+        selected.work_ref,
+        "workflow-work",
+        "ledger-workflow-work-record/1",
+    )?;
+    let claim = shape::text(m, &work, "claim_id")?;
+    let root = super::work_keys::decision(m, claim)?;
+    let work_ref = super::working_value::owning_reference(m, &a, selected.work_ref)?;
+    let binding_ref = &work["payload"]["binding_ref"];
+    for (i, head) in selected.state.family_heads.iter().enumerate() {
+        for prior in &selected.state.family_heads[..i] {
+            if shape::same_ref(m, &head.target_ref, &prior.target_ref)?
+                && shape::same_text(m, &head.family_slot, &prior.family_slot)?
+            {
+                return Err(shape::fail("duplicate Component family head"));
+            }
+        }
+        let target = r.get(
+            m,
+            &c.key,
+            &head.target_ref,
+            "workflow-target",
+            "ledger-workflow-component-target/1",
+        )?;
+        equal(m, &target["work_ref"], work_ref.value())?;
+        equal(m, &target["binding_ref"], binding_ref)?;
+        equal(
+            m,
+            &target["agreement_id"],
+            &selected.binding["agreement_id"],
+        )?;
+        let scope = super::work_keys::scope(m, &c.key)?;
+        equal(m, &target["scope"], scope.value())?;
+        let claim_id = shape::text(m, &work, "claim_id")?;
+        let claim = a.string_value(claim_id, m)?;
+        let seed = a.array_from_values(
+            &[
+                scope.value(),
+                &target["agreement_id"],
+                claim.value(),
+                &target["root_component_slot"],
+            ],
+            m,
+        )?;
+        let expected_target = body::semantic_id(m, "wtarget_", "workflow-target", seed.value())?;
+        if !shape::same_text(m, &head.target_ref.id, &expected_target)? {
+            return Err(shape::fail("Component family Target identity"));
+        }
+        super::local_locators::locator_family(
+            program,
+            m,
+            &target,
+            &work,
+            selected.instantiation,
+            &head.family_slot,
+        )?;
+        let state = r.get_schemas(
+            m,
+            &c.key,
+            &head.reference,
+            "workflow-family-state",
+            &[
+                "ledger-workflow-family-state/1",
+                "ledger-workflow-family-state/2",
+            ],
+        )?;
+        let target_ref = super::working_value::owning_reference(m, &a, &head.target_ref)?;
+        equal(m, &state["target_ref"], target_ref.value())?;
+        let slot = shape::text(m, &state, "family_slot")?;
+        let revision = shape::text(m, &state, "revision")?;
+        if !shape::same_text(m, slot, &head.family_slot)?
+            || !shape::same_text(m, revision, &head.revision)?
+        {
+            return Err(shape::fail("Component current family head association"));
+        }
+        let target_id = a.string_value(&head.target_ref.id, m)?;
+        let slot = a.string_value(&head.family_slot, m)?;
+        let revision = a.string_value(&head.revision, m)?;
+        let seed = a.array_from_values(&[target_id.value(), slot.value(), revision.value()], m)?;
+        let expected_state =
+            body::semantic_id(m, "wfamily_", "workflow-family-state", seed.value())?;
+        if !shape::same_text(m, &head.reference.id, &expected_state)? {
+            return Err(shape::fail("Component family current state identity"));
+        }
+    }
+    for (i, head) in selected.state.decision_heads.iter().enumerate() {
+        for prior in &selected.state.decision_heads[..i] {
+            if shape::same_text(m, &head.decision_id, &prior.decision_id)? {
+                return Err(shape::fail("duplicate Component decision head"));
+            }
+        }
+        if shape::same_text(m, &head.decision_id, &root)? {
+            continue;
+        }
+        let decision = r.get(
+            m,
+            &c.key,
+            &head.reference,
+            "workflow-decision",
+            "ledger-workflow-decision-revision/1",
+        )?;
+        super::correction::dictionary_decision(m, &decision)?;
+        let id = shape::text(m, &decision, "decision_id")?;
+        let revision = shape::text(m, &decision, "revision")?;
+        if !shape::same_text(m, id, &head.decision_id)?
+            || !shape::same_text(m, revision, &head.revision)?
+        {
+            return Err(shape::fail("Component current decision association"));
+        }
+        equal(m, &decision["original_terms_ref"], binding_ref)?;
+        let id = a.string_value(&head.decision_id, m)?;
+        let revision = a.string_value(&head.revision, m)?;
+        let seed = a.array_from_values(&[id.value(), revision.value()], m)?;
+        let expected = body::semantic_id(m, "wdrev_", "workflow-decision-revision", seed.value())?;
+        if !shape::same_text(m, &head.reference.id, &expected)? {
+            return Err(shape::fail("Component current decision identity"));
+        }
+        let mut used = false;
+        if let Some(report) = selected.report {
+            for reference in report.work_refs() {
+                m.visit("Component selected report head")?;
+                let reference = super::working_value::owning_reference(m, &a, reference)?;
+                if shape::same(m, &decision["subject_ref"], reference.value())? {
+                    let kind = shape::text(m, &decision, "kind")?;
+                    let status = shape::text(m, &decision, "status")?;
+                    if !shape::same_text(m, kind, "work")?
+                        || !shape::same_text(m, status, "active")?
+                    {
+                        return Err(shape::fail("Component fresh report head eligibility"));
+                    }
+                    used = true;
+                }
+            }
+        }
+        for family in &selected.state.family_heads {
+            let state = r.get_schemas(
+                m,
+                &c.key,
+                &family.reference,
+                "workflow-family-state",
+                &[
+                    "ledger-workflow-family-state/1",
+                    "ledger-workflow-family-state/2",
+                ],
+            )?;
+            let Some(reference) = state.get("decision_ref") else {
+                continue;
+            };
+            let reference = super::working_value::parse_owned_reference(m, &a, reference)?;
+            if !shape::same_ref(m, reference.reference(), &head.reference)? {
+                continue;
+            }
+            let expected =
+                targets::prospective_decision(m, &family.target_ref.id, &family.family_slot)?;
+            if !shape::same_text(m, &expected, &head.decision_id)? {
+                return Err(shape::fail("Component family decision identity"));
+            }
+            let kind = shape::text(m, &decision, "kind")?;
+            if !shape::same_text(m, kind, "outcome")? {
+                return Err(shape::fail("Component family decision kind"));
+            }
+            equal(m, &decision["subject_ref"], &state["claim_ref"])?;
+            let (_, claim) = load(
+                m,
+                r,
+                c,
+                &state["claim_ref"],
+                "workflow-outcome-claim",
+                "ledger-workflow-outcome-claim/2",
+            )?;
+            let target = super::working_value::owning_reference(m, &a, &family.target_ref)?;
+            equal(m, &claim["target_ref"], target.value())?;
+            equal(m, &claim["family_slot"], &state["family_slot"])?;
+            equal(m, &claim["original_payload"]["binding_ref"], binding_ref)?;
+            used = true;
+        }
+        if !used {
+            return Err(shape::fail("extra Component decision head"));
+        }
+    }
+    // The caller already validates its exact root head. Every other present
+    // head has now been joined to an actually used typed subject above.
+    shape::equal(
+        m,
+        &selected.binding["policy_ref"],
+        &work["payload"]["policy_ref"],
+    )?;
+    Ok(())
+}
+pub(super) fn root_basis_action(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    value: &Value,
+) -> Result<(ExactRef, RecordBody)> {
+    if !program.uses_component_lifecycle_recipe() {
+        return load(
+            m,
+            r,
+            c,
+            value,
+            "workflow-action",
+            "ledger-workflow-action/1",
+        );
+    }
+    let reference = shape::reference(m, value)?;
+    let body = r.get_schemas(
+        m,
+        &c.key,
+        &reference,
+        "workflow-action",
+        &[
+            "ledger-workflow-action/1",
+            "ledger-workflow-cost-observation-action/1",
+        ],
+    )?;
+    let schema = shape::text(m, &body, "schema")?;
+    let book = shape::text(m, &body, "book")?;
+    let observation = shape::same_text(m, schema, "ledger-workflow-cost-observation-action/1")?;
+    if !shape::same_text(
+        m,
+        book,
+        if observation {
+            "cost_observation"
+        } else {
+            "retail"
+        },
+    )? {
+        return Err(shape::fail("Component root Action book/schema"));
+    }
+    Ok((reference, body))
+}
+
 /// Called only after the common entry charges/parses the original request.
 /// It recomputes records from source/program/retained inputs, never saved money.
 pub(super) fn execute<'inv, 'raw>(
@@ -260,7 +521,13 @@ pub(super) fn execute<'inv, 'raw>(
     {
         return Err(unsupported("supplemental outcome evidence"));
     }
-    if !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq() {
+    if program.uses_component_lifecycle_recipe() {
+        if state.family_heads.is_empty()
+            || call!(meter::cmp, m, &state.family_heads.len().into(), &64.into())?.is_gt()
+        {
+            return Err(shape::fail("component selected family head bound"));
+        }
+    } else if !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq() {
         return Err(shape::fail("one selected family head"));
     }
     if !meter::cmp(m, &state.work_claims.len().into(), &0.into())?.is_eq()
@@ -414,45 +681,47 @@ pub(super) fn execute<'inv, 'raw>(
     {
         return Err(Error::new("TARGET_CLOSED", "original root was corrected"));
     }
-    let ordinary_heads = if program.uses_local_execution_recipe() && state.decision_heads.len() > 1
-    {
-        let (binding_ref, binding) = load(
+    if !program.uses_component_lifecycle_recipe() {
+        let ordinary_heads =
+            if program.uses_local_execution_recipe() && state.decision_heads.len() > 1 {
+                let (binding_ref, binding) = load(
+                    m,
+                    &mut r,
+                    c,
+                    &target["binding_ref"],
+                    "workflow-binding",
+                    "ledger-workflow-binding/2",
+                )?;
+                let (_, instantiation) = load(
+                    m,
+                    &mut r,
+                    c,
+                    &binding["slot_instantiation_ref"],
+                    "workflow-slot-instantiation",
+                    "ledger-workflow-slot-instantiation/1",
+                )?;
+                local_ordinary_head_count(
+                    m,
+                    &mut r,
+                    c,
+                    program,
+                    &work_ref,
+                    work_payload,
+                    (root_id, &binding_ref, &instantiation, &state.decision_heads),
+                )?
+            } else {
+                state.decision_heads.len()
+            };
+        if !call!(
+            meter::cmp,
             m,
-            &mut r,
-            c,
-            &target["binding_ref"],
-            "workflow-binding",
-            "ledger-workflow-binding/2",
-        )?;
-        let (_, instantiation) = load(
-            m,
-            &mut r,
-            c,
-            &binding["slot_instantiation_ref"],
-            "workflow-slot-instantiation",
-            "ledger-workflow-slot-instantiation/1",
-        )?;
-        local_ordinary_head_count(
-            m,
-            &mut r,
-            c,
-            program,
-            &work_ref,
-            work_payload,
-            (root_id, &binding_ref, &instantiation, &state.decision_heads),
+            &ordinary_heads.into(),
+            &if linked { 2 } else { 1 }.into()
         )?
-    } else {
-        state.decision_heads.len()
-    };
-    if !call!(
-        meter::cmp,
-        m,
-        &ordinary_heads.into(),
-        &if linked { 2 } else { 1 }.into()
-    )?
-    .is_eq()
-    {
-        return Err(unsupported("extra outcome decision selection"));
+        .is_eq()
+        {
+            return Err(unsupported("extra outcome decision selection"));
+        }
     }
     let mut basis_owner = None;
     let mut basis = Vec::new();
@@ -482,15 +751,17 @@ pub(super) fn execute<'inv, 'raw>(
     }
     let mut net = BigInt::from(0);
     for item in shape::array(m, &root_decision, "active_action_refs")? {
-        let (reference, action) = call!(
-            load,
-            m,
-            &mut r,
-            c,
-            item,
-            "workflow-action",
-            "ledger-workflow-action/1",
-        )?;
+        let (reference, action) = root_basis_action(m, &mut r, c, program, item)?;
+        let action_schema = shape::text(m, &action, "schema")?;
+        if program.uses_component_lifecycle_recipe()
+            && shape::same_text(
+                m,
+                action_schema,
+                "ledger-workflow-cost-observation-action/1",
+            )?
+        {
+            continue;
+        }
         if !call!(
             shape::same_text,
             m,
@@ -579,13 +850,14 @@ pub(super) fn execute<'inv, 'raw>(
     )?;
     // This constructor slice consumes exactly one original family. Additional
     // families require their own named-context validation, never ignored rows.
-    if !call!(
-        meter::cmp,
-        m,
-        &shape::array(m, &target, "families")?.len().into(),
-        &1.into()
-    )?
-    .is_eq()
+    if !program.uses_component_lifecycle_recipe()
+        && !call!(
+            meter::cmp,
+            m,
+            &shape::array(m, &target, "families")?.len().into(),
+            &1.into()
+        )?
+        .is_eq()
     {
         return Err(unsupported("multiple original target families"));
     }
@@ -627,13 +899,14 @@ pub(super) fn execute<'inv, 'raw>(
         call!(shape::field, m, &family["selector"], "target_activity")?,
         call!(shape::field, m, work_payload, "activity")?
     )?;
-    if !call!(
-        meter::cmp,
-        m,
-        &shape::array(m, &family["selector"], "path")?.len().into(),
-        &if linked { 2 } else { 1 }.into()
-    )?
-    .is_eq()
+    if !program.uses_component_lifecycle_recipe()
+        && !call!(
+            meter::cmp,
+            m,
+            &shape::array(m, &family["selector"], "path")?.len().into(),
+            &if linked { 2 } else { 1 }.into()
+        )?
+        .is_eq()
     {
         return Err(unsupported("selected outcome path length"));
     }
@@ -646,6 +919,37 @@ pub(super) fn execute<'inv, 'raw>(
         (&work_ref, family),
         Some(state),
     )?;
+    if program.uses_component_lifecycle_recipe() {
+        let (_, binding) = load(
+            m,
+            &mut r,
+            c,
+            &p["binding_ref"],
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let (_, inst) = load(
+            m,
+            &mut r,
+            c,
+            &binding["slot_instantiation_ref"],
+            "workflow-slot-instantiation",
+            "ledger-workflow-slot-instantiation/1",
+        )?;
+        component_heads(
+            m,
+            &mut r,
+            c,
+            program,
+            ComponentHeadInputs {
+                work_ref: &work_ref,
+                binding: &binding,
+                instantiation: &inst,
+                state,
+                report: report.as_ref(),
+            },
+        )?;
+    }
     let selector_start = report.as_ref().map_or(&work_ref, |v| &v.reference);
     call!(
         equal,
@@ -666,7 +970,7 @@ pub(super) fn execute<'inv, 'raw>(
         call!(shape::field, m, target_family, "window_terms")?,
         call!(shape::field, m, family, "window")?
     )?;
-    let (premium, discount) = targets::maxima(m, family, &net)?;
+    let (premium, discount) = targets::maxima(program, m, family, &net)?;
     for (key, atoms) in [("maximum_premium", premium), ("maximum_discount", discount)] {
         call!(
             equal,
@@ -675,7 +979,21 @@ pub(super) fn execute<'inv, 'raw>(
             &json!({"currency":"USD","scale":18,"atoms":atoms.to_string()})
         )?;
     }
-    let head = &state.family_heads[0];
+    let head = if program.uses_component_lifecycle_recipe() {
+        let mut selected = None;
+        for head in &state.family_heads {
+            m.visit("component.exact_current_family_head")?;
+            if shape::same_ref(m, &head.target_ref, &target_ref)?
+                && shape::same_text(m, &head.family_slot, family_slot)?
+                && selected.replace(head).is_some()
+            {
+                return Err(shape::fail("duplicate exact component family head"));
+            }
+        }
+        selected.ok_or_else(|| shape::fail("missing exact component family head"))?
+    } else {
+        &state.family_heads[0]
+    };
     call!(equal, m, &json!(head.target_ref), &json!(target_ref))?;
     if !shape::same_text(m, &head.family_slot, family_slot)? {
         return Err(shape::fail("selected family slot"));
@@ -1066,14 +1384,14 @@ pub(super) fn execute<'inv, 'raw>(
         (claim, link)
     };
     let effect_id = if let Some(report) = &report {
-        original_family_effect_path(
+        super::declared_links::report_path_impl::effect(
             m,
             &c.key.scope,
             &target["agreement_id"],
             root_slot,
             &claim_ref,
             &target_family["family_slot"],
-            (&link.reference, Some(&report.link)),
+            (&link.reference, Some(report)),
         )?
     } else if m.representation_arena().is_some() {
         original_family_effect(
@@ -1957,6 +2275,11 @@ pub(super) fn verify_original_actions(
         } else {
             None
         };
+        let observation = if program.uses_component_lifecycle_recipe() {
+            Some((program, p, shape::text(m, work, "received_at")?))
+        } else {
+            None
+        };
         return verify_original_owned_postings(
             m,
             r,
@@ -1969,6 +2292,7 @@ pub(super) fn verify_original_actions(
                 &prices,
                 decision,
                 conditional_evaluation.as_deref(),
+                observation,
             ),
         );
     }
@@ -2147,7 +2471,7 @@ pub(super) fn conditional_work_evaluation(
         &c.key,
         &reference,
         "workflow-evaluation",
-        "ledger-workflow-evaluation-proof/1",
+        super::component_observation::evaluation_schema(program),
     )?;
     shape::closed(
         m,
@@ -2195,6 +2519,13 @@ pub(super) fn conditional_work_evaluation(
 /// Reconstruct with the SAME original action producer used by initial work.
 /// Current authority/origin checks above remain mandatory; this compares exact
 /// original captured-key bytes and never substitutes the correcting source.
+type OriginalOwnedPostingInputs<'a> = (
+    &'a str,
+    &'a pricing::PricedInstructions,
+    &'a Value,
+    Option<&'a Value>,
+    Option<(&'a SelectedProgram, &'a Value, &'a str)>,
+);
 pub(super) fn verify_original_owned_postings(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -2202,16 +2533,27 @@ pub(super) fn verify_original_owned_postings(
     key: &OperationKey,
     terms: &authority::Terms,
     claim: &ExactRef,
-    selected_operands: (&str, &pricing::PricedInstructions, &Value, Option<&Value>),
+    selected_operands: OriginalOwnedPostingInputs<'_>,
 ) -> Result<()> {
-    let (decision_id, prices, decision, conditional_evaluation) = selected_operands;
+    let (decision_id, prices, decision, conditional_evaluation, observation) = selected_operands;
     use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning original posting verification"))?;
-    let n = prices.len();
-    let per =
-        std::mem::size_of::<(&str, ExactRef)>() + 64 + 128 + 71 + std::mem::size_of::<&ExactRef>();
+    let observation_count = match observation {
+        Some((program, payload, _)) => {
+            let activity = shape::text(m, payload, "activity")?;
+            super::component_observation::count(m, program, activity)?
+        }
+        None => 0,
+    };
+    let n = w::usize_add(m, prices.len(), observation_count)?;
+    let per = std::mem::size_of::<(&str, ExactRef)>()
+        + 64
+        + 128
+        + 71
+        + std::mem::size_of::<&ExactRef>()
+        + std::mem::size_of::<super::emitted_record::ConstructedEnvelope>();
     ValidationWork::arithmetic(m, ArithmeticOperation::Multiply, &[&n.into(), &per.into()])?;
     let size = n
         .checked_mul(per)
@@ -2358,7 +2700,51 @@ pub(super) fn verify_original_owned_postings(
         }
         expected.push((&price.component_key, expected_action.reference));
     }
-    let count = expected.len();
+    let mut observation_refs = Vec::new();
+    observation_refs
+        .try_reserve_exact(observation_count)
+        .map_err(|_| shape::fail("original observation Ref controls"))?;
+    if let Some((program, payload, received_at)) = observation {
+        if conditional_evaluation.is_none() {
+            return Err(shape::fail("component original full evaluation required"));
+        }
+        let mut actions = Vec::new();
+        actions
+            .try_reserve_exact(observation_count)
+            .map_err(|_| shape::fail("original observation action controls"))?;
+        super::component_observation::append_original(
+            m,
+            r,
+            c,
+            program,
+            super::component_observation::OriginalObservationWork {
+                terms,
+                payload,
+                claim_ref: claim,
+                decision_id,
+                key,
+                received_at,
+            },
+            (&mut actions, &mut expected_steps),
+        )?;
+        for action in actions {
+            r.get(
+                m,
+                &c.key,
+                &action.reference,
+                "workflow-action",
+                "ledger-workflow-cost-observation-action/1",
+            )?;
+            let actual = r.canonical(m, &action.reference)?;
+            if !shape::same_bytes(m, actual, &action.canonical_body)? {
+                return Err(shape::fail(
+                    "original observation differs from exact posting producer",
+                ));
+            }
+            observation_refs.push(action.reference);
+        }
+    }
+    let count = w::usize_add(m, expected.len(), observation_refs.len())?;
     let per = std::mem::size_of::<&ExactRef>();
     ValidationWork::arithmetic(
         m,
@@ -2374,6 +2760,10 @@ pub(super) fn verify_original_owned_postings(
         .map_err(|_| shape::fail("original action set allocation"))?;
     for (_, reference) in &expected {
         m.visit("outcome.reconstructed_original_set")?;
+        refs.push(reference);
+    }
+    for reference in &observation_refs {
+        m.visit("outcome.reconstructed_observation_set")?;
         refs.push(reference);
     }
     let set = super::app_cost::reference_set(m, &arena, &refs)?;
@@ -3071,7 +3461,7 @@ mod local_head_view_tests {
                 family: vec![],
                 chain: None,
             },
-            (&old[0].reference, &binding.reference, &root_id),
+            (&program, &old[0].reference, &binding.reference, &root_id),
         )
         .unwrap();
         assert_eq!(before, BigInt::from(3) * BigInt::from(10u8).pow(18));
@@ -3082,7 +3472,7 @@ mod local_head_view_tests {
             &outputs,
             &state,
             &proposed,
-            (&old[0].reference, &binding.reference, &root_id),
+            (&program, &old[0].reference, &binding.reference, &root_id),
         )
         .unwrap();
         assert_eq!(after, BigInt::from(325) * BigInt::from(10u8).pow(16));
@@ -3146,5 +3536,197 @@ mod local_head_view_tests {
             .unwrap(),
             2
         );
+    }
+    #[test]
+    fn component_heads_accept_named_sibling_and_reject_unrelated_same_binding_work() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
+        let input = pricing::component_tests::component_input(&support, &mut author);
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_selected_publication(input, &support, &mut compile).unwrap();
+        let key = OperationKey {
+            logical_store_id: "store".into(),
+            scope: ["company".into(), "local".into()],
+            source: "worker".into(),
+            operation_id: "heads".into(),
+        };
+        let c = DraftContextData {
+            key: key.clone(),
+            actor: "owner".into(),
+            canonical_economic_namespace: "worker".into(),
+            installation_mode: "isolated_synthetic".into(),
+            received_at: "2026-10-28T00:00:00.000000Z".into(),
+            accepted_at: "2026-10-28T00:00:00.000000Z".into(),
+            authorities: vec![],
+            source_observation_inputs: vec![],
+        };
+        let mut producer_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let producer = producer_session.meter_mut();
+        let inst = json!({"component_map":[{"template_key":"support:service","slot_id":"service"}],"family_map":[{"template_key":"support:quality","slot_id":"family-F"},{"template_key":"support:other-quality","slot_id":"family-G"}]});
+        let binding = body::document(producer, "workflow-binding", json!({"schema":"ledger-workflow-binding/2","agreement_id":"agreement","policy_ref":program.root_policy_ref()})).unwrap();
+        let claim_id = format!("wclaim_{}", "1".repeat(64));
+        let work = body::record(producer, &key, "workflow-work", format!("wevent_{}", "2".repeat(64)), json!({"schema":"ledger-workflow-work-record/1","claim_id":claim_id,"payload":{"activity":"support:complete","binding_ref":binding.reference,"policy_ref":program.root_policy_ref()}})).unwrap();
+        let root_id = super::super::work_keys::decision(producer, &claim_id).unwrap();
+        let authority = body::document(
+            producer,
+            "workflow-economic-authority",
+            json!({"schema":"ledger-workflow-economic-authority/8"}),
+        )
+        .unwrap();
+        let evaluation = body::document(
+            producer,
+            "workflow-evaluation",
+            json!({"schema":"ledger-workflow-component-evaluation-proof/1"}),
+        )
+        .unwrap();
+        let root_revision = body::semantic_id(
+            producer,
+            "wdrev_",
+            "workflow-decision-revision",
+            &json!([root_id, "1"]),
+        )
+        .unwrap();
+        let root_record = body::record(producer, &key, "workflow-decision", root_revision, json!({"schema":"ledger-workflow-decision-revision/1","decision_id":root_id,"revision":"1","subject_ref":work.reference,"kind":"work","transition":"initial","status":"active","original_terms_ref":binding.reference,"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":[],"active_action_refs":[],"dependency_refs":[],"operation_key":key,"accepted_at":c.accepted_at})).unwrap();
+        let root_ref = root_record.reference.clone();
+        let target_id = body::semantic_id(
+            producer,
+            "wtarget_",
+            "workflow-target",
+            &json!([key.scope, "agreement", claim_id, "service"]),
+        )
+        .unwrap();
+        let target = body::record(producer, &key, "workflow-target", target_id, json!({"schema":"ledger-workflow-component-target/1","scope":key.scope,"agreement_id":"agreement","work_ref":work.reference,"binding_ref":binding.reference,"policy_ref":program.root_policy_ref(),"compiled_plan_ref":program.compiled_plan().reference(),"root_component_slot":"service","families":[{"family_key":"support:quality","family_slot":"family-F"},{"family_key":"support:other-quality","family_slot":"family-G"}]})).unwrap();
+        let claim = body::record(producer, &key, "workflow-outcome-claim", format!("woclaim_{}", "3".repeat(64)), json!({"schema":"ledger-workflow-outcome-claim/2","target_ref":target.reference,"family_slot":"family-G","original_payload":{"binding_ref":binding.reference}})).unwrap();
+        let stable =
+            targets::prospective_decision(producer, &target.reference.id, "family-G").unwrap();
+        let id = body::semantic_id(
+            producer,
+            "wdrev_",
+            "workflow-decision-revision",
+            &json!([stable, "1"]),
+        )
+        .unwrap();
+        let decision = body::record(producer, &key, "workflow-decision", id, json!({"schema":"ledger-workflow-decision-revision/1","decision_id":stable,"revision":"1","subject_ref":claim.reference,"kind":"outcome","transition":"initial","status":"active","original_terms_ref":binding.reference,"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":[],"active_action_refs":[],"dependency_refs":[],"operation_key":key,"accepted_at":c.accepted_at})).unwrap();
+        let id = body::semantic_id(
+            producer,
+            "wfamily_",
+            "workflow-family-state",
+            &json!([target.reference.id, "family-G", "2"]),
+        )
+        .unwrap();
+        let family = body::record(producer, &key, "workflow-family-state", id, json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"family-G","revision":"2","state":"claimed","claim_ref":claim.reference,"decision_ref":decision.reference})).unwrap();
+        let extra_id = body::semantic_id(
+            producer,
+            "wdrev_",
+            "workflow-decision-revision",
+            &json!(["unrelated-report", "1"]),
+        )
+        .unwrap();
+        let extra = body::record(producer, &key, "workflow-decision", extra_id, json!({"schema":"ledger-workflow-decision-revision/1","decision_id":"unrelated-report","revision":"1","subject_ref":work.reference,"kind":"work","transition":"initial","status":"active","original_terms_ref":binding.reference,"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":[],"active_action_refs":[],"dependency_refs":[],"operation_key":key,"accepted_at":c.accepted_at})).unwrap();
+        // Canonical DATA record association only. Full claim/posting authority,
+        // retained producer membership and held projections remain independent.
+        let rows = [
+            &binding,
+            &work,
+            &target,
+            &claim,
+            &decision,
+            &family,
+            &extra,
+            &authority,
+            &evaluation,
+            &root_record,
+        ];
+        let views: Vec<_> = rows
+            .iter()
+            .map(|r| EconomicRecordView {
+                reference: &r.reference,
+                canonical_body: &r.canonical_body,
+            })
+            .collect();
+        let binding_body: Value = serde_json::from_slice(&binding.canonical_body).unwrap();
+        let mut state = DraftStateData {
+            decision_heads: vec![
+                DecisionHead {
+                    decision_id: root_id,
+                    revision: "1".into(),
+                    reference: root_ref,
+                },
+                DecisionHead {
+                    decision_id: stable,
+                    revision: "1".into(),
+                    reference: decision.reference.clone(),
+                },
+            ],
+            family_heads: vec![FamilyHead {
+                target_ref: target.reference.clone(),
+                family_slot: "family-G".into(),
+                revision: "2".into(),
+                reference: family.reference.clone(),
+            }],
+            work_claims: vec![],
+            outcome_claims: vec![],
+            links: vec![],
+            chain_head: None,
+            evidence_verifications: vec![],
+            stage_heads: vec![],
+        };
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut r =
+            Records::borrowed_parent_selected(s.meter_mut(), &arena, &key, &views, &program)
+                .unwrap();
+        component_heads(
+            s.meter_mut(),
+            &mut r,
+            &c,
+            &program,
+            ComponentHeadInputs {
+                work_ref: &work.reference,
+                binding: &binding_body,
+                instantiation: &inst,
+                state: &state,
+                report: None,
+            },
+        )
+        .unwrap();
+        state.decision_heads.push(DecisionHead {
+            decision_id: "unrelated-report".into(),
+            revision: "1".into(),
+            reference: extra.reference.clone(),
+        });
+        let error = component_heads(
+            s.meter_mut(),
+            &mut r,
+            &c,
+            &program,
+            ComponentHeadInputs {
+                work_ref: &work.reference,
+                binding: &binding_body,
+                instantiation: &inst,
+                state: &state,
+                report: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.detail, "extra Component decision head");
+        state.decision_heads.pop();
+        state.family_heads[0].revision = "3".into();
+        assert!(component_heads(
+            s.meter_mut(),
+            &mut r,
+            &c,
+            &program,
+            ComponentHeadInputs {
+                work_ref: &work.reference,
+                binding: &binding_body,
+                instantiation: &inst,
+                state: &state,
+                report: None
+            }
+        )
+        .is_err());
     }
 }

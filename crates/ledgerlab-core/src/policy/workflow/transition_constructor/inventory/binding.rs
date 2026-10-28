@@ -96,7 +96,7 @@ pub(in crate::policy::workflow::transition_constructor) fn ordered(
 enum InputsRecipe<'a> {
     Legacy,
     App,
-    Stage(&'a SelectedProgram),
+    Selected(&'a SelectedProgram),
 }
 impl InputsRecipe<'_> {
     fn app(self) -> bool {
@@ -172,7 +172,19 @@ fn inputs_data(
         bounds(m, kinds.len(), 0, 5)?;
         ordered(m, kinds)?;
         for kind in kinds {
-            let allowed = if app {
+            let component = matches!(recipe, InputsRecipe::Selected(program) if program.uses_component_lifecycle_recipe());
+            let allowed = if component {
+                &[
+                    "occurrence",
+                    "outcome",
+                    "supplier_final_cost",
+                    "meter_quantity",
+                    "allocation_input",
+                    "app_usage",
+                    "app_final_cost",
+                    "cost_observation",
+                ][..]
+            } else if app {
                 &[
                     "occurrence",
                     "outcome",
@@ -199,7 +211,7 @@ fn inputs_data(
         }
     }
     let bindings = invoke!(shape::array, m, v, "bindings")?;
-    if let InputsRecipe::Stage(program) = recipe {
+    if let InputsRecipe::Selected(program) = recipe {
         bounds(m, bindings.len(), 1, 16)?;
         super::slots::keyed_order(m, bindings, "slot", false)?;
         let declared = shape::array(m, program.original_policy_value(), "binding_slots")?;
@@ -208,7 +220,12 @@ fn inputs_data(
             let slot = shape::text(m, row, "slot")?;
             let definition = shape::named(m, declared, "name", slot)?;
             let book = shape::text(m, definition, "book")?;
-            one_of(m, book, &["retail", "supplier"])?;
+            let allowed = if program.uses_component_lifecycle_recipe() {
+                &["retail", "cost_observation"][..]
+            } else {
+                &["retail", "supplier"][..]
+            };
+            one_of(m, book, allowed)?;
         }
     } else {
         count(m, bindings, 1)?;
@@ -236,7 +253,7 @@ fn inputs_data(
         if app {
             let mode = shape::text(m, leg, "mode")?;
             one_of(m, mode, &["customer_local", "platform"])?;
-            if let InputsRecipe::Stage(program) = recipe {
+            if let InputsRecipe::Selected(program) = recipe {
                 if shape::same_text(m, mode, "platform")? {
                     let slot = shape::text(m, leg, "supplier_binding_slot")?;
                     let declared =
@@ -367,7 +384,26 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_stage(
         "schema",
         &json!("ledger-workflow-acceptance-terms/2"),
     )?;
-    validate_data_recipe(m, b, terms, InputsRecipe::Stage(program))
+    validate_data_recipe(m, b, terms, InputsRecipe::Selected(program))
+}
+pub(in crate::policy::workflow::transition_constructor) fn validate_component(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    b: &Value,
+    terms: &Value,
+) -> Result<()> {
+    program.require_attempt_owner(m)?;
+    if !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail("exact component binding recipe required"));
+    }
+    eq(m, b, "schema", &json!("ledger-workflow-binding/2"))?;
+    eq(
+        m,
+        terms,
+        "schema",
+        &json!("ledger-workflow-acceptance-terms/2"),
+    )?;
+    validate_data_recipe(m, b, terms, InputsRecipe::Selected(program))
 }
 fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app: bool) -> Result<()> {
     validate_data_recipe(

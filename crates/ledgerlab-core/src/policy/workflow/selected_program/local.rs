@@ -10,6 +10,8 @@ use sha2::{Digest, Sha256};
 #[cfg(test)]
 #[path = "local_assets.rs"]
 mod assets;
+#[path = "local_component_lifecycle_assets.rs"]
+mod component_lifecycle_assets;
 #[path = "local_conditional_assets.rs"]
 mod conditional_assets;
 #[path = "local_declared_link_assets.rs"]
@@ -52,6 +54,10 @@ const LOCAL_STAGE_LIFECYCLE_MANIFEST:&[u8]=include_bytes!("../../../../../../con
 pub(super) const LOCAL_STAGE_LIFECYCLE_V2_REGISTRY: &str = LOCAL_STAGE_LIFECYCLE_REGISTRY;
 pub(super) const LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-v2-compiler8-data.json");
 const LOCAL_STAGE_LIFECYCLE_V2_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-stage-lifecycle-v2-contract-profile.json");
+pub(in crate::policy::workflow) const LOCAL_COMPONENT_LIFECYCLE_V1_REGISTRY: &str =
+    "sha256:40eef351a0953a5fa9b1aeac45c68409838cff3bdf8f83db1b5389fd711f630f";
+pub(super) const LOCAL_COMPONENT_LIFECYCLE_V1_DESCRIPTOR: &[u8] = include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/component-lifecycle-01/compiler-descriptor.json");
+const LOCAL_COMPONENT_LIFECYCLE_V1_MANIFEST: &[u8] = include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/component-lifecycle-01/contract-manifest.json");
 pub(super) const LOCAL_SHARED_NAMESPACE_REGISTRY: &str = DECLARED_LINK_REGISTRY;
 pub(super) const LOCAL_SHARED_NAMESPACE_DESCRIPTOR:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-compiler8-data.json");
 const LOCAL_SHARED_NAMESPACE_MANIFEST:&[u8]=include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/local-shared-namespace-contract-profile.json");
@@ -172,6 +178,18 @@ pub fn local_stage_lifecycle_v2_compiler_descriptor_with_session(
         LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR,
         LOCAL_STAGE_LIFECYCLE_V2_MANIFEST,
         stage_lifecycle_v2_assets::ARTIFACTS,
+    )
+}
+/// Append-only named component/family and nonpayable observation support DATA.
+/// The original Stage factories and every defining byte remain independent.
+pub fn local_component_lifecycle_compiler_descriptor_with_session(
+    s: &mut OriginalAuditSession,
+) -> Result<SelectedDocument> {
+    compiler_descriptor(
+        s,
+        LOCAL_COMPONENT_LIFECYCLE_V1_DESCRIPTOR,
+        LOCAL_COMPONENT_LIFECYCLE_V1_MANIFEST,
+        component_lifecycle_assets::ARTIFACTS,
     )
 }
 #[cfg(test)]

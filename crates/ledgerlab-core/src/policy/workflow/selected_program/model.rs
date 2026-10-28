@@ -174,10 +174,17 @@ pub(super) enum Formula {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         normalize_to: Option<String>,
     },
+    Percent {
+        basis: Basis,
+        percent: String,
+    },
     Discount {
         basis: Basis,
         mode: String,
         amount: Percent,
+    },
+    ObserveCost {
+        evidence_slot: String,
     },
     FinalCost {
         evidence_slot: String,
@@ -248,10 +255,30 @@ pub(super) struct Basis {
     pub view: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Percent {
-    pub kind: String,
-    pub percent: String,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum Percent {
+    Percent { percent: String },
+    Fixed { amount: String },
+}
+impl Percent {
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Self::Percent { .. } => "percent",
+            Self::Fixed { .. } => "fixed",
+        }
+    }
+    pub(super) fn value(&self) -> &str {
+        match self {
+            Self::Percent { percent } => percent,
+            Self::Fixed { amount } => amount,
+        }
+    }
+    pub(super) fn value_mut(&mut self) -> &mut String {
+        match self {
+            Self::Percent { percent } => percent,
+            Self::Fixed { amount } => amount,
+        }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -319,11 +346,43 @@ pub(super) struct Amount {
 }
 
 // Existing rule ordering is unchanged; closure share runs after its cap basis.
-pub(super) fn instruction_phase(rule: &Rule) -> u8 {
+pub(super) fn instruction_phase(rule: &Rule, component: bool) -> u8 {
+    if component {
+        return match rule.phase.as_str() {
+            "base" | "cost" => 0,
+            "premium" => 1,
+            "discount" => 2,
+            "cap" => 3,
+            "share" => 4,
+            _ => 5,
+        };
+    }
     match &rule.formula {
         Formula::ClosureCap { .. } => 1,
         Formula::ClosureShare { .. } => 2,
         _ if rule.phase == "base" => 0,
         _ => 1,
     }
+}
+
+/// Component ordering follows declared book before phase. Legacy plans never
+/// enter this selected helper, so their instruction ordinals remain unchanged.
+pub(super) fn component_book(
+    m: &mut super::super::transition_constructor::CoreMeter,
+    slots: &[BindingSlot],
+    rule: &Rule,
+) -> crate::Result<u8> {
+    use super::super::transition_constructor::shape;
+    for slot in slots {
+        m.visit("plan.component_book")?;
+        if shape::same_text(m, &slot.name, &rule.binding_slot)? {
+            return match slot.book.as_str() {
+                "retail" => Ok(0),
+                "supplier" => Ok(1),
+                "cost_observation" => Ok(2),
+                _ => Err(shape::fail("component original book order")),
+            };
+        }
+    }
+    Err(shape::fail("component original binding slot"))
 }

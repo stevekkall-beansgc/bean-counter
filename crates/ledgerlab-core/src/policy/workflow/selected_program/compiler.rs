@@ -195,7 +195,9 @@ impl SelectedProgram {
         if !self.uses_local_execution_recipe() {
             return Err(err("supported local admission requires local recipe"));
         }
-        let check = if self.uses_stage_lifecycle_recipe() {
+        let check = if self.uses_component_lifecycle_recipe() {
+            super::local_admission::check_component
+        } else if self.uses_stage_lifecycle_recipe() {
             super::local_admission::check_stage
         } else if self.uses_work_lifecycle_recipe() {
             super::local_admission::check_lifecycle
@@ -238,6 +240,7 @@ impl SelectedProgram {
                 super::local::REGISTRY
                     | super::local::DECLARED_LINK_REGISTRY
                     | super::local::LOCAL_STAGE_LIFECYCLE_REGISTRY
+                    | super::local::LOCAL_COMPONENT_LIFECYCLE_V1_REGISTRY
             )
         )
     }
@@ -255,6 +258,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             )
     }
     pub(in crate::policy::workflow) fn uses_local_operator_resource_recipe(&self) -> bool {
@@ -270,6 +274,7 @@ impl SelectedProgram {
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             )
     }
     pub(in crate::policy::workflow) fn uses_conditional_work_recipe(&self) -> bool {
@@ -283,6 +288,7 @@ impl SelectedProgram {
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         )
     }
     pub fn uses_declared_work_link_recipe(&self) -> bool {
@@ -297,6 +303,7 @@ impl SelectedProgram {
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         )
     }
     pub fn uses_policy_context_recipe(&self) -> bool {
@@ -307,10 +314,20 @@ impl SelectedProgram {
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         )
     }
     pub fn uses_platform_funding_evidence_recipe(&self) -> bool {
-        matches!(self.recipe, SelectedRecipe::LocalStageLifecycle2)
+        matches!(
+            self.recipe,
+            SelectedRecipe::LocalStageLifecycle2 | SelectedRecipe::LocalComponentLifecycle1
+        )
+    }
+    pub fn uses_component_lifecycle_recipe(&self) -> bool {
+        matches!(self.recipe, SelectedRecipe::LocalComponentLifecycle1)
+    }
+    pub(in crate::policy::workflow) fn uses_structural_binding_recipe(&self) -> bool {
+        self.uses_stage_lifecycle_recipe() || self.uses_component_lifecycle_recipe()
     }
     pub fn uses_stage_lifecycle_recipe(&self) -> bool {
         matches!(
@@ -324,6 +341,7 @@ impl SelectedProgram {
             SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         )
     }
     pub fn uses_work_lifecycle_recipe(&self) -> bool {
@@ -333,6 +351,7 @@ impl SelectedProgram {
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         )
     }
     /// Only the new exact code-owned descriptor admits this pretyped enum
@@ -877,7 +896,9 @@ pub fn compile_selected_program(
         // Compilation also exposes non-owning DATA for source/plan comparison.
         // Check its supported structure here. Actual promise admission still
         // calls require_local_admission and requires this attempt's owner.
-        let check = if program.uses_stage_lifecycle_recipe() {
+        let check = if program.uses_component_lifecycle_recipe() {
+            super::local_admission::check_component
+        } else if program.uses_stage_lifecycle_recipe() {
             super::local_admission::check_stage
         } else if program.uses_work_lifecycle_recipe() {
             super::local_admission::check_lifecycle
@@ -914,6 +935,7 @@ enum SelectedRecipe {
     LocalWorkLifecycle2,
     LocalStageLifecycle1,
     LocalStageLifecycle2,
+    LocalComponentLifecycle1,
 }
 impl SelectedRecipe {
     fn policy_schema(self) -> &'static str {
@@ -929,7 +951,8 @@ impl SelectedRecipe {
             | Self::LocalWorkLifecycle1
             | Self::LocalWorkLifecycle2
             | Self::LocalStageLifecycle1
-            | Self::LocalStageLifecycle2 => "ledger-workflow-policy/4",
+            | Self::LocalStageLifecycle2
+            | Self::LocalComponentLifecycle1 => "ledger-workflow-policy/4",
             Self::AppOwnedCost1 => "ledger-workflow-policy/3",
             Self::FamilyClose1 | Self::OwnerLocalCost1 | Self::SupplierScopedConsent1 => {
                 "ledger-workflow-policy/2"
@@ -949,7 +972,8 @@ impl SelectedRecipe {
             | Self::LocalWorkLifecycle1
             | Self::LocalWorkLifecycle2
             | Self::LocalStageLifecycle1
-            | Self::LocalStageLifecycle2 => "ledger-workflow-compiled-plan/8",
+            | Self::LocalStageLifecycle2
+            | Self::LocalComponentLifecycle1 => "ledger-workflow-compiled-plan/8",
             Self::LocalParentBudget1 => "ledger-workflow-compiled-plan/7",
             Self::AppCostCausal1 => "ledger-workflow-compiled-plan/6",
             Self::AppOwnedCost1 => "ledger-workflow-compiled-plan/5",
@@ -971,7 +995,8 @@ impl SelectedRecipe {
             | Self::LocalWorkLifecycle1
             | Self::LocalWorkLifecycle2
             | Self::LocalStageLifecycle1
-            | Self::LocalStageLifecycle2 => "ledger-policy-compiler/app-cost-causal-1",
+            | Self::LocalStageLifecycle2
+            | Self::LocalComponentLifecycle1 => "ledger-policy-compiler/app-cost-causal-1",
             Self::AppOwnedCost1 => "ledger-policy-compiler/app-owned-cost-1",
             Self::SupplierScopedConsent1 => "ledger-policy-compiler/supplier-scoped-consent-1",
         }
@@ -999,6 +1024,7 @@ fn declared_link_usage(m: &mut CoreMeter, recipe: SelectedRecipe, policy: &Polic
             | SelectedRecipe::LocalWorkLifecycle2
             | SelectedRecipe::LocalStageLifecycle1
             | SelectedRecipe::LocalStageLifecycle2
+            | SelectedRecipe::LocalComponentLifecycle1
     ) {
         return Ok(matches!(recipe, SelectedRecipe::LocalDeclaredLink1));
     }
@@ -1046,6 +1072,7 @@ fn normalize_policy_predicates(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             predicate::normalize_work_lifecycle(m, &mut rule.when, schema, context, &mut nodes)?;
         } else {
@@ -1157,7 +1184,8 @@ fn prove_policy_predicates(
             }
         }
         for (consumer, rule) in rules.iter().enumerate() {
-            if let Formula::Discount { basis, .. } = &rule.formula {
+            if let Formula::Percent { basis, .. } | Formula::Discount { basis, .. } = &rule.formula
+            {
                 let mut producer = None;
                 for (index, other) in rules.iter().enumerate() {
                     if same_literal(m, &other.component_key, &basis.component_key)?
@@ -1222,6 +1250,17 @@ fn require_selected_recipe(
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
 ) -> Result<SelectedRecipe> {
+    if super::support::same_bytes(
+        m,
+        support.canonical_bytes(),
+        super::local::LOCAL_COMPONENT_LIFECYCLE_V1_DESCRIPTOR,
+    )? {
+        if support.execution_registry() != Some(super::local::LOCAL_COMPONENT_LIFECYCLE_V1_REGISTRY)
+        {
+            return Err(err("Component compiler registry"));
+        }
+        return Ok(SelectedRecipe::LocalComponentLifecycle1);
+    }
     if super::support::same_bytes(
         m,
         support.canonical_bytes(),
@@ -1600,6 +1639,7 @@ fn compile_selected_recipe(
                                 | SelectedRecipe::LocalWorkLifecycle2
                                 | SelectedRecipe::LocalStageLifecycle1
                                 | SelectedRecipe::LocalStageLifecycle2
+                                | SelectedRecipe::LocalComponentLifecycle1
                         ) {
                             &[
                                 "boolean",
@@ -1619,9 +1659,13 @@ fn compile_selected_recipe(
                                     | SelectedRecipe::LocalWorkLifecycle2
                                     | SelectedRecipe::LocalStageLifecycle1
                                     | SelectedRecipe::LocalStageLifecycle2
+                                    | SelectedRecipe::LocalComponentLifecycle1
                             ) && field["type"]["kind"].as_str() == Some("reference")
                                 && field["type"]["record_kind"].as_str() == Some("workflow-work")
-                                && field["type"]["relation"].as_str() == Some("same_binding"))
+                                && matches!(
+                                    field["type"]["relation"].as_str(),
+                                    Some("same_binding" | "same_scope_customer")
+                                ))
                             || (matches!(
                                 recipe,
                                 SelectedRecipe::LocalStageLifecycle1
@@ -1660,6 +1704,7 @@ fn compile_selected_recipe(
                             | SelectedRecipe::LocalWorkLifecycle2
                             | SelectedRecipe::LocalStageLifecycle1
                             | SelectedRecipe::LocalStageLifecycle2
+                            | SelectedRecipe::LocalComponentLifecycle1
                     ) {
                         continue;
                     }
@@ -1700,6 +1745,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) && body.get("app_delayed_costs").is_some()
                 {
                     return Err(err("old policy dictionary has no app declarations"));
@@ -1718,6 +1764,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) {
                     for declaration in body["app_delayed_costs"]
                         .as_array()
@@ -1838,6 +1885,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             continue;
         }
@@ -1898,6 +1946,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             continue;
         }
@@ -1924,6 +1973,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 return Err(err("predicate capability"));
             }
@@ -1978,7 +2028,9 @@ fn compile_selected_recipe(
                 ))
             && (if matches!(
                 recipe,
-                SelectedRecipe::LocalStageLifecycle1 | SelectedRecipe::LocalStageLifecycle2
+                SelectedRecipe::LocalStageLifecycle1
+                    | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 policy
                     .app_delayed_costs
@@ -1998,6 +2050,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 policy
                     .app_delayed_costs
@@ -2022,6 +2075,7 @@ fn compile_selected_recipe(
             | SelectedRecipe::LocalWorkLifecycle2
             | SelectedRecipe::LocalStageLifecycle1
             | SelectedRecipe::LocalStageLifecycle2
+            | SelectedRecipe::LocalComponentLifecycle1
     ) {
         normalize_policy_predicates(m, &mut policy, &product, &schemas, recipe)?;
     }
@@ -2045,11 +2099,13 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ),
             matches!(
                 recipe,
                 SelectedRecipe::LocalStageLifecycle1 | SelectedRecipe::LocalStageLifecycle2
             ),
+            matches!(recipe, SelectedRecipe::LocalComponentLifecycle1),
         ),
     )?;
     for rule in &mut policy.rules {
@@ -2072,7 +2128,10 @@ fn compile_selected_recipe(
                             | SelectedRecipe::SupplierScopedConsent1
                             | SelectedRecipe::LocalStageLifecycle1
                             | SelectedRecipe::LocalStageLifecycle2
-                    ) && same_literal(m, &slot.book, "supplier")?;
+                    ) && same_literal(m, &slot.book, "supplier")?
+                    || matches!(recipe, SelectedRecipe::LocalComponentLifecycle1)
+                        && matches!(rule.formula, Formula::ObserveCost { .. })
+                        && same_literal(m, &slot.book, "cost_observation")?;
                 if !book {
                     continue;
                 }
@@ -2099,7 +2158,10 @@ fn compile_selected_recipe(
                                     | SelectedRecipe::SupplierScopedConsent1
                                     | SelectedRecipe::LocalStageLifecycle1
                                     | SelectedRecipe::LocalStageLifecycle2
-                            ) && s.book == "supplier")
+                            ) && s.book == "supplier"
+                            || matches!(recipe, SelectedRecipe::LocalComponentLifecycle1)
+                                && matches!(rule.formula, Formula::ObserveCost { .. })
+                                && s.book == "cost_observation")
                         && s.allowed_activities.contains(&rule.activity)
                 })
             })?
@@ -2136,6 +2198,7 @@ fn compile_selected_recipe(
                             | SelectedRecipe::LocalWorkLifecycle2
                             | SelectedRecipe::LocalStageLifecycle1
                             | SelectedRecipe::LocalStageLifecycle2
+                            | SelectedRecipe::LocalComponentLifecycle1
                     )
                 {
                     return Err(err("selected terminal unit"));
@@ -2164,6 +2227,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) {
                     if let Some(to) = normalize_to {
                         let target = product
@@ -2187,17 +2251,36 @@ fn compile_selected_recipe(
                     return Err(err("terminal unit only"));
                 }
             }
+            Formula::Percent { percent, .. } => {
+                if !matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                    return Err(err("percent compiler recipe"));
+                }
+                arithmetic::decimal(m, percent)?;
+            }
+            Formula::ObserveCost { .. } => {
+                if !matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                    return Err(err("observation compiler recipe"));
+                }
+            }
             Formula::Discount {
                 basis,
                 mode,
                 amount,
             } => {
-                if !m.check("discount.profile", || {
-                    mode == "additive" && basis.view == "booked_base" && amount.kind == "percent"
-                })? {
+                let allowed = if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                    matches!(mode.as_str(), "additive" | "sequential")
+                        && matches!(
+                            basis.view.as_str(),
+                            "booked_base" | "booked_premium" | "prior_net"
+                        )
+                        && matches!(amount.kind(), "fixed" | "percent")
+                } else {
+                    mode == "additive" && basis.view == "booked_base" && amount.kind() == "percent"
+                };
+                if !m.check("discount.profile", || allowed)? {
                     return Err(err("selected discount"));
                 }
-                arithmetic::decimal(m, &amount.percent)?;
+                arithmetic::decimal(m, amount.value())?;
             }
             Formula::FinalCost {
                 markup,
@@ -2237,6 +2320,7 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) {
                     return Err(err("app cost compiler recipe"));
                 }
@@ -2265,6 +2349,7 @@ fn compile_selected_recipe(
             | SelectedRecipe::LocalWorkLifecycle2
             | SelectedRecipe::LocalStageLifecycle1
             | SelectedRecipe::LocalStageLifecycle2
+            | SelectedRecipe::LocalComponentLifecycle1
     ) {
         prove_policy_predicates(
             m,
@@ -2277,6 +2362,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ),
         )?;
     }
@@ -2314,10 +2400,14 @@ fn compile_selected_recipe(
             match &code.effect {
                 Effect::None => {}
                 Effect::Premium { amount } | Effect::Discount { amount } => {
-                    if !m.check("family.percent", || amount.kind == "percent")? {
+                    if !m.check("family.percent", || {
+                        amount.kind() == "percent"
+                            || matches!(recipe, SelectedRecipe::LocalComponentLifecycle1)
+                                && amount.kind() == "fixed"
+                    })? {
                         return Err(err("family percent"));
                     }
-                    arithmetic::decimal(m, &amount.percent)?;
+                    arithmetic::decimal(m, amount.value())?;
                 }
             }
         }
@@ -2488,7 +2578,9 @@ fn compile_selected_recipe(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ),
+                matches!(recipe, SelectedRecipe::LocalComponentLifecycle1),
             ),
         )?;
         let document = finish_owned_document(m, output.body, true)?;
@@ -2569,21 +2661,27 @@ fn compile_selected_recipe(
             let mut j = i;
             while j > 0 {
                 m.visit("rule.phase_sort")?;
-                let key = |x: &(usize, &super::model::Rule)| {
-                    (
-                        super::model::instruction_phase(x.1),
+                let component = matches!(recipe, SelectedRecipe::LocalComponentLifecycle1);
+                let mut key = |x: &(usize, &super::model::Rule)| -> Result<_> {
+                    Ok((
+                        if component {
+                            super::model::component_book(m, &policy.binding_slots, x.1)?
+                        } else {
+                            0
+                        },
+                        super::model::instruction_phase(x.1, component),
                         x.1.binding_slot.clone(),
                         x.0,
-                    )
+                    ))
                 };
-                if key(&ordered_rules[j - 1]) <= key(&ordered_rules[j]) {
+                if key(&ordered_rules[j - 1])? <= key(&ordered_rules[j])? {
                     break;
                 }
                 ordered_rules.swap(j - 1, j);
                 j -= 1;
             }
         }
-        for (_, rule) in ordered_rules {
+        for (ordered_index, (_, rule)) in ordered_rules.iter().enumerate() {
             m.visit("compile.rule_instruction")?;
             let ordinal = instructions.len().to_string();
             let sr = product.canonical_value()["activities"]
@@ -2594,21 +2692,48 @@ fn compile_selected_recipe(
                 .ok_or_else(|| err("activity"))?["fact_schema"]
                 .clone();
             let (mut fields, kind, basis) = match &rule.formula {
+                Formula::ObserveCost { .. } => (vec![], "observe_cost", vec![]),
                 Formula::Fixed { .. } => (vec![], "fixed", vec![]),
                 Formula::Unit { quantity_field, .. } => {
                     (vec![quantity_field.clone()], "unit", vec![])
                 }
-                Formula::Discount { basis, .. } => (
+                Formula::Percent { basis, .. } | Formula::Discount { basis, .. } => (
                     vec![],
-                    "discount",
-                    vec![producers
-                        .get(&(
-                            rule.activity.clone(),
-                            rule.binding_slot.clone(),
-                            basis.component_key.clone(),
-                        ))
-                        .ok_or_else(|| err("missing prior basis producer"))?
-                        .clone()],
+                    if matches!(rule.formula, Formula::Percent { .. }) {
+                        "percent"
+                    } else {
+                        "discount"
+                    },
+                    if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                        let mut selected = Vec::new();
+                        for (_, old) in &ordered_rules[..ordered_index] {
+                            if super::owning_plan::component_modifier_dependency(
+                                m,
+                                template.canonical_value(),
+                                rule,
+                                old,
+                            )? {
+                                let ordinal = producers
+                                    .get(&(
+                                        old.activity.clone(),
+                                        old.binding_slot.clone(),
+                                        old.component_key.clone(),
+                                    ))
+                                    .ok_or_else(|| err("component prior basis ordinal"))?;
+                                selected.push(ordinal.clone());
+                            }
+                        }
+                        selected
+                    } else {
+                        vec![producers
+                            .get(&(
+                                rule.activity.clone(),
+                                rule.binding_slot.clone(),
+                                basis.component_key.clone(),
+                            ))
+                            .ok_or_else(|| err("missing prior basis producer"))?
+                            .clone()]
+                    },
                 ),
                 Formula::ClosureCap {
                     basis_component_key,
@@ -2690,6 +2815,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 rule.when.visit_operands(m, &mut |operand, m| {
                     if matches!(operand, super::model::Operand::Context { .. }) {
@@ -2729,6 +2855,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 for slot in &slots {
                     if slot["schema_ref"] == json!(policy.context_schema_ref)
@@ -2771,6 +2898,7 @@ fn compile_selected_recipe(
                     | SelectedRecipe::LocalWorkLifecycle2
                     | SelectedRecipe::LocalStageLifecycle1
                     | SelectedRecipe::LocalStageLifecycle2
+                    | SelectedRecipe::LocalComponentLifecycle1
             ) {
                 let mut names: Vec<Value> = fields.into_iter().map(Value::String).collect();
                 for binding in binding_names {
@@ -2863,7 +2991,17 @@ fn compile_selected_recipe(
             explanations.push(json!({"ordinal":ordinal,"policy_ref":root,"rule_or_family":stage.name,"fields":[],"primitive":"stage"}));
         }
         let activities:Vec<_>=product.canonical_value()["activities"].as_array().unwrap().iter().map(|a|{let mut v=json!({"activity":a["name"],"primitive":a["primitive"],"fact_schema_ref":a["fact_schema"],"source_slot":a["source_slot"]});if let Some(f)=a.get("funding_leg"){v["funding_leg"]=f.clone();}v}).collect();
-        let mut plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
+        let mut paths = Vec::new();
+        for family in &policy.families {
+            let value = json!(family.selector);
+            let mut present = false;
+            if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                for old in &paths { if super::super::transition_constructor::shape::same(m, old, &value)? { present = true; } }
+            }
+            if !present { paths.push(value); }
+        }
+        let paths = set(m, paths)?;
+        let mut plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":paths,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
         if matches!(
             recipe,
             SelectedRecipe::LocalParentBudget1
@@ -2876,6 +3014,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             plan["limits_profile"] = json!("workflow-local-limits/1");
             plan["worst_case"]
@@ -2894,6 +3033,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             plan["limits_profile"] = json!("workflow-local-operator-limits/1");
             for field in ["compile_work", "loaded_refs", "bytes"] {
@@ -2999,6 +3139,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -3013,6 +3154,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ),
         app_owned_cost_recipe: matches!(
             recipe,
@@ -3028,6 +3170,7 @@ fn compile_selected_recipe(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ),
         supplier_scoped_consent_recipe: matches!(
             recipe,
@@ -3171,13 +3314,8 @@ pub(in crate::policy::workflow) fn stage_fixture_normalized_source(
     let value = body.projection(m, &mut owners)?;
     let (mut policy, _owner) = super::policy_decode::decode(m, value, owner)?;
     super::normalize::policy(m, &mut policy)?;
-    normalize_policy_predicates(
-        m,
-        &mut policy,
-        &product,
-        &schemas,
-        SelectedRecipe::LocalStageLifecycle1,
-    )?;
+    let recipe = require_selected_recipe(support, m)?;
+    normalize_policy_predicates(m, &mut policy, &product, &schemas, recipe)?;
     // This bounded source has no families and already canonical binding names;
     // use the same semantic comparison as the selected compiler for both sets.
     for i in 1..policy.binding_slots.len() {

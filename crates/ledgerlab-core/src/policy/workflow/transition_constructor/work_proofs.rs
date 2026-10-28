@@ -126,7 +126,7 @@ fn schema<'p>(
     }
     Err(shape::fail("Work proof original schema"))
 }
-fn subject(
+pub(super) fn subject(
     m: &mut CoreMeter,
     c: &DraftContextData,
     q: &WorkProofRequest<'_>,
@@ -740,13 +740,21 @@ pub(super) fn retained(
     if required.is_empty() && shape::array(m, q.payload, "fact_proofs")?.is_empty() {
         return Ok(None);
     }
+    let initial_authority = match q.worker_authority {
+        Some(worker) => shape::same(m, worker, authority_ref)?,
+        None => false,
+    };
     let (_, authority) = load(
         m,
         r,
         c,
         authority_ref,
         "workflow-economic-authority",
-        "ledger-workflow-economic-authority/8",
+        if program.uses_component_lifecycle_recipe() && !original && !initial_authority {
+            "ledger-workflow-economic-authority/9"
+        } else {
+            "ledger-workflow-economic-authority/8"
+        },
     )?;
     let refs = shape::array(m, &authority, "verified_fact_refs")?;
     if !w::compare(m, refs.len(), required.len())?.is_eq() {

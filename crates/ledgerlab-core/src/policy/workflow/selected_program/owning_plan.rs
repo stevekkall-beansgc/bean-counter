@@ -41,6 +41,44 @@ impl<'a, T> IntoIterator for &'a CompilerRows<T> {
         self.rows.iter()
     }
 }
+/// Exact already-evaluated monetary rows used by a named modifier view.
+/// This mirrors pricing's booked/Sequential/prior_net selection, not a graph walk.
+pub(super) fn component_modifier_dependency(
+    m: &mut CoreMeter,
+    template: &Value,
+    rule: &Rule,
+    old: &Rule,
+) -> Result<bool> {
+    if !shape::same_text(m, &rule.activity, &old.activity)?
+        || !shape::same_text(m, &rule.binding_slot, &old.binding_slot)?
+    {
+        return Ok(false);
+    }
+    let basis = match &rule.formula {
+        Formula::Percent { basis, .. } | Formula::Discount { basis, .. } => basis,
+        _ => return Ok(false),
+    };
+    if shape::same_text(m, &old.component_key, &basis.component_key)? {
+        return Ok(true);
+    }
+    if shape::same_text(m, &basis.view, "prior_net")? {
+        let components = shape::array(m, template, "components")?;
+        let consumer = shape::named(m, components, "key", &rule.component_key)?;
+        let previous = shape::named(m, components, "key", &old.component_key)?;
+        return shape::same(m, &consumer["root_key"], &previous["root_key"]);
+    }
+    let sequential = match &rule.formula {
+        Formula::Discount { mode, .. } => shape::same_text(m, mode, "sequential")?,
+        _ => false,
+    };
+    if sequential {
+        if let Formula::Discount { basis: prior, .. } = &old.formula {
+            return Ok(!shape::same_text(m, &prior.view, "prior_net")?
+                && shape::same_text(m, &prior.component_key, &basis.component_key)?);
+        }
+    }
+    Ok(false)
+}
 pub(super) fn vector<T>(m: &mut CoreMeter, a: &AuditArena, n: usize) -> Result<CompilerRows<T>> {
     ValidationWork::arithmetic(
         m,
@@ -146,9 +184,9 @@ pub(super) fn build(
     p: &Policy,
     product: &Product,
     template: &SlotTemplate,
-    selected_operands: (&str, &str, bool),
+    selected_operands: (&str, &str, bool, bool),
 ) -> Result<Output> {
-    let (plan_schema, semantics, full_predicates) = selected_operands;
+    let (plan_schema, semantics, full_predicates, component) = selected_operands;
     let a = m
         .representation_arena()
         .ok_or_else(|| fail("owning plan arena"))?;
@@ -270,7 +308,7 @@ pub(super) fn build(
     let instruction_count = w::usize_add(m, instruction_count, p.stages.len())?;
     let mut instructions = vector::<AuditedValue>(m, &a, instruction_count)?;
     let mut explanations = vector(m, &a, instruction_count)?;
-    let edge_capacity = if p.stages.is_empty() {
+    let edge_capacity = if p.stages.is_empty() && !component {
         p.rules.len()
     } else {
         // Original fixed matrix bounds, not a new execution or resource quota.
@@ -309,28 +347,41 @@ pub(super) fn build(
             m.visit("rule.phase_sort")?;
             let left = rules[j - 1];
             let right = rules[j];
-            let lp = if matches!(
+            let lp = if component {
+                super::model::instruction_phase(left.1, true)
+            } else if matches!(
                 left.1.formula,
                 Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
             ) {
-                super::model::instruction_phase(left.1)
+                super::model::instruction_phase(left.1, false)
             } else if shape::same_text(m, &left.1.phase, "base")? {
                 0u8
             } else {
                 1
             };
-            let rp = if matches!(
+            let rp = if component {
+                super::model::instruction_phase(right.1, true)
+            } else if matches!(
                 right.1.formula,
                 Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
             ) {
-                super::model::instruction_phase(right.1)
+                super::model::instruction_phase(right.1, false)
             } else if shape::same_text(m, &right.1.phase, "base")? {
                 0u8
             } else {
                 1
             };
             let phase = w::compare(m, lp, rp)?;
-            let compare = if phase.is_eq() {
+            let book = if component {
+                let left = super::model::component_book(m, &p.binding_slots, left.1)?;
+                let right = super::model::component_book(m, &p.binding_slots, right.1)?;
+                w::compare(m, left, right)?
+            } else {
+                Ordering::Equal
+            };
+            let compare = if !book.is_eq() {
+                book
+            } else if phase.is_eq() {
                 let slot = order(m, &left.1.binding_slot, &right.1.binding_slot)?;
                 if slot.is_eq() {
                     w::compare(m, left.0, right.0)?
@@ -381,10 +432,12 @@ pub(super) fn build(
         let mut basis = vector(
             m,
             &a,
-            if matches!(
-                rule.formula,
-                Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
-            ) {
+            if component
+                || matches!(
+                    rule.formula,
+                    Formula::ClosureCap { .. } | Formula::ClosureShare { .. }
+                )
+            {
                 p.rules.len()
             } else {
                 1
@@ -396,7 +449,7 @@ pub(super) fn build(
                 field_names.push(a.string_value(quantity_field, m)?);
                 "unit"
             }
-            Formula::Discount { basis: target, .. } => {
+            Formula::Percent { basis: target, .. } | Formula::Discount { basis: target, .. } => {
                 let mut previous = None;
                 for (old, position) in producers.iter().rev() {
                     m.visit("plan.prior_basis_producer")?;
@@ -409,11 +462,29 @@ pub(super) fn build(
                     }
                 }
                 let prior = previous.ok_or_else(|| fail("missing prior basis producer"))?;
-                basis.push(
-                    a.clone_value(shape::field(m, instructions[prior].value(), "ordinal")?, m)?,
-                );
-                "discount"
+                if component {
+                    for (old, position) in producers.iter() {
+                        if component_modifier_dependency(m, template.canonical_value(), rule, old)?
+                        {
+                            basis.push(a.clone_value(
+                                shape::field(m, instructions[*position].value(), "ordinal")?,
+                                m,
+                            )?);
+                        }
+                    }
+                } else {
+                    basis.push(a.clone_value(
+                        shape::field(m, instructions[prior].value(), "ordinal")?,
+                        m,
+                    )?);
+                }
+                if matches!(rule.formula, Formula::Percent { .. }) {
+                    "percent"
+                } else {
+                    "discount"
+                }
             }
+            Formula::ObserveCost { .. } => "observe_cost",
             Formula::ClosureCap {
                 basis_component_key,
                 ..
@@ -678,7 +749,7 @@ pub(super) fn build(
             m,
         )?);
     }
-    let mut paths = vector(m, &a, p.families.len())?;
+    let mut paths = vector::<AuditedValue>(m, &a, p.families.len())?;
     for (index, family) in p.families.iter().enumerate() {
         m.visit("compile.family_instruction")?;
         let ord = ordinal(m, &a, instructions.len())?;
@@ -754,7 +825,12 @@ pub(super) fn build(
             ],
             m,
         )?);
-        paths.push(a.clone_value(shape::field(m, body, "selector")?, m)?);
+        let selector = shape::field(m, body, "selector")?;
+        let mut present = false;
+        if component {
+            for old in &paths { if shape::same(m, old.value(), selector)? { present = true; } }
+        }
+        if !present { paths.push(a.clone_value(selector, m)?); }
     }
     let mut activity_table = vector(m, &a, activities.len())?;
     let opcode = a.string_value("close_stage", m)?;

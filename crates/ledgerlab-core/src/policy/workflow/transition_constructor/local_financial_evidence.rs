@@ -776,227 +776,251 @@ fn selected_anchor(
     let (program, candidate, state, payload, subject, compiler, empty) = selected_operands;
     let schema = shape::text(m, body, "schema")?;
     m.visit("local.evidence_closed_schema_dispatch")?;
-    let (role, relation, descriptor_mode, support) = match (r.kind.as_str(), schema) {
-        ("workflow-authority", "ledger-cost-authority/1" | "ledger-cost-owner-activation/1") => {
-            stage_account_mapping(program, &r.kind, schema).ok_or_else(|| {
+    let component_native = match (r.kind.as_str(), schema) {
+        ("workflow-economic-authority", "ledger-workflow-economic-authority/9") => {
+            Some(("authority", "direct", 2, false))
+        }
+        ("workflow-slot-terms", "ledger-workflow-observation-terms/1")
+        | ("workflow-fact-attestation", "ledger-workflow-cost-observation-evidence/1")
+        | ("workflow-action", "ledger-workflow-cost-observation-action/1")
+        | ("workflow-evaluation", "ledger-workflow-component-evaluation-proof/1") => {
+            Some(("evidence", "evidence_input", 2, true))
+        }
+        _ => None,
+    };
+    if component_native.is_some() && !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail(
+            "Component operand requires its actual selected descriptor",
+        ));
+    }
+    let (role, relation, descriptor_mode, support) = if let Some(mapping) = component_native {
+        mapping
+    } else {
+        match (r.kind.as_str(), schema) {
+            (
+                "workflow-authority",
+                "ledger-cost-authority/1" | "ledger-cost-owner-activation/1",
+            ) => stage_account_mapping(program, &r.kind, schema).ok_or_else(|| {
                 shape::fail("selected local semantic operand has no exact descriptor mapping")
-            })?
-        }
-        ("workflow-source-grant", "ledger-workflow-source-grant/1")
-        | ("workflow-source-state", "ledger-workflow-source-state/1")
-        | (
-            "workflow-authority",
-            "ledger-workflow-local-authority-snapshot/1"
-            | "ledger-workflow-agreement-authority/2"
-            | "ledger-workflow-agreement-authority/5"
-            | "ledger-workflow-party-management-authority/1"
-            | "ledger-workflow-party-authorization/1",
-        )
-        | (
-            "workflow-economic-authority",
-            "ledger-workflow-economic-authority/8"
-            | "ledger-workflow-app-causal-authority/2"
-            | "ledger-workflow-app-pending-causal-authority/2",
-        ) => ("authority", "direct", 0, false),
-        ("workflow-stage-instance", "ledger-workflow-stage-instance/1")
-        | ("workflow-stage-state", "ledger-workflow-stage-state/1")
-        | ("workflow-stage-closure-claim", "ledger-workflow-stage-closure-claim/1")
-        | ("workflow-invocation", "ledger-workflow-invocation/1")
-        | ("workflow-allocation", "ledger-workflow-allocation/1")
-        | ("workflow-authority", "ledger-workflow-agreement-authority/6")
-        | (
-            "workflow-economic-authority",
-            "ledger-workflow-stage-authority/1" | "ledger-workflow-stage-causal-authority/1",
-        )
-        | (
-            "workflow-slot-terms",
-            "ledger-workflow-slot-binding-terms/3" | "ledger-workflow-slot-binding-terms/8",
-        )
-        | ("workflow-offer", "ledger-workflow-offer/4")
-        | ("workflow-offer", "ledger-workflow-supplier-commitment/2")
-        | ("workflow-assent", "ledger-workflow-party-assent/3")
-        | ("workflow-evidence", "ledger-workflow-party-evidence/3")
-        | ("workflow-verification", "ledger-workflow-supplier-consent-verification/2") => {
-            ("evidence", "evidence_input", 0, true)
-        }
-        ("workflow-source-enrollment", "ledger-workflow-source-enrollment/1") => {
-            ("source_enrollment", "source_enrollment", 0, false)
-        }
-        ("workflow-work", "ledger-workflow-work-record/1") => ("work", "original_work", 1, false),
-        ("workflow-binding", "ledger-workflow-binding/2") => {
-            ("binding", "original_binding", 1, false)
-        }
-        ("workflow-target", "ledger-workflow-component-target/1") => {
-            ("target", "original_target", 1, false)
-        }
-        ("workflow-work-claim", "ledger-workflow-work-claim/1")
-        | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/1")
-        | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/2") => {
-            ("claim", "original_claim", 1, false)
-        }
-        ("workflow-cost", "ledger-workflow-app-cost-claim/1") => {
-            ("app_cost_claim", "original_app_cost_claim", 1, false)
-        }
-        ("workflow-cost", "ledger-workflow-app-cost-revision/1") => {
-            let mut current = false;
-            if let Some(app) = state.app {
-                for head in app.cost_heads {
-                    m.visit("local.evidence_current_app_head")?;
-                    if shape::same_ref(m, &head.reference, r)? {
-                        current = true;
-                    }
-                }
-            }
-            if current {
-                ("app_cost_revision", "current_app_cost_revision", 1, false)
-            } else {
+            })?,
+            ("workflow-source-grant", "ledger-workflow-source-grant/1")
+            | ("workflow-source-state", "ledger-workflow-source-state/1")
+            | (
+                "workflow-authority",
+                "ledger-workflow-local-authority-snapshot/1"
+                | "ledger-workflow-agreement-authority/2"
+                | "ledger-workflow-agreement-authority/5"
+                | "ledger-workflow-party-management-authority/1"
+                | "ledger-workflow-party-authorization/1",
+            )
+            | (
+                "workflow-economic-authority",
+                "ledger-workflow-economic-authority/8"
+                | "ledger-workflow-app-causal-authority/2"
+                | "ledger-workflow-app-pending-causal-authority/2",
+            ) => ("authority", "direct", 0, false),
+            ("workflow-stage-instance", "ledger-workflow-stage-instance/1")
+            | ("workflow-stage-state", "ledger-workflow-stage-state/1")
+            | ("workflow-stage-closure-claim", "ledger-workflow-stage-closure-claim/1")
+            | ("workflow-invocation", "ledger-workflow-invocation/1")
+            | ("workflow-allocation", "ledger-workflow-allocation/1")
+            | ("workflow-authority", "ledger-workflow-agreement-authority/6")
+            | (
+                "workflow-economic-authority",
+                "ledger-workflow-stage-authority/1" | "ledger-workflow-stage-causal-authority/1",
+            )
+            | (
+                "workflow-slot-terms",
+                "ledger-workflow-slot-binding-terms/3" | "ledger-workflow-slot-binding-terms/8",
+            )
+            | ("workflow-offer", "ledger-workflow-offer/4")
+            | ("workflow-offer", "ledger-workflow-supplier-commitment/2")
+            | ("workflow-assent", "ledger-workflow-party-assent/3")
+            | ("workflow-evidence", "ledger-workflow-party-evidence/3")
+            | ("workflow-verification", "ledger-workflow-supplier-consent-verification/2") => {
                 ("evidence", "evidence_input", 0, true)
             }
-        }
-        ("workflow-fact-attestation", "ledger-workflow-app-observation/1") => {
-            ("app_observation", "original_app_observation", 1, false)
-        }
-        ("workflow-slot-terms", "ledger-workflow-slot-binding-terms/7") => {
-            ("app_terms", "original_app_terms", 1, false)
-        }
-        (
-            "workflow-family-state",
-            "ledger-workflow-family-state/1" | "ledger-workflow-family-state/2",
-        ) => ("family_state", "original_family", 1, false),
-        ("workflow-publication", "ledger-workflow-publication/1") => {
-            ("publication", "publication_source", 2, false)
-        }
-        ("workflow-policy", "ledger-workflow-policy/4") => ("policy", "direct", 2, false),
-        ("workflow-product", "ledger-workflow-product/1") => ("product", "direct", 0, false),
-        ("workflow-fact-schema", "ledger-workflow-fact-schema/1") => {
-            // Source inventory is not a semantic schema selection. Only the
-            // actual subject/context schema union contributes self anchors.
-            let mut needed = false;
-            for item in subject
-                .as_array()
-                .ok_or_else(|| shape::fail("subject descriptor array"))?
-            {
-                if shape::same(m, item, reference)? {
-                    needed = true;
+            ("workflow-source-enrollment", "ledger-workflow-source-enrollment/1") => {
+                ("source_enrollment", "source_enrollment", 0, false)
+            }
+            ("workflow-work", "ledger-workflow-work-record/1") => {
+                ("work", "original_work", 1, false)
+            }
+            ("workflow-binding", "ledger-workflow-binding/2") => {
+                ("binding", "original_binding", 1, false)
+            }
+            ("workflow-target", "ledger-workflow-component-target/1") => {
+                ("target", "original_target", 1, false)
+            }
+            ("workflow-work-claim", "ledger-workflow-work-claim/1")
+            | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/1")
+            | ("workflow-outcome-claim", "ledger-workflow-outcome-claim/2") => {
+                ("claim", "original_claim", 1, false)
+            }
+            ("workflow-cost", "ledger-workflow-app-cost-claim/1") => {
+                ("app_cost_claim", "original_app_cost_claim", 1, false)
+            }
+            ("workflow-cost", "ledger-workflow-app-cost-revision/1") => {
+                let mut current = false;
+                if let Some(app) = state.app {
+                    for head in app.cost_heads {
+                        m.visit("local.evidence_current_app_head")?;
+                        if shape::same_ref(m, &head.reference, r)? {
+                            current = true;
+                        }
+                    }
+                }
+                if current {
+                    ("app_cost_revision", "current_app_cost_revision", 1, false)
+                } else {
+                    ("evidence", "evidence_input", 0, true)
                 }
             }
-            if !needed {
-                return Ok(());
+            ("workflow-fact-attestation", "ledger-workflow-app-observation/1") => {
+                ("app_observation", "original_app_observation", 1, false)
             }
-            ("fact_schema", "direct", 3, false)
-        }
-        ("workflow-slot-catalog", "ledger-workflow-slot-catalog/1") => {
-            ("slot_catalog", "agreement_input", 0, false)
-        }
-        ("workflow-slot-instantiation", "ledger-workflow-slot-instantiation/1") => {
-            ("slot_instantiation", "agreement_input", 0, false)
-        }
-        ("workflow-customer", "ledger-workflow-customer-registration/1") => {
-            ("customer", "customer_registration", 0, false)
-        }
-        (
-            "workflow-assent",
-            "ledger-workflow-assent/1"
-            | "ledger-workflow-party-assent/1"
-            | "ledger-workflow-party-assent/2",
-        ) => ("assent", "agreement_input", 0, false),
-        ("workflow-activation", "ledger-workflow-activation-transition/1") => {
-            ("activation_target", "activation_target", 0, false)
-        }
-        (
-            "workflow-decision",
-            "ledger-workflow-decision-revision/1"
-            | "ledger-workflow-decision-revision/2"
-            | "ledger-workflow-decision-revision/3",
-        ) => {
-            let root_op = super::candidate::assembly::operation(m, payload)?;
-            let mut dependent = false;
-            if root_op == "quantity.correct" || root_op == "work.reverse" {
-                for head in candidate.heads() {
-                    if let Some(old) = head.expected() {
-                        if shape::same_ref(m, old, r)? {
-                            for new in candidate.introduced() {
-                                if shape::same_ref(m, new.reference(), head.proposed())? {
-                                    let v = m.parse_owned_representation(
-                                        a,
-                                        new.canonical_body(),
-                                        Kind::Record,
-                                    )?;
-                                    let kind = shape::text(m, v.value(), "kind")?;
-                                    dependent = !shape::same_text(m, kind, "work")?;
+            ("workflow-slot-terms", "ledger-workflow-slot-binding-terms/7") => {
+                ("app_terms", "original_app_terms", 1, false)
+            }
+            (
+                "workflow-family-state",
+                "ledger-workflow-family-state/1" | "ledger-workflow-family-state/2",
+            ) => ("family_state", "original_family", 1, false),
+            ("workflow-publication", "ledger-workflow-publication/1") => {
+                ("publication", "publication_source", 2, false)
+            }
+            ("workflow-policy", "ledger-workflow-policy/4") => ("policy", "direct", 2, false),
+            ("workflow-product", "ledger-workflow-product/1") => ("product", "direct", 0, false),
+            ("workflow-fact-schema", "ledger-workflow-fact-schema/1") => {
+                // Source inventory is not a semantic schema selection. Only the
+                // actual subject/context schema union contributes self anchors.
+                let mut needed = false;
+                for item in subject
+                    .as_array()
+                    .ok_or_else(|| shape::fail("subject descriptor array"))?
+                {
+                    if shape::same(m, item, reference)? {
+                        needed = true;
+                    }
+                }
+                if !needed {
+                    return Ok(());
+                }
+                ("fact_schema", "direct", 3, false)
+            }
+            ("workflow-slot-catalog", "ledger-workflow-slot-catalog/1") => {
+                ("slot_catalog", "agreement_input", 0, false)
+            }
+            ("workflow-slot-instantiation", "ledger-workflow-slot-instantiation/1") => {
+                ("slot_instantiation", "agreement_input", 0, false)
+            }
+            ("workflow-customer", "ledger-workflow-customer-registration/1") => {
+                ("customer", "customer_registration", 0, false)
+            }
+            (
+                "workflow-assent",
+                "ledger-workflow-assent/1"
+                | "ledger-workflow-party-assent/1"
+                | "ledger-workflow-party-assent/2",
+            ) => ("assent", "agreement_input", 0, false),
+            ("workflow-activation", "ledger-workflow-activation-transition/1") => {
+                ("activation_target", "activation_target", 0, false)
+            }
+            (
+                "workflow-decision",
+                "ledger-workflow-decision-revision/1"
+                | "ledger-workflow-decision-revision/2"
+                | "ledger-workflow-decision-revision/3",
+            ) => {
+                let root_op = super::candidate::assembly::operation(m, payload)?;
+                let mut dependent = false;
+                if root_op == "quantity.correct" || root_op == "work.reverse" {
+                    for head in candidate.heads() {
+                        if let Some(old) = head.expected() {
+                            if shape::same_ref(m, old, r)? {
+                                for new in candidate.introduced() {
+                                    if shape::same_ref(m, new.reference(), head.proposed())? {
+                                        let v = m.parse_owned_representation(
+                                            a,
+                                            new.canonical_body(),
+                                            Kind::Record,
+                                        )?;
+                                        let kind = shape::text(m, v.value(), "kind")?;
+                                        dependent = !shape::same_text(m, kind, "work")?;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                if dependent {
+                    ("dependent_decision", "dependent_decision", 1, false)
+                } else {
+                    ("evidence", "evidence_input", 0, true)
+                }
             }
-            if dependent {
-                ("dependent_decision", "dependent_decision", 1, false)
-            } else {
+            ("workflow-operation", "ledger-workflow-economic-operation/10")
+            | ("workflow-receipt", "ledger-operation-receipt/2")
+                if candidate.result_metadata().result_kind() == "semantic_alias" =>
+            {
                 ("evidence", "evidence_input", 0, true)
             }
-        }
-        ("workflow-operation", "ledger-workflow-economic-operation/10")
-        | ("workflow-receipt", "ledger-operation-receipt/2")
-            if candidate.result_metadata().result_kind() == "semantic_alias" =>
-        {
-            ("evidence", "evidence_input", 0, true)
-        }
-        ("workflow-action", "ledger-workflow-action/1")
-        | ("workflow-evaluation", "ledger-workflow-evaluation-proof/1")
-        | ("workflow-correction-capacity", "ledger-correction-capacity/2")
-        | ("workflow-dependency", "ledger-workflow-dependency/2")
-        | ("workflow-capacity-retirement", "ledger-workflow-capacity-retirement/1")
-        | ("workflow-cost", "ledger-workflow-app-cost-consumption/1")
-        | ("workflow-chain-state", "ledger-workflow-chain-state/1")
-        | ("workflow-link", "ledger-workflow-link/1")
-        | ("workflow-head-transition", "ledger-workflow-head-transition/1") => {
-            ("evidence", "evidence_input", 0, true)
-        }
-        (
-            "workflow-fact-attestation",
-            "ledger-workflow-app-final-cost/1"
-            | "ledger-workflow-fact-attestation/1"
-            | "ledger-workflow-family-close-attestation/1",
-        )
-        | ("workflow-evidence-verification", "ledger-workflow-evidence-verification/1")
-        | ("workflow-verified-fact", "ledger-workflow-verified-fact/1")
-        | (
-            "workflow-evidence",
-            "ledger-workflow-retained-evidence/1"
-            | "ledger-workflow-retained-evidence/2"
-            | "ledger-workflow-party-evidence/1"
-            | "ledger-workflow-party-evidence/2",
-        )
-        | (
-            "workflow-verification",
-            "ledger-workflow-app-consent-verification/1"
-            | "ledger-workflow-app-consent-verification/2",
-        ) => ("evidence", "evidence_input", 0, true),
-        ("workflow-accepted-agreement", "ledger-workflow-accepted-agreement/1")
-        | ("workflow-acceptance-terms", "ledger-workflow-acceptance-terms/2")
-        | ("workflow-agreement-intent", "ledger-workflow-agreement-intent/1")
-        | ("workflow-roles", "ledger-workflow-role-assignment/1")
-        | (
-            "workflow-compiled-plan",
-            "ledger-workflow-compiled-plan/6"
-            | "ledger-workflow-compiled-plan/7"
-            | "ledger-workflow-compiled-plan/8",
-        )
-        | ("workflow-build-manifest", "ledger-workflow-build-manifest/1")
-        | ("workflow-slot-template", "ledger-workflow-slot-template/1") => {
-            ("evidence", "evidence_input", 0, true)
-        }
-        (
-            "workflow-compiler-descriptor",
-            "ledger-workflow-compiler-descriptor/6"
-            | "ledger-workflow-compiler-descriptor/7"
-            | "ledger-workflow-compiler-descriptor/8",
-        ) => ("evidence", "evidence_input", 3, true),
-        _ => {
-            return Err(shape::fail(
-                "selected local semantic operand has no exact descriptor mapping",
-            ));
+            ("workflow-action", "ledger-workflow-action/1")
+            | ("workflow-evaluation", "ledger-workflow-evaluation-proof/1")
+            | ("workflow-correction-capacity", "ledger-correction-capacity/2")
+            | ("workflow-dependency", "ledger-workflow-dependency/2")
+            | ("workflow-capacity-retirement", "ledger-workflow-capacity-retirement/1")
+            | ("workflow-cost", "ledger-workflow-app-cost-consumption/1")
+            | ("workflow-chain-state", "ledger-workflow-chain-state/1")
+            | ("workflow-link", "ledger-workflow-link/1")
+            | ("workflow-head-transition", "ledger-workflow-head-transition/1") => {
+                ("evidence", "evidence_input", 0, true)
+            }
+            (
+                "workflow-fact-attestation",
+                "ledger-workflow-app-final-cost/1"
+                | "ledger-workflow-fact-attestation/1"
+                | "ledger-workflow-family-close-attestation/1",
+            )
+            | ("workflow-evidence-verification", "ledger-workflow-evidence-verification/1")
+            | ("workflow-verified-fact", "ledger-workflow-verified-fact/1")
+            | (
+                "workflow-evidence",
+                "ledger-workflow-retained-evidence/1"
+                | "ledger-workflow-retained-evidence/2"
+                | "ledger-workflow-party-evidence/1"
+                | "ledger-workflow-party-evidence/2",
+            )
+            | (
+                "workflow-verification",
+                "ledger-workflow-app-consent-verification/1"
+                | "ledger-workflow-app-consent-verification/2",
+            ) => ("evidence", "evidence_input", 0, true),
+            ("workflow-accepted-agreement", "ledger-workflow-accepted-agreement/1")
+            | ("workflow-acceptance-terms", "ledger-workflow-acceptance-terms/2")
+            | ("workflow-agreement-intent", "ledger-workflow-agreement-intent/1")
+            | ("workflow-roles", "ledger-workflow-role-assignment/1")
+            | (
+                "workflow-compiled-plan",
+                "ledger-workflow-compiled-plan/6"
+                | "ledger-workflow-compiled-plan/7"
+                | "ledger-workflow-compiled-plan/8",
+            )
+            | ("workflow-build-manifest", "ledger-workflow-build-manifest/1")
+            | ("workflow-slot-template", "ledger-workflow-slot-template/1") => {
+                ("evidence", "evidence_input", 0, true)
+            }
+            (
+                "workflow-compiler-descriptor",
+                "ledger-workflow-compiler-descriptor/6"
+                | "ledger-workflow-compiler-descriptor/7"
+                | "ledger-workflow-compiler-descriptor/8",
+            ) => ("evidence", "evidence_input", 3, true),
+            _ => {
+                return Err(shape::fail(
+                    "selected local semantic operand has no exact descriptor mapping",
+                ));
+            }
         }
     };
     if support && has_ref(m, anchors, reference)? {

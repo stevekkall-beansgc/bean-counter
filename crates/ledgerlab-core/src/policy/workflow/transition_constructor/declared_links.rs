@@ -397,13 +397,26 @@ pub(super) fn retained_work(
     Ok(reference)
 }
 
+pub(super) struct ReportHop {
+    reference: ExactRef,
+    work: super::record_body::RecordBody,
+    link: ExactRef,
+    claim: ExactRef,
+    decision: ExactRef,
+}
 pub(super) struct ReportPath {
     pub reference: ExactRef,
     pub work: super::record_body::RecordBody,
     pub link: ExactRef,
     pub claim: ExactRef,
     pub decision: ExactRef,
+    extra: Vec<ReportHop>,
     _owner: crate::canonical::audit_arena::ExternalBufferLease,
+}
+impl ReportPath {
+    pub(super) fn work_refs(&self) -> impl Iterator<Item = &ExactRef> {
+        std::iter::once(&self.reference).chain(self.extra.iter().map(|hop| &hop.reference))
+    }
 }
 pub(super) fn report_path(
     m: &mut CoreMeter,
@@ -420,6 +433,9 @@ pub(super) fn report_path(
     }
     if !program.uses_declared_work_link_recipe() {
         return Err(shape::fail("original declared link recipe"));
+    }
+    if program.uses_component_lifecycle_recipe() {
+        return report_path_impl::select(m, r, c, program, p, selected, current);
     }
     let arena = m
         .representation_arena()
@@ -492,6 +508,7 @@ pub(super) fn report_path(
         link,
         claim,
         decision,
+        extra: Vec::new(),
         _owner: owner,
     }))
 }
@@ -563,7 +580,26 @@ pub(super) fn verify_report_original(
         terms,
         &report.reference,
         (&report.work, &report.claim, &report.decision, &decision),
-    )
+    )?;
+    for hop in &report.extra {
+        let decision = r.get(
+            m,
+            &c.key,
+            &hop.decision,
+            "workflow-decision",
+            "ledger-workflow-decision-revision/1",
+        )?;
+        super::outcome::verify_original_actions(
+            m,
+            r,
+            c,
+            program,
+            terms,
+            &hop.reference,
+            (&hop.work, &hop.claim, &hop.decision, &decision),
+        )?;
+    }
+    Ok(())
 }
 /// Retain the exact original report certificate operands in the existing
 /// evaluation's typed Ref set. Monetary posting basis remains A actions only.
@@ -576,7 +612,10 @@ pub(super) fn evaluation_basis(
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning selector evaluation"))?;
-    let count = w::usize_add(m, basis.len(), 5)?;
+    let mut count = w::usize_add(m, basis.len(), 5)?;
+    for _ in &report.extra {
+        count = w::usize_add(m, count, 4)?;
+    }
     w::ValidationWork::arithmetic(
         m,
         w::ArithmeticOperation::Multiply,
@@ -599,6 +638,9 @@ pub(super) fn evaluation_basis(
         &report.link,
         outcome_link,
     ]);
+    for hop in &report.extra {
+        refs.extend([&hop.reference, &hop.claim, &hop.decision, &hop.link]);
+    }
     super::app_cost::reference_set(m, &arena, &refs)
 }
 
@@ -765,6 +807,11 @@ pub(super) fn validate_chain(
                 let path = shape::array(m, &family["selector"], "path")?;
                 if w::compare(m, path.len(), 1usize)?.is_eq() {
                     true
+                } else if program.uses_component_lifecycle_recipe() {
+                    let report = report_path(m, r, c, program, payload, (&work_ref, family), None)?
+                        .ok_or_else(|| shape::fail("retained component report path"))?;
+                    shape::equal(m, &link["predecessor"], &json!(report.reference))?;
+                    false
                 } else if w::compare(m, path.len(), 2usize)?.is_eq() {
                     let report_ref = shape::reference(m, &link["predecessor"])?;
                     let report = r.get(
@@ -788,7 +835,7 @@ pub(super) fn validate_chain(
             shape::equal(
                 m,
                 &child_body["schema"],
-                &json!(if direct {
+                &json!(if direct && !program.uses_component_lifecycle_recipe() {
                     "ledger-workflow-outcome-claim/1"
                 } else {
                     "ledger-workflow-outcome-claim/2"
@@ -797,7 +844,7 @@ pub(super) fn validate_chain(
             shape::equal(
                 m,
                 &payload["schema"],
-                &json!(if direct {
+                &json!(if direct && !program.uses_component_lifecycle_recipe() {
                     "ledger-workflow-outcome/1"
                 } else {
                     "ledger-workflow-outcome/2"
@@ -1167,3 +1214,6 @@ mod tests {
         assert_ne!(original, a);
     }
 }
+
+#[path = "declared_report_path.rs"]
+pub(super) mod report_path_impl;

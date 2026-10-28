@@ -173,6 +173,28 @@ pub(super) fn historical_namespace(
         "workflow-economic-authority",
         schemas,
     )?;
+    historical_namespace_body(
+        m,
+        r,
+        c,
+        &original,
+        namespace,
+        source,
+        (operation, binding, at),
+    )
+}
+// Typed callers own exact native schema/profile selection. This repeats only
+// the shared original source identity/time associations, not producer custody.
+pub(super) fn historical_namespace_body(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    original: &Value,
+    namespace: &Value,
+    source: Option<&Value>,
+    selected_operands: (&str, &Value, &Value),
+) -> Result<()> {
+    let (operation, binding, at) = selected_operands;
     equal(m, &original["scope"], &json!(c.key.scope))?;
     equal(m, &original["operation"], &json!(operation))?;
     equal(m, &original["canonical_economic_namespace"], namespace)?;

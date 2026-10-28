@@ -37,7 +37,7 @@ impl LocalRecordIdentity {
 pub struct LocalOperationLocators {
     subject: LocalSubjectBinding,
     work: Option<WorkHeadLocators>,
-    selector: Option<WorkHeadLocators>,
+    selector: Vec<WorkHeadLocators>,
     fresh_selector: bool,
     records: Vec<LocalRecordIdentity>,
     claims: Vec<PermanentClaimKey>,
@@ -91,9 +91,19 @@ impl LocalOperationLocators {
     pub fn original_binding_ref(&self) -> &ExactRef {
         self.subject.original_binding_ref()
     }
+    /// Complete original report intermediates, in declared path order. Only
+    /// fresh preclaim selection asks the host for their current heads; original
+    /// replay continues to use its saved immutable cutoff.
+    pub fn selector_work_heads(&self) -> &[WorkHeadLocators] {
+        if self.fresh_selector {
+            &self.selector
+        } else {
+            &[]
+        }
+    }
     pub fn selector_start_work_heads(&self) -> Option<&WorkHeadLocators> {
         if self.fresh_selector {
-            self.selector.as_ref()
+            self.selector.first()
         } else {
             None
         }
@@ -175,7 +185,7 @@ impl LocalOperationLocators {
             if !shape::same_text(m, kind, "work")? {
                 return Err(shape::fail("retained root kind"));
             }
-            if program.uses_work_lifecycle_recipe() {
+            if program.uses_work_lifecycle_recipe() && !program.uses_component_lifecycle_recipe() {
                 self.refine_app_authority_slots(
                     program,
                     m,
@@ -510,7 +520,11 @@ impl LocalOperationLocators {
                     key,
                     claim_value,
                     "workflow-outcome-claim",
-                    "ledger-workflow-outcome-claim/1",
+                    if program.uses_component_lifecycle_recipe() {
+                        "ledger-workflow-outcome-claim/2"
+                    } else {
+                        "ledger-workflow-outcome-claim/1"
+                    },
                 )?;
                 shape::equal(m, &claim["target_ref"], &state["target_ref"])?;
                 shape::equal(m, &claim["family_slot"], &state["family_slot"])?;
@@ -525,12 +539,149 @@ impl LocalOperationLocators {
                 )?;
             }
             self.outcome_links = out;
+            if program.uses_component_lifecycle_recipe() {
+                self.refine_component_family_roles(
+                    program,
+                    m,
+                    &a,
+                    &mut r,
+                    key,
+                    (&work, &binding, &inst, family_heads),
+                )?;
+            }
             Ok(())
         })();
         if result.is_err() {
             s.invalidate();
         }
         result
+    }
+    // Refine only after actual held FamilyHeads have been acquired. Initial
+    // caller closure Refs cannot suppress a current role. Original terminal
+    // producer/lineage and expected-head equality remain child obligations.
+    fn refine_component_family_roles(
+        &mut self,
+        program: &SelectedProgram,
+        m: &mut CoreMeter,
+        arena: &AuditArena,
+        r: &mut Records,
+        key: &OperationKey,
+        held: (&Value, &Value, &Value, &[FamilyHead]),
+    ) -> Result<()> {
+        let (work, binding, inst, heads) = held;
+        shape::equal(m, &work["payload"]["policy_ref"], &binding["policy_ref"])?;
+        let _scratch = arena.reserve_external_payload(2 * (mem::size_of::<String>() + 128), m)?;
+        m.write_bytes(2 * (mem::size_of::<String>() + 128))?;
+        let expected_work = super::working_value::owning_reference(
+            m,
+            arena,
+            self.subject
+                .original_work_ref()
+                .ok_or_else(|| shape::fail("Component family role Work"))?,
+        )?;
+        let expected_binding =
+            super::working_value::owning_reference(m, arena, self.subject.original_binding_ref())?;
+        let mut index = self.base_required_slots;
+        while w::compare(m, index, self.required_slots.len())?.is_lt() {
+            let slot = &self.required_slots[index];
+            let mut matched = false;
+            let mut needed = false;
+            for head in heads {
+                let target = r.get(
+                    m,
+                    key,
+                    &head.target_ref,
+                    "workflow-target",
+                    "ledger-workflow-component-target/1",
+                )?;
+                shape::equal(m, &target["work_ref"], expected_work.value())?;
+                shape::equal(m, &target["binding_ref"], expected_binding.value())?;
+                shape::equal(m, &target["agreement_id"], &binding["agreement_id"])?;
+                let scope = super::work_keys::scope(m, key)?;
+                shape::equal(m, &target["scope"], scope.value())?;
+                let claim_id = txt(m, work, "claim_id")?;
+                let claim = arena.string_value(claim_id, m)?;
+                let seed = arena.array_from_values(
+                    &[
+                        scope.value(),
+                        &target["agreement_id"],
+                        claim.value(),
+                        &target["root_component_slot"],
+                    ],
+                    m,
+                )?;
+                let expected =
+                    super::body::semantic_id(m, "wtarget_", "workflow-target", seed.value())?;
+                if !shape::same_text(m, &head.target_ref.id, &expected)? {
+                    return Err(shape::fail("Component terminal role Target identity"));
+                }
+                let family = locator_family(program, m, &target, work, inst, &head.family_slot)?;
+                let corrector = txt(m, family, "correction_source_slot")?;
+                if !shape::same_text(m, slot, corrector)? {
+                    continue;
+                }
+                matched = true;
+                let state = r.get_schemas(
+                    m,
+                    key,
+                    &head.reference,
+                    "workflow-family-state",
+                    &[
+                        "ledger-workflow-family-state/1",
+                        "ledger-workflow-family-state/2",
+                    ],
+                )?;
+                let target_ref =
+                    super::working_value::owning_reference(m, arena, &head.target_ref)?;
+                shape::equal(m, &state["target_ref"], target_ref.value())?;
+                let family_slot = txt(m, &state, "family_slot")?;
+                let revision = txt(m, &state, "revision")?;
+                if !shape::same_text(m, family_slot, &head.family_slot)?
+                    || !shape::same_text(m, revision, &head.revision)?
+                {
+                    return Err(shape::fail("Component family role actual held head"));
+                }
+                let rev = arena.string_value(&head.revision, m)?;
+                let slot_value = arena.string_value(&head.family_slot, m)?;
+                let target_id = arena.string_value(&head.target_ref.id, m)?;
+                let seed = arena
+                    .array_from_values(&[target_id.value(), slot_value.value(), rev.value()], m)?;
+                let id =
+                    super::body::semantic_id(m, "wfamily_", "workflow-family-state", seed.value())?;
+                if !shape::same_text(m, &head.reference.id, &id)? {
+                    return Err(shape::fail("Component family role head identity"));
+                }
+                let status = txt(m, &state, "state")?;
+                if shape::same_text(m, status, "closed_by_root")? {
+                    let schema = txt(m, &state, "schema")?;
+                    if !shape::same_text(m, schema, "ledger-workflow-family-state/2")? {
+                        return Err(shape::fail("Component terminal family schema"));
+                    }
+                } else {
+                    needed = true;
+                }
+            }
+            if matched && !needed {
+                crate::validation_work::ValidationWork::arithmetic(
+                    m,
+                    w::ArithmeticOperation::Multiply,
+                    &[
+                        &self.required_slots.len().into(),
+                        &mem::size_of::<String>().into(),
+                    ],
+                )?;
+                m.write_bytes(
+                    self.required_slots
+                        .len()
+                        .checked_mul(mem::size_of::<String>())
+                        .ok_or_else(|| shape::fail("Component role removal controls"))?,
+                )?;
+                self.required_slots.remove(index);
+            } else {
+                index = w::usize_add(m, index, 1)?;
+            }
+        }
+        Ok(())
     }
     /// Revision-1/T0 and dependency lookup identities, queried within the same
     /// store/scope. A prospective decision may genuinely be absent; a held
@@ -650,6 +801,13 @@ pub fn select_local_operation_locators(
         let m = s.meter_mut();
         super::codec::validate_selected_types(m, p.value())?;
         let _schema = txt(m, p.value(), "schema")?;
+        if _schema == "ledger-workflow-cost-observation-attest/1"
+            && !program.uses_component_lifecycle_recipe()
+        {
+            return Err(shape::fail(
+                "exact Component observation locator recipe required",
+            ));
+        }
         if stage_subject(p.value()) && !program.uses_stage_lifecycle_recipe() {
             return Err(shape::fail("exact Stage locator recipe required"));
         }
@@ -733,18 +891,8 @@ pub fn select_local_operation_locators(
             let _binding_ref = binding_ref;
             work = Some(heads);
         }
-        let selector = if let Some(reference) = &subject.selector_ref {
-            let value = super::working_value::owning_reference(m, &a, reference.reference())?;
-            Some(super::input_selection::retained_work_heads(
-                program,
-                m,
-                &mut r,
-                capture.key,
-                value.value(),
-            )?)
-        } else {
-            None
-        };
+        let selector =
+            collect_selector_heads(program, m, &a, &mut r, capture.key, &subject, &mut copies)?;
         let payload_schema = txt(m, v, "schema")?;
         let fresh_selector = shape::same_text(m, payload_schema, "ledger-workflow-outcome/2")?;
         let n = if let Some(heads) = &work {
@@ -765,13 +913,20 @@ pub fn select_local_operation_locators(
         let bytes = n
             .checked_mul(mem::size_of::<LocalRecordIdentity>() + 128)
             .ok_or_else(|| shape::fail("local locator record dimensions"))?;
-        let extra = if selector.is_some() {
-            2 * (mem::size_of::<LocalRecordIdentity>() + 128)
-        } else {
-            0
-        };
+        let extra_count = w::usize_add(m, selector.len(), selector.len())?;
+        crate::validation_work::ValidationWork::arithmetic(
+            m,
+            w::ArithmeticOperation::Multiply,
+            &[
+                &extra_count.into(),
+                &(mem::size_of::<LocalRecordIdentity>() + 128).into(),
+            ],
+        )?;
+        let extra = extra_count
+            .checked_mul(mem::size_of::<LocalRecordIdentity>() + 128)
+            .ok_or_else(|| shape::fail("selector locator storage"))?;
         let bytes = w::usize_add(m, bytes, extra)?;
-        let n = w::usize_add(m, n, if selector.is_some() { 2 } else { 0 })?;
+        let n = w::usize_add(m, n, extra_count)?;
         let record_owner = a.reserve_external_payload(bytes, m)?;
         m.write_bytes(bytes)?;
         copies.push(record_owner);
@@ -922,7 +1077,7 @@ pub fn select_local_operation_locators(
                 },
             )?;
         }
-        if let Some(heads) = &selector {
+        for heads in &selector {
             records.push(LocalRecordIdentity {
                 kind: "workflow-decision",
                 id: initial_id(m, &a, heads.root_decision_id())?,
@@ -980,6 +1135,129 @@ pub fn select_local_operation_locators(
         s.invalidate();
     }
     result
+}
+
+fn collect_selector_heads(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    r: &mut Records,
+    key: &OperationKey,
+    subject: &LocalSubjectBinding,
+    owners: &mut Vec<ExternalBufferLease>,
+) -> Result<Vec<WorkHeadLocators>> {
+    let Some(start) = &subject.selector_ref else {
+        return Ok(Vec::new());
+    };
+    let mut path = None;
+    let mut final_work = None;
+    if program.uses_component_lifecycle_recipe() {
+        let target_ref = subject
+            .target_ref()
+            .ok_or_else(|| shape::fail("selector original Target"))?;
+        let target = r.get(
+            m,
+            key,
+            target_ref,
+            "workflow-target",
+            "ledger-workflow-component-target/1",
+        )?;
+        let original_ref = subject
+            .original_work_ref()
+            .ok_or_else(|| shape::fail("selector original Work"))?;
+        let original = r.get(
+            m,
+            key,
+            original_ref,
+            "workflow-work",
+            "ledger-workflow-work-record/1",
+        )?;
+        let binding = r.get(
+            m,
+            key,
+            subject.original_binding_ref(),
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let inst_ref = parse_owned_reference(m, a, &binding["slot_instantiation_ref"])?;
+        let inst = r.get(
+            m,
+            key,
+            inst_ref.reference(),
+            "workflow-slot-instantiation",
+            "ledger-workflow-slot-instantiation/1",
+        )?;
+        let family = locator_family(
+            program,
+            m,
+            &target,
+            &original,
+            &inst,
+            subject
+                .family_slot()
+                .ok_or_else(|| shape::fail("selector original family"))?,
+        )?;
+        let steps = shape::array(m, &family["selector"], "path")?;
+        if steps.len() < 2 || w::compare(m, steps.len(), 4usize)?.is_gt() {
+            return Err(shape::fail("selector declared path bound"));
+        }
+        path = Some(steps);
+        final_work = Some(original_ref);
+    }
+    let count = path.map_or(1, |p| p.len() - 1);
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&count.into(), &mem::size_of::<WorkHeadLocators>().into()],
+    )?;
+    let size = count
+        .checked_mul(mem::size_of::<WorkHeadLocators>())
+        .ok_or_else(|| shape::fail("selector head dimensions"))?;
+    let owner = a.reserve_external_payload(size, m)?;
+    m.write_bytes(size)?;
+    owners.push(owner);
+    let mut heads: Vec<WorkHeadLocators> = Vec::new();
+    heads
+        .try_reserve_exact(count)
+        .map_err(|_| shape::fail("selector head allocation"))?;
+    let mut current = super::working_value::owning_reference(m, a, start.reference())?;
+    for index in 0..count {
+        m.visit("selector.declared_intermediate")?;
+        let reference = parse_owned_reference(m, a, current.value())?;
+        for previous in &heads {
+            if shape::same_text(m, previous.work_event_id(), &reference.reference().id)? {
+                return Err(shape::fail("selector cycle"));
+            }
+        }
+        heads.push(super::input_selection::retained_work_heads(
+            program,
+            m,
+            r,
+            key,
+            current.value(),
+        )?);
+        if let Some(path) = path {
+            let work = r.get(
+                m,
+                key,
+                reference.reference(),
+                "workflow-work",
+                "ledger-workflow-work-record/1",
+            )?;
+            let binding =
+                super::working_value::owning_reference(m, a, subject.original_binding_ref())?;
+            shape::equal(m, &work["payload"]["binding_ref"], binding.value())?;
+            let link = super::declared_links::validate_inputs(m, program, &work["payload"])?
+                .ok_or_else(|| shape::fail("selector intermediate declared link"))?;
+            shape::equal(m, &link["slot"], &path[index + 1])?;
+            current = a.clone_value(&link["predecessor"], m)?;
+        }
+    }
+    if let Some(final_work) = final_work {
+        let expected = super::working_value::owning_reference(m, a, final_work)?;
+        shape::equal(m, current.value(), expected.value())?;
+    }
+    Ok(heads)
 }
 
 // Select the ORIGINAL family from the retained Target declaration and its
@@ -1169,10 +1447,12 @@ fn authority_slots(
         || shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
     let stage = program.uses_stage_lifecycle_recipe() && stage_subject(request);
-    if !root && !close && !stage {
+    let observation = program.uses_component_lifecycle_recipe()
+        && schema == "ledger-workflow-cost-observation-attest/1";
+    if !root && !close && !stage && !observation {
         return Ok((Vec::new(), 0));
     }
-    let count = if stage || (root && program.uses_stage_lifecycle_recipe()) {
+    let count = if stage || (root && program.uses_structural_binding_recipe()) {
         32
     } else if root {
         let closures = shape::array(m, request, "family_closures")?;
@@ -1280,6 +1560,33 @@ fn authority_slots(
         let n = out.len();
         return Ok((out, n));
     }
+    if observation {
+        let binding = r.get(
+            m,
+            key,
+            subject.original_binding_ref(),
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let attestation = &request["attestation"];
+        let slot = txt(m, attestation, "evidence_slot")?;
+        super::input_selection::component_observation_row(
+            program,
+            &attestation["subject"],
+            &binding,
+            slot,
+            m,
+        )?
+        .ok_or_else(|| shape::fail("observation locator lacks original instruction"))?;
+        let nominations = shape::array(m, &binding, "source_slots")?;
+        let nomination = shape::named(m, nominations, "name", slot)?;
+        let sources = shape::array(m, nomination, "sources")?;
+        if !shape::member(m, sources, &attestation["source"])? {
+            return Err(shape::fail("observation locator original nominated source"));
+        }
+        push_authority_slot(m, a, owners, &mut out, slot)?;
+        return Ok((out, 1));
+    }
     let work_ref = subject
         .original_work_ref()
         .ok_or_else(|| shape::fail("authority slot original work"))?;
@@ -1310,9 +1617,12 @@ fn authority_slots(
         "ledger-workflow-slot-instantiation/1",
     )?;
     let work_value = super::working_value::owning_reference(m, a, work_ref)?;
+    let mut component_base = None;
     if root {
         let bindings = shape::array(m, &binding, "bindings")?;
-        let selected = if program.uses_stage_lifecycle_recipe() {
+        let selected = if program.uses_component_lifecycle_recipe() {
+            super::input_selection::component_retail_row(program, &work["payload"], &binding, m)?
+        } else if program.uses_stage_lifecycle_recipe() {
             let mut selected = None;
             for rule in shape::array(m, program.original_policy_value(), "rules")? {
                 if !shape::same(m, &rule["activity"], &work["payload"]["activity"])? {
@@ -1338,7 +1648,7 @@ fn authority_slots(
             }
             &bindings[0]
         };
-        let schema = if program.uses_stage_lifecycle_recipe() {
+        let schema = if program.uses_structural_binding_recipe() {
             "ledger-workflow-slot-binding-terms/3"
         } else {
             "ledger-workflow-slot-binding-terms/7"
@@ -1354,6 +1664,55 @@ fn authority_slots(
         )?;
         let source_slot = txt(m, &terms, "correction_source_slot")?;
         push_authority_slot(m, a, owners, &mut out, source_slot)?;
+        if program.uses_component_lifecycle_recipe() {
+            for instruction in shape::array(
+                m,
+                program.compiled_plan().canonical_value(),
+                "typed_instructions",
+            )? {
+                if !super::input_selection::component_affected_rule(
+                    program,
+                    &work["payload"],
+                    request,
+                    &instruction["rule"],
+                    m,
+                )? {
+                    continue;
+                }
+                let name = txt(m, &instruction["rule"], "binding_slot")?;
+                let definitions =
+                    shape::array(m, program.original_policy_value(), "binding_slots")?;
+                let definition = shape::named(m, definitions, "name", name)?;
+                let book = txt(m, definition, "book")?;
+                let terms_schema = if shape::same_text(m, book, "cost_observation")? {
+                    "ledger-workflow-observation-terms/1"
+                } else if shape::same_text(m, book, "retail")? {
+                    "ledger-workflow-slot-binding-terms/3"
+                } else {
+                    return Err(shape::fail("Component correction original book"));
+                };
+                let row = shape::named(m, bindings, "slot", name)?;
+                let (_, terms) = load_ref(
+                    m,
+                    a,
+                    r,
+                    key,
+                    &row["binding_ref"],
+                    "workflow-slot-terms",
+                    terms_schema,
+                )?;
+                shape::equal(
+                    m,
+                    &terms["correction_source_slot"],
+                    &definition["correction_source_slot"],
+                )?;
+                let source_slot = txt(m, &terms, "correction_source_slot")?;
+                push_authority_slot(m, a, owners, &mut out, source_slot)?;
+            }
+        }
+        if program.uses_component_lifecycle_recipe() {
+            component_base = Some(out.len());
+        }
         for closure in shape::array(m, request, "family_closures")? {
             m.visit("local.requested_family_authority_slot")?;
             let (_, state) = load_ref(
@@ -1400,7 +1759,7 @@ fn authority_slots(
         let source_slot = txt(m, &family["no_success_close"], "close_source_slot")?;
         push_authority_slot(m, a, owners, &mut out, source_slot)?;
     }
-    let base = out.len();
+    let base = component_base.unwrap_or(out.len());
     if root && program.uses_work_lifecycle_recipe() {
         let status = txt(m, &work["payload"], "status")?;
         if shape::same_text(m, status, "succeeded")? {
@@ -1724,7 +2083,9 @@ fn claim_keys(
     let schema = txt(m, p, "schema")?;
     m.visit("local.locator_claim_recipe")?;
     match schema {
-        "ledger-workflow-fact-attest/1" | "ledger-workflow-family-close-attest/1" => {
+        "ledger-workflow-fact-attest/1"
+        | "ledger-workflow-family-close-attest/1"
+        | "ledger-workflow-cost-observation-attest/1" => {
             let att = &p["attestation"];
             let source = txt(m, att, "source")?;
             if !shape::same_text(m, source, &c.key.source)? {
@@ -2071,7 +2432,7 @@ fn subject_refs(
             family_slot = Some(locator_text(m, a, slot)?);
             None
         }
-        "ledger-workflow-fact-attest/1" => {
+        "ledger-workflow-fact-attest/1" | "ledger-workflow-cost-observation-attest/1" => {
             let kind = txt(m, &v["attestation"]["subject"], "kind")?;
             if shape::same_text(m, kind, "outcome")? {
                 target_ref = Some(parse_owned_reference(
@@ -2529,7 +2890,7 @@ mod correction_lookup_tests {
         let mut locators = LocalOperationLocators {
             subject,
             work: None,
-            selector: None,
+            selector: Vec::new(),
             fresh_selector: false,
             records: Vec::new(),
             claims: Vec::new(),

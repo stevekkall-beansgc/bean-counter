@@ -106,6 +106,10 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(
         ("ledger-workflow-cost-finalize/2", "cost.finalize"),
         ("ledger-workflow-cost-correct/2", "cost.correct"),
         ("ledger-workflow-fact-attest/1", "evidence.retain"),
+        (
+            "ledger-workflow-cost-observation-attest/1",
+            "evidence.retain",
+        ),
         ("ledger-workflow-family-close-attest/1", "evidence.retain"),
         ("ledger-workflow-app-observe/1", "evidence.retain"),
         ("ledger-workflow-app-cost-attest/1", "evidence.retain"),
@@ -129,6 +133,21 @@ fn local_root_authority(
     c: &DraftContextData,
     payload: &serde_json::Value,
     outputs: &[super::super::emitted_record::ConstructedEnvelope],
+    program: &SelectedProgram,
+) -> Result<usize> {
+    let schema = if program.uses_component_lifecycle_recipe() {
+        "ledger-workflow-economic-authority/9"
+    } else {
+        "ledger-workflow-economic-authority/8"
+    };
+    local_root_authority_schema(m, c, payload, outputs, schema)
+}
+fn local_root_authority_schema(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    payload: &serde_json::Value,
+    outputs: &[super::super::emitted_record::ConstructedEnvelope],
+    expected_schema: &str,
 ) -> Result<usize> {
     let schema = shape::text(m, payload, "schema")?;
     let (expected_operation, expected_transition) =
@@ -193,7 +212,7 @@ fn local_root_authority(
         let value = output.decoded(m, 4194304)?;
         let schema = shape::text(m, &value, "schema")?;
         let operation = shape::text(m, &value, "operation")?;
-        if !shape::same_text(m, schema, "ledger-workflow-economic-authority/8")?
+        if !shape::same_text(m, schema, expected_schema)?
             || !shape::same_text(m, operation, expected_operation)?
         {
             return Err(shape::fail("root reversal authority recipe"));
@@ -366,6 +385,7 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
                 c,
                 payload.value(),
                 &t.new_envelopes,
+                program,
             )?)
         } else if local
             && program.uses_stage_lifecycle_recipe()
@@ -408,6 +428,11 @@ impl<'inv, 'raw> Assembly<'inv, 'raw> {
                         && (kind == "invocation.authorize" || kind == "invocation.close")
                     {
                         "ledger-workflow-stage-authority/1"
+                    } else if local
+                        && program.uses_component_lifecycle_recipe()
+                        && matches!(kind, "quantity.correct" | "work.reverse")
+                    {
+                        "ledger-workflow-economic-authority/9"
                     } else if local {
                         "ledger-workflow-economic-authority/8"
                     } else {

@@ -318,6 +318,7 @@ fn rehydrate_inner(
             | SelectedRecipe::LocalWorkLifecycle2
             | SelectedRecipe::LocalStageLifecycle1
             | SelectedRecipe::LocalStageLifecycle2
+            | SelectedRecipe::LocalComponentLifecycle1
     ) {
         for rule in &policy.rules {
             m.visit("reload.original_predicate_capability")?;
@@ -336,6 +337,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ) {
             continue;
         }
@@ -352,6 +354,7 @@ fn rehydrate_inner(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) && field.binding_name().is_some()
                     && value.is_string() => {}
             _ => return Err(fail("original predicate capability")),
@@ -435,6 +438,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ),
         app_cost_causal_recipe: matches!(
             recipe,
@@ -449,6 +453,7 @@ fn rehydrate_inner(
                 | SelectedRecipe::LocalWorkLifecycle2
                 | SelectedRecipe::LocalStageLifecycle1
                 | SelectedRecipe::LocalStageLifecycle2
+                | SelectedRecipe::LocalComponentLifecycle1
         ),
         execution_registry: key.registry,
         _policy_decode_ownership: Some(policy_owner),
@@ -476,6 +481,12 @@ pub fn load_local_selected_execution(
         for raw in &input.documents {
             m.visit("local.reload_exact_compiler_selection")?;
             let selected = if super::super::support::same_bytes(
+                m,
+                raw,
+                super::super::local::LOCAL_COMPONENT_LIFECYCLE_V1_DESCRIPTOR,
+            )? {
+                Some(SelectedRecipe::LocalComponentLifecycle1)
+            } else if super::super::support::same_bytes(
                 m,
                 raw,
                 super::super::local::LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR,
@@ -552,7 +563,9 @@ pub fn load_local_selected_execution(
             plan: digest_bits(m, expected_plan.digest())?,
             recipe,
             registry: Some(
-                if matches!(
+                if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+                    super::super::local::LOCAL_COMPONENT_LIFECYCLE_V1_REGISTRY
+                } else if matches!(
                     recipe,
                     SelectedRecipe::LocalStageLifecycle1 | SelectedRecipe::LocalStageLifecycle2
                 ) {
@@ -570,6 +583,7 @@ pub fn load_local_selected_execution(
                         | SelectedRecipe::LocalWorkLifecycle2
                         | SelectedRecipe::LocalStageLifecycle1
                         | SelectedRecipe::LocalStageLifecycle2
+                        | SelectedRecipe::LocalComponentLifecycle1
                 ) {
                     super::super::local::DECLARED_LINK_REGISTRY
                 } else {
@@ -590,7 +604,9 @@ pub fn load_local_selected_execution(
         // Exact saved6/7 DATA loading is also used for original receipt/intent
         // comparison. It executes no economic child and grants no new admission;
         // the configured fresh financial factory separately requires exact8.
-        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalStageLifecycle2) {
+        let expected_descriptor = if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
+            super::super::local::LOCAL_COMPONENT_LIFECYCLE_V1_DESCRIPTOR
+        } else if matches!(recipe, SelectedRecipe::LocalStageLifecycle2) {
             super::super::local::LOCAL_STAGE_LIFECYCLE_V2_DESCRIPTOR
         } else if matches!(recipe, SelectedRecipe::LocalStageLifecycle1) {
             super::super::local::LOCAL_STAGE_LIFECYCLE_DESCRIPTOR

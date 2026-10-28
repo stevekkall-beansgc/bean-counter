@@ -178,7 +178,10 @@ pub(super) fn key(m: &mut CoreMeter, v: &Value, c: &DraftContextData) -> Result<
     invoke!(opaque, m, v, "source", 256)?;
     invoke!(name, m, v, "operation_id")
 }
-pub(super) fn amount(m: &mut CoreMeter, v: &Value) -> Result<BigInt> {
+pub(in crate::policy::workflow::transition_constructor) fn amount(
+    m: &mut CoreMeter,
+    v: &Value,
+) -> Result<BigInt> {
     invoke!(shape::closed, m, v, &["currency", "scale", "atoms"], &[])?;
     invoke!(eq, m, v, "currency", &json!("USD"))?;
     invoke!(eq, m, v, "scale", &json!(18))?;

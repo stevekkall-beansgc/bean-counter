@@ -16,8 +16,9 @@ pub use lifecycle_edges::{
 };
 mod input_edges;
 pub use input_edges::{
-    select_local_input_edges, select_resolved_inputs9_edges, select_stage_local_input_edges,
-    validate_local_record_reference, LocalInputEdges, ResolvedInputEdges9,
+    select_component_local_input_edges, select_local_input_edges, select_resolved_inputs9_edges,
+    select_stage_local_input_edges, validate_local_record_reference, LocalInputEdges,
+    ResolvedInputEdges9,
 };
 mod work_keys;
 pub use input_selection::{select_work_head_locators, WorkFamilyHeadLocator, WorkHeadLocators};
@@ -63,6 +64,7 @@ pub use supplier_consent::{
 };
 mod body;
 mod close;
+mod component_observation;
 mod construct;
 mod correction;
 mod cost;

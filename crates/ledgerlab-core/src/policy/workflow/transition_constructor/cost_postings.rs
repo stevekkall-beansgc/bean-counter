@@ -286,6 +286,121 @@ pub(super) fn original_cost_posting_key(
     Ok(CostPosting { action, step })
 }
 
+/// Nonpayable observation uses the existing effect/Action identity. Unknown
+/// observations have a closed nonnumeric explanation; known zero is observed
+/// and emits no Action. The enclosing selected consumer owns all eligibility.
+pub(super) fn original_observation_posting(
+    m: &mut CoreMeter,
+    key: &super::data::OperationKey,
+    original: OriginalCostPosting<'_>,
+    selected: (&str, &'static str, bool, Option<&BigInt>),
+) -> Result<CostPosting> {
+    let (ordinal, predicate, failed, known) = selected;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning observation posting"))?;
+    let constants = m.parse_owned_representation(&arena,
+        br#"{"schema":"ledger-workflow-cost-observation-action/1","original":"original","true":"true","false":"false","unknown":"unknown","observed":"observed","observation_unknown":"observation_unknown","failed_work":"failed_work","predicate_not_true":"predicate_not_true"}"#,
+        RepresentationKind::SourceDefinition)?;
+    let instruction = arena.string_value(ordinal, m)?;
+    let basis = original
+        .basis_refs
+        .ok_or_else(|| shape::fail("observation exact evidence basis"))?;
+    let fields = [
+        ("instruction", instruction.value()),
+        ("component_slot", original.component_slot),
+        ("predicate", &constants.value()[predicate]),
+        ("basis_refs", basis),
+    ];
+    let mut step = arena.object_from_fields(&fields, m)?;
+    if !failed && predicate == "true" && known.is_none() {
+        step = super::working_value::WorkingValue::Owned(step)
+            .with_fields(
+                m,
+                &[("disposition", &constants.value()["observation_unknown"])],
+            )?
+            .into_owned()?;
+        return Ok(CostPosting { action: None, step });
+    }
+    let zero = BigInt::from(0);
+    let value = if !failed && predicate == "true" {
+        known.unwrap_or(&zero)
+    } else {
+        &zero
+    };
+    if meter::cmp(m, value, &zero)?.is_lt() {
+        return Err(shape::fail("nonnegative original observation"));
+    }
+    let rounded = amount(m, &arena, value)?;
+    let numerator = scalar(m, &arena, value)?;
+    let denominator = scalar(m, &arena, &1.into())?;
+    let disposition = if failed {
+        "failed_work"
+    } else if predicate != "true" {
+        "predicate_not_true"
+    } else {
+        "observed"
+    };
+    step = super::working_value::WorkingValue::Owned(step)
+        .with_fields(
+            m,
+            &[
+                ("rational_numerator", numerator.value()),
+                ("rational_denominator", denominator.value()),
+                ("rounded", rounded.value()),
+                ("disposition", &constants.value()[disposition]),
+            ],
+        )?
+        .into_owned()?;
+    if meter::cmp(m, value, &zero)?.is_eq() {
+        return Ok(CostPosting { action: None, step });
+    }
+    let revision = scalar(m, &arena, original.revision)?;
+    let decision = arena.string_value(original.decision_id, m)?;
+    let operation = operation_key_value(m, &arena, key)?;
+    let terms = owning_reference(m, &arena, original.terms_ref)?;
+    let role = owning_reference(m, &arena, original.role_ref)?;
+    let effect = original_effect_key(
+        m,
+        &arena,
+        key,
+        original.binding,
+        original.original_work_claim,
+        original.component_slot,
+    )?;
+    let effect = arena.string_value(&effect, m)?;
+    let posting = &constants.value()["original"];
+    let id = action_id(m, &arena, effect.value(), revision.value(), posting)?;
+    let value = arena.object_from_fields(
+        &[
+            ("schema", &constants.value()["schema"]),
+            ("effect_id", effect.value()),
+            ("decision_id", decision.value()),
+            ("revision", revision.value()),
+            ("posting_role", posting),
+            ("book", original.book),
+            ("component_slot", original.component_slot),
+            ("root_component_slot", original.root_slot),
+            ("role_ref", role.value()),
+            ("slot_terms_ref", terms.value()),
+            ("funding_leg", &original.terms["funding_leg"]),
+            ("amount", rounded.value()),
+            ("basis_refs", basis),
+            ("operation_key", operation.value()),
+        ],
+        m,
+    )?;
+    let action = body::record_borrowed(m, key, "workflow-action", id, value.value())?;
+    let reference = owning_reference(m, &arena, &action.reference)?;
+    step = super::working_value::WorkingValue::Owned(step)
+        .with_fields(m, &[("action_ref", reference.value())])?
+        .into_owned()?;
+    Ok(CostPosting {
+        action: Some(action),
+        step,
+    })
+}
+
 /// The family evaluator uses the same action/scalar/amount producers as work
 /// and app costs. Its original effect is selected by the enclosing family
 /// interpreter, including the exact original link and family basis.
@@ -408,23 +523,13 @@ pub(super) fn exact_inverse(
         &c.key,
         old_ref,
         old,
-        original_instruction,
+        (&original_instruction.ordinal, "ledger-workflow-action/1"),
         new_revision,
         false,
     )
 }
 /// Root customer postings can be negative discounts. Their exact inverse uses
 /// the SAME emitter and explanation; the app-cost entry remains positive-only.
-pub(super) fn exact_root_inverse(
-    m: &mut CoreMeter,
-    c: &DraftContextData,
-    old_ref: &ExactRef,
-    old: &Value,
-    original_instruction: &pricing::PricedInstruction,
-    new_revision: &BigInt,
-) -> Result<CostPosting> {
-    exact_root_inverse_key(m, &c.key, old_ref, old, original_instruction, new_revision)
-}
 pub(super) fn exact_root_inverse_key(
     m: &mut CoreMeter,
     key: &super::data::OperationKey,
@@ -438,9 +543,31 @@ pub(super) fn exact_root_inverse_key(
         key,
         old_ref,
         old,
-        original_instruction,
+        (&original_instruction.ordinal, "ledger-workflow-action/1"),
         new_revision,
         true,
+    )
+}
+pub(super) fn exact_observation_inverse(
+    m: &mut CoreMeter,
+    key: &super::data::OperationKey,
+    old_ref: &ExactRef,
+    old: &Value,
+    ordinal: &str,
+    new_revision: &BigInt,
+) -> Result<CostPosting> {
+    let book = shape::text(m, old, "book")?;
+    if !shape::same_text(m, book, "cost_observation")? {
+        return Err(shape::fail("observation inverse book"));
+    }
+    exact_inverse_selected(
+        m,
+        key,
+        old_ref,
+        old,
+        (ordinal, "ledger-workflow-cost-observation-action/1"),
+        new_revision,
+        false,
     )
 }
 fn exact_inverse_selected(
@@ -448,10 +575,11 @@ fn exact_inverse_selected(
     key: &super::data::OperationKey,
     old_ref: &ExactRef,
     old: &Value,
-    original_instruction: &pricing::PricedInstruction,
+    instruction_schema: (&str, &str),
     new_revision: &BigInt,
     signed: bool,
 ) -> Result<CostPosting> {
+    let (ordinal, expected_schema) = instruction_schema;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning exact cost inverse"))?;
@@ -477,7 +605,7 @@ fn exact_inverse_selected(
         &[],
     )?;
     let schema = shape::text(m, old, "schema")?;
-    if !shape::same_text(m, schema, "ledger-workflow-action/1")? {
+    if !shape::same_text(m, schema, expected_schema)? {
         return Err(shape::fail("exact cost inverse action schema"));
     }
     let role = shape::text(m, old, "posting_role")?;
@@ -530,7 +658,7 @@ fn exact_inverse_selected(
         &constants.value()["inverse"],
     )?;
     let action = body::record_borrowed(m, key, "workflow-action", id, &inverse)?;
-    let instruction = arena.string_value(&original_instruction.ordinal, m)?;
+    let instruction = arena.string_value(ordinal, m)?;
     let numerator = scalar(m, &arena, &negative)?;
     let reference = owning_reference(m, &arena, &action.reference)?;
     let step = arena.object_from_fields(
@@ -593,6 +721,7 @@ mod tests {
             role_slot: "model:retail".into(),
             binding_slot: "model:customer".into(),
             basis_components: vec![],
+            prior_net_basis: false,
             rational,
             atoms,
             _ownership: None,
@@ -752,9 +881,9 @@ mod tests {
                     .unwrap();
             let action = current.action.as_ref().unwrap();
             let actual = action.decoded(&mut m, 4194304).unwrap();
-            let reversed = exact_root_inverse(
+            let reversed = exact_root_inverse_key(
                 &mut m,
-                &c,
+                &c.key,
                 &action.reference,
                 &actual,
                 &discounted,
@@ -883,6 +1012,65 @@ mod tests {
         assert_eq!(zero.step.value()["predicate"], "true");
         assert_eq!(zero.step.value()["disposition"], "zero");
         drop(nonmatch);
+        // Selected observation postings remain nonpayable, with exact stored
+        // inverse atoms. Missing and known zero are distinct closed branches.
+        let observation_book = json!("cost_observation");
+        let observation_basis = json!([]);
+        for known in [Some(120_000_000_000_000_000i128), Some(0), None] {
+            let atoms = known.map(BigInt::from);
+            let mut selected = selection!(&revision, false);
+            selected.book = &observation_book;
+            selected.basis_refs = Some(&observation_basis);
+            let observation = original_observation_posting(
+                &mut m,
+                &captured,
+                selected,
+                ("4", "true", false, atoms.as_ref()),
+            )
+            .unwrap();
+            if let Some(positive) = known {
+                assert_eq!(observation.step.value()["disposition"], "observed");
+                assert_eq!(
+                    observation.step.value()["rounded"]["atoms"],
+                    positive.to_string()
+                );
+                if positive == 0 {
+                    assert!(observation.action.is_none());
+                } else {
+                    let action = observation.action.as_ref().unwrap();
+                    let body = action.decoded(&mut m, 4194304).unwrap();
+                    assert_eq!(body["schema"], "ledger-workflow-cost-observation-action/1");
+                    assert_eq!(body["book"], "cost_observation");
+                    let inverse = exact_observation_inverse(
+                        &mut m,
+                        &c.key,
+                        &action.reference,
+                        &body,
+                        "4",
+                        &2.into(),
+                    )
+                    .unwrap();
+                    let inverse = inverse.action.unwrap();
+                    let inverse = inverse.decoded(&mut m, 4194304).unwrap();
+                    assert_eq!(inverse["amount"]["atoms"], (-positive).to_string());
+                    assert_eq!(inverse["inverse_of"], json!(action.reference));
+                }
+            } else {
+                assert_eq!(
+                    observation.step.value()["disposition"],
+                    "observation_unknown"
+                );
+                for field in [
+                    "rational_numerator",
+                    "rational_denominator",
+                    "rounded",
+                    "action_ref",
+                ] {
+                    assert!(observation.step.value().get(field).is_none());
+                }
+                assert!(observation.action.is_none());
+            }
+        }
         session.meter_mut().finish_original_economic(m).unwrap();
         // No invocation, supplier claim/owner/allocation/consumption or supplier
         // action was constructed. This is the common posting DATA unit only;

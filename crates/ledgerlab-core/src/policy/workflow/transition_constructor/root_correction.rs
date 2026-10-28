@@ -20,6 +20,7 @@ use crate::{Error, Result};
 use num_bigint::BigInt;
 use serde_json::{json, Value};
 mod causal;
+mod component;
 mod context;
 mod current;
 mod dependent;
@@ -83,6 +84,7 @@ struct RootPlan {
     operands: authority::ResolvedOperands,
     reverse: bool,
     proofs: Option<super::work_proofs::WorkProofs>,
+    observations: Option<super::component_observation::OriginalPostings>,
     _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
 fn original_schema<'a>(
@@ -452,7 +454,7 @@ fn prepare(
         c,
         &current["evaluation_ref"],
         "workflow-evaluation",
-        "ledger-workflow-evaluation-proof/1",
+        super::component_observation::evaluation_schema(program),
     )?;
     shape::closed(
         m,
@@ -838,6 +840,7 @@ fn prepare(
                 &old_prices,
                 &current,
                 Some(&current_evaluation),
+                None,
             ),
         )?;
     }
@@ -894,6 +897,27 @@ fn prepare(
             m.write_bytes(v.len())?;
         }
     }
+    let observations = if program.uses_component_lifecycle_recipe() {
+        let observation_key = super::working_value::WorkingKey::parse(m, &work["key"])?;
+        let observation_received = text(m, &work, "received_at")?;
+        let observation_decision = text(m, &original, "decision_id")?;
+        super::component_observation::reconstruct(
+            m,
+            r,
+            c,
+            program,
+            super::component_observation::OriginalObservationWork {
+                terms: &operands.terms,
+                payload: &payload,
+                claim_ref: &claim_ref,
+                decision_id: observation_decision,
+                key: &observation_key,
+                received_at: observation_received,
+            },
+        )?
+    } else {
+        None
+    };
     let plan = RootPlan {
         work_ref,
         work,
@@ -911,6 +935,7 @@ fn prepare(
         operands,
         reverse,
         proofs,
+        observations,
         _ownership: metadata,
     };
     if program.uses_policy_semantics_recipe() {
@@ -926,6 +951,7 @@ struct ActiveRootAction {
 }
 struct ActiveRootActions {
     rows: Vec<ActiveRootAction>,
+    observation_indices: Vec<usize>,
     _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
 impl std::ops::Deref for ActiveRootActions {
@@ -935,7 +961,10 @@ impl std::ops::Deref for ActiveRootActions {
     }
 }
 fn is_affected(m: &mut CoreMeter, plan: &RootPlan, key: &str) -> Result<bool> {
-    for root in &plan.affected_roots {
+    affected_root(m, &plan.affected_roots, key)
+}
+fn affected_root(m: &mut CoreMeter, roots: &[String], key: &str) -> Result<bool> {
+    for root in roots {
         m.visit("root.affected_root")?;
         if shape::same_text(m, root, key)? {
             return Ok(true);
@@ -1093,6 +1122,7 @@ fn active_actions(
     }
     Ok(ActiveRootActions {
         rows: out,
+        observation_indices: Vec::new(),
         _ownership: None,
     })
 }
@@ -1130,7 +1160,12 @@ fn active_actions_owned_for(
         return Err(shape::fail("root action bound"));
     }
     let rows = w::usize_add(m, references.len(), prices.len())?;
-    let per = mem::size_of::<ActiveRootAction>() + 64 + 128 + 71 + mem::size_of::<&ExactRef>();
+    let per = mem::size_of::<ActiveRootAction>()
+        + 64
+        + 128
+        + 71
+        + mem::size_of::<&ExactRef>()
+        + mem::size_of::<usize>();
     ValidationWork::arithmetic(
         m,
         ArithmeticOperation::Multiply,
@@ -1158,13 +1193,20 @@ fn active_actions_owned_for(
         .map_err(|_| shape::fail("current root operand rows"))?;
     for value in references {
         m.visit("root.owning_current_action_operand")?;
-        let (reference, body) = load(
+        let reference = shape::reference(m, value)?;
+        let body = r.get_schemas(
             m,
-            r,
-            c,
-            value,
+            &c.key,
+            &reference,
             "workflow-action",
-            "ledger-workflow-action/1",
+            if plan.observations.is_some() {
+                &[
+                    "ledger-workflow-action/1",
+                    "ledger-workflow-cost-observation-action/1",
+                ]
+            } else {
+                &["ledger-workflow-action/1"]
+            },
         )?;
         shape::closed(
             m,
@@ -1318,11 +1360,35 @@ fn active_actions_owned_for(
             affected,
         });
     }
-    if !w::compare(m, out.len(), actual.len())?.is_eq() {
+    let mut observation_indices = Vec::new();
+    observation_indices
+        .try_reserve_exact(actual.len())
+        .map_err(|_| shape::fail("current observation index controls"))?;
+    if let Some(observations) = &plan.observations {
+        for (index, expected) in observations.actions.iter().enumerate() {
+            let mut found = false;
+            for (reference, _) in &actual {
+                if shape::same_ref(m, reference, &expected.reference)? {
+                    let bytes = r.canonical(m, reference)?;
+                    if !shape::same_bytes(m, bytes, &expected.canonical_body)? {
+                        return Err(shape::fail("retained observation exact original posting"));
+                    }
+                    found = true;
+                }
+            }
+            if !found {
+                return Err(shape::fail("current original observation missing"));
+            }
+            observation_indices.push(index);
+        }
+    }
+    let expected = w::usize_add(m, out.len(), observation_indices.len())?;
+    if !w::compare(m, expected, actual.len())?.is_eq() {
         return Err(shape::fail("unpriced current root action"));
     }
     Ok(ActiveRootActions {
         rows: out,
+        observation_indices,
         _ownership: Some(owner),
     })
 }
@@ -1338,7 +1404,7 @@ fn monetary_effects(
     m: &mut CoreMeter,
     c: &DraftContextData,
     plan: &RootPlan,
-    old: &[ActiveRootAction],
+    old: &ActiveRootActions,
 ) -> Result<RootEffects> {
     if m.representation_arena().is_some() {
         return monetary_effects_owned(m, c, plan, old);
@@ -1376,7 +1442,7 @@ fn monetary_effects(
         m.visit("root.replacement_instruction")?;
         let affected = is_affected(m, plan, &price.root_key)?;
         if !affected {
-            for prior in old {
+            for prior in old.iter() {
                 if shape::same_text(
                     m,
                     &plan.old_prices[prior.price_index].component_key,
@@ -1450,11 +1516,41 @@ fn monetary_effects(
         _ownership: None,
     })
 }
+struct PostingRevision<'a> {
+    key: &'a OperationKey,
+    old_prices: &'a pricing::PricedInstructions,
+    new_prices: &'a pricing::PricedInstructions,
+    affected_roots: &'a [String],
+    revision: &'a str,
+    reverse: bool,
+}
 fn monetary_effects_owned(
     m: &mut CoreMeter,
     c: &DraftContextData,
     plan: &RootPlan,
-    old: &[ActiveRootAction],
+    old: &ActiveRootActions,
+) -> Result<RootEffects> {
+    monetary_effects_owned_for(
+        m,
+        plan,
+        old,
+        PostingRevision {
+            key: &c.key,
+            old_prices: &plan.old_prices,
+            new_prices: &plan.new_prices,
+            affected_roots: &plan.affected_roots,
+            revision: &plan.next_revision,
+            reverse: plan.reverse,
+        },
+    )
+}
+// Fresh construction and retained current explanation execute this SAME
+// posting factory under their respective exact captured key and revision.
+fn monetary_effects_owned_for(
+    m: &mut CoreMeter,
+    plan: &RootPlan,
+    old: &ActiveRootActions,
+    posting: PostingRevision<'_>,
 ) -> Result<RootEffects> {
     use super::cost_postings::{self, OriginalCostPosting};
     use crate::canonical::audit_arena::AuditedValue;
@@ -1480,7 +1576,8 @@ fn monetary_effects_owned(
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("root posting owner"))?;
-    let count = w::usize_add(m, old.len(), plan.new_prices.len())?;
+    let monetary = w::usize_add(m, old.len(), posting.new_prices.len())?;
+    let count = w::usize_add(m, monetary, old.observation_indices.len())?;
     // Each action, active Ref and component Ref has its own exact strings;
     // components borrow their immutable original instruction names. Basis
     // and final-step workspaces borrow references only. No Value DTO clone.
@@ -1517,19 +1614,55 @@ fn monetary_effects_owned(
     components
         .try_reserve_exact(count)
         .map_err(|_| shape::fail("root component allocation"))?;
-    let revision = arithmetic::integer(m, &plan.next_revision, false)?;
+    let revision = arithmetic::integer(m, posting.revision, false)?;
     let decision = text(m, &plan.current, "decision_id")?;
+    if posting.reverse {
+        if let Some(observations) = &plan.observations {
+            for index in old.observation_indices.iter().rev() {
+                let action = &observations.actions[*index];
+                let value = action.decoded(m, 4194304)?;
+                let mut ordinal = None;
+                for step in &observations.steps {
+                    let expected =
+                        super::working_value::owning_reference(m, &arena, &action.reference)?;
+                    if shape::same(m, &step.value()["action_ref"], expected.value())? {
+                        ordinal = Some(text(m, step.value(), "instruction")?);
+                    }
+                }
+                let ordinal = ordinal
+                    .ok_or_else(|| shape::fail("observation original explanation association"))?;
+                let inverse = cost_postings::exact_observation_inverse(
+                    m,
+                    posting.key,
+                    &action.reference,
+                    &value,
+                    ordinal,
+                    &revision,
+                )?;
+                actions.push(
+                    inverse
+                        .action
+                        .ok_or_else(|| shape::fail("nonzero observation inverse missing"))?,
+                );
+                steps.push(inverse.step);
+            }
+        }
+    }
     for prior in old.iter().rev() {
         m.visit("root.owning_inverse_selection")?;
-        if !prior.affected {
+        if !affected_root(
+            m,
+            posting.affected_roots,
+            &posting.old_prices[prior.price_index].root_key,
+        )? {
             continue;
         }
-        let inverse = cost_postings::exact_root_inverse(
+        let inverse = cost_postings::exact_root_inverse_key(
             m,
-            c,
+            posting.key,
             &prior.reference,
             &prior.body,
-            &plan.old_prices[prior.price_index],
+            &posting.old_prices[prior.price_index],
             &revision,
         )?;
         let action = inverse
@@ -1543,14 +1676,14 @@ fn monetary_effects_owned(
         br#"{"book":"retail"}"#,
         crate::validation_work::RepresentationKind::SourceDefinition,
     )?;
-    for price in &plan.new_prices {
+    for price in posting.new_prices {
         m.visit("root.owning_replacement_instruction")?;
-        if !is_affected(m, plan, &price.root_key)? {
-            for prior in old {
+        if !affected_root(m, posting.affected_roots, &price.root_key)? {
+            for prior in old.iter() {
                 m.visit("root.owning_preserved_component")?;
                 if shape::same_text(
                     m,
-                    &plan.old_prices[prior.price_index].component_key,
+                    &posting.old_prices[prior.price_index].component_key,
                     &price.component_key,
                 )? {
                     active.push(reference(m, &prior.reference)?);
@@ -1581,9 +1714,9 @@ fn monetary_effects_owned(
             }
             super::app_cost::reference_set(m, &arena, &basis)?
         };
-        let posting = cost_postings::original_cost_posting(
+        let posting = cost_postings::original_cost_posting_key(
             m,
-            c,
+            posting.key,
             OriginalCostPosting {
                 binding: &plan.operands.binding,
                 original_work_claim: &plan.claim_ref,
@@ -1606,6 +1739,13 @@ fn monetary_effects_owned(
             actions.push(action);
         }
         steps.push(posting.step);
+    }
+    if !posting.reverse {
+        if let Some(observations) = &plan.observations {
+            for index in &old.observation_indices {
+                active.push(reference(m, &observations.actions[*index].reference)?);
+            }
+        }
     }
     let mut borrowed = Vec::new();
     borrowed
@@ -1716,6 +1856,9 @@ fn root_binding_row<'a>(
     payload: &Value,
     binding: &'a Value,
 ) -> Result<&'a Value> {
+    if program.uses_component_lifecycle_recipe() {
+        return super::input_selection::component_retail_row(program, payload, binding, m);
+    }
     let bindings = shape::array(m, binding, "bindings")?;
     if !program.uses_stage_lifecycle_recipe() {
         if !meter::cmp(m, &bindings.len().into(), &1.into())?.is_eq() {
@@ -1744,7 +1887,7 @@ fn root_binding_row<'a>(
     selected.ok_or_else(|| shape::fail("Stage root exact original retail slot"))
 }
 fn root_terms_schemas(program: &SelectedProgram) -> &'static [&'static str] {
-    if program.uses_stage_lifecycle_recipe() {
+    if program.uses_component_lifecycle_recipe() || program.uses_stage_lifecycle_recipe() {
         &["ledger-workflow-slot-binding-terms/3"]
     } else if program.uses_app_cost_causal_recipe() {
         &["ledger-workflow-slot-binding-terms/7"]
@@ -2085,6 +2228,7 @@ fn execute_with_state<'inv, 'raw>(
             return Err(shape::fail("combined family/app closure bound"));
         }
     }
+    let component_authorities = component::prepare(m, &mut r, &local, program, &plan, &request)?;
     let mut introduced = plan.operands.introduced.clone();
     let mut closures = vec![];
     let mut checks = vec![];
@@ -2119,6 +2263,16 @@ fn execute_with_state<'inv, 'raw>(
                         authority.value(),
                         one,
                     ) {
+                        Ok(()) => found = true,
+                        Err(e) if e.code == "AUTHORITY_REQUIRED" => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            if let Some(batch) = &component_authorities {
+                for output in &batch.records {
+                    let body = output.decoded(m, 4194304)?;
+                    match dependent::evidence_values(m, &plan.operands.binding, &body, one) {
                         Ok(()) => found = true,
                         Err(e) if e.code == "AUTHORITY_REQUIRED" => {}
                         Err(e) => return Err(e),
@@ -2170,6 +2324,24 @@ fn execute_with_state<'inv, 'raw>(
         }
     }
 
+    if let Some(batch) = &component_authorities {
+        used_slots
+            .try_reserve_exact(batch.slots.len())
+            .map_err(|_| shape::fail("component used-role controls"))?;
+        for slot in &batch.slots {
+            let mut used = false;
+            for prior in &used_slots {
+                if shape::same_text(m, prior, slot)? {
+                    used = true;
+                }
+            }
+            if !used {
+                m.scan_bytes(slot.len())?;
+                m.write_bytes(slot.len())?;
+                used_slots.push(slot.clone());
+            }
+        }
+    }
     if let Some(stage) = &stage_closure {
         for slot in &stage.slots {
             let mut seen = false;
@@ -2247,6 +2419,19 @@ fn execute_with_state<'inv, 'raw>(
             + 64
             + 128
             + 71;
+        let component_count = component_authorities
+            .as_ref()
+            .map_or(0, |batch| batch.records.len());
+        let component_row = std::mem::size_of::<ConstructedEnvelope>() + 64 + 128 + 71;
+        crate::validation_work::ValidationWork::arithmetic(
+            m,
+            crate::validation_work::ArithmeticOperation::Multiply,
+            &[&component_count.into(), &component_row.into()],
+        )?;
+        let component_bytes = component_count
+            .checked_mul(component_row)
+            .ok_or_else(|| shape::fail("component authority output controls"))?;
+        let size = crate::validation_work::usize_add(m, size, component_bytes)?;
         // Each terminal family contributes its owning body row and held-head
         // metadata. The revision parser accepts at most64 digits, so adding
         // one needs at most65; target/slot/Ref payloads retain their existing
@@ -2328,6 +2513,10 @@ fn execute_with_state<'inv, 'raw>(
     } else {
         plan.operands.authority_document(m, Some(&checks))?
     };
+    let authority = match &component_authorities {
+        Some(batch) => component::aggregate(m, program, &plan, authority, batch)?,
+        None => authority,
+    };
     let effects = monetary_effects(m, c, &plan, &active)?;
     let mut total = BigInt::from(0);
     for price in &plan.new_prices {
@@ -2335,6 +2524,12 @@ fn execute_with_state<'inv, 'raw>(
     }
     entry::exposure(m, &plan.operands.binding, &plan.operands.slot_terms, &total)?;
     let mut records = introduced;
+    if let Some(batch) = component_authorities {
+        records
+            .try_reserve_exact(batch.records.len())
+            .map_err(|_| shape::fail("component authority output append"))?;
+        records.extend(batch.records);
+    }
     if let Some(proofs) = plan.proofs.as_mut() {
         proofs.attach(m, &mut records)?;
     }
@@ -2449,11 +2644,8 @@ fn execute_with_state<'inv, 'raw>(
         let arena = m
             .representation_arena()
             .ok_or_else(|| shape::fail("owning root evaluation"))?;
-        let schema = m.parse_owned_representation(
-            &arena,
-            br#""ledger-workflow-evaluation-proof/1""#,
-            crate::validation_work::RepresentationKind::SourceDefinition,
-        )?;
+        let schema =
+            arena.string_value(super::component_observation::evaluation_schema(program), m)?;
         let subject = super::working_value::owning_reference(m, &arena, &plan.work_ref)?;
         let compiled = program.compiled_plan().canonical_value();
         let plan_ref = super::working_value::owning_definition(
@@ -2956,5 +3148,33 @@ mod tests {
             root_terms_schemas(&legacy),
             &["ledger-workflow-slot-binding-terms/7"]
         );
+        let mut compiler = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(
+            &mut compiler,
+        )
+        .unwrap();
+        let source =
+            super::super::pricing::component_tests::component_input(&support, &mut compiler);
+        let component = compile_selected_publication(source, &support, &mut compiler).unwrap();
+        let binding = json!({"bindings":[
+            {"slot":"support:observed","binding_ref":"observation"},
+            {"slot":"support:retail","binding_ref":"retail"}
+        ]});
+        let activity = json!({"activity":"support:complete"});
+        assert_eq!(
+            root_binding_row(&component, check.meter_mut(), &activity, &binding).unwrap(),
+            &binding["bindings"][1]
+        );
+        assert_eq!(
+            root_terms_schemas(&component),
+            &["ledger-workflow-slot-binding-terms/3"]
+        );
+        assert!(root_binding_row(
+            &component,
+            check.meter_mut(),
+            &json!({"activity":"unknown"}),
+            &binding
+        )
+        .is_err());
     }
 }

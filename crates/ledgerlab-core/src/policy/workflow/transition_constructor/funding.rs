@@ -149,9 +149,9 @@ fn active_work_total(
     c: &super::data::DraftContextData,
     output: &[super::emitted_record::ConstructedEnvelope],
     decision: &ExactRef,
-    work: &ExactRef,
-    binding: &ExactRef,
+    selected: (&SelectedProgram, &ExactRef, &ExactRef),
 ) -> Result<BigInt> {
+    let (program, work, binding) = selected;
     use super::working_value::parse_owned_reference;
     let arena = m
         .representation_arena()
@@ -301,7 +301,14 @@ fn active_work_total(
             output,
             reference.reference(),
             "workflow-action",
-            &["ledger-workflow-action/1"],
+            if program.uses_component_lifecycle_recipe() {
+                &[
+                    "ledger-workflow-action/1",
+                    "ledger-workflow-cost-observation-action/1",
+                ]
+            } else {
+                &["ledger-workflow-action/1"]
+            },
         )?;
         shape::equal(m, &action["decision_id"], &value["decision_id"])?;
         let role = shape::text(m, &action, "posting_role")?;
@@ -309,6 +316,18 @@ fn active_work_total(
             return Err(fail("funding active inverse forbidden"));
         }
         let book = shape::text(m, &action, "book")?;
+        if program.uses_component_lifecycle_recipe() {
+            let schema = shape::text(m, &action, "schema")?;
+            let observation =
+                shape::same_text(m, schema, "ledger-workflow-cost-observation-action/1")?;
+            let observed_book = shape::same_text(m, book, "cost_observation")?;
+            if observation != observed_book {
+                return Err(fail("observation schema/book funding exclusion"));
+            }
+            if observation {
+                continue;
+            }
+        }
         if !shape::same_text(m, book, "retail")? {
             if shape::same_text(m, &subject.kind, "workflow-stage-closure-claim")?
                 && shape::same_text(m, book, "supplier")?
@@ -404,7 +423,7 @@ pub(super) fn construction_effect(
         &t.new_envelopes,
         state.financial,
         &t.proposed_heads,
-        (work_ref.reference(), binding_ref.reference(), &root_id),
+        (p, work_ref.reference(), binding_ref.reference(), &root_id),
     )?;
     let effect = work_effect(
         &arena,
@@ -436,9 +455,9 @@ pub(super) fn held_work_total(
     outputs: &[super::emitted_record::ConstructedEnvelope],
     state: &super::data::DraftStateData,
     proposed: &super::data::ProposedHeads,
-    selected_operands: (&ExactRef, &ExactRef, &str),
+    selected_operands: (&SelectedProgram, &ExactRef, &ExactRef, &str),
 ) -> Result<BigInt> {
-    let (work, binding, root_id) = selected_operands;
+    let (program, work, binding, root_id) = selected_operands;
     let mut root_seen = false;
     let mut total = BigInt::from(0);
     for head in &state.decision_heads {
@@ -456,7 +475,7 @@ pub(super) fn held_work_total(
             }
             root_seen = true;
         }
-        let amount = active_work_total(m, r, c, outputs, selected, work, binding)?;
+        let amount = active_work_total(m, r, c, outputs, selected, (program, work, binding))?;
         total = meter::add(m, &total, &amount)?;
     }
     if !root_seen {
@@ -471,7 +490,7 @@ pub(super) fn held_work_total(
             }
         }
         if !existed {
-            let amount = active_work_total(m, r, c, outputs, reference, work, binding)?;
+            let amount = active_work_total(m, r, c, outputs, reference, (program, work, binding))?;
             total = meter::add(m, &total, &amount)?;
         }
     }
@@ -969,7 +988,7 @@ pub(super) fn derive_per_work_bound(
                 "exposure branch requires original permanent closure clause",
             ));
         }
-        let (premium, _discount) = targets::maxima(m, family, &roots[index].original_net)?;
+        let (premium, _discount) = targets::maxima(p, m, family, &roots[index].original_net)?;
         roots[index].simultaneous_family_premium =
             meter::add(m, &roots[index].simultaneous_family_premium, &premium)?;
     }

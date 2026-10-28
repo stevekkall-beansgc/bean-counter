@@ -22,6 +22,16 @@ pub(in crate::policy::workflow::transition_constructor) fn proof_only_slot(
             }
         }
     }
+    if program.uses_component_lifecycle_recipe() {
+        for rule in shape::array(m, program.original_policy_value(), "rules")? {
+            let formula = &rule["formula"];
+            let kind = shape::text(m, formula, "kind")?;
+            if shape::same_text(m, kind, "observe_cost")? {
+                let issuer = shape::text(m, formula, "evidence_slot")?;
+                proof |= shape::same_text(m, issuer, slot)?;
+            }
+        }
+    }
     if !proof {
         return Ok(false);
     }
@@ -133,7 +143,9 @@ fn binding_terms(
         shape::equal(m, &binding["customer"], customer)?;
     }
     let bindings = shape::array(m, &binding, "bindings")?;
-    let selected = if program.uses_stage_lifecycle_recipe() {
+    let selected = if program.uses_component_lifecycle_recipe() {
+        super::super::input_selection::component_retail_row(program, payload, &binding, m)?
+    } else if program.uses_stage_lifecycle_recipe() {
         let mut selected = None;
         for rule in shape::array(m, program.original_policy_value(), "rules")? {
             if !shape::same(m, &rule["activity"], &payload["activity"])? {
@@ -159,7 +171,7 @@ fn binding_terms(
         }
         &bindings[0]
     };
-    let schema = if program.uses_stage_lifecycle_recipe() {
+    let schema = if program.uses_structural_binding_recipe() {
         "ledger-workflow-slot-binding-terms/3"
     } else {
         "ledger-workflow-slot-binding-terms/7"
@@ -305,7 +317,44 @@ pub(in crate::policy::workflow::transition_constructor) fn retained(
     shape::equal(m, &att["evidence_kind"], &provenance["evidence_kind"])?;
     let (binding, terms) = binding_terms(m, r, c, payload, program)?;
     let slot = shape::text(m, provenance, "source_slot")?;
-    let nominations = shape::array(m, &binding, "source_slots")?;
+    retained_selected(
+        m,
+        r,
+        c,
+        program,
+        payload,
+        (&binding, &terms),
+        (slot, att, verification, received_at),
+    )
+}
+/// Same retained issuer intersection for the exact observation Terms selected
+/// from its original formula. No present issuer head or payable permission.
+pub(in crate::policy::workflow::transition_constructor) fn retained_observation(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    payload: &Value,
+    original: (&Value, &Value),
+    selected: (&str, &Value, &Value, &str),
+) -> Result<()> {
+    if !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail("actual observation original recipe"));
+    }
+    retained_selected(m, r, c, program, payload, original, selected)
+}
+fn retained_selected(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    payload: &Value,
+    original: (&Value, &Value),
+    selected: (&str, &Value, &Value, &str),
+) -> Result<()> {
+    let (binding, terms) = original;
+    let (slot, att, verification, received_at) = selected;
+    let nominations = shape::array(m, binding, "source_slots")?;
     let nomination = shape::named(m, nominations, "name", slot)?;
     let sources = shape::array(m, nomination, "sources")?;
     let kinds = shape::array(m, nomination, "evidence_kinds")?;
@@ -362,9 +411,9 @@ pub(in crate::policy::workflow::transition_constructor) fn retained(
         slot,
         ("evidence.retain", &["read", "submit"]),
     )?;
-    let accepted = shape::array(m, &binding, "authority_refs")?;
+    let accepted = shape::array(m, binding, "authority_refs")?;
     let mut found = false;
-    for value in shape::array(m, &terms, "source_grant_refs")? {
+    for value in shape::array(m, terms, "source_grant_refs")? {
         let (_, original) = load(
             m,
             r,

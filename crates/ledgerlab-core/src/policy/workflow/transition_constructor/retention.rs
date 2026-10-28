@@ -429,7 +429,9 @@ fn produce<'raw>(
     shape::closed(m, p, &["schema", "attestation"], &[])?;
     let schema = shape::text(m, p, "schema")?;
     let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
-    if !close && !shape::same_text(m, schema, "ledger-workflow-fact-attest/1")? {
+    let observation = program.uses_component_lifecycle_recipe()
+        && shape::same_text(m, schema, "ledger-workflow-cost-observation-attest/1")?;
+    if !close && !observation && !shape::same_text(m, schema, "ledger-workflow-fact-attest/1")? {
         return Err(shape::fail("assertion retention payload tuple"));
     }
     if close && !program.uses_family_close_recipe() {
@@ -468,6 +470,8 @@ fn produce<'raw>(
         text_eq(m, &att["purpose"], "family_no_success")?;
         text_eq(m, &att["assertion"], "no_success")?;
         text_eq(m, &att["evidence_kind"], "outcome")?;
+    } else if observation {
+        closed_observation(m, att)?;
     } else {
         shape::closed(
             m,
@@ -591,8 +595,17 @@ fn produce<'raw>(
             state,
         )?;
     }
+    let observation_authority = if observation {
+        Some(resolved.app_authority_value(m, &[])?)
+    } else {
+        None
+    };
+    let selected_slot = match &observation_authority {
+        Some(value) => shape::text(m, value.value(), "source_slot")?,
+        None => &c.authorities[0].source_slot,
+    };
     let nominations = shape::array(m, &resolved.binding, "source_slots")?;
-    let nomination = shape::named(m, nominations, "name", &c.authorities[0].source_slot)?;
+    let nomination = shape::named(m, nominations, "name", selected_slot)?;
     let kinds = shape::array(m, nomination, "evidence_kinds")?;
     if !shape::member(m, kinds, &att["evidence_kind"])? {
         return Err(shape::fail("assertion original evidence nomination"));
@@ -664,10 +677,22 @@ fn produce<'raw>(
     let reuse = existing_assertion(m, &mut r, c, state, &assertion)?;
     m.hash_bytes(canonical_assertion.bytes().len())?;
     let raw_sha = canonical::hex_with_work(&Sha256::digest(canonical_assertion.bytes()), m)?;
+    let observation_grant = match &observation_authority {
+        Some(value) => Some(super::working_value::parse_owned_reference(
+            m,
+            arena,
+            &value.value()["current_grant_ref"],
+        )?),
+        None => None,
+    };
+    let current_grant = observation_grant
+        .as_ref()
+        .map(|value| value.reference())
+        .unwrap_or(&c.authorities[0].current_grant_ref);
     let current = r.get(
         m,
         &c.key,
-        &c.authorities[0].current_grant_ref,
+        current_grant,
         "workflow-source-grant",
         "ledger-workflow-source-grant/1",
     )?;
@@ -788,6 +813,39 @@ fn produce<'raw>(
         ownership,
     })
 }
+pub(super) fn closed_observation(m: &mut CoreMeter, att: &Value) -> Result<()> {
+    shape::closed(
+        m,
+        att,
+        &[
+            "schema",
+            "attestation_id",
+            "source",
+            "evidence_kind",
+            "evidence_slot",
+            "subject",
+            "amount",
+            "final",
+            "issued_at",
+            "supporting_evidence_refs",
+        ],
+        &[],
+    )?;
+    text_eq(
+        m,
+        &att["schema"],
+        "ledger-workflow-cost-observation-evidence/1",
+    )?;
+    text_eq(m, &att["evidence_kind"], "cost_observation")?;
+    let slot = shape::text(m, att, "evidence_slot")?;
+    text_bound(m, slot, 128, true)?;
+    super::inventory::check::amount(m, &att["amount"])?;
+    if !m.check("observation.finality_boolean", || att["final"].is_boolean())? {
+        return Err(shape::fail("observation explicit finality"));
+    }
+    text_eq(m, &att["subject"]["kind"], "work")?;
+    Ok(())
+}
 fn resolve_field(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -805,14 +863,30 @@ fn resolve_field(
         .ok_or_else(|| shape::fail("owning retention field subject"))?;
     let subject = &att["subject"];
     let kind = shape::text(m, subject, "kind")?;
-    let schema = field_schema(m, program, &att["subject_schema_ref"])?;
-    let issuer_slot = if program.uses_policy_semantics_recipe() {
+    let observation = program.uses_component_lifecycle_recipe() && {
+        let schema = shape::text(m, att, "schema")?;
+        shape::same_text(m, schema, "ledger-workflow-cost-observation-evidence/1")?
+    };
+    let schema = if observation {
+        None
+    } else {
+        Some(field_schema(m, program, &att["subject_schema_ref"])?)
+    };
+    let issuer_slot = if observation {
+        Some(shape::text(m, att, "evidence_slot")?)
+    } else if program.uses_policy_semantics_recipe() {
         let claims = shape::array(m, att, "claims")?;
         let first = claims
             .first()
             .ok_or_else(|| shape::fail("assertion field issuer missing"))?;
         let name = shape::text(m, first, "field")?;
-        let fields = shape::array(m, schema.canonical_value(), "fields")?;
+        let fields = shape::array(
+            m,
+            schema
+                .ok_or_else(|| shape::fail("original field schema"))?
+                .canonical_value(),
+            "fields",
+        )?;
         let field = shape::named(m, fields, "name", name)?;
         text_eq(m, &field["provenance"]["kind"], "attested")?;
         Some(shape::text(m, &field["provenance"], "source_slot")?)
@@ -984,7 +1058,9 @@ fn resolve_field(
         let activity_name = shape::text(m, subject, "activity")?;
         let activity = shape::named(m, activities, "name", activity_name)?;
         text_eq(m, &activity["primitive"], "work")?;
-        eq(m, &activity["fact_schema"], &att["subject_schema_ref"])?;
+        if !observation {
+            eq(m, &activity["fact_schema"], &att["subject_schema_ref"])?;
+        }
         let policy = definition(m, program.root_policy_ref())?;
         let empty = arena.array_from_values(&[], m)?;
         let p = arena.object_from_fields(
@@ -993,7 +1069,7 @@ fn resolve_field(
                 ("activity", &subject["activity"]),
                 ("product_ref", &subject["product_ref"]),
                 ("policy_ref", policy.value()),
-                ("fact_schema_ref", &att["subject_schema_ref"]),
+                ("fact_schema_ref", &activity["fact_schema"]),
                 ("binding_ref", &subject["binding_ref"]),
                 ("evidence_refs", empty.value()),
             ],
@@ -1006,7 +1082,20 @@ fn resolve_field(
             &c.received_at,
             &c.accepted_at,
         )?;
-        let resolved = if let Some(issuer_slot) = issuer_slot {
+        let resolved = if observation {
+            let slot = issuer_slot.ok_or_else(|| shape::fail("observation evidence nomination"))?;
+            let namespace = shape::text(m, subject, "canonical_source_namespace")?;
+            let resolved = super::app_cost::observation_retention_resolved(
+                m,
+                r,
+                c,
+                p.value(),
+                program,
+                (slot, namespace),
+            )?;
+            super::work_proofs::source::work_namespace(m, r, c, program, p.value(), namespace)?;
+            resolved
+        } else if let Some(issuer_slot) = issuer_slot {
             let slot = arena.string_value(issuer_slot, m)?;
             let activity = super::working_value::WorkingValue::copy(m, activity)?
                 .with_fields(m, &[("source_slot", slot.value())])?;
@@ -1052,6 +1141,10 @@ fn resolve_field(
     } else {
         return Err(shape::fail("assertion closed subject kind"));
     };
+    if observation {
+        return Ok((resolved, binding, work));
+    }
+    let schema = schema.ok_or_else(|| shape::fail("original field schema"))?;
     let claims = shape::array(m, att, "claims")?;
     if !meter::cmp(m, &claims.len().into(), &0usize.into())?.is_gt()
         || meter::cmp(m, &claims.len().into(), &64usize.into())?.is_gt()
@@ -1128,6 +1221,11 @@ pub(super) fn normalize_assertion(
         let mut subject = arena.clone_value(subject, m)?;
         subject.replace_existing_owned("expected_family_revision", value, m)?;
         owned.replace_existing_owned("subject", subject, m)?;
+    } else if program.uses_component_lifecycle_recipe() && {
+        let schema = shape::text(m, att, "schema")?;
+        shape::same_text(m, schema, "ledger-workflow-cost-observation-evidence/1")?
+    } {
+        closed_observation(m, att)?;
     } else {
         let schema = field_schema(m, program, &att["subject_schema_ref"])?;
         product_claim_schema(m, program, att)?;

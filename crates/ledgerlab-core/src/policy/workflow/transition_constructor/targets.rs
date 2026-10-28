@@ -224,7 +224,12 @@ fn frozen_from_anchor(
     )))
 }
 /// Max over original alternatives after action rounding, separately per sign.
-pub(super) fn maxima(m: &mut CoreMeter, family: &Value, net: &BigInt) -> Result<(BigInt, BigInt)> {
+pub(super) fn maxima(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    family: &Value,
+    net: &BigInt,
+) -> Result<(BigInt, BigInt)> {
     let limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
     let mut premium = BigInt::from(0);
     let mut discount = BigInt::from(0);
@@ -240,33 +245,53 @@ pub(super) fn maxima(m: &mut CoreMeter, family: &Value, net: &BigInt) -> Result<
             return Err(fail("family effect"));
         }
         let formula = call!(shape::field, m, effect, "amount")?;
-        if !call!(
-            shape::same_text,
-            m,
-            call!(shape::text, m, formula, "kind")?,
-            "percent"
-        )? {
-            return Err(unsupported("selected family formula"));
-        }
-        let scalar = call!(shape::text, m, formula, "percent")?;
-        let percent = arithmetic::decimal(m, scalar)?;
-        if call!(meter::cmp, m, &percent.numerator, &0.into())?.is_lt() {
-            return Err(fail("negative family percent"));
-        }
-        let hundred = meter::mul(m, &percent.denominator, &100.into())?;
-        if call!(meter::cmp, m, &percent.numerator, &hundred)?.is_gt() {
-            return Err(fail("family percent above 100"));
-        }
-        let ratio = arithmetic::rational(m, percent.numerator, hundred)?;
-        let value = arithmetic::multiply(
-            m,
-            &Ratio {
-                numerator: net.clone(),
-                denominator: BigInt::one(),
-            },
-            &ratio,
-        )?;
+        let fixed_component = program.uses_component_lifecycle_recipe() && {
+            let kind = shape::text(m, formula, "kind")?;
+            shape::same_text(m, kind, "fixed")?
+        };
+        let value = if fixed_component {
+            let raw = shape::text(m, formula, "amount")?;
+            let decimal = arithmetic::decimal(m, raw)?;
+            if meter::cmp(m, &decimal.numerator, &0.into())?.is_lt() {
+                return Err(fail("negative family fixed amount"));
+            }
+            let scale = arithmetic::rational(m, 1_000_000_000_000_000_000i128.into(), 1.into())?;
+            arithmetic::multiply(m, &decimal, &scale)?
+        } else {
+            if !call!(
+                shape::same_text,
+                m,
+                call!(shape::text, m, formula, "kind")?,
+                "percent"
+            )? {
+                return Err(unsupported("selected family formula"));
+            }
+            let scalar = call!(shape::text, m, formula, "percent")?;
+            let percent = arithmetic::decimal(m, scalar)?;
+            if call!(meter::cmp, m, &percent.numerator, &0.into())?.is_lt() {
+                return Err(fail("negative family percent"));
+            }
+            let hundred = meter::mul(m, &percent.denominator, &100.into())?;
+            if call!(meter::cmp, m, &percent.numerator, &hundred)?.is_gt() {
+                return Err(fail("family percent above 100"));
+            }
+            let ratio = arithmetic::rational(m, percent.numerator, hundred)?;
+            arithmetic::multiply(
+                m,
+                &Ratio {
+                    numerator: net.clone(),
+                    denominator: BigInt::one(),
+                },
+                &ratio,
+            )?
+        };
         let rounded = BigInt::from(arithmetic::rounded(m, &value, &limit)?);
+        if program.uses_component_lifecycle_recipe()
+            && !is_premium
+            && meter::cmp(m, &rounded, net)?.is_gt()
+        {
+            return Err(fail("family discount exceeds original net"));
+        }
         let max = if is_premium {
             &mut premium
         } else {
@@ -667,7 +692,7 @@ pub(super) fn build(
             )? {
                 return Err(fail("family original root/role"));
             }
-            let (premium, discount) = maxima(m, family, &net)?;
+            let (premium, discount) = maxima(program, m, family, &net)?;
             total_discount = meter::add(m, &total_discount, &discount)?;
             let prospective = prospective_decision(m, &target_id, slot)?;
             let window_terms = call!(shape::field, m, family, "window")?;
@@ -918,17 +943,22 @@ mod tests {
     }
     #[test]
     fn original_code_maxima_are_rounded_from_named_net_not_copied_ceilings() {
+        let arena = crate::canonical::audit_arena::AuditArena::with_resource_limits(
+            crate::validation_work::ResourceLimits::unlimited(),
+        )
+        .unwrap();
+        let program = super::super::lifecycle_consumer_tests::program(&arena);
         let mut m = CoreMeter::new(65536).unwrap();
         let family = family();
         let net = arithmetic::integer(&mut m, "999000000000000000", false).unwrap();
-        let (premium, discount) = maxima(&mut m, &family, &net).unwrap();
+        let (premium, discount) = maxima(&program, &mut m, &family, &net).unwrap();
         assert_eq!(premium.to_string(), "199800000000000000");
         assert_eq!(discount.to_string(), "99900000000000000");
-        let (premium, discount) = maxima(&mut m, &family, &BigInt::from(0)).unwrap();
+        let (premium, discount) = maxima(&program, &mut m, &family, &BigInt::from(0)).unwrap();
         assert_eq!((premium, discount), (0.into(), 0.into()));
         let mut lower = family;
         lower["maximum_premium"]["atoms"] = json!("1");
-        assert!(maxima(&mut m, &lower, &net).is_err());
+        assert!(maxima(&program, &mut m, &lower, &net).is_err());
         // Summed target net is distinct from an individual posting atom cap.
         let wide = BigInt::parse_bytes(b"127999999999999999999999999999872", 10).unwrap();
         let arena = crate::canonical::audit_arena::AuditArena::new().unwrap();

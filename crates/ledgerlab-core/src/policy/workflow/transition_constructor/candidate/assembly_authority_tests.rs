@@ -7,6 +7,20 @@ use crate::{
     validation_work::{OriginalAuditSession, ResourceLimits},
 };
 use serde_json::json;
+fn local_root_authority(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    payload: &serde_json::Value,
+    outputs: &[ConstructedEnvelope],
+) -> Result<usize> {
+    super::local_root_authority_schema(
+        m,
+        c,
+        payload,
+        outputs,
+        "ledger-workflow-economic-authority/8",
+    )
+}
 fn reference(tag: &str) -> ExactRef {
     ExactRef {
         kind: "workflow-work".into(),

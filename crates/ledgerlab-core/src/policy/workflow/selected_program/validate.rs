@@ -177,15 +177,16 @@ pub(super) fn policy(
     product: &Product,
     template: &SlotTemplate,
     schemas: &[FactSchema],
-    selected_recipes: (bool, bool, bool),
+    selected_recipes: (bool, bool, bool, bool),
 ) -> Result<()> {
-    let (owner_local_cost, independent_field_issuers, stage_lifecycle) = selected_recipes;
+    let (owner_local_cost, independent_field_issuers, stage_lifecycle, component_lifecycle) =
+        selected_recipes;
     name(m, &p.policy_id)?;
     if !m.check("policy.bounds", || {
         !p.rules.is_empty()
             && p.rules.len() <= 64
             && p.families.len() <= 64
-            && (if owner_local_cost || stage_lifecycle {
+            && (if owner_local_cost || stage_lifecycle || component_lifecycle {
                 !p.binding_slots.is_empty() && p.binding_slots.len() <= 16
             } else {
                 p.binding_slots.len() == 1
@@ -204,7 +205,9 @@ pub(super) fn policy(
             name(m, n)?;
         }
         if !m.check("slot.book", || {
-            s.book == "retail" || (owner_local_cost || stage_lifecycle) && s.book == "supplier"
+            s.book == "retail"
+                || (owner_local_cost || stage_lifecycle) && s.book == "supplier"
+                || component_lifecycle && s.book == "cost_observation"
         })? {
             return Err(bad("selected book"));
         }
@@ -270,7 +273,11 @@ pub(super) fn policy(
             (c.book() == TemplateBook::Retail && slot.book == "retail"
                 || (owner_local_cost || stage_lifecycle)
                     && c.book() == TemplateBook::Supplier
-                    && slot.book == "supplier")
+                    && slot.book == "supplier"
+                || component_lifecycle
+                    && c.book() == TemplateBook::CostObservation
+                    && slot.book == "cost_observation"
+                    && matches!(r.formula, Formula::ObserveCost { .. }))
                 && (owner_local_cost
                     || stage_lifecycle
                     || a.funding_leg() == Some(slot.funding_leg.as_str()))
@@ -278,7 +285,9 @@ pub(super) fn policy(
                 && (r.dependency == "on_missing_refuse"
                     || (p.schema == "ledger-workflow-policy/3"
                         || p.schema == "ledger-workflow-policy/4")
-                        && matches!(r.formula, Formula::AppFinalCost { .. })
+                        && (matches!(r.formula, Formula::AppFinalCost { .. })
+                            || component_lifecycle
+                                && matches!(r.formula, Formula::ObserveCost { .. }))
                         && r.dependency == "on_missing_wait")
         })? {
             return Err(bad("rule role/book/funding/dependency"));
@@ -379,6 +388,30 @@ pub(super) fn policy(
                     return Err(bad("negative base"));
                 }
             }
+            Formula::Percent { basis, percent } => {
+                if !component_lifecycle || r.phase != "premium" {
+                    return Err(bad("component percentage recipe/phase"));
+                }
+                component_modifier_basis(m, p, r, i, template, basis)?;
+                percentage(m, percent)?;
+            }
+            Formula::ObserveCost { evidence_slot } => {
+                if !component_lifecycle
+                    || r.phase != "cost"
+                    || slot.book != "cost_observation"
+                    || c.root_key() != c.key()
+                {
+                    return Err(bad("nonpayable observation recipe/book/root"));
+                }
+                name(m, evidence_slot)?;
+            }
+            Formula::Discount { basis, amount, .. } if component_lifecycle => {
+                if r.phase != "discount" {
+                    return Err(bad("component discount phase"));
+                }
+                component_modifier_basis(m, p, r, i, template, basis)?;
+                modifier_amount(m, amount)?;
+            }
             Formula::Discount { basis, amount, .. } => {
                 if !m.check("modifier.phase_root", || {
                     r.phase == "discount"
@@ -402,7 +435,10 @@ pub(super) fn policy(
                 if !found {
                     return Err(bad("missing same activity/slot base"));
                 }
-                percentage(m, &amount.percent)?;
+                if amount.kind() != "percent" {
+                    return Err(bad("legacy percentage discount"));
+                }
+                percentage(m, amount.value())?;
             }
             Formula::AppFinalCost {
                 evidence_slot,
@@ -512,7 +548,7 @@ pub(super) fn policy(
         delayed_costs(m, p)?;
     }
     if (p.schema == "ledger-workflow-policy/3" || p.schema == "ledger-workflow-policy/4")
-        && !(stage_lifecycle
+        && !((stage_lifecycle || component_lifecycle)
             && p.app_delayed_costs
                 .as_ref()
                 .is_none_or(|rows| rows.is_empty()))
@@ -533,7 +569,7 @@ pub(super) fn policy(
         }
         for prior in &p.families[..i] {
             if m.check("family.unique", || {
-                prior.family_key == f.family_key || prior.selector == f.selector
+                prior.family_key == f.family_key || !component_lifecycle && prior.selector == f.selector
             })? {
                 return Err(bad("duplicate selected target family"));
             }
@@ -581,6 +617,14 @@ pub(super) fn policy(
         let duration = arithmetic::integer(m, &f.window.occurrence_us, false)?;
         if meter::cmp(m, &duration, &BigInt::from(0))? != Ordering::Greater {
             return Err(bad("positive occurrence window required"));
+        }
+        if component_lifecycle {
+            product.validate_selector_path_with_work(
+                &f.trigger_activity,
+                &f.selector.path,
+                &f.selector.target_activity,
+                m,
+            )?;
         }
         for link in &f.selector.path {
             m.visit("path.link_lookup")?;
@@ -640,7 +684,10 @@ pub(super) fn policy(
             match &c.effect {
                 Effect::None => {}
                 Effect::Premium { amount } | Effect::Discount { amount } => {
-                    percentage(m, &amount.percent)?
+                    if !component_lifecycle && amount.kind() != "percent" {
+                        return Err(bad("legacy percentage family effect"));
+                    }
+                    modifier_amount(m, amount)?
                 }
             }
         }
@@ -848,6 +895,76 @@ fn percentage(m: &mut CoreMeter, text: &str) -> Result<()> {
     let upper = meter::mul(m, &r.denominator, &BigInt::from(100))?;
     if meter::cmp(m, &r.numerator, &upper)? == Ordering::Greater {
         return Err(bad("percent outside [0,100]"));
+    }
+    Ok(())
+}
+
+fn modifier_amount(m: &mut CoreMeter, value: &super::model::Percent) -> Result<()> {
+    if value.kind() == "percent" {
+        return percentage(m, value.value());
+    }
+    let ratio = arithmetic::decimal(m, value.value())?;
+    if meter::cmp(m, &ratio.numerator, &BigInt::from(0))?.is_lt() {
+        return Err(bad("negative fixed modifier"));
+    }
+    Ok(())
+}
+
+fn component_modifier_basis(
+    m: &mut CoreMeter,
+    p: &Policy,
+    consumer: &super::model::Rule,
+    consumer_index: usize,
+    template: &SlotTemplate,
+    basis: &super::model::Basis,
+) -> Result<()> {
+    let current =
+        template.component_named_with_work(&consumer.component_key, &consumer.component_name, m)?;
+    let consumer_phase = super::model::instruction_phase(consumer, true);
+    let mut producer = None;
+    for (index, rule) in p.rules.iter().enumerate() {
+        m.visit("component.named_basis_rule")?;
+        if !super::compiler::same_literal(m, &rule.component_key, &basis.component_key)?
+            || !super::compiler::same_literal(m, &rule.activity, &consumer.activity)?
+            || !super::compiler::same_literal(m, &rule.binding_slot, &consumer.binding_slot)?
+        {
+            continue;
+        }
+        if producer.replace((index, rule)).is_some() {
+            return Err(bad("ambiguous named component producer"));
+        }
+    }
+    let (producer_index, rule) = producer.ok_or_else(|| bad("missing named component producer"))?;
+    let phase = super::model::instruction_phase(rule, true);
+    if phase > consumer_phase
+        || phase == consumer_phase && producer_index >= consumer_index
+        || matches!(
+            rule.formula,
+            Formula::ObserveCost { .. } | Formula::Discount { .. }
+        )
+    {
+        return Err(bad("named basis must be earlier monetary producer"));
+    }
+    let original =
+        template.component_named_with_work(&rule.component_key, &rule.component_name, m)?;
+    if current.book() != TemplateBook::Retail
+        || original.book() != TemplateBook::Retail
+        || current.root_key() != original.root_key()
+        || current.root_key() == current.key()
+    {
+        return Err(bad("named modifier original direct-root association"));
+    }
+    let selected = match basis.view.as_str() {
+        "booked_base" => {
+            rule.phase == "base"
+                && matches!(rule.formula, Formula::Fixed { .. } | Formula::Unit { .. })
+        }
+        "booked_premium" => rule.phase == "premium",
+        "prior_net" => matches!(rule.phase.as_str(), "base" | "premium"),
+        _ => false,
+    };
+    if !selected {
+        return Err(bad("named component basis view"));
     }
     Ok(())
 }

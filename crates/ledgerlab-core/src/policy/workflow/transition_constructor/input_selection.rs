@@ -194,6 +194,54 @@ pub fn select_work_source_frame<'a>(
     result
 }
 
+/// Exact observation binding selected by the original typed formula and its
+/// evidence nomination. This is DATA selection, never source authorization.
+pub(super) fn component_observation_row<'a>(
+    program: &SelectedProgram,
+    payload: &Value,
+    binding: &'a Value,
+    source_slot: &str,
+    m: &mut CoreMeter,
+) -> Result<Option<&'a Value>> {
+    if !program.uses_component_lifecycle_recipe() {
+        return Ok(None);
+    }
+    let mut selected = None;
+    let definitions = shape::array(m, program.original_policy_value(), "binding_slots")?;
+    let rows = shape::array(m, binding, "bindings")?;
+    for instruction in shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )? {
+        m.visit("component.observation_binding_selection")?;
+        let rule = &instruction["rule"];
+        if !shape::same(m, &rule["activity"], &payload["activity"])? {
+            continue;
+        }
+        let formula = &rule["formula"];
+        let kind = shape::text(m, formula, "kind")?;
+        if !shape::same_text(m, kind, "observe_cost")? {
+            continue;
+        }
+        let slot = shape::text(m, formula, "evidence_slot")?;
+        if !shape::same_text(m, slot, source_slot)? {
+            continue;
+        }
+        let name = shape::text(m, rule, "binding_slot")?;
+        let original = shape::named(m, definitions, "name", name)?;
+        let book = shape::text(m, original, "book")?;
+        if !shape::same_text(m, book, "cost_observation")? {
+            return Err(shape::fail("observation original binding book"));
+        }
+        let row = shape::named(m, rows, "slot", name)?;
+        if let Some(prior) = selected {
+            shape::equal(m, prior, row)?;
+        }
+        selected = Some(row);
+    }
+    Ok(selected)
+}
 /// Fixed locator DATA from the same original activity/rule/Policy association
 /// that the consuming Stage binding interpreter repeats. No first-row fallback.
 fn work_terms_row<'a>(
@@ -203,7 +251,7 @@ fn work_terms_row<'a>(
     m: &mut CoreMeter,
 ) -> Result<(&'a Value, &'static str)> {
     let rows = shape::array(m, binding, "bindings")?;
-    if program.uses_stage_lifecycle_recipe() {
+    if program.uses_structural_binding_recipe() {
         let arena = m
             .representation_arena()
             .ok_or_else(|| shape::fail("owning Stage work selector"))?;
@@ -223,6 +271,10 @@ fn work_terms_row<'a>(
         for row in rows {
             let name = shape::text(m, row, "slot")?;
             shape::named(m, definitions, "name", name)?;
+        }
+        if program.uses_component_lifecycle_recipe() {
+            let row = component_retail_row(program, payload, binding, m)?;
+            return Ok((row, "ledger-workflow-slot-binding-terms/3"));
         }
         let mut selected = None;
         for instruction in shape::array(
@@ -263,6 +315,93 @@ fn work_terms_row<'a>(
     }
 }
 
+/// Exactly declared activity/retail slot, including unpriced report Work.
+/// A missing priced instruction cannot turn a report into an invented price.
+/// Affected original instructions, including predicate-false/zero rows.
+/// Quantity correction follows only the declared Unit root; reversal covers
+/// every actual instruction on that Work activity, including observations.
+pub(super) fn component_affected_rule(
+    program: &SelectedProgram,
+    payload: &Value,
+    request: &Value,
+    rule: &Value,
+    m: &mut CoreMeter,
+) -> Result<bool> {
+    if !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail("Component affected instruction recipe"));
+    }
+    if !shape::same(m, &rule["activity"], &payload["activity"])? {
+        return Ok(false);
+    }
+    let schema = shape::text(m, request, "schema")?;
+    if shape::same_text(m, schema, "ledger-workflow-work-reverse/2")? {
+        return Ok(true);
+    }
+    if !shape::same_text(m, schema, "ledger-workflow-quantity-correction/2")? {
+        return Err(shape::fail("Component affected operation"));
+    }
+    let kind = shape::text(m, &rule["formula"], "kind")?;
+    if shape::same_text(m, kind, "observe_cost")? {
+        return Ok(false);
+    }
+    let components = shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "component_slots",
+    )?;
+    let key = shape::text(m, rule, "component_key")?;
+    let component = shape::named(m, components, "key", key)?;
+    for instruction in shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )? {
+        m.visit("component.original_quantity_root")?;
+        let candidate = &instruction["rule"];
+        if !shape::same(m, &candidate["activity"], &payload["activity"])? {
+            continue;
+        }
+        let formula = &candidate["formula"];
+        let kind = shape::text(m, formula, "kind")?;
+        if !shape::same_text(m, kind, "unit")?
+            || !shape::same(m, &formula["quantity_field"], &request["field"])?
+        {
+            continue;
+        }
+        let key = shape::text(m, candidate, "component_key")?;
+        let producer = shape::named(m, components, "key", key)?;
+        if shape::same(m, &producer["root_key"], &component["root_key"])? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+pub(super) fn component_retail_row<'a>(
+    program: &SelectedProgram,
+    payload: &Value,
+    binding: &'a Value,
+    m: &mut CoreMeter,
+) -> Result<&'a Value> {
+    let mut selected = None;
+    let rows = shape::array(m, binding, "bindings")?;
+    for definition in shape::array(m, program.original_policy_value(), "binding_slots")? {
+        m.visit("component.original_activity_binding")?;
+        let book = shape::text(m, definition, "book")?;
+        if !shape::same_text(m, book, "retail")? {
+            continue;
+        }
+        let allowed = shape::array(m, definition, "allowed_activities")?;
+        if !shape::member(m, allowed, &payload["activity"])? {
+            continue;
+        }
+        let name = shape::text(m, definition, "name")?;
+        let row = shape::named(m, rows, "slot", name)?;
+        if selected.replace(row).is_some() {
+            return Err(shape::fail("ambiguous original activity retail binding"));
+        }
+    }
+    selected.ok_or_else(|| shape::fail("original component activity retail binding unavailable"))
+}
 fn stage_work_terms_association(
     m: &mut CoreMeter,
     key: &OperationKey,
@@ -352,7 +491,7 @@ pub fn select_work_input_seeds<'a>(
             "workflow-slot-terms",
             schema,
         )?;
-        if program.uses_stage_lifecycle_recipe() {
+        if program.uses_structural_binding_recipe() {
             stage_work_terms_association(
                 m,
                 capture.key,

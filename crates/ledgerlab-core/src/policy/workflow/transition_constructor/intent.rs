@@ -289,7 +289,13 @@ fn normalized(
         session.meter_mut(),
         old_schema,
         "ledger-workflow-family-close-attest/1",
-    )? {
+    )? || (program.uses_component_lifecycle_recipe()
+        && shape::same_text(
+            session.meter_mut(),
+            old_schema,
+            "ledger-workflow-cost-observation-attest/1",
+        )?)
+    {
         let close = shape::same_text(
             session.meter_mut(),
             old_schema,

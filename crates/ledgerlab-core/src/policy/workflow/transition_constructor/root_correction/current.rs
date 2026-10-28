@@ -89,13 +89,18 @@ pub(super) fn verify(
     if meter::cmp(m, &before.micros().into(), &now.micros().into())?.is_gt() {
         return Err(shape::fail("current root predecessor time"));
     }
+    let component_selection = if program.uses_component_lifecycle_recipe() {
+        Some(component::retained(m, r, c, program, plan, &plan.current)?)
+    } else {
+        None
+    };
     let (_, old_eval) = load(
         m,
         r,
         c,
         &prior["evaluation_ref"],
         "workflow-evaluation",
-        "ledger-workflow-evaluation-proof/1",
+        super::super::component_observation::evaluation_schema(program),
     )?;
     shape::closed(
         m,
@@ -147,27 +152,34 @@ pub(super) fn verify(
         program.compiled_plan().canonical_value(),
         "typed_instructions",
     )?;
-    let mut quantity = None;
-    for instruction in instructions {
-        m.visit("root.retained_quantity_field")?;
-        if !text_is(m, instruction, "opcode", "evaluate_rule")? {
-            continue;
+    let quantity = if let Some(selected) = &component_selection {
+        selected
+            .quantity
+            .as_deref()
+            .ok_or_else(|| shape::fail("retained Component quantity correction field"))?
+    } else {
+        let mut quantity = None;
+        for instruction in instructions {
+            m.visit("root.retained_quantity_field")?;
+            if !text_is(m, instruction, "opcode", "evaluate_rule")? {
+                continue;
+            }
+            let rule = shape::field(m, instruction, "rule")?;
+            if !text_is(m, rule, "activity", activity)?
+                || !text_is(m, &rule["formula"], "kind", "unit")?
+            {
+                continue;
+            }
+            let field = text(m, &rule["formula"], "quantity_field")?;
+            if quantity.replace(field).is_some() {
+                return Err(shape::fail(
+                    "retained correction requires one Unit producer",
+                ));
+            }
         }
-        let rule = shape::field(m, instruction, "rule")?;
-        if !text_is(m, rule, "activity", activity)?
-            || !text_is(m, &rule["formula"], "kind", "unit")?
-        {
-            continue;
-        }
-        let field = text(m, &rule["formula"], "quantity_field")?;
-        if quantity.replace(field).is_some() {
-            return Err(shape::fail(
-                "retained correction requires one Unit producer",
-            ));
-        }
-    }
-    let quantity = quantity
-        .ok_or_else(|| shape::fail("retained correction lacks original quantity producer"))?;
+        quantity
+            .ok_or_else(|| shape::fail("retained correction lacks original quantity producer"))?
+    };
     for field in shape::array(m, schema.canonical_value(), "fields")? {
         let name = text(m, field, "name")?;
         if shape::same_text(m, name, quantity)? {
@@ -199,7 +211,11 @@ pub(super) fn verify(
         c,
         &plan.current["authority_ref"],
         "workflow-economic-authority",
-        "ledger-workflow-economic-authority/8",
+        if program.uses_component_lifecycle_recipe() {
+            "ledger-workflow-economic-authority/9"
+        } else {
+            "ledger-workflow-economic-authority/8"
+        },
     )?;
     let current_proofs = shape::array(m, &current_authority, "verified_fact_refs")?;
     for value in shape::array(m, &original_authority, "verified_fact_refs")? {
@@ -241,6 +257,56 @@ pub(super) fn verify(
         m,
     )?;
     let old = active_actions_owned_for(m, r, c, plan, (&prior, &prices))?;
+    if let Some(selected) = &component_selection {
+        let key = WorkingKey::parse(m, &plan.current["operation_key"])?;
+        let revision_text = text(m, &plan.current, "revision")?;
+        let effects = monetary_effects_owned_for(
+            m,
+            plan,
+            &old,
+            PostingRevision {
+                key: &key,
+                old_prices: &prices,
+                new_prices: &plan.old_prices,
+                affected_roots: &selected.roots,
+                revision: revision_text,
+                reverse: false,
+            },
+        )?;
+        for action in &effects.actions {
+            compare_action(m, r, c, action)?;
+        }
+        let steps = effects
+            .owned_steps
+            .as_ref()
+            .ok_or_else(|| shape::fail("retained Component steps owner"))?;
+        equal(m, &evaluation["steps"], steps.value())?;
+        let active = effects
+            .owned_active
+            .as_ref()
+            .ok_or_else(|| shape::fail("retained Component active owner"))?;
+        equal(m, &plan.current["active_action_refs"], active.value())?;
+        let n = effects.actions.len();
+        ValidationWork::arithmetic(
+            m,
+            ArithmeticOperation::Multiply,
+            &[&n.into(), &mem::size_of::<&ExactRef>().into()],
+        )?;
+        let bytes = n
+            .checked_mul(mem::size_of::<&ExactRef>())
+            .ok_or_else(|| shape::fail("retained Component appended controls"))?;
+        let bytes = w::usize_add(m, bytes, mem::size_of::<Vec<&ExactRef>>())?;
+        let _owner = arena.reserve_external_payload(bytes, m)?;
+        m.write_bytes(bytes)?;
+        let mut refs = Vec::new();
+        refs.try_reserve_exact(n)
+            .map_err(|_| shape::fail("retained Component appended views"))?;
+        for action in &effects.actions {
+            refs.push(&action.reference);
+        }
+        let expected = super::super::app_cost::reference_set(m, &arena, &refs)?;
+        return equal(m, &plan.current["actions_appended"], expected.value());
+    }
     // New admission remains one independent Fixed/Unit root plus an app whose
     // own decision is separate. A root correction affects this Unit producer;
     // it never creates a replacement target/family or reprices app charges.
@@ -358,13 +424,9 @@ fn compare_action(
     c: &DraftContextData,
     action: &ConstructedEnvelope,
 ) -> Result<()> {
-    r.get(
-        m,
-        &c.key,
-        &action.reference,
-        "workflow-action",
-        "ledger-workflow-action/1",
-    )?;
+    let expected = action.decoded(m, 4194304)?;
+    let schema = text(m, &expected, "schema")?;
+    r.get(m, &c.key, &action.reference, "workflow-action", schema)?;
     let bytes = r.canonical(m, &action.reference)?;
     if !shape::same_bytes(m, bytes, &action.canonical_body)? {
         return Err(shape::fail("retained root explained action bytes"));

@@ -330,6 +330,10 @@ pub fn validate_app_nominated_sources(
         let plan = program.compiled_plan().canonical_value();
         let activities = shape::array(m, plan, "activity_table")?;
         let allowed = shape::array(m, slot_terms, "allowed_activities")?;
+        let observation_terms = program.uses_component_lifecycle_recipe() && {
+            let schema = shape::text(m, slot_terms, "schema")?;
+            shape::same_text(m, schema, "ledger-workflow-observation-terms/1")?
+        };
         for activity in allowed {
             m.visit("accept.bound_activity_source_requirements")?;
             let name = activity
@@ -338,21 +342,52 @@ pub fn validate_app_nominated_sources(
             let row = shape::named(m, activities, "activity", name)?;
             // A field's retained proof source is a real selected fact
             // declaration, not an inferred member of arbitrary evidence_refs.
-            for document in program.source_documents() {
-                m.visit("accept.original_attested_schema")?;
-                let reference = document.reference();
-                let (k, id, d) = reference_parts(m, &row["fact_schema_ref"])?;
-                if !shape::same_text(m, k, reference.kind())?
-                    || !shape::same_text(m, id, reference.id())?
-                    || !shape::same_text(m, d, reference.digest())?
-                {
-                    continue;
+            if !observation_terms {
+                for document in program.source_documents() {
+                    m.visit("accept.original_attested_schema")?;
+                    let reference = document.reference();
+                    let (k, id, d) = reference_parts(m, &row["fact_schema_ref"])?;
+                    if !shape::same_text(m, k, reference.kind())?
+                        || !shape::same_text(m, id, reference.id())?
+                        || !shape::same_text(m, d, reference.digest())?
+                    {
+                        continue;
+                    }
+                    for field in shape::array(m, document.canonical_value(), "fields")? {
+                        let provenance = shape::field(m, field, "provenance")?;
+                        let kind = shape::text(m, provenance, "kind")?;
+                        if shape::same_text(m, kind, "attested")? {
+                            let slot = shape::text(m, provenance, "source_slot")?;
+                            requirement(
+                                m,
+                                binding,
+                                frames,
+                                name,
+                                product_name,
+                                slot,
+                                ("evidence.retain", &["read", "submit"]),
+                            )?;
+                        }
+                    }
                 }
-                for field in shape::array(m, document.canonical_value(), "fields")? {
-                    let provenance = shape::field(m, field, "provenance")?;
-                    let kind = shape::text(m, provenance, "kind")?;
-                    if shape::same_text(m, kind, "attested")? {
-                        let slot = shape::text(m, provenance, "source_slot")?;
+            }
+            let primitive = shape::text(m, row, "primitive")?;
+            if !shape::same_text(m, primitive, "work")? {
+                continue;
+            }
+            if program.uses_component_lifecycle_recipe() {
+                for instruction in shape::array(m, plan, "typed_instructions")? {
+                    m.visit("accept.original_observation_source_requirement")?;
+                    let rule = &instruction["rule"];
+                    if !shape::same(m, &rule["activity"], activity)?
+                        || !shape::same(m, &rule["binding_slot"], &slot_terms["slot"])?
+                    {
+                        continue;
+                    }
+                    let formula = &rule["formula"];
+                    let kind = shape::text(m, formula, "kind")?;
+                    if shape::same_text(m, kind, "observe_cost")? {
+                        let slot = shape::text(m, formula, "evidence_slot")?;
                         requirement(
                             m,
                             binding,
@@ -365,20 +400,18 @@ pub fn validate_app_nominated_sources(
                     }
                 }
             }
-            let primitive = shape::text(m, row, "primitive")?;
-            if !shape::same_text(m, primitive, "work")? {
-                continue;
+            if !observation_terms {
+                let work_slot = shape::text(m, row, "source_slot")?;
+                requirement(
+                    m,
+                    binding,
+                    frames,
+                    name,
+                    product_name,
+                    work_slot,
+                    ("work.accept", &["read", "submit"]),
+                )?;
             }
-            let work_slot = shape::text(m, row, "source_slot")?;
-            requirement(
-                m,
-                binding,
-                frames,
-                name,
-                product_name,
-                work_slot,
-                ("work.accept", &["read", "submit"]),
-            )?;
             let correction_slot = shape::text(m, slot_terms, "correction_source_slot")?;
             // This original retail slot carries the existing quantity/reversal
             // promise; no source actor is substituted for its nomination.
@@ -388,7 +421,7 @@ pub fn validate_app_nominated_sources(
                     quantity = true;
                 }
             }
-            if quantity {
+            if quantity && !observation_terms {
                 requirement(
                     m,
                     binding,
@@ -573,7 +606,7 @@ pub fn validate_app_nominated_sources(
                 )?;
             }
         }
-        let app_declarations = if program.uses_stage_lifecycle_recipe() {
+        let app_declarations = if program.uses_structural_binding_recipe() {
             &[][..]
         } else {
             shape::array(m, slot_terms, "app_cost_terms")?

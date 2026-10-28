@@ -16,6 +16,7 @@ pub(super) struct PricedInstruction {
     pub role_slot: String,
     pub binding_slot: String,
     pub basis_components: Vec<String>,
+    pub(super) prior_net_basis: bool,
     pub rational: Ratio,
     pub atoms: i128,
     pub predicate: bool,
@@ -126,6 +127,7 @@ fn row_owner(
     rule: &Value,
     component: &Value,
     prior: &[PricedInstruction],
+    component_recipe: bool,
 ) -> Result<Option<crate::canonical::audit_arena::ExternalBufferLease>> {
     use crate::validation_work as w;
     let Some(arena) = m.representation_arena() else {
@@ -147,13 +149,28 @@ fn row_owner(
         size = w::usize_add(m, size, raw.len())?;
     }
     m.visit("pricing.output_basis_variant")?;
-    if rule["formula"]["kind"].as_str() == Some("discount") {
+    if matches!(
+        rule["formula"]["kind"].as_str(),
+        Some("discount" | "percent")
+    ) {
         m.visit("pricing.output_basis_dimension")?;
         let raw = rule["formula"]["basis"]["component_key"]
             .as_str()
             .ok_or_else(|| fail("pricing typed basis"))?;
         size = w::usize_add(m, size, raw.len())?;
         size = w::usize_add(m, size, std::mem::size_of::<String>())?;
+    }
+    if component_recipe
+        && matches!(
+            rule["formula"]["kind"].as_str(),
+            Some("discount" | "percent")
+        )
+    {
+        for row in prior {
+            m.visit("pricing.component_basis_storage")?;
+            size = w::usize_add(m, size, row.component_key.len())?;
+            size = w::usize_add(m, size, std::mem::size_of::<String>())?;
+        }
     }
     if matches!(
         rule["formula"]["kind"].as_str(),
@@ -624,6 +641,7 @@ fn price_instructions_selected_mode(
     };
     let failed = matches!(work_status, Some("failed"));
     let (selection, condition) = selections;
+    let component_recipe = condition.is_some_and(|(p, _, _)| p.uses_component_lifecycle_recipe());
     m.phase(Phase::Pricing);
     let scale = arithmetic::integer(m, "1000000000000000000", false)?;
     let atom_limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
@@ -705,6 +723,12 @@ fn price_instructions_selected_mode(
                 }
             }
         }
+        let formula_kind = shape::text(m, &rule["formula"], "kind")?;
+        if component_recipe && shape::same_text(m, formula_kind, "observe_cost")? {
+            // Dedicated nonpayable consumer handles assertion/unknown/observed
+            // proof shapes; this monetary table must never synthesize a price.
+            continue;
+        }
         m.visit("pricing.instruction")?;
         let key = rule["component_key"]
             .as_str()
@@ -718,12 +742,15 @@ fn price_instructions_selected_mode(
         }
         let component = component.ok_or_else(|| fail("compiled component missing"))?;
         let formula = &rule["formula"];
-        let row_ownership = row_owner(m, instruction, rule, component, &output)?;
+        let row_ownership = row_owner(m, instruction, rule, component, &output, component_recipe)?;
         let mut basis_components = Vec::new();
         m.visit("pricing.formula_variant")?;
         let predicate_state = if exposure_bound {
             let kind = shape::text(m, formula, "kind")?;
-            if !shape::same_text(m, kind, "unit")? && !shape::same_text(m, kind, "fixed")? {
+            if !shape::same_text(m, kind, "unit")?
+                && !shape::same_text(m, kind, "fixed")?
+                && !(component_recipe && matches!(kind, "percent" | "discount"))
+            {
                 return Err(fail(
                     "future exposure requires independent positive producer",
                 ));
@@ -760,7 +787,11 @@ fn price_instructions_selected_mode(
             }
         };
         let predicate = predicate_state == "true";
-        let rational = if failed || !predicate {
+        let mut reduction_limit = None;
+        let rational = if failed
+            || !predicate
+            || component_recipe && exposure_bound && formula["kind"].as_str() == Some("discount")
+        {
             Ratio {
                 numerator: BigInt::from(0),
                 denominator: BigInt::one(),
@@ -818,6 +849,18 @@ fn price_instructions_selected_mode(
                     )?;
                     let amount = arithmetic::multiply(m, &quantity, &rate)?;
                     arithmetic::multiply(m, &amount, &scale)?
+                }
+                "percent" | "discount" if component_recipe => {
+                    let (ratio, limit) = component_modifier(
+                        m,
+                        formula,
+                        rule,
+                        &output,
+                        &scale,
+                        &mut basis_components,
+                    )?;
+                    reduction_limit = limit;
+                    ratio
                 }
                 "discount" => {
                     let base = formula["basis"]["component_key"]
@@ -975,6 +1018,13 @@ fn price_instructions_selected_mode(
             }
         };
         let mut atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
+        if let Some(limit) = reduction_limit {
+            let minimum =
+                i128::checked_neg(limit).ok_or_else(|| fail("component reduction bound"))?;
+            if crate::validation_work::compare(m, atoms, minimum)?.is_lt() {
+                return Err(fail("discount exceeds selected original component net"));
+            }
+        }
         if matches!(mode, PriceMode::Stage(_)) && formula["kind"].as_str() == Some("closure_share")
         {
             let raw = shape::text(m, &formula["ceiling"], "atoms")?;
@@ -1007,6 +1057,19 @@ fn price_instructions_selected_mode(
                 ));
             }
         }
+        if component_recipe && !exposure_bound {
+            let root = shape::text(m, component, "root_key")?;
+            let mut net = BigInt::from(atoms);
+            for prior in &output {
+                m.visit("pricing.component_nonnegative_root")?;
+                if shape::same_text(m, &prior.root_key, root)? {
+                    net = meter::add(m, &net, &BigInt::from(prior.atoms))?;
+                }
+            }
+            if meter::cmp(m, &net, &BigInt::from(0))?.is_lt() {
+                return Err(fail("component root net is negative"));
+            }
+        }
         output.push(PricedInstruction {
             predicate,
             failed,
@@ -1037,6 +1100,8 @@ fn price_instructions_selected_mode(
                     .ok_or_else(|| fail("binding slot"))?,
             )?,
             basis_components,
+            prior_net_basis: component_recipe
+                && formula["basis"]["view"].as_str() == Some("prior_net"),
             rational,
             atoms,
             _ownership: row_ownership,
@@ -1046,6 +1111,125 @@ fn price_instructions_selected_mode(
         rows: output,
         _ownership: output_ownership,
     })
+}
+
+fn component_modifier(
+    m: &mut CoreMeter,
+    formula: &Value,
+    rule: &Value,
+    prior: &[PricedInstruction],
+    scale: &Ratio,
+    basis_components: &mut Vec<String>,
+) -> Result<(Ratio, Option<i128>)> {
+    let base = shape::text(m, &formula["basis"], "component_key")?;
+    let view = shape::text(m, &formula["basis"], "view")?;
+    let slot = shape::text(m, rule, "binding_slot")?;
+    let mut producer = None;
+    for row in prior {
+        m.visit("pricing.component_named_producer")?;
+        if shape::same_text(m, &row.component_key, base)?
+            && shape::same_text(m, &row.binding_slot, slot)?
+            && producer.replace(row).is_some()
+        {
+            return Err(fail("ambiguous named monetary producer"));
+        }
+    }
+    let producer = producer.ok_or_else(|| fail("named monetary producer unavailable"))?;
+    let prior_net = shape::same_text(m, view, "prior_net")?;
+    let kind = shape::text(m, formula, "kind")?;
+    let discount = shape::same_text(m, kind, "discount")?;
+    let sequential = if discount {
+        let mode = shape::text(m, formula, "mode")?;
+        shape::same_text(m, mode, "sequential")?
+    } else {
+        false
+    };
+    let count = crate::validation_work::usize_add(m, prior.len(), 1)?;
+    basis_components
+        .try_reserve_exact(count)
+        .map_err(|_| fail("component basis allocation"))?;
+    basis_components.push(copied(m, base)?);
+    let mut net = BigInt::from(producer.atoms);
+    let mut selected_net = net.clone();
+    if prior_net {
+        net = 0.into();
+        for row in prior {
+            m.visit("pricing.explicit_prior_root_net")?;
+            if shape::same_text(m, &row.root_key, &producer.root_key)?
+                && shape::same_text(m, &row.binding_slot, slot)?
+            {
+                net = meter::add(m, &net, &BigInt::from(row.atoms))?;
+                if !shape::same_text(m, &row.component_key, base)? {
+                    basis_components.push(copied(m, &row.component_key)?);
+                }
+            }
+        }
+        selected_net = net.clone();
+    } else if discount {
+        for row in prior {
+            m.visit("pricing.named_prior_reduction")?;
+            if row.atoms >= 0
+                || row.prior_net_basis
+                || !shape::same_text(m, &row.binding_slot, slot)?
+            {
+                continue;
+            }
+            let Some(target) = row.basis_components.first() else {
+                continue;
+            };
+            if shape::same_text(m, target, base)? {
+                selected_net = meter::add(m, &selected_net, &BigInt::from(row.atoms))?;
+                if sequential {
+                    basis_components.push(copied(m, &row.component_key)?);
+                }
+            }
+        }
+        if sequential {
+            net = selected_net.clone();
+        }
+    }
+    if meter::cmp(m, &net, &BigInt::from(0))?.is_lt()
+        || meter::cmp(m, &selected_net, &BigInt::from(0))?.is_lt()
+    {
+        return Err(fail("named component nonnegative basis"));
+    }
+    let value = if discount {
+        &formula["amount"]
+    } else {
+        formula
+    };
+    let fixed = if discount {
+        let kind = shape::text(m, value, "kind")?;
+        shape::same_text(m, kind, "fixed")?
+    } else {
+        false
+    };
+    let mut amount = if fixed {
+        let raw = shape::text(m, value, "amount")?;
+        let decimal = arithmetic::decimal(m, raw)?;
+        arithmetic::multiply(m, &decimal, scale)?
+    } else {
+        let raw = shape::text(m, value, "percent")?;
+        let percentage = arithmetic::decimal(m, raw)?;
+        let denominator = meter::mul(m, &percentage.denominator, &BigInt::from(100))?;
+        let ratio = arithmetic::rational(m, percentage.numerator, denominator)?;
+        let basis = arithmetic::rational(m, net, 1.into())?;
+        arithmetic::multiply(m, &basis, &ratio)?
+    };
+    if discount {
+        amount.numerator = meter::neg(m, &amount.numerator)?;
+    }
+    use num_traits::ToPrimitive;
+    let limit = if discount {
+        Some(
+            selected_net
+                .to_i128()
+                .ok_or_else(|| fail("component reduction limit overflow"))?,
+        )
+    } else {
+        None
+    };
+    Ok((amount, limit))
 }
 
 /// SAME original customer cost formula for every eligible cost-basis mode.
@@ -1253,39 +1437,56 @@ pub(super) fn outcome(
             return Err(fail("original family effect"));
         }
         let formula = paid_call!(shape::field, m, effect, "amount")?;
-        if !paid_call!(
-            shape::same_text,
-            m,
-            paid_call!(shape::text, m, formula, "kind")?,
-            "percent"
-        )? {
-            return Err(Error::new(
-                "UNSUPPORTED_SCHEMA_PROFILE",
-                "selected family percent",
-            ));
-        }
-        let scalar = paid_call!(shape::text, m, formula, "percent")?;
-        let percent = arithmetic::decimal(m, scalar)?;
-        let hundred = meter::mul(m, &percent.denominator, &100.into())?;
-        if meter::cmp(m, &percent.numerator, &0.into())?.is_lt()
-            || meter::cmp(m, &percent.numerator, &hundred)?.is_gt()
-        {
-            return Err(fail("original family percent interval"));
-        }
-        let numerator = if discount {
-            meter::neg(m, &percent.numerator)?
-        } else {
-            percent.numerator
+        let fixed_component = program.uses_component_lifecycle_recipe() && {
+            let kind = shape::text(m, formula, "kind")?;
+            shape::same_text(m, kind, "fixed")?
         };
-        let percent = arithmetic::rational(m, numerator, hundred)?;
-        rational = arithmetic::multiply(
-            m,
-            &Ratio {
-                numerator: original_net.clone(),
-                denominator: 1.into(),
-            },
-            &percent,
-        )?;
+        if fixed_component {
+            let raw = shape::text(m, formula, "amount")?;
+            let decimal = arithmetic::decimal(m, raw)?;
+            if meter::cmp(m, &decimal.numerator, &0.into())?.is_lt() {
+                return Err(fail("negative family fixed amount"));
+            }
+            let scale = arithmetic::rational(m, 1_000_000_000_000_000_000i128.into(), 1.into())?;
+            rational = arithmetic::multiply(m, &decimal, &scale)?;
+            if discount {
+                rational.numerator = meter::neg(m, &rational.numerator)?;
+            }
+        } else {
+            if !paid_call!(
+                shape::same_text,
+                m,
+                paid_call!(shape::text, m, formula, "kind")?,
+                "percent"
+            )? {
+                return Err(Error::new(
+                    "UNSUPPORTED_SCHEMA_PROFILE",
+                    "selected family percent",
+                ));
+            }
+            let scalar = paid_call!(shape::text, m, formula, "percent")?;
+            let percent = arithmetic::decimal(m, scalar)?;
+            let hundred = meter::mul(m, &percent.denominator, &100.into())?;
+            if meter::cmp(m, &percent.numerator, &0.into())?.is_lt()
+                || meter::cmp(m, &percent.numerator, &hundred)?.is_gt()
+            {
+                return Err(fail("original family percent interval"));
+            }
+            let numerator = if discount {
+                meter::neg(m, &percent.numerator)?
+            } else {
+                percent.numerator
+            };
+            let percent = arithmetic::rational(m, numerator, hundred)?;
+            rational = arithmetic::multiply(
+                m,
+                &Ratio {
+                    numerator: original_net.clone(),
+                    denominator: 1.into(),
+                },
+                &percent,
+            )?;
+        }
     }
     let atom_limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
     let atoms = arithmetic::rounded(m, &rational, &atom_limit)?;
@@ -1654,5 +1855,231 @@ mod outcome_tests {
             &mut m
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+pub(super) mod component_tests {
+    use super as pricing;
+    use super::arithmetic;
+    use crate::{
+        canonical::{self, audit_arena::AuditArena},
+        policy::workflow::{
+            document_digest,
+            selected_program::{
+                compile_selected_publication, load_local_selected_execution,
+                SelectedCompilerSupport, SelectedSourceInput,
+            },
+        },
+        validation_work::OriginalAuditSession,
+    };
+    use serde_json::{json, Value};
+    /// Synthetic source authoring for this one pure compiler/math vector.
+    /// It uses the existing actual source normalizers, not a sealed candidate.
+    pub(in crate::policy::workflow::transition_constructor) fn component_input(
+        support: &SelectedCompilerSupport,
+        session: &mut OriginalAuditSession,
+    ) -> SelectedSourceInput {
+        let mut data: Value = serde_json::from_slice(include_bytes!(
+            "../selected_program/fixtures/local-first-policy-input.json"
+        ))
+        .unwrap();
+        let docs = data["documents"].as_array_mut().unwrap();
+        let template = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-slot-template/1")
+            .unwrap();
+        template["components"] = json!([
+            {"key":"support:service","aliases":["support:service"],"book":"retail","root_key":"support:service","role_slot":"support:retail-role"},
+            {"key":"support:reduction","aliases":["support:reduction"],"book":"retail","root_key":"support:service","role_slot":"support:retail-role"},
+            {"key":"support:priority","aliases":["support:priority"],"book":"retail","root_key":"support:priority","role_slot":"support:retail-role"},
+            {"key":"support:observation","aliases":["support:observation"],"book":"cost_observation","root_key":"support:observation","role_slot":"support:retail-role"}
+        ]);
+        template["families"] = json!([
+            {"key":"support:quality","aliases":["support:quality"],"role_slot":"support:retail-role","target_component_key":"support:service"},
+            {"key":"support:other-quality","aliases":["support:other-quality"],"role_slot":"support:retail-role","target_component_key":"support:service"}
+        ]);
+        let template_digest = document_digest("ledger-workflow-slot-template/1", template).unwrap();
+        let template_ref = json!({"kind":"workflow-slot-template","id":format!("wdoc_{}",&template_digest[7..]),"digest":template_digest});
+        let policy = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-policy/4")
+            .unwrap();
+        policy["slot_template_ref"] = template_ref;
+        policy["app_delayed_costs"] = json!([]);
+        let original_slot = policy["binding_slots"][0].clone();
+        let mut observation_slot = original_slot.clone();
+        observation_slot["name"] = json!("support:observed");
+        observation_slot["book"] = json!("cost_observation");
+        observation_slot["correction_source_slot"] = json!("support:observer-corrector");
+        policy["binding_slots"] = json!([original_slot, observation_slot]);
+        let original_rule = policy["rules"][0].clone();
+        let rule = |key: &str, slot: &str, phase: &str, formula: Value, dependency: &str| {
+            let mut v = original_rule.clone();
+            v["rule_id"] = json!(key);
+            v["component_key"] = json!(key);
+            v["component_name"] = json!(key);
+            v["binding_slot"] = json!(slot);
+            v["phase"] = json!(phase);
+            v["formula"] = formula;
+            v["dependency"] = json!(dependency);
+            v
+        };
+        policy["rules"] = json!([
+            rule(
+                "support:service",
+                "support:retail",
+                "base",
+                json!({"kind":"unit","quantity_field":"support:quantity","unit":"support:request","rate":"0.5"}),
+                "on_missing_refuse"
+            ),
+            rule(
+                "support:reduction",
+                "support:retail",
+                "discount",
+                json!({"kind":"discount","basis":{"component_key":"support:service","view":"booked_base"},"mode":"additive","amount":{"kind":"percent","percent":"20"}}),
+                "on_missing_refuse"
+            ),
+            rule(
+                "support:priority",
+                "support:retail",
+                "base",
+                json!({"kind":"fixed","amount":"0.2"}),
+                "on_missing_refuse"
+            ),
+            rule(
+                "support:observation",
+                "support:observed",
+                "cost",
+                json!({"kind":"observe_cost","evidence_slot":"support:observer"}),
+                "on_missing_wait"
+            )
+        ]);
+        let mut first = policy["families"][0].clone();
+        first["codes"] = json!([
+            {"code":"support:none","effect":{"kind":"none"}},
+            {"code":"support:success","effect":{"kind":"premium","amount":{"kind":"percent","percent":"25"}}},
+            {"code":"support:discount","effect":{"kind":"premium","amount":{"kind":"percent","percent":"10"}}}
+        ]);
+        let mut second = first.clone();
+        second["family_key"] = json!("support:other-quality");
+        second["family_name"] = json!("support:other-quality");
+        second["codes"] = json!([
+            {"code":"support:none","effect":{"kind":"none"}},
+            {"code":"support:success","effect":{"kind":"none"}},
+            {"code":"support:discount","effect":{"kind":"discount","amount":{"kind":"percent","percent":"10"}}}
+        ]);
+        policy["families"] = json!([first, second]);
+        let normalized =
+            crate::policy::workflow::selected_program::stage_fixture_normalized_source(
+                &data, support, session,
+            )
+            .unwrap();
+        SelectedSourceInput {
+            documents: normalized["documents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                .chain(std::iter::once(support.canonical_bytes().to_vec()))
+                .collect(),
+            root_policy_ref: serde_json::from_value(normalized["root_policy_ref"].clone()).unwrap(),
+        }
+    }
+    #[test]
+    fn component_actual_compile_reload_and_frozen_family_math() {
+        use crate::validation_work::ResourceLimits;
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
+        let input = component_input(&support, &mut author);
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_selected_publication(input, &support, &mut compile).unwrap();
+        assert!(program.uses_component_lifecycle_recipe());
+        assert!(!program.uses_stage_lifecycle_recipe());
+        assert!(!program.uses_supplier_scoped_consent_recipe());
+        let plan = program.compiled_plan();
+        let raw = plan.canonical_bytes().to_vec();
+        let reference = plan.reference().clone();
+        let source = SelectedSourceInput {
+            documents: program
+                .source_documents()
+                .iter()
+                .map(|d| d.canonical_bytes().to_vec())
+                .collect(),
+            root_policy_ref: program.root_policy_ref().clone(),
+        };
+        let mut reload = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let loaded = load_local_selected_execution(source, &raw, &reference, &mut reload).unwrap();
+        assert!(loaded.uses_component_lifecycle_recipe());
+        assert_eq!(loaded.execution_registry(), program.execution_registry());
+        assert_eq!(loaded.compiled_plan().canonical_bytes(), raw);
+        let mut calculate = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut m = calculate.meter_mut().local_economic_meter().unwrap();
+        let context = json!({});
+        let work = json!({"status":"succeeded","activity":"support:complete"});
+        let prices = pricing::work_subject(
+            &loaded,
+            ("support:complete", &work),
+            (&json!({"support:quantity":"2"}), &context),
+            None,
+            &mut m,
+        )
+        .unwrap();
+        let atoms = |key: &str| {
+            prices
+                .iter()
+                .find(|p| p.component_key == key)
+                .unwrap()
+                .atoms
+        };
+        let scale = 10i128.pow(18);
+        assert_eq!(
+            atoms("support:service") + atoms("support:reduction"),
+            8 * scale / 10
+        );
+        assert_eq!(atoms("support:priority"), 2 * scale / 10);
+        assert!(!prices
+            .iter()
+            .any(|p| p.component_key == "support:observation"));
+        let net = (8 * scale / 10).into();
+        let f =
+            pricing::outcome(&loaded, "support:quality", "support:success", &net, &mut m).unwrap();
+        let g = pricing::outcome(
+            &loaded,
+            "support:other-quality",
+            "support:discount",
+            &net,
+            &mut m,
+        )
+        .unwrap();
+        let total =
+            prices.iter().map(|p| p.atoms).sum::<i128>() + 3 * scale / 10 + f.atoms + g.atoms;
+        assert_eq!(total, 142 * scale / 100);
+        let corrected_f =
+            pricing::outcome(&loaded, "support:quality", "support:discount", &net, &mut m).unwrap();
+        assert_eq!(total - f.atoms + corrected_f.atoms, 130 * scale / 100);
+        let revised = pricing::work_subject(
+            &loaded,
+            ("support:complete", &work),
+            (&json!({"support:quantity":"1"}), &context),
+            None,
+            &mut m,
+        )
+        .unwrap();
+        assert_eq!(
+            revised.iter().map(|p| p.atoms).sum::<i128>() + 3 * scale / 10,
+            90 * scale / 100
+        );
+        let zero = arithmetic::integer(&mut m, "0", false).unwrap();
+        assert_eq!(
+            pricing::outcome(&loaded, "support:quality", "support:none", &zero, &mut m)
+                .unwrap()
+                .atoms,
+            0
+        );
+        calculate.meter_mut().finish_local_economic(m).unwrap();
     }
 }

@@ -32,7 +32,9 @@ pub(in crate::policy::workflow) use compiler::finish_owned_document;
 pub(in crate::policy::workflow) mod local;
 mod local_admission;
 pub use local::{
-    local_compiler_descriptor_with_session, local_conditional_compiler_descriptor_with_session,
+    local_compiler_descriptor_with_session,
+    local_component_lifecycle_compiler_descriptor_with_session,
+    local_conditional_compiler_descriptor_with_session,
     local_declared_link_compiler_descriptor_with_session,
     local_policy_context_compiler_descriptor_with_session,
     local_policy_semantics_compiler_descriptor_with_session,

@@ -284,6 +284,7 @@ fn retained_quantity_predicate_flips(profile: u8, failed: bool) {
             operands: terms(m),
             reverse: true,
             proofs: None,
+            observations: None,
             _ownership: None,
         };
         let (_, evaluation) = load(
@@ -360,4 +361,263 @@ fn retained_quantity_predicate_flips(profile: u8, failed: bool) {
             }
         }
     }
+}
+
+/// Actual selected Component profile and the shared posting constructors. This
+/// is arithmetic/explanation DATA coverage, not source/host custody admission.
+#[test]
+fn component_posting_factory_replaces_only_generation_then_reverses_remaining_roots() {
+    let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+    let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let support =
+        SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+            .unwrap();
+    let input = pricing::component_tests::component_input(&support, &mut author);
+    let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let program = compile_selected_publication(input, &support, &mut compile).unwrap();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let m = session.meter_mut();
+    let _fixture = arena.reserve_external_payload(65_536, m).unwrap();
+    let value = |m: &mut CoreMeter, value: Value| {
+        RecordBody::owned(&arena, arena.clone_value(&value, m).unwrap(), m).unwrap()
+    };
+    let key = OperationKey {
+        logical_store_id: "store".into(),
+        scope: ["tenant".into(), "project".into()],
+        source: "original-worker".into(),
+        operation_id: "original-work".into(),
+    };
+    let work = reference("workflow-work", "wevent_", '1');
+    let claim = reference("workflow-work-claim", "wclaim_", '2');
+    let terms_ref = reference("workflow-slot-terms", "wdoc_", '4');
+    let role = reference("workflow-roles", "wdoc_", '5');
+    let context = json!({});
+    let payload = json!({"activity":"support:complete","status":"succeeded"});
+    let original = pricing::work_subject(
+        &program,
+        ("support:complete", &payload),
+        (&json!({"support:quantity":"2"}), &context),
+        None,
+        m,
+    )
+    .unwrap();
+    let replacement = pricing::work_subject(
+        &program,
+        ("support:complete", &payload),
+        (&json!({"support:quantity":"1"}), &context),
+        None,
+        m,
+    )
+    .unwrap();
+    let map: Vec<_> = program.compiled_plan().canonical_value()["component_slots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| json!({"template_key":v["key"],"slot_id":v["key"]}))
+        .collect();
+    let terms = authority::Terms {
+        binding: value(
+            m,
+            json!({"agreement_id":"agreement","accepted_context":context}),
+        ),
+        accepted: value(m, json!({})),
+        _activation: value(m, json!({})),
+        catalog: value(m, json!({})),
+        instantiation: value(m, json!({"component_map":map})),
+        slot_terms: value(m, json!({"funding_leg":"support:customer"})),
+        slot_terms_ref: terms_ref.clone(),
+        role_ref: role.clone(),
+    };
+    let snapshot = arena.clone_value(&json!({}), m).unwrap();
+    let owner = arena.reserve_external_payload(4096, m).unwrap();
+    let operands = authority::ResolvedOperands::owning(terms, vec![], snapshot, owner);
+    let decision = json!({"decision_id":"generation-decision"});
+    let mut originals: Vec<ConstructedEnvelope> = Vec::new();
+    for price in &original {
+        let mut basis = Vec::new();
+        for name in &price.basis_components {
+            for prior in &originals {
+                let body = prior.decoded(m, 4_194_304).unwrap();
+                if body["component_slot"] == *name {
+                    basis.push(&prior.reference);
+                }
+            }
+        }
+        let basis = super::super::super::app_cost::reference_set(m, &arena, &basis).unwrap();
+        let posting = cost_postings::original_cost_posting_key(
+            m,
+            &key,
+            cost_postings::OriginalCostPosting {
+                binding: &operands.binding,
+                original_work_claim: &claim,
+                component_slot: &json!(price.component_key),
+                root_slot: &json!(price.root_key),
+                book: &json!("retail"),
+                terms_ref: &terms_ref,
+                terms: &operands.slot_terms,
+                role_ref: &role,
+                decision_id: "generation-decision",
+                revision: &1.into(),
+                replacement: false,
+                basis_refs: Some(basis.value()),
+            },
+            price,
+        )
+        .unwrap();
+        if let Some(action) = posting.action {
+            originals.push(action);
+        }
+    }
+    let priority = originals
+        .iter()
+        .find(|a| a.decoded(m, 4_194_304).unwrap()["component_slot"] == "support:priority")
+        .unwrap()
+        .reference
+        .clone();
+    let mut old = ActiveRootActions {
+        rows: Vec::new(),
+        observation_indices: Vec::new(),
+        _ownership: None,
+    };
+    for (index, price) in original.iter().enumerate() {
+        let action = originals
+            .iter()
+            .find(|a| a.decoded(m, 4_194_304).unwrap()["component_slot"] == price.component_key)
+            .unwrap();
+        old.rows.push(ActiveRootAction {
+            price_index: index,
+            reference: action.reference.clone(),
+            body: action.decoded(m, 4_194_304).unwrap(),
+            affected: price.root_key == "support:service",
+        });
+    }
+    let mut plan = RootPlan {
+        work_ref: work,
+        work: value(m, json!({})),
+        claim_ref: claim,
+        original_ref: reference("workflow-decision", "wdrev_", '6'),
+        original: value(m, json!({})),
+        current_ref: reference("workflow-decision", "wdrev_", '7'),
+        current: value(m, decision),
+        next_revision: "2".into(),
+        payload: super::super::super::working_value::WorkingValue::copy(m, &payload).unwrap(),
+        replacement_facts: super::super::super::working_value::WorkingValue::copy(
+            m,
+            &json!({"support:quantity":"1"}),
+        )
+        .unwrap(),
+        affected_roots: vec!["support:service".into()],
+        old_prices: original,
+        new_prices: replacement,
+        operands,
+        reverse: false,
+        proofs: None,
+        observations: None,
+        _ownership: None,
+    };
+    let correction_key = OperationKey {
+        source: "corrector".into(),
+        operation_id: "quantity-correct".into(),
+        ..key.clone()
+    };
+    let effects = monetary_effects_owned_for(
+        m,
+        &plan,
+        &old,
+        PostingRevision {
+            key: &correction_key,
+            old_prices: &plan.old_prices,
+            new_prices: &plan.new_prices,
+            affected_roots: &plan.affected_roots,
+            revision: "2",
+            reverse: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(effects.actions.len(), 4);
+    assert!(effects.active.contains(&priority));
+    assert!(!effects
+        .actions
+        .iter()
+        .any(|a| a.decoded(m, 4_194_304).unwrap()["component_slot"] == "support:priority"));
+    let scale = 10i128.pow(18);
+    let delta: i128 = effects
+        .actions
+        .iter()
+        .map(|a| {
+            a.decoded(m, 4_194_304).unwrap()["amount"]["atoms"]
+                .as_str()
+                .unwrap()
+                .parse::<i128>()
+                .unwrap()
+        })
+        .sum();
+    assert_eq!(delta, -4 * scale / 10);
+    // F=.08 and G=-.08 both close under their own exact inverse, net zero.
+    assert_eq!(
+        130 * scale / 100 + delta - 8 * scale / 100 + 8 * scale / 100,
+        90 * scale / 100
+    );
+    let mut current = ActiveRootActions {
+        rows: Vec::new(),
+        observation_indices: Vec::new(),
+        _ownership: None,
+    };
+    for (index, price) in plan.new_prices.iter().enumerate() {
+        let action = effects
+            .actions
+            .iter()
+            .chain(originals.iter())
+            .find(|a| {
+                effects.active.contains(&a.reference)
+                    && a.decoded(m, 4_194_304).unwrap()["component_slot"] == price.component_key
+            })
+            .unwrap();
+        current.rows.push(ActiveRootAction {
+            price_index: index,
+            reference: action.reference.clone(),
+            body: action.decoded(m, 4_194_304).unwrap(),
+            affected: true,
+        });
+    }
+    plan.affected_roots.push("support:priority".into());
+    let empty = pricing::PricedInstructions::empty();
+    let reverse_key = OperationKey {
+        source: "corrector".into(),
+        operation_id: "work-reverse".into(),
+        ..key
+    };
+    let reversed = monetary_effects_owned_for(
+        m,
+        &plan,
+        &current,
+        PostingRevision {
+            key: &reverse_key,
+            old_prices: &plan.new_prices,
+            new_prices: &empty,
+            affected_roots: &plan.affected_roots,
+            revision: "3",
+            reverse: true,
+        },
+    )
+    .unwrap();
+    assert!(reversed.active.is_empty());
+    let delta: i128 = reversed
+        .actions
+        .iter()
+        .map(|a| {
+            a.decoded(m, 4_194_304).unwrap()["amount"]["atoms"]
+                .as_str()
+                .unwrap()
+                .parse::<i128>()
+                .unwrap()
+        })
+        .sum();
+    assert_eq!(delta, -6 * scale / 10);
+    assert_eq!(90 * scale / 100 + delta, 30 * scale / 100);
+    // The unrelated tool Work's .30 is never present in this root's action set.
+    assert!(reversed
+        .actions
+        .iter()
+        .all(|a| a.decoded(m, 4_194_304).unwrap()["book"] == "retail"));
 }

@@ -25,13 +25,14 @@ fn validate_data(
     state: &DraftStateData,
 ) -> Result<()> {
     context(m, c)?;
-    validate_body(m, c, p, state)
+    validate_body(m, c, p, state, false)
 }
 fn validate_body(
     m: &mut CoreMeter,
     _c: &DraftContextData,
     p: &Value,
     state: &DraftStateData,
+    component: bool,
 ) -> Result<()> {
     {
         let name = "activity";
@@ -47,7 +48,7 @@ fn validate_body(
     }
     invoke!(binding::refs, m, data_field!(m, p, "evidence_refs"), 0, 32)?;
     let evidence = invoke!(shape::array, m, p, "evidence_refs")?;
-    if !meter::cmp(m, &evidence.len().into(), &0usize.into())?.is_eq() {
+    if !component && !meter::cmp(m, &evidence.len().into(), &0usize.into())?.is_eq() {
         return Err(Error::new(
             "UNSUPPORTED_COMPOSITION",
             "A.setup supplemental work evidence",
@@ -126,7 +127,7 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_selected(
         return validate(m, c, p, state);
     }
     local_context(m, c)?;
-    validate_body(m, c, p, state)
+    validate_body(m, c, p, state, program.uses_component_lifecycle_recipe())
 }
 pub(in crate::policy::workflow::transition_constructor) fn context_selected(
     m: &mut CoreMeter,

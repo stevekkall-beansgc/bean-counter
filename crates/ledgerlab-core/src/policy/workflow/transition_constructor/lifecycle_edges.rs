@@ -4,7 +4,10 @@ use super::super::selected_program::SelectedProgram;
 use super::{
     body,
     data::{EconomicRecordView, ExactRef, OperationKey},
-    input_edges::{select_local_input_edges, select_stage_local_input_edges, LocalInputEdges},
+    input_edges::{
+        select_component_local_input_edges, select_local_input_edges,
+        select_stage_local_input_edges, LocalInputEdges,
+    },
     records::Records,
     shape, CoreMeter,
 };
@@ -74,7 +77,12 @@ pub fn select_lifecycle_input_edges(
         if !program.uses_work_lifecycle_recipe() {
             return Err(shape::fail("exact lifecycle input recipe required"));
         }
-        let explicit = if program.uses_stage_lifecycle_recipe() {
+        let explicit = if program.uses_component_lifecycle_recipe() {
+            let registry = program
+                .execution_registry()
+                .ok_or_else(|| shape::fail("selected Component edge registry"))?;
+            select_component_local_input_edges(registry, key, input, session)?
+        } else if program.uses_stage_lifecycle_recipe() {
             let registry = program
                 .execution_registry()
                 .ok_or_else(|| shape::fail("selected Stage edge registry"))?;
@@ -89,7 +97,9 @@ pub fn select_lifecycle_input_edges(
         let v = r.provenance(m, key, input.reference)?;
         let schema = shape::text(m, &v, "schema")?;
         let work = shape::same_text(m, schema, "ledger-workflow-work-record/1")?;
-        let action = shape::same_text(m, schema, "ledger-workflow-action/1")?;
+        let action = shape::same_text(m, schema, "ledger-workflow-action/1")?
+            || (program.uses_component_lifecycle_recipe()
+                && shape::same_text(m, schema, "ledger-workflow-cost-observation-action/1")?);
         if (work && !shape::same_text(m, &input.reference.kind, "workflow-work")?)
             || (action && !shape::same_text(m, &input.reference.kind, "workflow-action")?)
         {

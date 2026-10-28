@@ -493,12 +493,27 @@ pub fn select_stage_local_input_edges(
     input: EconomicRecordView<'_>,
     s: &mut OriginalAuditSession,
 ) -> Result<LocalInputEdges> {
-    select_local_input_edges_inner(key, input, Some(registry), s)
+    select_local_input_edges_inner(key, input, Some((registry, LocalEdgeRecipe::Stage)), s)
+}
+#[derive(Clone, Copy)]
+enum LocalEdgeRecipe {
+    Stage,
+    Component,
+}
+/// Exact Component DATA inventory, selected by its actual Program/saved registry.
+/// It has the same result owner and cannot certify admission or retained origin.
+pub fn select_component_local_input_edges(
+    registry: &str,
+    key: &OperationKey,
+    input: EconomicRecordView<'_>,
+    s: &mut OriginalAuditSession,
+) -> Result<LocalInputEdges> {
+    select_local_input_edges_inner(key, input, Some((registry, LocalEdgeRecipe::Component)), s)
 }
 fn select_local_input_edges_inner(
     key: &OperationKey,
     input: EconomicRecordView<'_>,
-    stage_registry: Option<&str>,
+    selected_registry: Option<(&str, LocalEdgeRecipe)>,
     s: &mut OriginalAuditSession,
 ) -> Result<LocalInputEdges> {
     let result = (|| {
@@ -506,21 +521,68 @@ fn select_local_input_edges_inner(
         let a = s.arena().shared_handle();
         let m = s.meter_mut();
         let inputs = [input];
-        let mut records = if let Some(registry) = stage_registry {
-            if !shape::same_text(
-                m,
-                registry,
-                super::super::selected_program::local::LOCAL_STAGE_LIFECYCLE_REGISTRY,
-            )? {
-                return Err(shape::fail("exact selected Stage edge registry required"));
+        let component = matches!(selected_registry, Some((_, LocalEdgeRecipe::Component)));
+        let mut records = match selected_registry {
+            Some((registry, recipe)) => {
+                let expected = match recipe {
+                    LocalEdgeRecipe::Stage => {
+                        super::super::selected_program::local::LOCAL_STAGE_LIFECYCLE_REGISTRY
+                    }
+                    LocalEdgeRecipe::Component => {
+                        super::super::selected_program::local::LOCAL_COMPONENT_LIFECYCLE_V1_REGISTRY
+                    }
+                };
+                if !shape::same_text(m, registry, expected)? {
+                    return Err(shape::fail("exact selected native edge registry required"));
+                }
+                match recipe {
+                    LocalEdgeRecipe::Stage => Records::borrowed_parent_stage(m, &a, key, &inputs)?,
+                    LocalEdgeRecipe::Component => {
+                        Records::borrowed_parent_app(m, &a, key, &inputs)?
+                    }
+                }
             }
-            Records::borrowed_parent_stage(m, &a, key, &inputs)?
-        } else {
-            Records::borrowed_parent_app(m, &a, key, &inputs)?
+            None => Records::borrowed_parent_app(m, &a, key, &inputs)?,
         };
         let v = records.provenance(m, key, input.reference)?;
         let schema = shape::text(m, &v, "schema")?;
+        let component_kind = match schema {
+            "ledger-workflow-cost-observation-evidence/1" => Some("workflow-fact-attestation"),
+            "ledger-workflow-observation-terms/1" => Some("workflow-slot-terms"),
+            "ledger-workflow-cost-observation-action/1" => Some("workflow-action"),
+            "ledger-workflow-component-evaluation-proof/1" => Some("workflow-evaluation"),
+            "ledger-workflow-economic-authority/9" => Some("workflow-economic-authority"),
+            _ => None,
+        };
+        if let Some(expected) = component_kind {
+            if !component || !shape::same_text(m, &input.reference.kind, expected)? {
+                return Err(shape::fail(
+                    "Component schema requires exact selected kind/recipe",
+                ));
+            }
+        }
         let fields: Option<&[&str]> = match schema {
+            "ledger-workflow-observation-terms/1" => Some(&["role_ref", "source_grant_refs"]),
+            "ledger-workflow-cost-observation-evidence/1" => {
+                Some(&["subject", "supporting_evidence_refs"])
+            }
+            "ledger-workflow-cost-observation-action/1" => {
+                Some(&["role_ref", "slot_terms_ref", "basis_refs", "inverse_of"])
+            }
+            "ledger-workflow-economic-authority/9" => Some(&[
+                "enrollment_ref",
+                "current_state_ref",
+                "current_grant_ref",
+                "original_binding_ref",
+                "original_accepted_agreement_ref",
+                "original_grant_refs",
+                "evidence_refs",
+                "verified_fact_refs",
+                "causal_closure_checks",
+                "original_work_ref",
+                "prior_decision_ref",
+                "component_authority_checks",
+            ]),
             "ledger-workflow-party-authorization/1" | "ledger-workflow-party-authorization/2" => {
                 Some(&["evidence_ref", "operator_attestation_ref", "authority_ref"])
             }
@@ -687,7 +749,9 @@ fn select_local_input_edges_inner(
                         generic(shape::field(m, &v, field)?, 1, m, emit)?;
                     }
                     work_payload(shape::field(m, &v, "original_payload")?, m, emit)
-                } else if schema == "ledger-workflow-evaluation-proof/1" {
+                } else if schema == "ledger-workflow-evaluation-proof/1"
+                    || component && schema == "ledger-workflow-component-evaluation-proof/1"
+                {
                     for (field, value) in v
                         .as_object()
                         .ok_or_else(|| shape::fail("local evaluation object"))?
@@ -1096,5 +1160,69 @@ mod stage_document_edges_tests {
             .detail,
             "wrong selected Stage offer schema"
         );
+    }
+    #[test]
+    fn selected_component_native_edges_and_legacy_refusal_share_the_actual_recipe() {
+        use crate::policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport,
+        };
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
+        let source = super::super::pricing::component_tests::component_input(&support, &mut author);
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_selected_publication(source, &support, &mut compile).unwrap();
+        let key = OperationKey {
+            logical_store_id: "store".into(),
+            scope: ["company".into(), "local".into()],
+            source: "observer".into(),
+            operation_id: "edges".into(),
+        };
+        let mut producer = super::super::CoreMeter::new(65536).unwrap();
+        let root = super::super::body::document(
+            &mut producer,
+            "workflow-authority",
+            json!({"schema":"ledger-local-authority-snapshot/1"}),
+        )
+        .unwrap();
+        let reference = &root.reference;
+        // These actual canonical native envelopes test fixed DATA selection,
+        // not closed semantic authority or an assertion's host origin.
+        let terms = super::super::body::document(&mut producer, "workflow-slot-terms", json!({"schema":"ledger-workflow-observation-terms/1","role_ref":reference,"source_grant_refs":[reference]})).unwrap();
+        let assertion = super::super::body::document(&mut producer, "workflow-fact-attestation", json!({"schema":"ledger-workflow-cost-observation-evidence/1","subject":{"binding_ref":reference,"product_ref":reference},"supporting_evidence_refs":[reference]})).unwrap();
+        let aggregate = super::super::body::document(&mut producer, "workflow-economic-authority", json!({"schema":"ledger-workflow-economic-authority/9","original_work_ref":reference,"prior_decision_ref":reference,"component_authority_checks":[{"terms_ref":terms.reference,"authority_ref":reference,"authority_evidence_refs":[reference]}]})).unwrap();
+        let evaluation = super::super::body::document(&mut producer, "workflow-evaluation", json!({"schema":"ledger-workflow-component-evaluation-proof/1","subject_ref":reference,"facts":{"ordinary-literal":reference},"context":{"fact_schema_ref":reference,"facts":{}},"steps":[{"basis_refs":[reference]}]})).unwrap();
+        for row in [&terms, &assertion, &aggregate, &evaluation] {
+            let view = EconomicRecordView {
+                reference: &row.reference,
+                canonical_body: &row.canonical_body,
+            };
+            let mut selected = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let edges = select_component_local_input_edges(
+                program.execution_registry().unwrap(),
+                &key,
+                view,
+                &mut selected,
+            )
+            .unwrap();
+            assert!(edges.direct_refs().next().is_some());
+            let mut repeated = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let lifecycle =
+                super::super::select_lifecycle_input_edges(&program, &key, view, &mut repeated)
+                    .unwrap();
+            assert_eq!(
+                edges.direct_refs().collect::<Vec<_>>(),
+                lifecycle.direct_refs().collect::<Vec<_>>()
+            );
+            let mut legacy = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(select_local_input_edges(&key, view, &mut legacy).is_err());
+            let mut foreign = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(
+                select_component_local_input_edges("sha256:foreign", &key, view, &mut foreign)
+                    .is_err()
+            );
+        }
     }
 }

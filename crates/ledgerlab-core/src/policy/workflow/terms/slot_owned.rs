@@ -91,6 +91,7 @@ fn counter(
 enum Recipe {
     App,
     StageRetail,
+    ComponentObservation,
     StageSupplier { projection: bool },
 }
 pub(super) fn normalize(raw: &[u8], session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
@@ -104,7 +105,7 @@ pub(super) fn normalize_stage(
 ) -> Result<AuditedBytes> {
     let result = (|| {
         program.require_attempt_owner(session.meter_mut())?;
-        if !program.uses_stage_lifecycle_recipe() {
+        if !program.uses_structural_binding_recipe() {
             return Err(fail("Stage private terms recipe"));
         }
         if w::compare(session.semantic_work(), raw.len(), 262144usize)?.is_gt() {
@@ -115,7 +116,18 @@ pub(super) fn normalize_stage(
             o::field(parsed.value(), "book", session.meter_mut())?,
             session.meter_mut(),
         )?;
-        let recipe = if paid::compare_text(book, "supplier", session.meter_mut())?.is_eq() {
+        let recipe = if program.uses_component_lifecycle_recipe()
+            && paid::compare_text(book, "cost_observation", session.meter_mut())?.is_eq()
+        {
+            paid::check(
+                session.meter_mut(),
+                !projection,
+                "observation is not supplier preview",
+            )?;
+            Recipe::ComponentObservation
+        } else if !program.uses_component_lifecycle_recipe()
+            && paid::compare_text(book, "supplier", session.meter_mut())?.is_eq()
+        {
             Recipe::StageSupplier { projection }
         } else {
             paid::check(session.meter_mut(), !projection, "supplier projection book")?;
@@ -187,7 +199,9 @@ fn normalize_recipe(
                 &[],
                 work,
             )?,
-            Recipe::StageRetail => o::closed(tree.value(), &retail, &[], work)?,
+            Recipe::StageRetail | Recipe::ComponentObservation => {
+                o::closed(tree.value(), &retail, &[], work)?
+            }
             Recipe::StageSupplier { projection } => {
                 let keys = [
                     "schema",
@@ -239,6 +253,7 @@ fn normalize_recipe(
         let schema = match recipe {
             Recipe::App => Some("ledger-workflow-slot-binding-terms/7"),
             Recipe::StageRetail => Some("ledger-workflow-slot-binding-terms/3"),
+            Recipe::ComponentObservation => Some("ledger-workflow-observation-terms/1"),
             Recipe::StageSupplier { projection: true } => None,
             Recipe::StageSupplier { projection: false } => {
                 Some("ledger-workflow-slot-binding-terms/8")
@@ -274,7 +289,13 @@ fn normalize_recipe(
             )?;
         }
         let supplier = matches!(recipe, Recipe::StageSupplier { .. });
-        let expected_book = if supplier { "supplier" } else { "retail" };
+        let expected_book = if supplier {
+            "supplier"
+        } else if matches!(recipe, Recipe::ComponentObservation) {
+            "cost_observation"
+        } else {
+            "retail"
+        };
         if !paid::compare_text(
             o::text(o::field(tree.value(), "book", work)?, work)?,
             expected_book,

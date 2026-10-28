@@ -405,7 +405,8 @@ impl SlotBindingTerms {
         slot_owned::normalize(raw, session)
     }
 
-    /// Exact selected Stage Terms3/Terms8 normalization DATA. This does not
+    /// Exact selected Stage Terms3/Terms8 or component ObservationTerms1 DATA.
+    /// This does not
     /// establish consent, accepted nomination, custody or execution authority.
     pub fn normalize_stage_private_with_session(
         program: &super::selected_program::SelectedProgram,

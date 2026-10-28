@@ -308,14 +308,14 @@ pub(super) fn build(
         }
         let link_ref = lr;
         let root_slot = text(m, &f.target, "root_component_slot")?;
-        let effect = outcome::original_family_effect_path(
+        let effect = super::super::declared_links::report_path_impl::effect(
             m,
             &c.key.scope,
             &f.target["agreement_id"],
             root_slot,
             &root.claim_ref,
             &f.prior["family_slot"],
-            (&link_ref, report.as_ref().map(|v| &v.link)),
+            (&link_ref, report.as_ref()),
         )?;
         let net_raw = text(m, &f.target["original_net"], "atoms")?;
         let net = arithmetic::integer(m, net_raw, true)?;

@@ -78,6 +78,53 @@ pub(super) fn check_lifecycle(
 ) -> Result<()> {
     check_inner(m, p, docs, schemas, (declared_link, true, true))
 }
+// Exact component structural admission; authority/math/whole original closure
+// remain shared compiler and consumer responsibilities.
+pub(super) fn check_component(
+    m: &mut CoreMeter,
+    p: &Policy,
+    _docs: &[SelectedDocument],
+    _schemas: &[(DefinitionRef, FactSchema)],
+    _declared_link: bool,
+) -> Result<()> {
+    require!(
+        m,
+        same_literal(m, &p.mode, "component_workflow")?
+            && p.stages.is_empty()
+            && p.delayed_costs.is_empty()
+            && p.app_delayed_costs.as_ref().is_none_or(|r| r.is_empty()),
+        "component composition excludes Stage and final costs"
+    )?;
+    let mut retail = 0usize;
+    for slot in &p.binding_slots {
+        if same_literal(m, &slot.book, "retail")? {
+            retail = w::usize_add(m, retail, 1)?;
+        } else {
+            require!(
+                m,
+                same_literal(m, &slot.book, "cost_observation")?,
+                "component selected nonpayable book"
+            )?;
+        }
+    }
+    count(m, retail, 1, "component original retail binding")?;
+    for rule in &p.rules {
+        require!(
+            m,
+            matches!(
+                rule.formula,
+                Formula::Fixed { .. }
+                    | Formula::Unit { .. }
+                    | Formula::Percent { .. }
+                    | Formula::Discount { .. }
+                    | Formula::ObserveCost { .. }
+            ),
+            "component implemented formula"
+        )?;
+    }
+    Ok(())
+}
+
 // This is structural admission for the selected Stage recipe. Source/type,
 // original slot purposes and runtime obligations are checked by the shared
 // compiler, acceptance and producers; no business names enter this decision.

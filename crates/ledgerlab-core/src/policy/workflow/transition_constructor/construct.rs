@@ -134,6 +134,8 @@ pub(super) fn execute_complete<'raw>(
         return Ok(construction);
     }
     if shape::same_text(m, schema, "ledger-workflow-fact-attest/1")?
+        || (program.uses_component_lifecycle_recipe()
+            && shape::same_text(m, schema, "ledger-workflow-cost-observation-attest/1")?)
         || shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?
     {
         let mut construction = super::retention::execute_complete(
@@ -831,7 +833,8 @@ fn execute_parsed<'inv, 'raw>(
     let mut action_slots = Vec::<(String, ExactRef)>::new();
     if let Some(arena) = m.representation_arena() {
         use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
-        let n = prices.len();
+        let observations = super::component_observation::count(m, program, activity_name)?;
+        let n = w::usize_add(m, prices.len(), observations)?;
         let per = std::mem::size_of::<ConstructedEnvelope>()
             + std::mem::size_of::<crate::canonical::audit_arena::AuditedValue>()
             + std::mem::size_of::<(String, ExactRef)>()
@@ -1031,10 +1034,34 @@ fn execute_parsed<'inv, 'raw>(
         }
         steps.push(step);
     }
+    super::component_observation::append_original(
+        m,
+        &mut r,
+        c,
+        program,
+        super::component_observation::OriginalObservationWork {
+            terms: &a.terms,
+            payload: &p,
+            claim_ref: &claim.reference,
+            decision_id: &decision_id,
+            key: &c.key,
+            received_at: &c.received_at,
+        },
+        (&mut actions, &mut owned_steps),
+    )?;
     let (evaluation, decision) = if let Some(arena) = m.representation_arena() {
         let constants=m.parse_owned_representation(&arena,
             br#"{"evaluation":"ledger-workflow-evaluation-proof/1","decision":"ledger-workflow-decision-revision/1","revision":"1","kind":"work","transition":"initial","status":"active"}"#,
             crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let component_evaluation = if program.uses_component_lifecycle_recipe() {
+            Some(arena.string_value("ledger-workflow-component-evaluation-proof/1", m)?)
+        } else {
+            None
+        };
+        let evaluation_schema = component_evaluation
+            .as_ref()
+            .map(|v| v.value())
+            .unwrap_or(&constants.value()["evaluation"]);
         let mut borrowed = Vec::new();
         use crate::validation_work::{ArithmeticOperation, ValidationWork};
         let n = owned_steps.len();
@@ -1068,7 +1095,7 @@ fn execute_parsed<'inv, 'raw>(
         )?;
         let value = arena.object_from_fields(
             &[
-                ("schema", &constants.value()["evaluation"]),
+                ("schema", evaluation_schema),
                 ("subject_ref", subject.value()),
                 ("policy_ref", &p["policy_ref"]),
                 ("compiled_plan_ref", compiled.value()),

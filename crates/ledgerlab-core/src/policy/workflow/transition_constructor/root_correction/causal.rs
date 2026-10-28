@@ -151,7 +151,9 @@ fn closed_lineage(
         c,
         &cause["authority_ref"],
         "workflow-economic-authority",
-        if program.uses_local_execution_recipe() {
+        if program.uses_component_lifecycle_recipe() {
+            "ledger-workflow-economic-authority/9"
+        } else if program.uses_local_execution_recipe() {
             "ledger-workflow-economic-authority/8"
         } else if program.uses_app_cost_causal_recipe() {
             "ledger-workflow-economic-authority/7"
@@ -176,6 +178,32 @@ fn closed_lineage(
         return Err(shape::fail(
             "first closing cause is not prior root revision",
         ));
+    }
+    if program.uses_component_lifecycle_recipe() {
+        // The causal root Ref is the prior revision. Authenticate the exact
+        // closing revision instead of rechecking today's retired family role.
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| shape::fail("Component terminal root owner"))?;
+        let _scratch =
+            arena.reserve_external_payload(2 * (std::mem::size_of::<String>() + 128), m)?;
+        m.write_bytes(2 * (std::mem::size_of::<String>() + 128))?;
+        let next = meter::add(m, &closing_revision, &1.into())?;
+        let next = super::super::cost_postings::scalar(m, &arena, &next)?;
+        let seed = arena.array_from_values(&[&root["decision_id"], next.value()], m)?;
+        let id = body::semantic_id(m, "wdrev_", "workflow-decision-revision", seed.value())?;
+        let (_, closing) = r.by_identity(
+            m,
+            &c.key,
+            "workflow-decision",
+            &id,
+            "ledger-workflow-decision-revision/1",
+        )?;
+        shape::equal(m, &closing["prior_ref"], &cause["root_decision_ref"])?;
+        shape::equal(m, &closing["authority_ref"], &cause["authority_ref"])?;
+        shape::equal(m, &closing["operation_key"], &family["operation_key"])?;
+        shape::equal(m, &closing["accepted_at"], &family["accepted_at"])?;
+        component::retained(m, r, c, program, plan, &closing)?;
     }
     let checks = shape::array(m, &authority, "causal_closure_checks")?;
     let mut found = false;
@@ -509,7 +537,7 @@ pub(super) fn prepare(
             &target["original_net"],
             &json!({"currency":"USD","scale":18,"atoms":net.to_string()}),
         )?;
-        let (premium, discount) = targets::maxima(m, family, &net)?;
+        let (premium, discount) = targets::maxima(program, m, family, &net)?;
         equal(
             m,
             &declaration["maximum_premium"],

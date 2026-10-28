@@ -530,7 +530,11 @@ pub(super) fn execute<'inv, 'raw>(
     if !call!(meter::cmp, m, &evidence.len().into(), &0.into())?.is_eq() {
         return Err(unsupported("supplemental correction evidence validation"));
     }
-    if !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq()
+    if (!program.uses_component_lifecycle_recipe()
+        && !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq())
+        || (program.uses_component_lifecycle_recipe()
+            && (call!(meter::cmp, m, &state.family_heads.len().into(), &0.into())?.is_eq()
+                || call!(meter::cmp, m, &state.family_heads.len().into(), &64.into())?.is_gt()))
         || (!program.uses_local_execution_recipe()
             && !call!(meter::cmp, m, &state.decision_heads.len().into(), &2.into())?.is_eq())
     {
@@ -652,7 +656,7 @@ pub(super) fn execute<'inv, 'raw>(
     {
         return Err(Error::new("TARGET_CLOSED", "original root changed"));
     }
-    if program.uses_local_execution_recipe() {
+    if program.uses_local_execution_recipe() && !program.uses_component_lifecycle_recipe() {
         let (binding_ref, binding) = load(
             m,
             &mut r,
@@ -686,15 +690,17 @@ pub(super) fn execute<'inv, 'raw>(
     let mut net = BigInt::from(0);
     let mut basis = vec![];
     for a in call!(shape::array, m, &root, "active_action_refs")? {
-        let (reference, action) = call!(
-            load,
-            m,
-            &mut r,
-            c,
-            a,
-            "workflow-action",
-            "ledger-workflow-action/1"
-        )?;
+        let (reference, action) = outcome::root_basis_action(m, &mut r, c, program, a)?;
+        let action_schema = shape::text(m, &action, "schema")?;
+        if program.uses_component_lifecycle_recipe()
+            && shape::same_text(
+                m,
+                action_schema,
+                "ledger-workflow-cost-observation-action/1",
+            )?
+        {
+            continue;
+        }
         if call!(
             shape::same_text,
             m,
@@ -716,7 +722,9 @@ pub(super) fn execute<'inv, 'raw>(
     call!(equal, m, &target["original_net"], &amount(&net))?;
     let family_slot = call!(shape::text, m, &p, "family_slot")?.to_owned();
     let families = call!(shape::array, m, &target, "families")?;
-    if !call!(meter::cmp, m, &families.len().into(), &1.into())?.is_eq() {
+    if !program.uses_component_lifecycle_recipe()
+        && !call!(meter::cmp, m, &families.len().into(), &1.into())?.is_eq()
+    {
         return Err(unsupported("multiple correction families"));
     }
     let target_family = call!(shape::named, m, families, "family_slot", &family_slot)?;
@@ -756,7 +764,7 @@ pub(super) fn execute<'inv, 'raw>(
         &json!(decision_id)
     )?;
     call!(equal, m, &target_family["window_terms"], &family["window"])?;
-    let (premium, discount) = call!(targets::maxima, m, family, &net)?;
+    let (premium, discount) = targets::maxima(program, m, family, &net)?;
     call!(
         equal,
         m,
@@ -769,7 +777,21 @@ pub(super) fn execute<'inv, 'raw>(
         &target_family["maximum_discount"],
         &amount(&discount)
     )?;
-    let head = &state.family_heads[0];
+    let head = if program.uses_component_lifecycle_recipe() {
+        let mut selected = None;
+        for head in &state.family_heads {
+            m.visit("Component correction exact family head")?;
+            if shape::same_ref(m, &head.target_ref, &target_ref)?
+                && shape::same_text(m, &head.family_slot, &family_slot)?
+                && selected.replace(head).is_some()
+            {
+                return Err(shape::fail("duplicate Component correction family head"));
+            }
+        }
+        selected.ok_or_else(|| shape::fail("Component correction family head absent"))?
+    } else {
+        &state.family_heads[0]
+    };
     if !call!(shape::same_ref, m, &head.target_ref, &target_ref)?
         || !call!(shape::same_text, m, &head.family_slot, &family_slot)?
     {
@@ -996,6 +1018,21 @@ pub(super) fn execute<'inv, 'raw>(
         (&work_ref, family),
         None,
     )?;
+    if program.uses_component_lifecycle_recipe() {
+        outcome::component_heads(
+            m,
+            &mut r,
+            c,
+            program,
+            outcome::ComponentHeadInputs {
+                work_ref: &work_ref,
+                binding: &operands.binding,
+                instantiation: &operands.instantiation,
+                state,
+                report: None,
+            },
+        )?;
+    }
     if let Some(report) = &report {
         super::declared_links::verify_report_original(
             m,
@@ -1071,14 +1108,14 @@ pub(super) fn execute<'inv, 'raw>(
     if !call!(shape::same_text, m, &link_ref.id, &link_id)? {
         return Err(shape::fail("original selected link identity"));
     }
-    let effect = outcome::original_family_effect_path(
+    let effect = super::declared_links::report_path_impl::effect(
         m,
         &c.key.scope,
         &target["agreement_id"],
         &root_slot,
         &work_claim_ref,
         &json!(family_slot),
-        (&link_ref, report.as_ref().map(|v| &v.link)),
+        (&link_ref, report.as_ref()),
     )?;
     let active = call!(
         verify_current,

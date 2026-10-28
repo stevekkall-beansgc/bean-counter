@@ -57,7 +57,22 @@ fn names(m: &mut CoreMeter, a: &AuditArena, strings: &[String]) -> Result<Audite
     array(m, a, &rows)
 }
 fn percent(m: &mut CoreMeter, a: &AuditArena, p: &Percent) -> Result<AuditedValue> {
-    object(m, a, &[("kind", &p.kind), ("percent", &p.percent)], &[])
+    object(
+        m,
+        a,
+        &[
+            ("kind", p.kind()),
+            (
+                if p.kind() == "percent" {
+                    "percent"
+                } else {
+                    "amount"
+                },
+                p.value(),
+            ),
+        ],
+        &[],
+    )
 }
 fn formula(m: &mut CoreMeter, a: &AuditArena, f: &Formula) -> Result<AuditedValue> {
     match f {
@@ -126,6 +141,29 @@ fn formula(m: &mut CoreMeter, a: &AuditArena, f: &Formula) -> Result<AuditedValu
                 object(m, a, &fields, &[])
             }
         }
+        Formula::Percent { basis, percent } => {
+            let basis = object(
+                m,
+                a,
+                &[
+                    ("component_key", &basis.component_key),
+                    ("view", &basis.view),
+                ],
+                &[],
+            )?;
+            object(
+                m,
+                a,
+                &[("kind", "percent"), ("percent", percent)],
+                &[("basis", basis.value())],
+            )
+        }
+        Formula::ObserveCost { evidence_slot } => object(
+            m,
+            a,
+            &[("kind", "observe_cost"), ("evidence_slot", evidence_slot)],
+            &[],
+        ),
         Formula::Discount {
             basis,
             mode,

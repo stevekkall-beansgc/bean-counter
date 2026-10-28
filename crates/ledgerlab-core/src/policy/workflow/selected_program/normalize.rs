@@ -301,10 +301,20 @@ pub(super) fn code_value(
                 },
                 m,
             )?;
-            let amount_kind = arena.string_value(&amount.kind, m)?;
-            let percent = arena.string_value(&amount.percent, m)?;
+            let amount_kind = arena.string_value(amount.kind(), m)?;
+            let percent = arena.string_value(amount.value(), m)?;
             let amount = arena.object_from_fields(
-                &[("kind", amount_kind.value()), ("percent", percent.value())],
+                &[
+                    ("kind", amount_kind.value()),
+                    (
+                        if amount.kind() == "percent" {
+                            "percent"
+                        } else {
+                            "amount"
+                        },
+                        percent.value(),
+                    ),
+                ],
                 m,
             )?;
             arena.object_from_fields(&[("kind", kind.value()), ("amount", amount.value())], m)?
@@ -410,7 +420,9 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
             }
             Formula::Fixed { amount } => decimal(m, amount)?,
             Formula::Unit { rate, .. } => decimal(m, rate)?,
-            Formula::Discount { amount, .. } => decimal(m, &mut amount.percent)?,
+            Formula::Percent { percent, .. } => decimal(m, percent)?,
+            Formula::Discount { amount, .. } => decimal(m, amount.value_mut())?,
+            Formula::ObserveCost { .. } => {}
             Formula::FinalCost {
                 multiplier,
                 markup,
@@ -500,7 +512,7 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
             match &mut c.effect {
                 Effect::None => {}
                 Effect::Premium { amount } | Effect::Discount { amount } => {
-                    decimal(m, &mut amount.percent)?
+                    decimal(m, amount.value_mut())?
                 }
             }
         }

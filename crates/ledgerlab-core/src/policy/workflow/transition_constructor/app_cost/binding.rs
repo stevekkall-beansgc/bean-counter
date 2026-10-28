@@ -77,7 +77,31 @@ pub(super) fn resolve_role(
     purpose: (EconomicMode, &str),
     dependent: Option<&Value>,
 ) -> Result<(ExactRef, authority::Terms, SourceSelection)> {
-    let (mode, source_slot) = purpose;
+    resolve_selected(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        (purpose, TermsSelection::Activity),
+        dependent,
+    )
+}
+#[derive(Clone, Copy)]
+enum TermsSelection {
+    Activity,
+    Observation,
+}
+fn resolve_selected(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    selection: ((EconomicMode, &str), TermsSelection),
+    dependent: Option<&Value>,
+) -> Result<(ExactRef, authority::Terms, SourceSelection)> {
+    let ((mode, source_slot), terms_selection) = selection;
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning app binding"))?;
@@ -121,7 +145,9 @@ pub(super) fn resolve_role(
     for field in ["agreement_id", "customer", "version"] {
         eq(m, &acceptance[field], &binding[field])?;
     }
-    if program.uses_stage_lifecycle_recipe() {
+    if program.uses_component_lifecycle_recipe() {
+        inventory::binding::validate_component(program, m, &binding, &acceptance)?;
+    } else if program.uses_stage_lifecycle_recipe() {
         inventory::binding::validate_stage(program, m, &binding, &acceptance)?;
     } else {
         inventory::binding::validate_app(m, &binding, &acceptance)?;
@@ -210,7 +236,29 @@ pub(super) fn resolve_role(
         "ledger-workflow-slot-instantiation/1",
     )?;
     let slots = shape::array(m, &binding, "bindings")?;
-    let selected_slot = if program.uses_stage_lifecycle_recipe() {
+    let observation_slot = match terms_selection {
+        TermsSelection::Activity => None,
+        TermsSelection::Observation => {
+            if !program.uses_component_lifecycle_recipe() || mode != EconomicMode::EvidenceRetain {
+                return Err(shape::fail("actual observation retention recipe"));
+            }
+            Some(
+                super::super::input_selection::component_observation_row(
+                    program,
+                    payload,
+                    &binding,
+                    source_slot,
+                    m,
+                )?
+                .ok_or_else(|| shape::fail("original observation formula nomination"))?,
+            )
+        }
+    };
+    let selected_slot = if let Some(row) = observation_slot {
+        row
+    } else if program.uses_component_lifecycle_recipe() {
+        super::super::input_selection::component_retail_row(program, payload, &binding, m)?
+    } else if program.uses_stage_lifecycle_recipe() {
         let policy = program.original_policy_value();
         let mut selected = None;
         for instruction in shape::array(
@@ -245,7 +293,9 @@ pub(super) fn resolve_role(
         }
         &slots[0]
     };
-    let schema = if program.uses_stage_lifecycle_recipe() {
+    let schema = if observation_slot.is_some() {
+        "ledger-workflow-observation-terms/1"
+    } else if program.uses_structural_binding_recipe() {
         "ledger-workflow-slot-binding-terms/3"
     } else if program.uses_app_cost_causal_recipe() {
         "ledger-workflow-slot-binding-terms/7"
@@ -543,6 +593,37 @@ pub(in crate::policy::workflow::transition_constructor) fn resolved(
 ) -> Result<authority::ResolvedOperands> {
     resolved_role(m, r, c, payload, program, (mode, None), selected_operands)
 }
+/// Observation retention uses the original observation slot, not an unrelated
+/// retail source-grant group even when both nominate the same source name.
+pub(in crate::policy::workflow::transition_constructor) fn resolved_observation(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    payload: &Value,
+    program: &SelectedProgram,
+    source_and_namespace: (&str, &str),
+) -> Result<authority::ResolvedOperands> {
+    let (slot, namespace) = source_and_namespace;
+    let mode = EconomicMode::EvidenceRetain;
+    let resolved = resolve_selected(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        ((mode, slot), TermsSelection::Observation),
+        None,
+    )?;
+    emit_resolved(
+        m,
+        r,
+        c,
+        payload,
+        program,
+        ((mode, None), (slot, &[], namespace)),
+        resolved,
+    )
+}
 pub(in crate::policy::workflow::transition_constructor) fn resolved_dependent(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -773,7 +854,7 @@ fn emit_resolved(
 /// the worker namespace or root actor for another principal. In the policy
 /// recipe a proof-only issuer is not a dependent monetary principal; its exact
 /// historical nomination/grant is checked by the field-proof consumers.
-fn future_source_shape(
+pub(in crate::policy::workflow::transition_constructor) fn future_source_shape(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -884,10 +965,41 @@ pub(in crate::policy::workflow::transition_constructor) fn stage_component(
     base: &authority::Terms,
     selected: (&Value, EconomicMode, &str),
 ) -> Result<authority::ResolvedOperands> {
-    let (payload, mode, binding_slot) = selected;
     if !program.uses_stage_lifecycle_recipe() {
         return Err(shape::fail("Stage component authority recipe"));
     }
+    structural_component(m, r, c, program, base, selected)
+}
+/// Separate original/current component correction authority. No primary role
+/// or family nomination can stand in for this component's exact Terms.
+pub(in crate::policy::workflow::transition_constructor) fn component_authority(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    base: &authority::Terms,
+    selected: (&Value, EconomicMode, &str),
+) -> Result<authority::ResolvedOperands> {
+    if !program.uses_component_lifecycle_recipe() {
+        return Err(shape::fail("component correction authority recipe"));
+    }
+    if !matches!(
+        selected.1,
+        EconomicMode::QuantityCorrect | EconomicMode::WorkReverse
+    ) {
+        return Err(shape::fail("component correction purpose"));
+    }
+    structural_component(m, r, c, program, base, selected)
+}
+fn structural_component(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    base: &authority::Terms,
+    selected: (&Value, EconomicMode, &str),
+) -> Result<authority::ResolvedOperands> {
+    let (payload, mode, binding_slot) = selected;
     let a = m
         .representation_arena()
         .ok_or_else(|| shape::fail("Stage component authority owner"))?;
@@ -898,7 +1010,17 @@ pub(in crate::policy::workflow::transition_constructor) fn stage_component(
     let definition = shape::named(m, definitions, "name", binding_slot)?;
     let book = shape::text(m, definition, "book")?;
     let supplier = shape::same_text(m, book, "supplier")?;
-    let schema = if supplier {
+    let observation =
+        program.uses_component_lifecycle_recipe() && shape::same_text(m, book, "cost_observation")?;
+    if program.uses_component_lifecycle_recipe()
+        && !observation
+        && !shape::same_text(m, book, "retail")?
+    {
+        return Err(shape::fail("component correction declared book"));
+    }
+    let schema = if observation {
+        "ledger-workflow-observation-terms/1"
+    } else if supplier {
         "ledger-workflow-slot-binding-terms/8"
     } else {
         "ledger-workflow-slot-binding-terms/3"
@@ -946,6 +1068,15 @@ pub(in crate::policy::workflow::transition_constructor) fn stage_component(
             &base.binding,
             &base.catalog,
             &base.instantiation,
+            &terms,
+            &role,
+        )?;
+    }
+    if program.uses_component_lifecycle_recipe() {
+        inventory::slots::validate_app_funding_projection(
+            m,
+            program,
+            &base.binding,
             &terms,
             &role,
         )?;

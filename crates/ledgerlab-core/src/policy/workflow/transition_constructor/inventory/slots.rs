@@ -237,7 +237,9 @@ fn validate_data(
         }
     }
     let terms_schema = shape::text(m, t, "schema")?;
-    let app = program.uses_app_owned_cost_recipe() && !program.uses_stage_lifecycle_recipe();
+    let app = program.uses_app_owned_cost_recipe() && !program.uses_structural_binding_recipe();
+    let observation = program.uses_component_lifecycle_recipe()
+        && shape::same_text(m, terms_schema, "ledger-workflow-observation-terms/1")?;
     let original_work_scope = if app {
         let expected = if program.uses_app_cost_causal_recipe() {
             "ledger-workflow-slot-binding-terms/7"
@@ -249,7 +251,7 @@ fn validate_data(
         }
         true
     } else {
-        shape::same_text(m, terms_schema, "ledger-workflow-slot-binding-terms/3")?
+        observation || shape::same_text(m, terms_schema, "ledger-workflow-slot-binding-terms/3")?
     };
     let mut required = vec![
         "schema",
@@ -277,7 +279,16 @@ fn validate_data(
     shape::closed(m, t, &required, &[])?;
     if original_work_scope {
         eq(m, t, "exposure_scope", &json!("original_work"))?;
-        eq(m, t, "book", &json!("retail"))?;
+        eq(
+            m,
+            t,
+            "book",
+            &json!(if observation {
+                "cost_observation"
+            } else {
+                "retail"
+            }),
+        )?;
     } else {
         eq(
             m,
@@ -483,7 +494,7 @@ fn validate_data(
     }
     invoke!(amount, m, &data_field!(m, &t, "exposure_ceiling"))?;
     let exposures = invoke!(shape::array, m, b, "exposure_ceilings")?;
-    if program.uses_stage_lifecycle_recipe() {
+    if program.uses_structural_binding_recipe() {
         bounds(m, exposures.len(), 1, 16)?;
         let mut selected = None;
         for row in exposures {
@@ -576,7 +587,8 @@ fn validate_causal_projection(
     // immutable correction nomination; they never mint an economic capability.
     let clauses = invoke!(shape::array, m, t, "causal_reversal_clauses")?;
     let schema = shape::text(m, t, "schema")?;
-    let minimum = if shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/3")?
+    let minimum = if shape::same_text(m, schema, "ledger-workflow-observation-terms/1")?
+        || shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/3")?
         || shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/6")?
         || shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/7")?
     {
@@ -739,6 +751,28 @@ pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_
     role: &Value,
 ) -> Result<()> {
     let funding = shape::array(m, binding, "funding_legs")?;
+    if program.uses_component_lifecycle_recipe() {
+        for leg in funding {
+            m.visit("component.original_funding_leg_usage")?;
+            funding_literal(m, leg, "mode", "customer_local")?;
+            for field in ["payer", "resource_owner"] {
+                shape::equal(m, &leg[field], &binding["customer"])?;
+            }
+            let mut used = false;
+            for slot in shape::array(m, program.original_policy_value(), "binding_slots")? {
+                if shape::same(m, &slot["funding_leg"], &leg["name"])? {
+                    used = true;
+                }
+            }
+            if !used || leg.get("supplier_binding_slot").is_some() {
+                return Err(shape::fail("component undeclared or supplier funding"));
+            }
+        }
+        shape::equal(m, &role["payer"], &binding["customer"])?;
+        let name = shape::text(m, slot_terms, "funding_leg")?;
+        shape::named(m, funding, "name", name)?;
+        return Ok(());
+    }
     let name = shape::text(m, slot_terms, "funding_leg")?;
     let retail = shape::named(m, funding, "name", name)?;
     funding_literal(m, retail, "mode", "customer_local")?;
