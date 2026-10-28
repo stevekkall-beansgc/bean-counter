@@ -375,21 +375,11 @@ fn supplier(
     let _ = program;
     Ok((terms, offer))
 }
-pub(super) fn authorize<'a>(
-    program: &SelectedProgram,
-    c: &'a DraftContextData,
-    mut p: WorkingValue,
-    inputs: &'a [EconomicRecordView<'a>],
-    state: &EconomicStateData<'a>,
-    m: &mut CoreMeter,
-) -> Result<Construction<'a, 'a>> {
-    if !program.uses_stage_lifecycle_recipe() {
-        return Err(shape::fail("exact Invocation recipe"));
-    }
-    inventory::entry::context_selected(m, c, program)?;
+/// Pure request normalization shared by forward and original intent paths.
+pub(super) fn normalize_authorization(m: &mut CoreMeter, p: &mut WorkingValue) -> Result<()> {
     shape::closed(
         m,
-        &p,
+        p,
         &[
             "schema",
             "agreement_id",
@@ -407,16 +397,50 @@ pub(super) fn authorize<'a>(
         ],
         &[],
     )?;
-    literal(m, &p, "schema", "ledger-workflow-invocation-authorize/1")?;
+    literal(m, p, "schema", "ledger-workflow-invocation-authorize/1")?;
     let a = arena(m)?;
     let scalar = super::super::facts::SignedScalar::parse_with_work(
-        shape::text(m, &p, "maximum_quantity")?,
+        shape::text(m, p, "maximum_quantity")?,
         18,
         m,
     )?;
     let normalized = a.string_value(scalar.as_str(), m)?;
     p.replace(m, "maximum_quantity", normalized.value())?;
     p.normalize_set(m, "evidence_refs", false)?;
+    Ok(())
+}
+
+pub(super) fn normalize_close(m: &mut CoreMeter, p: &mut WorkingValue) -> Result<()> {
+    shape::closed(
+        m,
+        p,
+        &[
+            "schema",
+            "invocation_ref",
+            "expected_revision",
+            "reason",
+            "evidence_refs",
+        ],
+        &[],
+    )?;
+    literal(m, p, "schema", "ledger-workflow-invocation-close/1")?;
+    p.normalize_set(m, "evidence_refs", false)
+}
+
+pub(super) fn authorize<'a>(
+    program: &SelectedProgram,
+    c: &'a DraftContextData,
+    mut p: WorkingValue,
+    inputs: &'a [EconomicRecordView<'a>],
+    state: &EconomicStateData<'a>,
+    m: &mut CoreMeter,
+) -> Result<Construction<'a, 'a>> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("exact Invocation recipe"));
+    }
+    inventory::entry::context_selected(m, c, program)?;
+    normalize_authorization(m, &mut p)?;
+    let a = arena(m)?;
     let evidence = shape::array(m, &p, "evidence_refs")?;
     if w::compare(m, evidence.len(), 1usize)?.is_lt()
         || w::compare(m, evidence.len(), 16usize)?.is_gt()
@@ -531,35 +555,7 @@ pub(super) fn embedded_authorize(
     }
     let a = arena(m)?;
     let mut p = WorkingValue::copy(m, input)?;
-    shape::closed(
-        m,
-        &p,
-        &[
-            "schema",
-            "agreement_id",
-            "binding_ref",
-            "business_operation_id",
-            "chain_id",
-            "activity",
-            "supplier_slot",
-            "source_slot",
-            "unit",
-            "maximum_quantity",
-            "maximum_exposure",
-            "start_before",
-            "evidence_refs",
-        ],
-        &[],
-    )?;
-    literal(m, &p, "schema", "ledger-workflow-invocation-authorize/1")?;
-    let scalar = super::super::facts::SignedScalar::parse_with_work(
-        shape::text(m, &p, "maximum_quantity")?,
-        18,
-        m,
-    )?;
-    let normalized = a.string_value(scalar.as_str(), m)?;
-    p.replace(m, "maximum_quantity", normalized.value())?;
-    p.normalize_set(m, "evidence_refs", false)?;
+    normalize_authorization(m, &mut p)?;
     let evidence = shape::array(m, &p, "evidence_refs")?;
     if evidence.is_empty() || w::compare(m, evidence.len(), 16usize)?.is_gt() {
         return Err(shape::fail("embedded Invocation evidence bound"));
@@ -1152,20 +1148,7 @@ pub(super) fn close<'a>(
         return Err(shape::fail("exact Invocation close recipe"));
     }
     inventory::entry::context_selected(m, c, program)?;
-    shape::closed(
-        m,
-        &p,
-        &[
-            "schema",
-            "invocation_ref",
-            "expected_revision",
-            "reason",
-            "evidence_refs",
-        ],
-        &[],
-    )?;
-    literal(m, &p, "schema", "ledger-workflow-invocation-close/1")?;
-    p.normalize_set(m, "evidence_refs", false)?;
+    normalize_close(m, &mut p)?;
     let a = arena(m)?;
     let selected = parse_owned_reference(m, &a, &p["invocation_ref"])?;
     let mut r =

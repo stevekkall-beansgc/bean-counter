@@ -157,7 +157,40 @@ fn normalized(
     if !shape::same_text(session.meter_mut(), old_schema, new_schema)? {
         return Err(conflict());
     }
-    if shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-work/1")?
+    if matches!(
+        old_schema,
+        "ledger-workflow-invocation-authorize/1"
+            | "ledger-workflow-invocation-close/1"
+            | "ledger-workflow-stage-authorize/1"
+            | "ledger-workflow-stage-close/1"
+    ) {
+        if !program.uses_stage_lifecycle_recipe() {
+            return Err(conflict());
+        }
+        let mut value =
+            super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
+        match old_schema {
+            "ledger-workflow-invocation-authorize/1" => {
+                super::invocation::normalize_authorization(session.meter_mut(), &mut value)?
+            }
+            "ledger-workflow-invocation-close/1" => {
+                super::invocation::normalize_close(session.meter_mut(), &mut value)?
+            }
+            "ledger-workflow-stage-authorize/1" => {
+                super::stage::normalize_authorization(session.meter_mut(), &mut value)?
+            }
+            "ledger-workflow-stage-close/1" => {
+                let old = shape::field(session.meter_mut(), original, "fact_schema_ref")?;
+                let new = shape::field(session.meter_mut(), &value, "fact_schema_ref")?;
+                if !shape::same(session.meter_mut(), old, new)? {
+                    return Err(conflict());
+                }
+                super::stage::normalize_close(program, session.meter_mut(), &mut value)?;
+            }
+            _ => unreachable!(),
+        }
+        *incoming = value.into_owned()?;
+    } else if shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-work/1")?
         || shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome/1")?
         || program.uses_declared_work_link_recipe()
             && shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-outcome/2")?
@@ -354,11 +387,23 @@ pub fn normalize_local_work_alias_intent(
         session.check_cancelled()?;
         program.require_attempt_owner(session.meter_mut())?;
         if !program.uses_shared_namespace_recipe() {
-            return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "exact shared Work alias recipe"));
+            return Err(Error::new(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "exact shared Work alias recipe",
+            ));
         }
-        let normalized = normalize_local_saved_intent(program, original_normalized_payload, incoming_raw, session)?;
-        let original = session.parse_representation(original_normalized_payload, RepresentationKind::OriginalRequest)?;
-        let mut incoming = session.parse_representation(normalized.bytes(), RepresentationKind::OriginalRequest)?;
+        let normalized = normalize_local_saved_intent(
+            program,
+            original_normalized_payload,
+            incoming_raw,
+            session,
+        )?;
+        let original = session.parse_representation(
+            original_normalized_payload,
+            RepresentationKind::OriginalRequest,
+        )?;
+        let mut incoming = session
+            .parse_representation(normalized.bytes(), RepresentationKind::OriginalRequest)?;
         for value in [original.value(), incoming.value()] {
             let schema = shape::text(session.meter_mut(), value, "schema")?;
             if !shape::same_text(session.meter_mut(), schema, "ledger-workflow-work/1")? {
@@ -366,13 +411,16 @@ pub fn normalize_local_work_alias_intent(
             }
             let event = shape::text(session.meter_mut(), value, "external_event_id")?;
             if !w::compare(session.meter_mut(), event.len(), 0usize)?.is_gt()
-                || w::compare(session.meter_mut(), event.len(), 128usize)?.is_gt() {
+                || w::compare(session.meter_mut(), event.len(), 128usize)?.is_gt()
+            {
                 return Err(shape::fail("alias transport event bound"));
             }
             session.meter_mut().scan_bytes(event.len())?;
             for ch in event.chars() {
                 session.meter_mut().visit("alias.transport_character")?;
-                if ch.is_control() { return Err(shape::fail("alias transport control character")); }
+                if ch.is_control() {
+                    return Err(shape::fail("alias transport control character"));
+                }
             }
         }
         let arena = session.arena().shared_handle();
@@ -381,7 +429,9 @@ pub fn normalize_local_work_alias_intent(
         incoming.replace_existing_owned("external_event_id", event, session.meter_mut())?;
         session.canonical_representation(incoming.value(), RepresentationKind::OriginalRequest)
     })();
-    if result.is_err() { session.invalidate(); }
+    if result.is_err() {
+        session.invalidate();
+    }
     result
 }
 
@@ -395,6 +445,178 @@ mod tests {
         },
     };
     use serde_json::json;
+    #[test]
+    fn stage_and_invocation_intents_share_forward_normalization_under_original_program() {
+        use super::super::working_value::WorkingValue;
+        use crate::policy::workflow::selected_program::compile_selected_publication;
+        let arena = AuditArena::new().unwrap();
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut compile)
+                .unwrap();
+        let source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-stage/source-platform-funding.json"
+        ))
+        .unwrap();
+        let mut documents = source["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+            .collect::<Vec<_>>();
+        documents.push(support.canonical_bytes().to_vec());
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents,
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            },
+            &support,
+            &mut compile,
+        )
+        .unwrap();
+        let reference = |name: &str| json!({"id":name,"kind":"workflow-source-grant","digest":format!("sha256:{}", "a".repeat(64))});
+        let auth = json!({"schema":"ledger-workflow-invocation-authorize/1","agreement_id":"stage-support","binding_ref":reference("binding"),"business_operation_id":"stage-member","chain_id":"stage-chain","activity":"support:prepare","supplier_slot":"support:supplier","source_slot":"support:worker","unit":"support:item","maximum_quantity":"1","maximum_exposure":{"atoms":"1000000000000000000","currency":"USD","scale":18},"start_before":"2099-01-01T00:00:00.000000Z","evidence_refs":[reference("a"),reference("z")]});
+        let declaration = json!({"schema":"ledger-workflow-stage-authorize/1","expected_chain_revision":"0","stage_instance":{"agreement_id":"stage-support","binding_ref":reference("binding"),"chain":"stage-chain","customer":"customer-stage","stage_name":"support:stage","authority_refs":[reference("a"),reference("z")],"expected":[{"template_input_key":"a","activity":"support:prepare","business_operation_id":"member-a","source":"worker","component_slots":["a","z"]},{"template_input_key":"z","activity":"support:prepare","business_operation_id":"member-z","source":"worker","component_slots":["a","z"]}]},"invocation_inputs":[auth.clone()]});
+        let close = json!({"schema":"ledger-workflow-invocation-close/1","invocation_ref":reference("invocation"),"expected_revision":"2","reason":"completed","evidence_refs":[reference("a"),reference("z")]});
+        let product = program
+            .source_documents()
+            .iter()
+            .find(|v| v.canonical_value()["schema"] == "ledger-workflow-product/1")
+            .unwrap()
+            .canonical_value();
+        let close_schema = &product["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == "support:close")
+            .unwrap()["fact_schema"];
+        let stage_close = json!({"schema":"ledger-workflow-stage-close/1","external_event_id":"close","business_operation_id":"stage-close","customer":"customer-stage","chain":"stage-chain","activity":"support:close","product_ref":reference("product"),"policy_ref":reference("policy"),"fact_schema_ref":close_schema,"binding_ref":reference("binding"),"facts":{"support:occurred":"2026-10-27T00:00:00.000000Z","support:success":true},"fact_proofs":[{"field":"a"},{"field":"z"}],"links":[reference("a"),reference("z")],"evidence_refs":[reference("a"),reference("z")],"occurred_at":"2026-10-27T00:00:00.000000Z","stage":"support:stage","stage_instance_ref":reference("stage")});
+        for original in [&auth, &close, &declaration, &stage_close] {
+            let mut forward = WorkingValue::copy(compile.meter_mut(), original).unwrap();
+            match original["schema"].as_str().unwrap() {
+                "ledger-workflow-invocation-authorize/1" => {
+                    super::super::invocation::normalize_authorization(
+                        compile.meter_mut(),
+                        &mut forward,
+                    )
+                    .unwrap()
+                }
+                "ledger-workflow-invocation-close/1" => {
+                    super::super::invocation::normalize_close(compile.meter_mut(), &mut forward)
+                        .unwrap()
+                }
+                "ledger-workflow-stage-authorize/1" => {
+                    super::super::stage::normalize_authorization(compile.meter_mut(), &mut forward)
+                        .unwrap()
+                }
+                _ => super::super::stage::normalize_close(
+                    &program,
+                    compile.meter_mut(),
+                    &mut forward,
+                )
+                .unwrap(),
+            }
+            let forward = forward.bytes(compile.meter_mut()).unwrap();
+            let mut incoming = original.clone();
+            if let Some(evidence) = incoming.get_mut("evidence_refs") {
+                evidence.as_array_mut().unwrap().reverse();
+            }
+            match incoming["schema"].as_str().unwrap() {
+                "ledger-workflow-invocation-authorize/1" => {
+                    incoming["maximum_quantity"] = json!("0001.000")
+                }
+                "ledger-workflow-stage-authorize/1" => {
+                    incoming["stage_instance"]["authority_refs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                    incoming["stage_instance"]["expected"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                    incoming["stage_instance"]["expected"][0]["component_slots"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                    incoming["invocation_inputs"][0]["maximum_quantity"] = json!("0001.000");
+                    incoming["invocation_inputs"][0]["evidence_refs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .reverse();
+                }
+                "ledger-workflow-stage-close/1" => {
+                    incoming["fact_proofs"].as_array_mut().unwrap().reverse();
+                    incoming["links"].as_array_mut().unwrap().reverse();
+                }
+                _ => {}
+            }
+            let raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let normalized =
+                normalize_local_saved_intent(&program, &forward[..], raw.as_slice(), &mut session)
+                    .unwrap();
+            assert_eq!(normalized.bytes(), &forward[..]);
+            // Substantive changes stay different; normalizing is not authority.
+            match incoming["schema"].as_str().unwrap() {
+                "ledger-workflow-invocation-authorize/1" => {
+                    incoming["maximum_quantity"] = json!("2")
+                }
+                "ledger-workflow-invocation-close/1" => incoming["expected_revision"] = json!("3"),
+                "ledger-workflow-stage-authorize/1" => {
+                    incoming["stage_instance"]["customer"] = json!("different-customer")
+                }
+                _ => incoming["facts"]["support:success"] = json!(false),
+            }
+            let raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_ne!(
+                normalize_local_saved_intent(&program, &forward[..], raw.as_slice(), &mut session)
+                    .unwrap()
+                    .bytes(),
+                &forward[..]
+            );
+        }
+        let mut duplicate = auth.clone();
+        duplicate["evidence_refs"] = json!([reference("a"), reference("a")]);
+        let raw = canonical::CanonicalBytes::from_value(&duplicate).unwrap();
+        let original = canonical::CanonicalBytes::from_value(&auth).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(normalize_local_saved_intent(
+            &program,
+            original.as_slice(),
+            raw.as_slice(),
+            &mut session
+        )
+        .is_err());
+        // A real non-Stage program retains its rejection of these four literals.
+        let legacy: Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
+        let mut meter = CoreMeter::for_compile(1_048_576).unwrap();
+        let legacy = compile_selected_program(
+            SelectedSourceInput {
+                documents: legacy["documents"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: serde_json::from_value(legacy["root_policy_ref"].clone()).unwrap(),
+            },
+            &SelectedCompilerSupport::builtin().unwrap(),
+            &mut meter,
+        )
+        .unwrap();
+        for original in [&auth, &close, &declaration, &stage_close] {
+            let raw = canonical::CanonicalBytes::from_value(original).unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_eq!(
+                normalize_saved_intent(&legacy, raw.as_slice(), raw.as_slice(), &mut session)
+                    .err()
+                    .unwrap()
+                    .code,
+                "IDENTITY_CONFLICT"
+            );
+        }
+    }
     #[test]
     fn retry_uses_original_schema_and_same_finished_child_owner_without_rerating() {
         let source:Value=canonical::parse(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();

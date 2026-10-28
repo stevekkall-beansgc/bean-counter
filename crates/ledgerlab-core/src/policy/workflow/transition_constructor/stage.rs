@@ -196,6 +196,73 @@ fn normalize_declaration(
     declaration.into_owned()
 }
 
+fn normalize_declaration_request(
+    m: &mut CoreMeter,
+    p: &mut super::working_value::WorkingValue,
+) -> Result<()> {
+    shape::closed(
+        m,
+        p,
+        &[
+            "schema",
+            "stage_instance",
+            "expected_chain_revision",
+            "invocation_inputs",
+        ],
+        &[],
+    )?;
+    same(m, p, "schema", "ledger-workflow-stage-authorize/1")?;
+    let declaration = normalize_declaration(m, &p["stage_instance"])?;
+    p.replace(m, "stage_instance", declaration.value())?;
+    Ok(())
+}
+
+/// SAME declaration and embedded-Invocation transforms as the forward producer.
+/// No state or authority lookup is performed.
+pub(super) fn normalize_authorization(
+    m: &mut CoreMeter,
+    p: &mut super::working_value::WorkingValue,
+) -> Result<()> {
+    normalize_declaration_request(m, p)?;
+    let a = arena(m)?;
+    let inputs = shape::array(m, p, "invocation_inputs")?;
+    let per =
+        mem::size_of::<crate::canonical::audit_arena::AuditedValue>() + mem::size_of::<&Value>();
+    w::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&inputs.len().into(), &per.into()],
+    )?;
+    let bytes = inputs
+        .len()
+        .checked_mul(per)
+        .ok_or_else(|| shape::fail("Stage normalization metadata"))?;
+    let bytes = w::usize_add(m, bytes, 2 * mem::size_of::<Vec<&Value>>())?;
+    let _owner = a.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(inputs.len())
+        .map_err(|_| shape::fail("Stage intent normalization allocation"))?;
+    for input in inputs {
+        m.visit("Stage.intent_embedded_Invocation")?;
+        let mut input = super::working_value::WorkingValue::copy(m, input)?;
+        super::invocation::normalize_authorization(m, &mut input)?;
+        values.push(input.into_owned()?);
+    }
+    let mut views = Vec::new();
+    views
+        .try_reserve_exact(values.len())
+        .map_err(|_| shape::fail("Stage intent views allocation"))?;
+    for value in &values {
+        m.visit("Stage.intent_embedded_view")?;
+        views.push(value.value());
+    }
+    let array = a.array_from_values(&views, m)?;
+    p.replace(m, "invocation_inputs", array.value())?;
+    p.normalize_set(m, "invocation_inputs", false)
+}
+
 pub(super) fn validate_zero_chain_pin(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -445,20 +512,7 @@ pub(super) fn authorize<'a>(
     }
     let a = arena(m)?;
     super::inventory::entry::context_selected(m, c, program)?;
-    shape::closed(
-        m,
-        &p,
-        &[
-            "schema",
-            "stage_instance",
-            "expected_chain_revision",
-            "invocation_inputs",
-        ],
-        &[],
-    )?;
-    same(m, &p, "schema", "ledger-workflow-stage-authorize/1")?;
-    let normalized_declaration = normalize_declaration(m, &p["stage_instance"])?;
-    p.replace(m, "stage_instance", normalized_declaration.value())?;
+    normalize_declaration_request(m, &mut p)?;
     let declaration = shape::field(m, &p, "stage_instance")?;
     shape::closed(
         m,
@@ -1491,6 +1545,7 @@ pub(super) fn work(
 
 #[path = "stage_close.rs"]
 mod close;
+pub(super) use close::normalize_request as normalize_close;
 
 pub(super) fn closure_claim_id(
     m: &mut CoreMeter,

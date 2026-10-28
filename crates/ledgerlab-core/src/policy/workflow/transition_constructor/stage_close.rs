@@ -480,21 +480,15 @@ fn state_started(
     Ok((current, current_ref))
 }
 
-pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
+/// Pure closed Stage-close request normalization under the selected original program.
+pub(in crate::policy::workflow::transition_constructor) fn normalize_request(
     program: &SelectedProgram,
-    c: &'a DraftContextData,
-    mut p: WorkingValue,
-    inputs: &'a [EconomicRecordView<'a>],
-    state: &EconomicStateData<'a>,
     m: &mut CoreMeter,
-) -> Result<Construction<'a, 'a>> {
-    if !program.uses_stage_lifecycle_recipe() {
-        return Err(shape::fail("exact Stage close recipe"));
-    }
-    tc::inventory::entry::context_selected(m, c, program)?;
+    p: &mut WorkingValue,
+) -> Result<()> {
     shape::closed(
         m,
-        &p,
+        p,
         &[
             "schema",
             "external_event_id",
@@ -516,7 +510,7 @@ pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
         ],
         &[],
     )?;
-    same(m, &p, "schema", "ledger-workflow-stage-close/1")?;
+    same(m, p, "schema", "ledger-workflow-stage-close/1")?;
     let a = arena(m)?;
     for field in [
         "external_event_id",
@@ -529,10 +523,37 @@ pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
     for field in ["links", "fact_proofs", "evidence_refs"] {
         p.normalize_set(m, field, false)?;
     }
-    let occurrence = shape::text(m, &p, "occurred_at")?;
+    let occurrence = shape::text(m, p, "occurred_at")?;
     let occurrence = Timestamp::parse_with_work(occurrence, m)?;
     let occurrence_value = a.string_value(occurrence.as_str(), m)?;
     p.replace(m, "occurred_at", occurrence_value.value())?;
+    let mut schema = None;
+    for (reference, definition) in program.fact_schemas() {
+        let value = tc::working_value::owning_definition(m, &a, reference)?;
+        if shape::same(m, value.value(), &p["fact_schema_ref"])? {
+            schema = Some(definition);
+        }
+    }
+    let schema = schema.ok_or_else(|| shape::fail("Stage closure original schema"))?;
+    let normalized = NormalizedInput::normalize(m, schema, &p["facts"])?;
+    p.replace(m, "facts", normalized.canonical_value())
+}
+
+pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
+    program: &SelectedProgram,
+    c: &'a DraftContextData,
+    mut p: WorkingValue,
+    inputs: &'a [EconomicRecordView<'a>],
+    state: &EconomicStateData<'a>,
+    m: &mut CoreMeter,
+) -> Result<Construction<'a, 'a>> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("exact Stage close recipe"));
+    }
+    tc::inventory::entry::context_selected(m, c, program)?;
+    normalize_request(program, m, &mut p)?;
+    let a = arena(m)?;
+    let occurrence = Timestamp::parse_with_work(shape::text(m, &p, "occurred_at")?, m)?;
     let mut r =
         Records::borrowed_selected(m, &a, &c.key, inputs, &c.source_observation_inputs, program)?;
     r.install_initial_source_outputs(m, state.initial_source_correspondences)?;
@@ -581,16 +602,6 @@ pub(in crate::policy::workflow::transition_constructor) fn produce<'a>(
     let activity_name = shape::text(m, &p, "activity")?;
     let activity = shape::named(m, activities, "activity", activity_name)?;
     shape::equal(m, &p["fact_schema_ref"], &activity["fact_schema_ref"])?;
-    let mut schema = None;
-    for (reference, definition) in program.fact_schemas() {
-        let value = tc::working_value::owning_definition(m, &a, reference)?;
-        if shape::same(m, value.value(), &p["fact_schema_ref"])? {
-            schema = Some(definition);
-        }
-    }
-    let schema = schema.ok_or_else(|| shape::fail("Stage closure original schema"))?;
-    let normalized = NormalizedInput::normalize(m, schema, &p["facts"])?;
-    p.replace(m, "facts", normalized.canonical_value())?;
     tc::fact_relations::facts(m, &mut r, &c.key, program, &p, &p["facts"], &c.accepted_at)?;
     let proof_request = tc::work_proofs::WorkProofRequest {
         payload: &p,
