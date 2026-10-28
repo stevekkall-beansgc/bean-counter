@@ -203,6 +203,7 @@ impl SqliteTx {
             "chain" => "workflow-chain-state",
             "capacity" => "workflow-correction-capacity",
             "invocation" => "workflow-invocation",
+            "stage" => "workflow-stage-state",
             "cost" | "cost_consumption" | "app_cost" => "workflow-cost",
             _ => return Err(StoreError::Integrity("financial head kind").into()),
         };
