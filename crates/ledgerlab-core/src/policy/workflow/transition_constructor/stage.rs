@@ -263,6 +263,47 @@ pub(super) fn normalize_authorization(
     p.normalize_set(m, "invocation_inputs", false)
 }
 
+fn validate_declaration_authority(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    instance: &Value,
+    state: &Value,
+) -> Result<()> {
+    let a = arena(m)?;
+    let name = shape::text(m, instance, "stage_name")?;
+    let def = definition(m, program, name)?;
+    let auth_ref = parse_owned_reference(m, &a, &state["authority_ref"])?;
+    let authority = r.get(
+        m,
+        &c.key,
+        auth_ref.reference(),
+        "workflow-economic-authority",
+        "ledger-workflow-stage-authority/1",
+    )?;
+    shape::equal(
+        m,
+        &authority["source_slot"],
+        &def["authorization_source_slot"],
+    )?;
+    shape::equal(m, &authority["source"], &state["operation_key"]["source"])?;
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &state["authority_ref"],
+        &authority["canonical_economic_namespace"],
+        Some(&authority["source"]),
+        (
+            "invocation.authorize",
+            &instance["binding_ref"],
+            &instance["declared_at"],
+        ),
+    )?;
+    Ok(())
+}
+
 pub(super) fn validate_zero_chain_pin(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -307,35 +348,7 @@ pub(super) fn validate_zero_chain_pin(
     if !shape::same_text(m, &expected, &state_ref.reference().id)? {
         return Err(shape::fail("zero-claim Stage declaration state identity"));
     }
-    let name = shape::text(m, &instance, "stage_name")?;
-    let def = definition(m, program, name)?;
-    let auth_ref = parse_owned_reference(m, &a, &state["authority_ref"])?;
-    let authority = r.get(
-        m,
-        &c.key,
-        auth_ref.reference(),
-        "workflow-economic-authority",
-        "ledger-workflow-stage-authority/1",
-    )?;
-    shape::equal(
-        m,
-        &authority["source_slot"],
-        &def["authorization_source_slot"],
-    )?;
-    shape::equal(m, &authority["source"], &chain["operation_key"]["source"])?;
-    super::authority::historical_namespace(
-        m,
-        r,
-        c,
-        &state["authority_ref"],
-        &authority["canonical_economic_namespace"],
-        Some(&authority["source"]),
-        (
-            "invocation.authorize",
-            &instance["binding_ref"],
-            &instance["declared_at"],
-        ),
-    )?;
+    validate_declaration_authority(m, r, c, program, &instance, &state)?;
     Ok(())
 }
 
@@ -1190,27 +1203,17 @@ pub fn select_stage_work_head_locator(
     result
 }
 
-pub(super) struct WorkTransition {
-    pub record: Option<ConstructedEnvelope>,
-    pub ownership: ExternalBufferLease,
-}
-/// Called only after the SAME Work interpreter has normalized facts, checked
-/// original/current Work authority and constructed its permanent Work/claim.
-pub(super) fn work(
+fn work_membership(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
     p: &Value,
-    selected: (&ExactRef, &ExactRef, &Value, &DraftStateData),
-) -> Result<Option<WorkTransition>> {
-    let Some(raw) = p.get("stage_instance_ref") else {
-        return Ok(None);
-    };
-    if !program.uses_stage_lifecycle_recipe() {
-        return Err(shape::fail("staged Work requires exact Stage recipe"));
-    }
-    let (work, authority, binding, state) = selected;
+    binding: &Value,
+    event: (&str, &str),
+) -> Result<(OwnedExactRef, super::record_body::RecordBody)> {
+    let (source, accepted_at) = event;
+    let raw = shape::field(m, p, "stage_instance_ref")?;
     let a = arena(m)?;
     let inst_ref = shape::reference(m, &binding["slot_instantiation_ref"])?;
     let inst = r.get(
@@ -1219,10 +1222,6 @@ pub(super) fn work(
         &inst_ref,
         "workflow-slot-instantiation",
         "ledger-workflow-slot-instantiation/1",
-    )?;
-    let ownership = a.reserve_external_payload(
-        2 * mem::size_of::<WorkTransition>() + mem::size_of::<ExactRef>() + 64 + 128 + 71 + 1024,
-        m,
     )?;
     let reference = parse_owned_reference(m, &a, raw)?;
     let instance = r.get(
@@ -1246,7 +1245,7 @@ pub(super) fn work(
         "verified_predecessor_occurred_at",
     )?;
     let declared = Timestamp::parse_with_work(shape::text(m, &instance, "declared_at")?, m)?;
-    let now = Timestamp::parse_with_work(&c.accepted_at, m)?;
+    let now = Timestamp::parse_with_work(accepted_at, m)?;
     if w::compare(m, declared.micros(), now.micros())?.is_gt() {
         return Err(shape::fail("Work before Stage declaration"));
     }
@@ -1295,7 +1294,7 @@ pub(super) fn work(
             m,
             &row["business_operation_id"],
             &p["business_operation_id"],
-        )? && shape::same_text(m, row_source, &c.key.source)?
+        )? && shape::same_text(m, row_source, source)?
         {
             if member.is_some() {
                 return Err(shape::fail("duplicate Stage business completion"));
@@ -1307,6 +1306,263 @@ pub(super) fn work(
     if member.is_none() {
         return Err(shape::fail("Work is not an expected Stage member"));
     }
+    Ok((reference, instance))
+}
+
+pub(super) fn validate_started(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    instance: (&ExactRef, &Value),
+    state: (&ExactRef, &Value),
+    accepted_at: &str,
+) -> Result<()> {
+    let (instance_ref, instance) = instance;
+    let (state_ref, started) = state;
+    let a = arena(m)?;
+    let instance_value = owning_reference(m, &a, instance_ref)?;
+    let name = shape::text(m, instance, "stage_name")?;
+    let def = definition(m, program, name)?;
+    let expected = shape::array(m, instance, "expected")?;
+    let declared = Timestamp::parse_with_work(shape::text(m, instance, "declared_at")?, m)?;
+    let now = Timestamp::parse_with_work(accepted_at, m)?;
+    same(m, started, "state", "started")?;
+    let identity = state_id(m, &c.key, instance_ref, &started["revision"])?;
+    if !shape::same_text(m, &identity, &state_ref.id)? {
+        return Err(shape::fail("Stage started state identity"));
+    }
+    shape::equal(m, &started["stage_instance_ref"], instance_value.value())?;
+    shape::closed(
+        m,
+        started,
+        &[
+            "schema",
+            "stage_instance_ref",
+            "revision",
+            "state",
+            "operation_key",
+            "authority_ref",
+            "accepted_at",
+            "prior_ref",
+            "first_work_ref",
+            "first_work_accepted_at",
+            "activation_deadline",
+        ],
+        &[],
+    )?;
+    same(m, started, "revision", "2")?;
+    // Preserve this immutable clock; later members do not emit a new state.
+    let first = shape::reference(m, &started["first_work_ref"])?;
+    let first = r.get(
+        m,
+        &c.key,
+        &first,
+        "workflow-work",
+        "ledger-workflow-work-record/1",
+    )?;
+    shape::equal(
+        m,
+        &first["payload"]["stage_instance_ref"],
+        instance_value.value(),
+    )?;
+    shape::equal(m, &first["accepted_at"], &started["first_work_accepted_at"])?;
+    shape::equal(m, &first["key"], &started["operation_key"])?;
+    shape::equal(m, &first["accepted_at"], &started["accepted_at"])?;
+    for field in ["customer", "chain", "binding_ref"] {
+        shape::equal(m, &first["payload"][field], &instance[field])?;
+    }
+    let first_source = shape::text(m, &first["key"], "source")?;
+    let mut matched = false;
+    for member in expected {
+        m.visit("stage.first_expected_work")?;
+        let source = shape::text(m, member, "source")?;
+        if shape::same_text(m, source, first_source)?
+            && shape::same(
+                m,
+                &member["business_operation_id"],
+                &first["payload"]["business_operation_id"],
+            )?
+        {
+            shape::equal(m, &member["activity"], &first["payload"]["activity"])?;
+            if matched {
+                return Err(shape::fail("ambiguous first Stage member"));
+            }
+            matched = true;
+        }
+    }
+    if !matched {
+        return Err(shape::fail("first Work outside fixed Stage membership"));
+    }
+    let claim_id = shape::text(m, &first, "claim_id")?;
+    let (claim_ref, claim) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-work-claim",
+        claim_id,
+        "ledger-workflow-work-claim/1",
+    )?;
+    super::inventory::entry::historical_work_claim(m, c, &claim_ref, &claim, &first)?;
+    let permanent = super::work_keys::decision(m, claim_id)?;
+    let permanent = a.string_value(&permanent, m)?;
+    let revision = a.string_value("1", m)?;
+    let tuple = a.array_from_values(&[permanent.value(), revision.value()], m)?;
+    let decision_id = body::semantic_id(m, "wdrev_", "workflow-decision-revision", tuple.value())?;
+    let (_, decision) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-decision",
+        &decision_id,
+        "ledger-workflow-decision-revision/1",
+    )?;
+    same(m, &decision, "kind", "work")?;
+    same(m, &decision, "transition", "initial")?;
+    same(m, &decision, "status", "active")?;
+    shape::equal(m, &decision["decision_id"], permanent.value())?;
+    shape::equal(m, &decision["original_terms_ref"], &instance["binding_ref"])?;
+    shape::equal(m, &decision["operation_key"], &first["key"])?;
+    shape::equal(m, &decision["subject_ref"], &started["first_work_ref"])?;
+    shape::equal(m, &decision["authority_ref"], &started["authority_ref"])?;
+    shape::equal(m, &decision["accepted_at"], &first["accepted_at"])?;
+    same(m, &decision, "revision", "1")?;
+    let initial_ref = shape::reference(m, &started["prior_ref"])?;
+    let initial = r.get(
+        m,
+        &c.key,
+        &initial_ref,
+        "workflow-stage-state",
+        "ledger-workflow-stage-state/1",
+    )?;
+    shape::closed(
+        m,
+        &initial,
+        &[
+            "schema",
+            "stage_instance_ref",
+            "revision",
+            "state",
+            "operation_key",
+            "authority_ref",
+            "accepted_at",
+        ],
+        &[],
+    )?;
+    same(m, &initial, "revision", "1")?;
+    same(m, &initial, "state", "declared")?;
+    shape::equal(m, &initial["stage_instance_ref"], instance_value.value())?;
+    shape::equal(m, &initial["accepted_at"], &instance["declared_at"])?;
+    let expected_initial = state_id(m, &c.key, instance_ref, &initial["revision"])?;
+    if !shape::same_text(m, &initial_ref.id, &expected_initial)? {
+        return Err(shape::fail("Stage original declared state identity"));
+    }
+    let first_at = Timestamp::parse_with_work(shape::text(m, &first, "accepted_at")?, m)?;
+    if w::compare(m, first_at.micros(), declared.micros())?.is_lt()
+        || w::compare(m, first_at.micros(), now.micros())?.is_gt()
+    {
+        return Err(shape::fail("Stage first Work chronological bound"));
+    }
+    let duration = shape::text(m, &def["window"], "activation_deadline_us")?;
+    let duration = super::arithmetic::integer(m, duration, false)?;
+    if super::meter::cmp(m, &duration, &0.into())?.is_lt() {
+        return Err(shape::fail("Stage activation duration"));
+    }
+    let deadline = super::meter::add(m, &first_at.micros().into(), &duration)?;
+    let raw = shape::text(m, started, "activation_deadline")?;
+    let actual = Timestamp::parse_with_work(raw, m)?;
+    if !super::meter::cmp(m, &deadline, &actual.micros().into())?.is_eq() {
+        return Err(shape::fail("Stage immutable original activation deadline"));
+    }
+    validate_declaration_authority(m, r, c, program, instance, &initial)?;
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &decision["authority_ref"],
+        &first["source_namespace"],
+        Some(&first["key"]["source"]),
+        (
+            "work.accept",
+            &first["payload"]["binding_ref"],
+            &first["accepted_at"],
+        ),
+    )?;
+    Ok(())
+}
+/// Historical membership and immutable first-Work clock, independent of today's head.
+pub(super) fn retained_work(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    work: &Value,
+    binding: &Value,
+) -> Result<()> {
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("retained staged Work recipe"));
+    }
+    let p = shape::field(m, work, "payload")?;
+    let at = shape::text(m, work, "accepted_at")?;
+    let source = shape::text(m, &work["key"], "source")?;
+    let (reference, instance) = work_membership(m, r, c, program, p, binding, (source, at))?;
+    let a = arena(m)?;
+    let two = a.string_value("2", m)?;
+    let identity = state_id(m, &c.key, reference.reference(), two.value())?;
+    let (state_ref, state) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-stage-state",
+        &identity,
+        "ledger-workflow-stage-state/1",
+    )?;
+    validate_started(
+        m,
+        r,
+        c,
+        program,
+        (reference.reference(), &instance),
+        (&state_ref, &state),
+        at,
+    )
+}
+
+pub(super) struct WorkTransition {
+    pub record: Option<ConstructedEnvelope>,
+    pub ownership: ExternalBufferLease,
+}
+/// Called only after the SAME Work interpreter has normalized facts, checked
+/// original/current Work authority and constructed its permanent Work/claim.
+pub(super) fn work(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    p: &Value,
+    selected: (&ExactRef, &ExactRef, &Value, &DraftStateData),
+) -> Result<Option<WorkTransition>> {
+    let Some(_) = p.get("stage_instance_ref") else {
+        return Ok(None);
+    };
+    if !program.uses_stage_lifecycle_recipe() {
+        return Err(shape::fail("staged Work requires exact Stage recipe"));
+    }
+    let (work, authority, binding, state) = selected;
+    let a = arena(m)?;
+    let ownership = a.reserve_external_payload(
+        2 * mem::size_of::<WorkTransition>() + mem::size_of::<ExactRef>() + 64 + 128 + 71 + 1024,
+        m,
+    )?;
+    let (reference, instance) = work_membership(
+        m,
+        r,
+        c,
+        program,
+        p,
+        binding,
+        (&c.key.source, &c.accepted_at),
+    )?;
+    let name = shape::text(m, &instance, "stage_name")?;
+    let def = definition(m, program, name)?;
+    let now = Timestamp::parse_with_work(&c.accepted_at, m)?;
     let mut head = None;
     let agreement = shape::text(m, &instance, "agreement_id")?;
     let chain = shape::text(m, &instance, "chain")?;
@@ -1339,140 +1595,15 @@ pub(super) fn work(
     }
     let status = shape::text(m, &old, "state")?;
     if shape::same_text(m, status, "started")? {
-        shape::closed(
+        validate_started(
             m,
-            &old,
-            &[
-                "schema",
-                "stage_instance_ref",
-                "revision",
-                "state",
-                "operation_key",
-                "authority_ref",
-                "accepted_at",
-                "prior_ref",
-                "first_work_ref",
-                "first_work_accepted_at",
-                "activation_deadline",
-            ],
-            &[],
+            r,
+            c,
+            program,
+            (reference.reference(), &instance),
+            (&head.reference, &old),
+            &c.accepted_at,
         )?;
-        same(m, &old, "revision", "2")?;
-        // Preserve this immutable clock; later members do not emit a new state.
-        let first = shape::reference(m, &old["first_work_ref"])?;
-        let first = r.get(
-            m,
-            &c.key,
-            &first,
-            "workflow-work",
-            "ledger-workflow-work-record/1",
-        )?;
-        shape::equal(
-            m,
-            &first["payload"]["stage_instance_ref"],
-            instance_value.value(),
-        )?;
-        shape::equal(m, &first["accepted_at"], &old["first_work_accepted_at"])?;
-        shape::equal(m, &first["key"], &old["operation_key"])?;
-        shape::equal(m, &first["accepted_at"], &old["accepted_at"])?;
-        for field in ["customer", "chain", "binding_ref"] {
-            shape::equal(m, &first["payload"][field], &instance[field])?;
-        }
-        let first_source = shape::text(m, &first["key"], "source")?;
-        let mut matched = false;
-        for member in expected {
-            m.visit("stage.first_expected_work")?;
-            let source = shape::text(m, member, "source")?;
-            if shape::same_text(m, source, first_source)?
-                && shape::same(
-                    m,
-                    &member["business_operation_id"],
-                    &first["payload"]["business_operation_id"],
-                )?
-            {
-                shape::equal(m, &member["activity"], &first["payload"]["activity"])?;
-                if matched {
-                    return Err(shape::fail("ambiguous first Stage member"));
-                }
-                matched = true;
-            }
-        }
-        if !matched {
-            return Err(shape::fail("first Work outside fixed Stage membership"));
-        }
-        let claim_id = shape::text(m, &first, "claim_id")?;
-        let (claim_ref, claim) = r.by_identity(
-            m,
-            &c.key,
-            "workflow-work-claim",
-            claim_id,
-            "ledger-workflow-work-claim/1",
-        )?;
-        super::inventory::entry::historical_work_claim(m, c, &claim_ref, &claim, &first)?;
-        let permanent = super::work_keys::decision(m, claim_id)?;
-        let permanent = a.string_value(&permanent, m)?;
-        let revision = a.string_value("1", m)?;
-        let tuple = a.array_from_values(&[permanent.value(), revision.value()], m)?;
-        let decision_id =
-            body::semantic_id(m, "wdrev_", "workflow-decision-revision", tuple.value())?;
-        let (_, decision) = r.by_identity(
-            m,
-            &c.key,
-            "workflow-decision",
-            &decision_id,
-            "ledger-workflow-decision-revision/1",
-        )?;
-        shape::equal(m, &decision["subject_ref"], &old["first_work_ref"])?;
-        shape::equal(m, &decision["authority_ref"], &old["authority_ref"])?;
-        shape::equal(m, &decision["accepted_at"], &first["accepted_at"])?;
-        same(m, &decision, "revision", "1")?;
-        let initial_ref = shape::reference(m, &old["prior_ref"])?;
-        let initial = r.get(
-            m,
-            &c.key,
-            &initial_ref,
-            "workflow-stage-state",
-            "ledger-workflow-stage-state/1",
-        )?;
-        shape::closed(
-            m,
-            &initial,
-            &[
-                "schema",
-                "stage_instance_ref",
-                "revision",
-                "state",
-                "operation_key",
-                "authority_ref",
-                "accepted_at",
-            ],
-            &[],
-        )?;
-        same(m, &initial, "revision", "1")?;
-        same(m, &initial, "state", "declared")?;
-        shape::equal(m, &initial["stage_instance_ref"], instance_value.value())?;
-        shape::equal(m, &initial["accepted_at"], &instance["declared_at"])?;
-        let expected_initial = state_id(m, &c.key, reference.reference(), &initial["revision"])?;
-        if !shape::same_text(m, &initial_ref.id, &expected_initial)? {
-            return Err(shape::fail("Stage original declared state identity"));
-        }
-        let first_at = Timestamp::parse_with_work(shape::text(m, &first, "accepted_at")?, m)?;
-        if w::compare(m, first_at.micros(), declared.micros())?.is_lt()
-            || w::compare(m, first_at.micros(), now.micros())?.is_gt()
-        {
-            return Err(shape::fail("Stage first Work chronological bound"));
-        }
-        let duration = shape::text(m, &def["window"], "activation_deadline_us")?;
-        let duration = super::arithmetic::integer(m, duration, false)?;
-        if super::meter::cmp(m, &duration, &0.into())?.is_lt() {
-            return Err(shape::fail("Stage activation duration"));
-        }
-        let deadline = super::meter::add(m, &first_at.micros().into(), &duration)?;
-        let raw = shape::text(m, &old, "activation_deadline")?;
-        let actual = Timestamp::parse_with_work(raw, m)?;
-        if !super::meter::cmp(m, &deadline, &actual.micros().into())?.is_eq() {
-            return Err(shape::fail("Stage immutable original activation deadline"));
-        }
         return Ok(None);
     }
     if !shape::same_text(m, status, "declared")? {

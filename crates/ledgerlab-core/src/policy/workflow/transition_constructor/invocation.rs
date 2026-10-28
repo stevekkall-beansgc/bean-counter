@@ -876,6 +876,178 @@ pub(super) fn reference_for_work(
     )?;
     Ok(())
 }
+fn validate_work_original(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: (&Value, &Value),
+    original: (&ExactRef, &Value),
+    event: (&str, &str, &str),
+) -> Result<()> {
+    let (p, binding) = selected;
+    let (reference, original) = original;
+    let (source, namespace, accepted_at) = event;
+    let work_at = Timestamp::parse_with_work(accepted_at, m)?.micros();
+    closed(m, original)?;
+    literal(m, original, "revision", "1")?;
+    literal(m, original, "state", "authorized")?;
+    literal(m, original, "invocation_id", &reference.id)?;
+    if original.get("prior_ref").is_some() {
+        return Err(shape::fail("Work Invocation original predecessor"));
+    }
+    for (field, value) in [
+        ("original_binding_ref", &p["binding_ref"]),
+        ("customer", &p["customer"]),
+        ("business_operation_id", &p["business_operation_id"]),
+        ("activity", &p["activity"]),
+        ("chain_id", &p["chain"]),
+        ("agreement_id", &binding["agreement_id"]),
+    ] {
+        shape::equal(m, &original[field], value)?;
+    }
+    literal(m, original, "source", source)?;
+    literal(m, original, "source_namespace", namespace)?;
+    let at = time(m, original, "authorized_at")?;
+    let end = time(m, original, "start_before")?;
+    if w::compare(m, work_at, at)?.is_lt() || !w::compare(m, work_at, end)?.is_lt() {
+        return Err(shape::fail(
+            "Work outside original Invocation start interval",
+        ));
+    }
+    super::authority::historical_namespace(
+        m,
+        r,
+        c,
+        &original["original_authority_ref"],
+        &original["source_namespace"],
+        Some(&original["source"]),
+        (
+            "invocation.authorize",
+            &original["original_binding_ref"],
+            &original["authorized_at"],
+        ),
+    )?;
+    reference_for_work(
+        m,
+        r,
+        &c.key,
+        program,
+        p,
+        binding,
+        (reference, source, accepted_at),
+    )?;
+    let terms = load(
+        m,
+        r,
+        c,
+        &original["supplier_terms_ref"],
+        "workflow-slot-terms",
+        "ledger-workflow-slot-binding-terms/8",
+    )?;
+    let offer = load(
+        m,
+        r,
+        c,
+        &original["offer_ref"],
+        "workflow-offer",
+        "ledger-workflow-offer/4",
+    )?;
+    let field = quantity_field(m, &terms, &offer, original)?;
+    let raw_quantity = shape::text(m, &p["facts"], field)?;
+    let quantity = arithmetic::decimal(m, raw_quantity)?;
+    ratio_bound(m, &quantity, &original["maximum_quantity"])?;
+    let rows = shape::array(m, binding, "bindings")?;
+    let slot = shape::text(m, original, "supplier_slot")?;
+    let row = shape::named(m, rows, "slot", slot)?;
+    shape::equal(m, &row["binding_ref"], &original["supplier_terms_ref"])?;
+    shape::equal(m, &terms["offer_ref"], &original["offer_ref"])?;
+    for field in [
+        "cost_authority_ref",
+        "provider_account_identity",
+        "role_ref",
+        "funding_leg",
+    ] {
+        shape::equal(m, &terms[field], &original[field])?;
+    }
+    Ok(())
+}
+fn completed_work_value(
+    m: &mut CoreMeter,
+    original: &Value,
+    prior: &Value,
+    key: &Value,
+) -> Result<WorkingValue> {
+    let a = arena(m)?;
+    let revision = a.string_value("2", m)?;
+    let completed = a.string_value("completed", m)?;
+    let value = WorkingValue::copy(m, original)?.with_fields(
+        m,
+        &[
+            ("revision", revision.value()),
+            ("state", completed.value()),
+            ("prior_ref", prior),
+            ("operation_key", key),
+        ],
+    )?;
+    closed(m, &value)?;
+    Ok(value)
+}
+/// Reconstruct the Work-owned transition from its immutable original authorization.
+/// No current head is selected and no transition is returned for append.
+pub(super) fn retained_work(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    work: &Value,
+    binding: &Value,
+) -> Result<()> {
+    let p = shape::field(m, work, "payload")?;
+    let refs = shape::array(m, p, "invocation_refs")?;
+    if !program.uses_stage_lifecycle_recipe() || w::compare(m, refs.len(), 16usize)?.is_gt() {
+        return Err(shape::fail("retained Work Invocation recipe/count"));
+    }
+    let a = arena(m)?;
+    let source = shape::text(m, &work["key"], "source")?;
+    let namespace = shape::text(m, work, "source_namespace")?;
+    let accepted_at = shape::text(m, work, "accepted_at")?;
+    for raw in refs {
+        m.visit("Work.retained_original_Invocation")?;
+        let reference = parse_owned_reference(m, &a, raw)?;
+        let original = r.get(
+            m,
+            &c.key,
+            reference.reference(),
+            "workflow-invocation",
+            "ledger-workflow-invocation/1",
+        )?;
+        validate_work_original(
+            m,
+            r,
+            c,
+            program,
+            (p, binding),
+            (reference.reference(), &original),
+            (source, namespace, accepted_at),
+        )?;
+        let _owner =
+            a.reserve_external_payload(mem::size_of::<ConstructedEnvelope>() + 64 + 128 + 71, m)?;
+        let value = completed_work_value(m, &original, raw, &work["key"])?;
+        let id = text(m, &reference.reference().id)?;
+        let expected = body::record_borrowed(m, &c.key, "workflow-invocation", id, &value)?;
+        let stored = r.get(
+            m,
+            &c.key,
+            &expected.reference,
+            "workflow-invocation",
+            "ledger-workflow-invocation/1",
+        )?;
+        shape::equal(m, &stored, &value)?;
+    }
+    Ok(())
+}
+
 pub(super) struct WorkInvocations {
     pub records: Vec<ConstructedEnvelope>,
     pub ownership: ExternalBufferLease,
@@ -918,7 +1090,6 @@ pub(super) fn consume_work(
     outputs
         .try_reserve_exact(refs.len())
         .map_err(|_| shape::fail("Work Invocation allocation"))?;
-    let work_at = Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
     for reference in refs {
         m.visit("Work.actual_original_Invocation")?;
         let reference = parse_owned_reference(m, &a, reference)?;
@@ -929,48 +1100,17 @@ pub(super) fn consume_work(
             "workflow-invocation",
             "ledger-workflow-invocation/1",
         )?;
-        closed(m, &original)?;
-        literal(m, &original, "revision", "1")?;
-        literal(m, &original, "state", "authorized")?;
-        literal(m, &original, "invocation_id", &reference.reference().id)?;
-        if original.get("prior_ref").is_some() {
-            return Err(shape::fail("Work Invocation original predecessor"));
-        }
-        for (field, value) in [
-            ("original_binding_ref", &p["binding_ref"]),
-            ("customer", &p["customer"]),
-            ("business_operation_id", &p["business_operation_id"]),
-            ("activity", &p["activity"]),
-            ("chain_id", &p["chain"]),
-            ("agreement_id", &binding["agreement_id"]),
-        ] {
-            shape::equal(m, &original[field], value)?;
-        }
-        literal(m, &original, "source", &c.key.source)?;
-        literal(
-            m,
-            &original,
-            "source_namespace",
-            &c.canonical_economic_namespace,
-        )?;
-        let at = time(m, &original, "authorized_at")?;
-        let end = time(m, &original, "start_before")?;
-        if w::compare(m, work_at, at)?.is_lt() || !w::compare(m, work_at, end)?.is_lt() {
-            return Err(shape::fail(
-                "Work outside original Invocation start interval",
-            ));
-        }
-        super::authority::historical_namespace(
+        validate_work_original(
             m,
             r,
             c,
-            &original["original_authority_ref"],
-            &original["source_namespace"],
-            Some(&original["source"]),
+            program,
+            (p, binding),
+            (reference.reference(), &original),
             (
-                "invocation.authorize",
-                &original["original_binding_ref"],
-                &original["authorized_at"],
+                &c.key.source,
+                &c.canonical_economic_namespace,
+                &c.accepted_at,
             ),
         )?;
         let mut head = None;
@@ -1001,40 +1141,9 @@ pub(super) fn consume_work(
         {
             return Err(shape::fail("Work Invocation start already consumed"));
         }
-        let terms = load(
-            m,
-            r,
-            c,
-            &original["supplier_terms_ref"],
-            "workflow-slot-terms",
-            "ledger-workflow-slot-binding-terms/8",
-        )?;
-        let offer = load(
-            m,
-            r,
-            c,
-            &original["offer_ref"],
-            "workflow-offer",
-            "ledger-workflow-offer/4",
-        )?;
-        let field = quantity_field(m, &terms, &offer, &original)?;
-        let raw_quantity = shape::text(m, &p["facts"], field)?;
-        let quantity = arithmetic::decimal(m, raw_quantity)?;
-        ratio_bound(m, &quantity, &original["maximum_quantity"])?;
-        let revision = a.string_value("2", m)?;
-        let completed = a.string_value("completed", m)?;
         let prior = owning_reference(m, &a, &head.reference)?;
         let key = super::cost_postings::operation_key(m, &a, c)?;
-        let value = WorkingValue::copy(m, &current)?.with_fields(
-            m,
-            &[
-                ("revision", revision.value()),
-                ("state", completed.value()),
-                ("prior_ref", prior.value()),
-                ("operation_key", key.value()),
-            ],
-        )?;
-        closed(m, &value)?;
+        let value = completed_work_value(m, &current, prior.value(), key.value())?;
         let id = text(m, &head.invocation_id)?;
         outputs.push(body::record_borrowed(
             m,
@@ -1809,5 +1918,59 @@ mod tests {
         assert!(quantity_field(m, &terms, &offer, &input).is_err());
         let empty = json!({"quantity_ceilings":[]});
         assert!(quantity_field(m, &empty, &offer, &input).is_err());
+    }
+    #[test]
+    fn retained_work_invocation_reconstructs_exact_original_completed_revision() {
+        let a = AuditArena::new().unwrap();
+        let mut s =
+            crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let m = s.meter_mut();
+        // Retained DATA from the copied62 producer map. This checks the shared
+        // body/identity kernel, not producer custody or authority admission.
+        let original: Value = serde_json::from_str(r#"{"activity":"support:prepare","agreement_id":"stage-support-linked","authorized":{"atoms":"1000000000000000000","currency":"USD","scale":18},"authorized_at":"2026-10-28T06:56:47.155779Z","business_operation_id":"stage-member","chain_id":"stage-chain","consumed":{"atoms":"0","currency":"USD","scale":18},"cost_authority_ref":{"digest":"sha256:7330f569956eb42e190b80743187eb7efc0ad43f955e164be4e3253b1a53cd0a","id":"wdoc_7330f569956eb42e190b80743187eb7efc0ad43f955e164be4e3253b1a53cd0a","kind":"workflow-authority"},"cost_consumption_refs":[],"customer":"customer-stage","funding_leg":"support:provider","held":{"atoms":"1000000000000000000","currency":"USD","scale":18},"invocation_id":"winv_885561b702aed96c06f299d044d1944075a5c22cc0d026f45278252de752276b","maximum_quantity":"1","offer_ref":{"digest":"sha256:980fe9424a1d9baf92f8b592340186b9116336455b850de02e56e80f3ba58dc8","id":"wdoc_980fe9424a1d9baf92f8b592340186b9116336455b850de02e56e80f3ba58dc8","kind":"workflow-offer"},"operation_key":{"logical_store_id":"workflow-example-516434c1b51dd682","operation_id":"stage-linked-stage-authorize","scope":["example-company","local"],"source":"urn:example:stage-admin"},"original_authority_ref":{"digest":"sha256:fee6266527d1ba6a5cdaa9b7dca406b61e368ecab5f7c4c6bb85e54932b4f37e","id":"wdoc_fee6266527d1ba6a5cdaa9b7dca406b61e368ecab5f7c4c6bb85e54932b4f37e","kind":"workflow-economic-authority"},"original_binding_ref":{"digest":"sha256:530e179fce61cc1c5aa37377bacff88595b83aea28aa2f7619c2ba36435c90f2","id":"wdoc_530e179fce61cc1c5aa37377bacff88595b83aea28aa2f7619c2ba36435c90f2","kind":"workflow-binding"},"other_consumed":{"atoms":"0","currency":"USD","scale":18},"provider_account_identity":{"environment":"synthetic","provider_account_id":"example-stage-account","provider_namespace":"synthetic-provider"},"released":{"atoms":"0","currency":"USD","scale":18},"revision":"1","role_ref":{"digest":"sha256:3bb8fb086f5adef8ca4b5be5e3242b4843e5414f987f14fb5e28056721cf845f","id":"wdoc_3bb8fb086f5adef8ca4b5be5e3242b4843e5414f987f14fb5e28056721cf845f","kind":"workflow-roles"},"schema":"ledger-workflow-invocation/1","source":"urn:example:stage-worker","source_namespace":"urn:example:stage-worker","source_slot":"support:worker","start_before":"2099-01-01T00:00:00.000000Z","state":"authorized","supplier_slot":"support:supplier","supplier_terms_ref":{"digest":"sha256:ea4aff2fa8edf23c4d22fec91ced540b5d48fafa7ecaba0c7ed3c624d103f076","id":"wdoc_ea4aff2fa8edf23c4d22fec91ced540b5d48fafa7ecaba0c7ed3c624d103f076","kind":"workflow-slot-terms"},"unit":"support:item"}"#).unwrap();
+        let prior: Value = serde_json::from_str(r#"{"digest":"sha256:12cea553990d432618f1e73d2ac12dd7837d2e808173bba9c33ccdb3c51e63dd","id":"winv_885561b702aed96c06f299d044d1944075a5c22cc0d026f45278252de752276b","kind":"workflow-invocation"}"#).unwrap();
+        let key: Value = serde_json::from_str(r#"{"logical_store_id":"workflow-example-516434c1b51dd682","operation_id":"stage-linked-member-work","scope":["example-company","local"],"source":"urn:example:stage-worker"}"#).unwrap();
+        let expected_body: Value = serde_json::from_str(r#"{"activity":"support:prepare","agreement_id":"stage-support-linked","authorized":{"atoms":"1000000000000000000","currency":"USD","scale":18},"authorized_at":"2026-10-28T06:56:47.155779Z","business_operation_id":"stage-member","chain_id":"stage-chain","consumed":{"atoms":"0","currency":"USD","scale":18},"cost_authority_ref":{"digest":"sha256:7330f569956eb42e190b80743187eb7efc0ad43f955e164be4e3253b1a53cd0a","id":"wdoc_7330f569956eb42e190b80743187eb7efc0ad43f955e164be4e3253b1a53cd0a","kind":"workflow-authority"},"cost_consumption_refs":[],"customer":"customer-stage","funding_leg":"support:provider","held":{"atoms":"1000000000000000000","currency":"USD","scale":18},"invocation_id":"winv_885561b702aed96c06f299d044d1944075a5c22cc0d026f45278252de752276b","maximum_quantity":"1","offer_ref":{"digest":"sha256:980fe9424a1d9baf92f8b592340186b9116336455b850de02e56e80f3ba58dc8","id":"wdoc_980fe9424a1d9baf92f8b592340186b9116336455b850de02e56e80f3ba58dc8","kind":"workflow-offer"},"operation_key":{"logical_store_id":"workflow-example-516434c1b51dd682","operation_id":"stage-linked-member-work","scope":["example-company","local"],"source":"urn:example:stage-worker"},"original_authority_ref":{"digest":"sha256:fee6266527d1ba6a5cdaa9b7dca406b61e368ecab5f7c4c6bb85e54932b4f37e","id":"wdoc_fee6266527d1ba6a5cdaa9b7dca406b61e368ecab5f7c4c6bb85e54932b4f37e","kind":"workflow-economic-authority"},"original_binding_ref":{"digest":"sha256:530e179fce61cc1c5aa37377bacff88595b83aea28aa2f7619c2ba36435c90f2","id":"wdoc_530e179fce61cc1c5aa37377bacff88595b83aea28aa2f7619c2ba36435c90f2","kind":"workflow-binding"},"other_consumed":{"atoms":"0","currency":"USD","scale":18},"prior_ref":{"digest":"sha256:12cea553990d432618f1e73d2ac12dd7837d2e808173bba9c33ccdb3c51e63dd","id":"winv_885561b702aed96c06f299d044d1944075a5c22cc0d026f45278252de752276b","kind":"workflow-invocation"},"provider_account_identity":{"environment":"synthetic","provider_account_id":"example-stage-account","provider_namespace":"synthetic-provider"},"released":{"atoms":"0","currency":"USD","scale":18},"revision":"2","role_ref":{"digest":"sha256:3bb8fb086f5adef8ca4b5be5e3242b4843e5414f987f14fb5e28056721cf845f","id":"wdoc_3bb8fb086f5adef8ca4b5be5e3242b4843e5414f987f14fb5e28056721cf845f","kind":"workflow-roles"},"schema":"ledger-workflow-invocation/1","source":"urn:example:stage-worker","source_namespace":"urn:example:stage-worker","source_slot":"support:worker","start_before":"2099-01-01T00:00:00.000000Z","state":"completed","supplier_slot":"support:supplier","supplier_terms_ref":{"digest":"sha256:ea4aff2fa8edf23c4d22fec91ced540b5d48fafa7ecaba0c7ed3c624d103f076","id":"wdoc_ea4aff2fa8edf23c4d22fec91ced540b5d48fafa7ecaba0c7ed3c624d103f076","kind":"workflow-slot-terms"},"unit":"support:item"}"#).unwrap();
+        let expected_ref: ExactRef = serde_json::from_str(r#"{"digest":"sha256:76fc354bc7e94ac90b8b8b9ebb730f2e24d9370589a7c54861c8926ca20e36fa","id":"winv_885561b702aed96c06f299d044d1944075a5c22cc0d026f45278252de752276b","kind":"workflow-invocation"}"#).unwrap();
+        let operation: OperationKey = serde_json::from_value(key.clone()).unwrap();
+        let value = completed_work_value(m, &original, &prior, &key).unwrap();
+        assert_eq!(&*value, &expected_body);
+        for field in [
+            "authorized",
+            "consumed",
+            "held",
+            "released",
+            "other_consumed",
+            "cost_consumption_refs",
+        ] {
+            assert_eq!(value[field], original[field]);
+        }
+        let record = body::record_borrowed(
+            m,
+            &operation,
+            "workflow-invocation",
+            expected_ref.id.clone(),
+            &value,
+        )
+        .unwrap();
+        assert!(shape::same_ref(m, &record.reference, &expected_ref).unwrap());
+        // The stable ID alone cannot select this historical revision: another
+        // operation's identical transition has a different immutable fullRef.
+        let mut wrong_key = key.clone();
+        wrong_key["operation_id"] = json!("later-close");
+        let wrong = completed_work_value(m, &original, &prior, &wrong_key).unwrap();
+        let wrong = body::record_borrowed(
+            m,
+            &operation,
+            "workflow-invocation",
+            expected_ref.id.clone(),
+            &wrong,
+        )
+        .unwrap();
+        assert_eq!(wrong.reference.id, expected_ref.id);
+        assert!(!shape::same_ref(m, &wrong.reference, &expected_ref).unwrap());
+        let mut invalid = original.clone();
+        invalid["held"]["atoms"] = json!("0");
+        assert!(completed_work_value(m, &invalid, &prior, &key).is_err());
     }
 }

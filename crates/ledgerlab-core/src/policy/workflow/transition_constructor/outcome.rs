@@ -1835,7 +1835,9 @@ pub(super) fn verify_original_actions(
     shape::reference(m, authority_ref)?;
     let evaluation_ref = shape::field(m, decision, "evaluation_ref")?;
     shape::reference(m, evaluation_ref)?;
-    let unsupported_inputs: &[&str] = if program.uses_declared_work_link_recipe() {
+    let unsupported_inputs: &[&str] = if program.uses_stage_lifecycle_recipe() {
+        &[]
+    } else if program.uses_declared_work_link_recipe() {
         &["invocation_refs"]
     } else if program.uses_local_execution_recipe() {
         &["links", "invocation_refs"]
@@ -1858,8 +1860,14 @@ pub(super) fn verify_original_actions(
         super::declared_links::retained_work(m, r, c, program, work_ref, work)?;
     }
     m.visit("outcome.original_stage")?;
+    if !shape::array(m, p, "invocation_refs")?.is_empty() && program.uses_stage_lifecycle_recipe() {
+        super::invocation::retained_work(m, r, c, program, work, &operands.binding)?;
+    }
     if p.get("stage_instance_ref").is_some() {
-        return Err(unsupported("original staged work"));
+        if !program.uses_stage_lifecycle_recipe() {
+            return Err(unsupported("original staged work"));
+        }
+        super::stage::retained_work(m, r, c, program, work, &operands.binding)?;
     }
     let activity = shape::text(m, p, "activity")?;
     let mut original_product = None;
