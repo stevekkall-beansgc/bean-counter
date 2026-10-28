@@ -463,7 +463,61 @@ pub(super) async fn retain_stage_operation(
         pool.add(&reference, s)?;
     }
     pool.complete_lifecycle(program, tx, key, observed.before, s)
-        .await
+        .await?;
+    if check::text(payload, "schema", s)? == "ledger-workflow-stage-close/1" {
+        // A completed Invocation still owns held exposure. Follow only the
+        // declared members' actual original Work operands, then acquire each
+        // mutable head under this same held snapshot.
+        let mut count = 0usize;
+        for claim in &state.financial.work_claims {
+            let named = pool.stage_member_invocations(program, &ck, claim, s)?;
+            s.semantic_work()
+                .arithmetic(
+                    ledgerlab_core::validation_work::ArithmeticOperation::Add,
+                    &[&count.into(), &named.heads().len().into()],
+                )
+                .map_err(core_error)?;
+            count = count
+                .checked_add(named.heads().len())
+                .ok_or(ServiceError::Unavailable)?;
+        }
+        work_heads::prepare_invocation_heads(state, count, s)?;
+        for index in 0..state.financial.work_claims.len() {
+            let named = pool.stage_member_invocations(
+                program,
+                &ck,
+                &state.financial.work_claims[index],
+                s,
+            )?;
+            for invocation in named.heads() {
+                pool.add(invocation.original_ref(), s)?;
+                if let Some(head) = tx
+                    .workflow_financial_head(
+                        &key.logical_store_id,
+                        &key.scope,
+                        HeadKey::Invocation(invocation.invocation_id()),
+                        s,
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                {
+                    let reference = read_head_reference(&head, s)?;
+                    check::same_text(&reference.kind, "workflow-invocation", s)?;
+                    work_heads::retain_invocation_head(
+                        state,
+                        invocation.invocation_id(),
+                        &head,
+                        &reference,
+                        s,
+                    )?;
+                    pool.add(&reference, s)?;
+                }
+            }
+        }
+        pool.complete_lifecycle(program, tx, key, observed.before, s)
+            .await?;
+    }
+    Ok(())
 }
 fn read_locator_reference(
     kind: &[u8],

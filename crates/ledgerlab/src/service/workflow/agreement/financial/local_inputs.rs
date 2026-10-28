@@ -4,8 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::transition_constructor::{
-        select_local_input_edges, select_stage_local_input_edges, EconomicRecordView, ExactRef,
-        OperationKey as CoreKey,
+        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_local_input_edges,
+        select_stage_local_input_edges,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -403,6 +403,44 @@ impl LocalInputs {
             i += 1;
         }
         Ok(())
+    }
+    /// DATA selection from an actual fixed member's retained claim and Work.
+    /// The child still certifies membership, Invocation lineage and authority.
+    pub(super) fn stage_member_invocations(
+        &self,
+        program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram,
+        key: &CoreKey,
+        claim: &ExactRef,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::policy::workflow::transition_constructor::WorkInvocationHeadLocators>
+    {
+        request_wrapper::same_text(&claim.kind, "workflow-work-claim", s)?;
+        let claim_body = s
+            .parse_representation(self.body(claim)?, RepresentationKind::Record)
+            .map_err(core_error)?;
+        request_wrapper::same_text(
+            request_wrapper::text(claim_body.value(), "schema", s)?,
+            "ledger-workflow-work-claim/1",
+            s,
+        )?;
+        let (work, _owner) = current::source::from_value_local(
+            request_wrapper::field(claim_body.value(), "work_ref", s)?,
+            s,
+        )?;
+        request_wrapper::same_text(&work.kind, "workflow-work", s)?;
+        let work_body = s
+            .parse_representation(self.body(&work)?, RepresentationKind::Record)
+            .map_err(core_error)?;
+        request_wrapper::same_text(
+            request_wrapper::text(work_body.value(), "schema", s)?,
+            "ledger-workflow-work-record/1",
+            s,
+        )?;
+        let payload_value = request_wrapper::field(work_body.value(), "payload", s)?;
+        let payload = s
+            .canonical_representation(payload_value, RepresentationKind::OriginalRequest)
+            .map_err(core_error)?;
+        ledgerlab_core::policy::workflow::transition_constructor::select_work_invocation_head_locators(program, key, payload.bytes(), &self.views(), s).map_err(core_error)
     }
     pub(super) fn body(&self, r: &ExactRef) -> Result<&[u8]> {
         self.rows

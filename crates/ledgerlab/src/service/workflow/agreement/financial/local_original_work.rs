@@ -887,6 +887,67 @@ pub(super) async fn reconstruct_selected(
             {
                 financial.work_claims.push(reference(row.reference, s)?);
             }
+            if schema == "ledger-workflow-stage-close/1" {
+                let claim_id = string(expected.work_claim_id(), s)?;
+                if let Some(claim) = prefix.original_input(
+                    "local-original-work-claim",
+                    &[claim_id.value()],
+                    &inputs,
+                    s,
+                )? {
+                    let named =
+                        pool.stage_member_invocations(owner.program(), &ck, claim.reference, s)?;
+                    for invocation in named.heads() {
+                        let id = string(invocation.invocation_id(), s)?;
+                        if let Some(row) = prefix.original_input(
+                            "local-original-invocation",
+                            &[id.value()],
+                            &inputs,
+                            s,
+                        )? {
+                            let body = s
+                                .parse_representation(
+                                    row.canonical_body,
+                                    RepresentationKind::Record,
+                                )
+                                .map_err(core_error)?;
+                            let mut duplicate = false;
+                            for old in &invocations {
+                                s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                                s.semantic_work()
+                                    .scan_bytes(
+                                        old.invocation_id.len() + invocation.invocation_id().len(),
+                                    )
+                                    .map_err(core_error)?;
+                                if old.invocation_id == invocation.invocation_id() {
+                                    require(
+                                        same_ref(&old.reference, row.reference, s)?,
+                                        "INTEGRITY_FAILURE",
+                                    )?;
+                                    request_wrapper::same_text(
+                                        &old.revision,
+                                        request_wrapper::text(body.value(), "revision", s)?,
+                                        s,
+                                    )?;
+                                    duplicate = true;
+                                    break;
+                                }
+                            }
+                            if duplicate {
+                                continue;
+                            }
+                            invocations.push(core::InvocationHead {
+                                invocation_id: copy(invocation.invocation_id(), s)?,
+                                revision: copy(
+                                    request_wrapper::text(body.value(), "revision", s)?,
+                                    s,
+                                )?,
+                                reference: reference(row.reference, s)?,
+                            });
+                        }
+                    }
+                }
+            }
             let id = string(expected.decision_id(), s)?;
             prefix.original_input("local-original-decision", &[id.value()], &inputs, s)?;
             prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;

@@ -970,6 +970,24 @@ pub(super) fn retain_invocation_head(
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
     use ledgerlab_core::policy::workflow::transition_constructor::InvocationHead;
+    // Producer-owned membership may share an exact held head. Keep one
+    // immutable full Ref; a conflicting revision/body for that ID refuses.
+    for old in &state.invocations {
+        s.semantic_work()
+            .visit(ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(old.invocation_id.len() + id.len())
+            .map_err(core_error)?;
+        if old.invocation_id == id {
+            require(
+                work_capture::same_reference(&old.reference, reference, s)?,
+                "INTEGRITY_FAILURE",
+            )?;
+            check::same_text(&old.revision, text(head.revision.bytes(), s)?, s)?;
+            return Ok(());
+        }
+    }
     let mut bytes = 0;
     for value in [
         id,
