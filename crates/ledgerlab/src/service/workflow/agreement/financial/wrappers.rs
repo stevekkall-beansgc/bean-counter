@@ -894,10 +894,13 @@ pub(super) const DECLARED_LINK_REGISTRY: &str =
     "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d";
 pub(super) const STAGE_LIFECYCLE_REGISTRY: &str =
     "sha256:8d775e597055ab47e894b325d5578c23475aa9ac79f8aa8dd04e10505fbad556";
+pub(super) const COMPONENT_LIFECYCLE_REGISTRY: &str =
+    "sha256:40eef351a0953a5fa9b1aeac45c68409838cff3bdf8f83db1b5389fd711f630f";
 pub(super) fn is_local_registry(value: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     Ok(equal_text(value, LOCAL_REGISTRY, s)?
         || equal_text(value, DECLARED_LINK_REGISTRY, s)?
-        || equal_text(value, STAGE_LIFECYCLE_REGISTRY, s)?)
+        || equal_text(value, STAGE_LIFECYCLE_REGISTRY, s)?
+        || equal_text(value, COMPONENT_LIFECYCLE_REGISTRY, s)?)
 }
 fn declared_link_recipe(
     kind: &str,
@@ -924,6 +927,69 @@ fn declared_link_recipe(
     }
     local_recipe(kind, payload, s)
 }
+fn component_lifecycle_recipe(
+    kind: &str,
+    payload: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<(Recipe, &'static str)>> {
+    let mut allowed = false;
+    // Exact additive registry tuples; no old registry inherits this grammar.
+    for (k, p) in [
+        ("agreement.accept", "ledger-workflow-agreement-accept/9"),
+        ("agreement.activate", "ledger-workflow-activation-replace/1"),
+        ("agreement.activate", "ledger-workflow-activation/1"),
+        ("agreement.revoke", "ledger-workflow-agreement-revoke/1"),
+        ("authority.change", "ledger-workflow-party-authorize/1"),
+        ("authority.change", "ledger-workflow-party-revoke/1"),
+        (
+            "evidence.retain",
+            "ledger-workflow-cost-observation-attest/1",
+        ),
+        ("evidence.retain", "ledger-workflow-fact-attest/1"),
+        ("evidence.retain", "ledger-workflow-family-close-attest/1"),
+        ("evidence.retain", "ledger-workflow-party-evidence-retain/1"),
+        ("evidence.retain", "ledger-workflow-party-evidence-retain/2"),
+        ("link.assert", "ledger-workflow-link-assert/1"),
+        ("outcome.close", "ledger-workflow-outcome-close/2"),
+        ("outcome.correct", "ledger-workflow-outcome-correction/1"),
+        ("outcome.correct", "ledger-workflow-outcome-correction/2"),
+        ("outcome.submit", "ledger-workflow-outcome/1"),
+        ("outcome.submit", "ledger-workflow-outcome/2"),
+        ("policy.publish", "ledger-workflow-policy-publication/6"),
+        ("quantity.correct", "ledger-workflow-quantity-correction/2"),
+        ("work.accept", "ledger-workflow-work/1"),
+        ("work.reverse", "ledger-workflow-work-reverse/2"),
+    ] {
+        if equal_text(kind, k, s)? && equal_text(payload, p, s)? {
+            allowed = true;
+            break;
+        }
+    }
+    if !allowed {
+        return Ok(None);
+    }
+    if equal_text(payload, "ledger-workflow-cost-observation-attest/1", s)? {
+        return Ok(Some((
+            Recipe {
+                operation: "ledger-workflow-economic-operation/10",
+                manifest: "ledger-workflow-economic-manifest/10",
+                closure: "ledger-local-selected-inputs/1",
+                authority: "ledger-workflow-economic-authority/8",
+            },
+            "ledger-operation-descriptors/8",
+        )));
+    }
+    let Some((mut recipe, descriptor)) = declared_link_recipe(kind, payload, s)? else {
+        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    };
+    if equal_text(kind, "agreement.accept", s)? || equal_text(kind, "agreement.activate", s)? {
+        recipe.authority = "ledger-workflow-agreement-authority/6";
+    } else if equal_text(kind, "quantity.correct", s)? || equal_text(kind, "work.reverse", s)? {
+        recipe.authority = "ledger-workflow-economic-authority/9";
+    }
+    Ok(Some((recipe, descriptor)))
+}
+
 fn stage_lifecycle_recipe(
     kind: &str,
     payload: &str,
@@ -1238,6 +1304,11 @@ pub(super) fn descriptor_schema(
         )?;
         return Ok("ledger-operation-descriptors/1");
     }
+    if equal_text(registry, COMPONENT_LIFECYCLE_REGISTRY, session)? {
+        return component_lifecycle_recipe(kind, payload, session)?
+            .map(|(_, descriptor)| descriptor)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
         return stage_lifecycle_recipe(kind, payload, session)?
             .map(|(_, descriptor)| descriptor)
@@ -1350,6 +1421,11 @@ pub(super) fn recipe(
             closure: "absent",
             authority: "ledger-workflow-publication-authority/1",
         });
+    }
+    if equal_text(registry, COMPONENT_LIFECYCLE_REGISTRY, session)? {
+        return component_lifecycle_recipe(kind, payload, session)?
+            .map(|(recipe, _)| recipe)
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
     }
     if equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)? {
         return stage_lifecycle_recipe(kind, payload, session)?
@@ -2286,13 +2362,16 @@ pub(super) async fn validate_frame(
                             "schema",
                             session,
                         )? == "ledger-cost-authority-enroll/1"))
+                || (kind == "link.assert"
+                    && equal_text(registry, COMPONENT_LIFECYCLE_REGISTRY, session)?)
             {
                 request::same_text(result_kind, "administrative", session)?;
             } else if matches!(result_kind, "semantic_alias") {
                 require(
                     kind == "work.accept"
                         && (equal_text(registry, DECLARED_LINK_REGISTRY, session)?
-                            || equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)?),
+                            || equal_text(registry, STAGE_LIFECYCLE_REGISTRY, session)?
+                            || equal_text(registry, COMPONENT_LIFECYCLE_REGISTRY, session)?),
                     "INTEGRITY_FAILURE",
                 )?;
             } else {

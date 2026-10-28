@@ -120,6 +120,7 @@ fn financial_evidence_schema(schema: Option<&str>) -> bool {
         schema,
         Some(
             "ledger-workflow-fact-attest/1"
+                | "ledger-workflow-cost-observation-attest/1"
                 | "ledger-workflow-family-close-attest/1"
                 | "ledger-workflow-supplier-cost-attest/1"
                 | "ledger-workflow-app-observe/1"

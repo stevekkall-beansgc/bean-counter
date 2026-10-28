@@ -607,7 +607,7 @@ pub(super) mod owned;
 pub(super) mod paid;
 pub use owned::OwnedAcceptanceTerms;
 impl Projection {
-    fn normalize(&mut self, context: &super::FactSchema, app: bool) -> Result<()> {
+    fn normalize(&mut self, context: &super::FactSchema, app: bool, component: bool) -> Result<()> {
         crate::domain::text(&self.agreement_id, 128)?;
         crate::domain::text(&self.customer, 128)?;
         crate::domain::text(&self.source_namespace, 256)?;
@@ -641,6 +641,7 @@ impl Projection {
                 ]
                 .contains(&kind.as_str())
                     && !(app && ["app_usage", "app_final_cost"].contains(&kind.as_str()))
+                    && !(component && kind == "cost_observation")
                 {
                     return Err(fail("source evidence kind"));
                 }
@@ -713,6 +714,7 @@ impl Projection {
         &mut self,
         context_ref: &AgreementRef,
         app: bool,
+        component: bool,
         work: &mut W,
         mut normalize_context: impl FnMut(&Value, &mut W) -> Result<Value>,
     ) -> Result<()> {
@@ -764,7 +766,8 @@ impl Projection {
                     work,
                 )?;
                 work.visit(Visit::Constraint)?;
-                if !old && !(app && paid::member(kind, &["app_usage", "app_final_cost"], work)?) {
+                if !old && !(app && paid::member(kind, &["app_usage", "app_final_cost"], work)?)
+                    && !(component && paid::member(kind, &["cost_observation"], work)?) {
                     return Err(fail("source evidence kind"));
                 }
             }
@@ -879,6 +882,17 @@ impl AcceptanceTerms {
     /// Supplied context is data; its original publication membership, customer
     /// assent and all referenced role/grant/funding rights remain host checks.
     pub fn parse(raw: &[u8], context: &super::FactSchema) -> Result<Self> {
+        Self::parse_inner(raw, context, false)
+    }
+    /// Component grammar is selected from the actual compiled program, not an
+    /// assertion by the terms input or a new authority.
+    pub fn parse_component(raw: &[u8], context: &super::FactSchema, program: &super::selected_program::SelectedProgram) -> Result<Self> {
+        if !program.uses_component_lifecycle_recipe() { return Err(fail("component acceptance program")); }
+        let selected = program.context_schema_ref();
+        if selected.id() != context.document_id()? || selected.digest() != context.content_digest()? { return Err(fail("component context schema")); }
+        Self::parse_inner(raw, context, true)
+    }
+    fn parse_inner(raw: &[u8], context: &super::FactSchema, component: bool) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let mut input: TermsInput = canonical::dto(value)?;
@@ -893,6 +907,7 @@ impl AcceptanceTerms {
         input.binding_inputs.normalize(
             context,
             input.schema == "ledger-workflow-acceptance-terms/2",
+            component && input.schema == "ledger-workflow-acceptance-terms/2",
         )?;
         input.version = super::facts::counter(&input.version)?.to_string();
         if input.agreement_id != input.binding_inputs.agreement_id

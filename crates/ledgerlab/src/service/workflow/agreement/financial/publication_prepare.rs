@@ -5,11 +5,11 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::{
-        selected_program::{
-            compile_selected_publication, SelectedCompilerSupport, SelectedProgram,
-            SelectedSourceInput,
-        },
         DefinitionRef,
+        selected_program::{
+            SelectedCompilerSupport, SelectedProgram, SelectedSourceInput,
+            compile_selected_publication,
+        },
     },
     validation_work::{
         ArithmeticOperation as Op, OriginalAuditSession, RepresentationKind as Kind,
@@ -152,11 +152,17 @@ pub(super) fn local_support(
     drop(stage);
     let platform = SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(s)
         .map_err(core_error)?;
+    if same_support(reference, &platform, s)? {
+        return Ok(platform);
+    }
+    drop(platform);
+    let component = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(s)
+        .map_err(core_error)?;
     require(
-        same_support(reference, &platform, s)?,
+        same_support(reference, &component, s)?,
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    Ok(platform)
+    Ok(component)
 }
 
 fn support_for_policy<F>(

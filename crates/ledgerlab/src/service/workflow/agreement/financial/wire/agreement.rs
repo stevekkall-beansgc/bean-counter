@@ -186,6 +186,10 @@ fn frame_agreement(
             check::text(resolution, "registry_digest", s)?,
             wrappers::STAGE_LIFECYCLE_REGISTRY,
             s,
+        )? || super::super::acceptance::same_recipe_text(
+            check::text(resolution, "registry_digest", s)?,
+            wrappers::COMPONENT_LIFECYCLE_REGISTRY,
+            s,
         )? {
             "ledger-workflow-agreement-authority/6"
         } else {

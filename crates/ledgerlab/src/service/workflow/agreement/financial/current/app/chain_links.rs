@@ -195,6 +195,7 @@ pub(super) enum ClaimRecipe {
     Declared,
     Policy,
     Stage,
+    Component,
 }
 pub(super) struct Selection<'a> {
     pub(super) recipe: ClaimRecipe,
@@ -334,6 +335,138 @@ pub(super) async fn acquire(
             let normalized = check::field(evidence, "normalized_request", s)?;
             let normalized_payload = check::field(normalized, "payload", s)?;
             let child_kind = check::text(child.value(), "kind", s)?;
+            if matches!(selected.recipe, ClaimRecipe::Component)
+                && check::text(normalized_payload, "schema", s)? == "ledger-workflow-link-assert/1"
+            {
+                check::same_text(
+                    check::text(origin.wrappers().operation(), "kind", s)?,
+                    "link.assert",
+                    s,
+                )?;
+                check::same_text(child_kind, "workflow-work", s)?;
+                equal(
+                    check::field(normalized, "key", s)?,
+                    check::field(link.body(), "operation_key", s)?,
+                    s,
+                )?;
+                for field in ["child", "product_ref", "binding_ref"] {
+                    equal(
+                        check::field(normalized_payload, field, s)?,
+                        check::field(link.body(), field, s)?,
+                        s,
+                    )?;
+                }
+                let requested = check::field(normalized_payload, "link", s)?;
+                for field in ["slot", "predecessor"] {
+                    equal(
+                        check::field(requested, field, s)?,
+                        check::field(link.body(), field, s)?,
+                        s,
+                    )?;
+                }
+                let authority = check::field(link.body(), "authority_ref", s)?;
+                origin.require_member(authority, s)?;
+                let authority = source::retained_local_record(
+                    tx,
+                    key,
+                    authority,
+                    (
+                        "workflow-economic-authority",
+                        "ledger-workflow-economic-authority/8",
+                    ),
+                    selected.before,
+                    s,
+                )
+                .await?;
+                check::same_text(
+                    check::text(authority.body(), "observed_at", s)?,
+                    check::text(origin.wrappers().operation(), "accepted_at", s)?,
+                    s,
+                )?;
+                let child_body = source::retained_local_record(
+                    tx,
+                    key,
+                    child.value(),
+                    ("workflow-work", "ledger-workflow-work-record/1"),
+                    selected.before,
+                    s,
+                )
+                .await?;
+                prefix::verify_selected_association(
+                    tx,
+                    key,
+                    child_body.reference(),
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                let predecessor_ref = wire::reference(predecessor.reference(), s)?;
+                let predecessor_ref = s
+                    .parse_representation(predecessor_ref.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                origin.require_member(predecessor_ref.value(), s)?;
+                let child_payload = check::field(child_body.body(), "payload", s)?;
+                equal(
+                    check::field(child_payload, "binding_ref", s)?,
+                    binding.value(),
+                    s,
+                )?;
+                equal(
+                    check::field(child_payload, "product_ref", s)?,
+                    check::field(link.body(), "product_ref", s)?,
+                    s,
+                )?;
+                for (name, expected) in [("customer", selected.customer), ("chain", selected.chain)]
+                {
+                    check::same_text(check::text(child_payload, name, s)?, expected, s)?;
+                }
+                if !out.has_work_birth(child_body.reference(), s)? {
+                    let birth_key = check::field(child_body.body(), "key", s)?;
+                    let identity = s
+                        .canonical_representation(birth_key, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let birth = prefix::target(tx, key, identity, s)
+                        .await?
+                        .checked_wrappers(tx, s)
+                        .await?;
+                    super::super::super::local_inputs::retain_work_claim(
+                        tx,
+                        key,
+                        origin.wrappers().sequence(),
+                        &child_body,
+                        &birth,
+                        pool,
+                        s,
+                    )
+                    .await?;
+                    let initial =
+                        unique_result(birth.wrappers().receipt(), "workflow-decision", s)?;
+                    birth.require_member(initial, s)?;
+                    let initial = source::retained_local_record(
+                        tx,
+                        key,
+                        initial,
+                        ("workflow-decision", "ledger-workflow-decision-revision/1"),
+                        selected.before,
+                        s,
+                    )
+                    .await?;
+                    equal(
+                        check::field(initial.body(), "subject_ref", s)?,
+                        child.value(),
+                        s,
+                    )?;
+                    check::same_text(check::text(initial.body(), "revision", s)?, "1", s)?;
+                    pool.add(initial.reference(), s)?;
+                    out.remember_work_birth(child_body.reference(), s)?;
+                }
+                pool.add(child_body.reference(), s)?;
+                pool.add(authority.reference(), s)?;
+                pool.add(link.reference(), s)?;
+                out.push(link_ref.value(), s)?;
+                after = Some(row.cursor);
+                continue;
+            }
             let (schema, operation) = match child_kind {
                 "workflow-work" => ("ledger-workflow-work-record/1", "work.accept"),
                 "workflow-outcome-claim" => (
@@ -349,9 +482,13 @@ pub(super) async fn acquire(
                     },
                     "outcome.submit",
                 ),
-                "workflow-stage-instance" if matches!(selected.recipe,ClaimRecipe::Stage) => {
-                    check::same_text(check::text(normalized_payload,"schema",s)?,"ledger-workflow-stage-close/1",s)?;
-                    ("ledger-workflow-stage-instance/1","outcome.submit")
+                "workflow-stage-instance" if matches!(selected.recipe, ClaimRecipe::Stage) => {
+                    check::same_text(
+                        check::text(normalized_payload, "schema", s)?,
+                        "ledger-workflow-stage-close/1",
+                        s,
+                    )?;
+                    ("ledger-workflow-stage-instance/1", "outcome.submit")
                 }
                 _ => return Err(ServiceError::IntegrityFailure),
             };
@@ -364,20 +501,59 @@ pub(super) async fn acquire(
                 s,
             )
             .await?;
-            let stage_claim_ref=if child_kind=="workflow-stage-instance" {
-                Some(unique_result(origin.wrappers().receipt(),"workflow-stage-closure-claim",s)?)
-            }else{None};
-            let stage_claim=if let Some(reference)=stage_claim_ref {
-                origin.require_member(reference,s)?;
-                result_member(origin.wrappers().receipt(),reference,s)?;
-                let claim=source::retained_local_record(tx,key,reference,("workflow-stage-closure-claim","ledger-workflow-stage-closure-claim/1"),selected.before,s).await?;
-                equal(check::field(claim.body(),"stage_instance_ref",s)?,child.value(),s)?;
-                equal(check::field(claim.body(),"operation_key",s)?,check::field(link.body(),"operation_key",s)?,s)?;
-                equal(check::field(claim.body(),"authority_ref",s)?,check::field(link.body(),"authority_ref",s)?,s)?;
-                prefix::verify_selected_association(tx,key,child_body.reference(),origin.wrappers().sequence(),s).await?;
-                pool.add(claim.reference(),s)?;
+            let stage_claim_ref = if child_kind == "workflow-stage-instance" {
+                Some(unique_result(
+                    origin.wrappers().receipt(),
+                    "workflow-stage-closure-claim",
+                    s,
+                )?)
+            } else {
+                None
+            };
+            let stage_claim = if let Some(reference) = stage_claim_ref {
+                origin.require_member(reference, s)?;
+                result_member(origin.wrappers().receipt(), reference, s)?;
+                let claim = source::retained_local_record(
+                    tx,
+                    key,
+                    reference,
+                    (
+                        "workflow-stage-closure-claim",
+                        "ledger-workflow-stage-closure-claim/1",
+                    ),
+                    selected.before,
+                    s,
+                )
+                .await?;
+                equal(
+                    check::field(claim.body(), "stage_instance_ref", s)?,
+                    child.value(),
+                    s,
+                )?;
+                equal(
+                    check::field(claim.body(), "operation_key", s)?,
+                    check::field(link.body(), "operation_key", s)?,
+                    s,
+                )?;
+                equal(
+                    check::field(claim.body(), "authority_ref", s)?,
+                    check::field(link.body(), "authority_ref", s)?,
+                    s,
+                )?;
+                prefix::verify_selected_association(
+                    tx,
+                    key,
+                    child_body.reference(),
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                pool.add(claim.reference(), s)?;
                 Some(claim)
-            }else{result_member(origin.wrappers().receipt(),child.value(),s)?;None};
+            } else {
+                result_member(origin.wrappers().receipt(), child.value(), s)?;
+                None
+            };
             check::same_text(
                 check::text(origin.wrappers().operation(), "kind", s)?,
                 operation,
@@ -395,8 +571,8 @@ pub(super) async fn acquire(
                     s,
                 )?;
                 check::field(child_body.body(), "payload", s)?
-            } else if let Some(claim)=stage_claim.as_ref() {
-                check::field(claim.body(),"original_payload",s)?
+            } else if let Some(claim) = stage_claim.as_ref() {
+                check::field(claim.body(), "original_payload", s)?
             } else {
                 check::field(child_body.body(), "original_payload", s)?
             };
@@ -413,7 +589,7 @@ pub(super) async fn acquire(
             .await?;
             equal(
                 check::field(initial_body.body(), "subject_ref", s)?,
-                stage_claim_ref.unwrap_or_else(||child.value()),
+                stage_claim_ref.unwrap_or_else(|| child.value()),
                 s,
             )?;
             equal(
@@ -424,7 +600,9 @@ pub(super) async fn acquire(
             check::same_text(check::text(initial_body.body(), "revision", s)?, "1", s)?;
             pool.add(initial_body.reference(), s)?;
             if child_kind == "workflow-work" || child_kind == "workflow-stage-instance" {
-                if child_kind=="workflow-work" && !out.has_work_birth(child_body.reference(), s)? {
+                if child_kind == "workflow-work"
+                    && !out.has_work_birth(child_body.reference(), s)?
+                {
                     super::super::super::local_inputs::retain_work_claim(
                         tx,
                         key,
@@ -458,24 +636,59 @@ pub(super) async fn acquire(
                     }
                 }
                 require(matches == 1, "INTEGRITY_FAILURE")?;
-                if let Some(claim)=stage_claim.as_ref() {
-                    equal(check::field(child_payload,"stage_instance_ref",s)?,child.value(),s)?;
-                    let anchors=check::field(claim.body(),"anchor_link_refs",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-                    let mut linked=false;
+                if let Some(claim) = stage_claim.as_ref() {
+                    equal(
+                        check::field(child_payload, "stage_instance_ref", s)?,
+                        child.value(),
+                        s,
+                    )?;
+                    let anchors = check::field(claim.body(), "anchor_link_refs", s)?
+                        .as_array()
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let mut linked = false;
                     for anchor in anchors {
-                        let actual=s.canonical_representation(anchor,RepresentationKind::Record).map_err(core_error)?;
-                        let expected=s.canonical_representation(link_ref.value(),RepresentationKind::Record).map_err(core_error)?;
-                        s.semantic_work().scan_bytes(actual.bytes().len()+expected.bytes().len()).map_err(core_error)?;
-                        linked|=actual.bytes()==expected.bytes();
+                        let actual = s
+                            .canonical_representation(anchor, RepresentationKind::Record)
+                            .map_err(core_error)?;
+                        let expected = s
+                            .canonical_representation(link_ref.value(), RepresentationKind::Record)
+                            .map_err(core_error)?;
+                        s.semantic_work()
+                            .scan_bytes(actual.bytes().len() + expected.bytes().len())
+                            .map_err(core_error)?;
+                        linked |= actual.bytes() == expected.bytes();
                     }
-                    require(linked,"INTEGRITY_FAILURE")?;
-                    equal(check::field(child_body.body(),"binding_ref",s)?,binding.value(),s)?;
-                    for field in ["customer","chain"] {equal(check::field(child_body.body(),field,s)?,check::field(child_payload,field,s)?,s)?;}
-                    let close_at=Timestamp::parse_with_work(check::text(origin.wrappers().operation(),"accepted_at",s)?,s.semantic_work()).map_err(core_error)?;
-                    let prior_at=Timestamp::parse_with_work(check::text(predecessor.body(),"accepted_at",s)?,s.semantic_work()).map_err(core_error)?;
-                    s.semantic_work().arithmetic(Op::Compare,&[&close_at.micros().into(),&prior_at.micros().into()]).map_err(core_error)?;
-                    require(close_at.micros()>=prior_at.micros(),"INTEGRITY_FAILURE")?;
-                    pool.add(child_body.reference(),s)?;
+                    require(linked, "INTEGRITY_FAILURE")?;
+                    equal(
+                        check::field(child_body.body(), "binding_ref", s)?,
+                        binding.value(),
+                        s,
+                    )?;
+                    for field in ["customer", "chain"] {
+                        equal(
+                            check::field(child_body.body(), field, s)?,
+                            check::field(child_payload, field, s)?,
+                            s,
+                        )?;
+                    }
+                    let close_at = Timestamp::parse_with_work(
+                        check::text(origin.wrappers().operation(), "accepted_at", s)?,
+                        s.semantic_work(),
+                    )
+                    .map_err(core_error)?;
+                    let prior_at = Timestamp::parse_with_work(
+                        check::text(predecessor.body(), "accepted_at", s)?,
+                        s.semantic_work(),
+                    )
+                    .map_err(core_error)?;
+                    s.semantic_work()
+                        .arithmetic(
+                            Op::Compare,
+                            &[&close_at.micros().into(), &prior_at.micros().into()],
+                        )
+                        .map_err(core_error)?;
+                    require(close_at.micros() >= prior_at.micros(), "INTEGRITY_FAILURE")?;
+                    pool.add(child_body.reference(), s)?;
                 }
             } else if schema == "ledger-workflow-outcome-claim/1" {
                 let target = source::retained_local_record(

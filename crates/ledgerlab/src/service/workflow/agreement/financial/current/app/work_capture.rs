@@ -1031,7 +1031,7 @@ const LOCAL_CONSTRUCTION_ERRORS: &[&str] = &[
     "TARGET_CLOSED",
     "WAITING_FINAL_COST",
 ];
-fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
+pub(super) fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
     if error.code == "REVISION_CONFLICT" {
         return ServiceError::Rejection("STALE_REVISION".into());
     }

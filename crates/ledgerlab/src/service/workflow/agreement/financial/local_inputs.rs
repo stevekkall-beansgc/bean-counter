@@ -4,8 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::transition_constructor::{
-        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_local_input_edges,
-        select_stage_local_input_edges,
+        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_component_local_input_edges,
+        select_local_input_edges, select_stage_local_input_edges,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -24,6 +24,7 @@ pub(super) struct LocalInputs {
     _control: ExternalBufferLease,
     total: usize,
     stage_invocation_revisions: bool,
+    component_records: bool,
     wrapper_inputs: bool,
 }
 impl LocalInputs {
@@ -37,6 +38,7 @@ impl LocalInputs {
             _control: control,
             total: 0,
             stage_invocation_revisions: false,
+            component_records: false,
             wrapper_inputs: false,
         })
     }
@@ -47,6 +49,7 @@ impl LocalInputs {
         program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram,
     ) {
         self.stage_invocation_revisions = program.uses_stage_lifecycle_recipe();
+        self.component_records = program.uses_component_lifecycle_recipe();
         self.wrapper_inputs = program.uses_shared_namespace_recipe();
     }
     pub(super) fn select_saved_registry(
@@ -58,8 +61,10 @@ impl LocalInputs {
             .scan_bytes(registry.len())
             .map_err(core_error)?;
         self.stage_invocation_revisions = registry == super::wrappers::STAGE_LIFECYCLE_REGISTRY;
-        self.wrapper_inputs =
-            self.stage_invocation_revisions || registry == super::wrappers::DECLARED_LINK_REGISTRY;
+        self.component_records = registry == super::wrappers::COMPONENT_LIFECYCLE_REGISTRY;
+        self.wrapper_inputs = self.stage_invocation_revisions
+            || self.component_records
+            || registry == super::wrappers::DECLARED_LINK_REGISTRY;
         Ok(())
     }
     pub(super) fn add(&mut self, r: &ExactRef, s: &mut OriginalAuditSession) -> Result<()> {
@@ -198,7 +203,14 @@ impl LocalInputs {
             self.rows[index].native_schema = Some(schema);
         }
         for record in records {
-            let edges = if self.stage_invocation_revisions {
+            let edges = if self.component_records {
+                select_component_local_input_edges(
+                    super::wrappers::COMPONENT_LIFECYCLE_REGISTRY,
+                    &ck,
+                    *record,
+                    s,
+                )
+            } else if self.stage_invocation_revisions {
                 select_stage_local_input_edges(
                     super::wrappers::STAGE_LIFECYCLE_REGISTRY,
                     &ck,
@@ -384,7 +396,14 @@ impl LocalInputs {
                 reference: r,
                 canonical_body: body.bytes(),
             };
-            let edges = if self.stage_invocation_revisions {
+            let edges = if self.component_records {
+                select_component_local_input_edges(
+                    super::wrappers::COMPONENT_LIFECYCLE_REGISTRY,
+                    &ck,
+                    input,
+                    s,
+                )
+            } else if self.stage_invocation_revisions {
                 select_stage_local_input_edges(
                     super::wrappers::STAGE_LIFECYCLE_REGISTRY,
                     &ck,
@@ -485,7 +504,8 @@ impl LocalInputs {
 
 /// Fixed subject DATA before dependency expansion. The actual original Binding
 /// selects the Program; full origin/membership and constructor checks follow.
-/// Compatible legacy Work facts and corrections do not imply a Stage recipe.
+/// Only fixed request->Claim/Target/Work paths are acquired here. The actual
+/// original Program selects DATA grammar; legacy requests imply no new recipe.
 pub(super) async fn bootstrap_work_subject(
     tx: &mut SqliteTx,
     key: &OperationKey,
@@ -495,48 +515,160 @@ pub(super) async fn bootstrap_work_subject(
 ) -> Result<Option<ledgerlab_core::policy::workflow::transition_constructor::LocalSubjectBinding>> {
     use ledgerlab_core::policy::workflow::transition_constructor::locate_local_subject_binding;
     let schema = request_wrapper::text(payload, "schema", s)?;
-    let work = match schema {
-        "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2" => Some(
+    let mut claim = None;
+    let mut target = None;
+    let mut work = None;
+    match schema {
+        "ledger-workflow-link-assert/1" => {
+            work = Some(
+                current::source::retained_local_record(
+                    tx,
+                    key,
+                    request_wrapper::field(payload, "child", s)?,
+                    ("workflow-work", "ledger-workflow-work-record/1"),
+                    before,
+                    s,
+                )
+                .await?,
+            );
+        }
+        "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2" => {
+            work = Some(
+                current::source::retained_local_record(
+                    tx,
+                    key,
+                    request_wrapper::field(payload, "work_ref", s)?,
+                    ("workflow-work", "ledger-workflow-work-record/1"),
+                    before,
+                    s,
+                )
+                .await?,
+            );
+        }
+        "ledger-workflow-outcome/1"
+        | "ledger-workflow-outcome/2"
+        | "ledger-workflow-outcome-close/2" => {
+            target = Some(
+                current::source::retained_local_record(
+                    tx,
+                    key,
+                    request_wrapper::field(payload, "target_ref", s)?,
+                    ("workflow-target", "ledger-workflow-component-target/1"),
+                    before,
+                    s,
+                )
+                .await?,
+            );
+        }
+        "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2" => {
+            claim = Some(
+                current::source::retained_outcome_claim(
+                    tx,
+                    key,
+                    request_wrapper::field(payload, "original_claim_ref", s)?,
+                    before,
+                    s,
+                )
+                .await?,
+            );
+            target = Some(
+                current::source::retained_local_record(
+                    tx,
+                    key,
+                    request_wrapper::field(
+                        claim.as_ref().ok_or(ServiceError::IntegrityFailure)?.body(),
+                        "target_ref",
+                        s,
+                    )?,
+                    ("workflow-target", "ledger-workflow-component-target/1"),
+                    before,
+                    s,
+                )
+                .await?,
+            );
+        }
+        "ledger-workflow-family-close-attest/1" => {
+            let subject = request_wrapper::field(
+                request_wrapper::field(payload, "attestation", s)?,
+                "subject",
+                s,
+            )?;
+            target = Some(
+                current::source::retained_local_record(
+                    tx,
+                    key,
+                    request_wrapper::field(subject, "target_ref", s)?,
+                    ("workflow-target", "ledger-workflow-component-target/1"),
+                    before,
+                    s,
+                )
+                .await?,
+            );
+        }
+        "ledger-workflow-fact-attest/1" | "ledger-workflow-cost-observation-attest/1" => {
+            let subject = request_wrapper::field(
+                request_wrapper::field(payload, "attestation", s)?,
+                "subject",
+                s,
+            )?;
+            match request_wrapper::text(subject, "kind", s)? {
+                "work" => {}
+                "outcome" if schema == "ledger-workflow-fact-attest/1" => {
+                    target = Some(
+                        current::source::retained_local_record(
+                            tx,
+                            key,
+                            request_wrapper::field(subject, "target_ref", s)?,
+                            ("workflow-target", "ledger-workflow-component-target/1"),
+                            before,
+                            s,
+                        )
+                        .await?,
+                    );
+                }
+                _ => return Ok(None),
+            }
+        }
+        _ => return Ok(None),
+    }
+    if let Some(target) = &target {
+        work = Some(
             current::source::retained_local_record(
                 tx,
                 key,
-                request_wrapper::field(payload, "work_ref", s)?,
+                request_wrapper::field(target.body(), "work_ref", s)?,
                 ("workflow-work", "ledger-workflow-work-record/1"),
                 before,
                 s,
             )
             .await?,
-        ),
-        "ledger-workflow-fact-attest/1"
-            if request_wrapper::text(
-                request_wrapper::field(
-                    request_wrapper::field(payload, "attestation", s)?,
-                    "subject",
-                    s,
-                )?,
-                "kind",
-                s,
-            )? == "work" =>
-        {
-            None
-        }
-        _ => return Ok(None),
-    };
-    let key = CoreKey {
-        logical_store_id: key.logical_store_id.clone(),
-        scope: key.scope.clone(),
-        source: key.source.clone(),
-        operation_id: key.operation_id.clone(),
-    };
+        );
+    }
+    let (key, _key_owner) = core_key_with_owner(key, s)?;
     let raw = s
         .canonical_representation(payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
-    let view = work.as_ref().map(|record| EconomicRecordView {
-        reference: record.reference(),
-        canonical_body: record.canonical_body(),
-    });
-    let inputs = view.as_slice();
-    locate_local_subject_binding(&key, raw.bytes(), inputs, s)
+    let bytes = 3 * std::mem::size_of::<EconomicRecordView<'_>>()
+        + std::mem::size_of::<Vec<EconomicRecordView<'_>>>();
+    let _inputs_owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let mut inputs = Vec::new();
+    inputs
+        .try_reserve_exact(3)
+        .map_err(|_| ServiceError::Unavailable)?;
+    for record in [claim.as_ref(), target.as_ref(), work.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        s.semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
+        inputs.push(EconomicRecordView {
+            reference: record.reference(),
+            canonical_body: record.canonical_body(),
+        });
+    }
+    locate_local_subject_binding(&key, raw.bytes(), &inputs, s)
         .map(Some)
         .map_err(core_error)
 }

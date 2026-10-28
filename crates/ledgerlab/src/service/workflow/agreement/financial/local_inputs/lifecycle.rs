@@ -259,6 +259,134 @@ impl LocalInputs {
                 s,
             )
             .map_err(core_error)?;
+            if program.uses_component_lifecycle_recipe()
+                && native == "ledger-workflow-family-state/2"
+            {
+                let family = s
+                    .parse_representation(body.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                if acceptance::same_recipe_text(
+                    check::text(family.value(), "state", s)?,
+                    "closed_by_root",
+                    s,
+                )? {
+                    // Fixed first-closing producer, not today's root head. Its
+                    // candidate/member semantics remain the child obligation.
+                    let key_value = check::field(family.value(), "operation_key", s)?;
+                    let identity = s
+                        .canonical_representation(key_value, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let origin = prefix::target(tx, key, identity, s)
+                        .await?
+                        .checked_wrappers(tx, s)
+                        .await?;
+                    require(origin.wrappers().sequence() < before, "INTEGRITY_FAILURE")?;
+                    require(
+                        matches!(
+                            check::text(origin.wrappers().operation(), "kind", s)?,
+                            "work.reverse" | "quantity.correct"
+                        ),
+                        "INTEGRITY_FAILURE",
+                    )?;
+                    let evidence =
+                        check::field(origin.wrappers().operation(), "request_evidence", s)?;
+                    let resolution = check::field(evidence, "descriptor_resolution", s)?;
+                    check::same_text(
+                        check::text(resolution, "registry_digest", s)?,
+                        program
+                            .execution_registry()
+                            .ok_or(ServiceError::IntegrityFailure)?,
+                        s,
+                    )?;
+                    let family_ref = wire::reference(&self.rows[index].reference, s)?;
+                    let family_ref = s
+                        .parse_representation(family_ref.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    origin.require_member(family_ref.value(), s)?;
+                    result_member(origin.wrappers().receipt(), family_ref.value(), s)?;
+                    let cause = check::field(family.value(), "causal_closure", s)?;
+                    let prior_ref = check::field(cause, "root_decision_ref", s)?;
+                    let prior = source::retained_local_record(
+                        tx,
+                        key,
+                        prior_ref,
+                        ("workflow-decision", "ledger-workflow-decision-revision/1"),
+                        before,
+                        s,
+                    )
+                    .await?;
+                    equal(
+                        check::field(prior.body(), "revision", s)?,
+                        check::field(cause, "root_expected_revision", s)?,
+                        s,
+                    )?;
+                    let normalized = check::field(evidence, "normalized_request", s)?;
+                    equal(
+                        check::field(check::field(normalized, "payload", s)?, "work_ref", s)?,
+                        check::field(prior.body(), "subject_ref", s)?,
+                        s,
+                    )?;
+                    let (expected_prior, _expected_owner) = source::from_value_local(prior_ref, s)?;
+                    let mut selected = false;
+                    for value in check::field(origin.wrappers().receipt(), "result_refs", s)?
+                        .as_array()
+                        .ok_or(ServiceError::IntegrityFailure)?
+                    {
+                        s.semantic_work()
+                            .visit(ValidationVisit::Element)
+                            .map_err(core_error)?;
+                        if !acceptance::same_recipe_text(
+                            check::text(value, "kind", s)?,
+                            "workflow-decision",
+                            s,
+                        )? {
+                            continue;
+                        }
+                        origin.require_member(value, s)?;
+                        let closing = source::retained_local_record(
+                            tx,
+                            key,
+                            value,
+                            ("workflow-decision", "ledger-workflow-decision-revision/1"),
+                            before,
+                            s,
+                        )
+                        .await?;
+                        let Some(raw_prior) = closing.body().get("prior_ref") else {
+                            continue;
+                        };
+                        let (actual_prior, _actual_owner) = source::from_value_local(raw_prior, s)?;
+                        if !local_original_work::same_ref(&actual_prior, &expected_prior, s)? {
+                            continue;
+                        }
+                        require(!selected, "INTEGRITY_FAILURE")?;
+                        check::same_text(check::text(closing.body(), "kind", s)?, "work", s)?;
+                        equal(
+                            check::field(closing.body(), "decision_id", s)?,
+                            check::field(prior.body(), "decision_id", s)?,
+                            s,
+                        )?;
+                        equal(
+                            check::field(closing.body(), "authority_ref", s)?,
+                            check::field(cause, "authority_ref", s)?,
+                            s,
+                        )?;
+                        equal(
+                            check::field(closing.body(), "operation_key", s)?,
+                            check::field(family.value(), "operation_key", s)?,
+                            s,
+                        )?;
+                        equal(
+                            check::field(closing.body(), "accepted_at", s)?,
+                            check::field(family.value(), "accepted_at", s)?,
+                            s,
+                        )?;
+                        self.add(closing.reference(), s)?;
+                        selected = true;
+                    }
+                    require(selected, "INTEGRITY_FAILURE")?;
+                }
+            }
             if let Some(origin) = stage_closing_producer {
                 // Allocations have no backward edge from their parent. Acquire
                 // only this exact closing supplier Action's original siblings.

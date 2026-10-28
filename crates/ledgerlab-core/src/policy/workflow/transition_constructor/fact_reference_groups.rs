@@ -2,6 +2,7 @@
 //! new evidence or recursively re-executed referenced endpoint is introduced.
 use super::super::selected_program::SelectedProgram;
 use super::{
+    CoreMeter,
     data::{EconomicRecordView, EconomicStateData, ExactRef, OperationKey},
     fact_references::{self, FactReferenceInputs},
     local_locators::LocalOperationLocators,
@@ -9,12 +10,11 @@ use super::{
     records::Records,
     shape,
     working_value::{owning_definition, owning_reference, parse_owned_reference},
-    CoreMeter,
 };
 use crate::{
+    Result,
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, OriginalAuditSession, RepresentationKind, ValidationWork},
-    Result,
 };
 use serde_json::Value;
 use std::mem;
@@ -69,6 +69,7 @@ fn work(m: &mut CoreMeter, value: &Value, binding: &Value, emit: &mut Emit<'_>) 
     facts(m, "original_work", payload, emit)
 }
 fn decision(
+    program: &SelectedProgram,
     m: &mut CoreMeter,
     selected: (&AuditArena, &mut Records<'_, '_>, &OperationKey),
     reference: &ExactRef,
@@ -125,6 +126,14 @@ fn decision(
         facts(m, "original_outcome", payload, emit)?;
     }
     let evaluation_ref = shape::field(m, &d, "evaluation_ref")?;
+    let evaluation_schemas: &[&str] = if program.uses_component_lifecycle_recipe() {
+        &[
+            "ledger-workflow-component-evaluation-proof/1",
+            "ledger-workflow-evaluation-proof/1",
+        ]
+    } else {
+        &["ledger-workflow-evaluation-proof/1"]
+    };
     let evaluation = load(
         m,
         a,
@@ -132,7 +141,7 @@ fn decision(
         key,
         evaluation_ref,
         "workflow-evaluation",
-        &["ledger-workflow-evaluation-proof/1"],
+        evaluation_schemas,
     )?;
     let evaluation_binding = shape::field(m, &evaluation, "binding_ref")?;
     shape::equal(m, evaluation_binding, binding)?;
@@ -147,6 +156,13 @@ fn decision(
         facts(m, "selected_evaluation", &evaluation, emit)?;
     }
     Ok(())
+}
+fn component_without_new_facts(program: &SelectedProgram, schema: &str) -> bool {
+    program.uses_component_lifecycle_recipe()
+        && matches!(
+            schema,
+            "ledger-workflow-cost-observation-attest/1" | "ledger-workflow-link-assert/1"
+        )
 }
 fn walk(
     m: &mut CoreMeter,
@@ -231,6 +247,7 @@ fn walk(
                 m,
             )?;
         }
+        schema if component_without_new_facts(program, schema) => {}
         "ledger-workflow-work-reverse/2"
         | "ledger-workflow-quantity-correction/2"
         | "ledger-workflow-outcome-close/2"
@@ -243,7 +260,7 @@ fn walk(
     }
     for head in &state.financial.decision_heads {
         m.visit("fact_group.selected_decision_head")?;
-        decision(m, (a, r, key), &head.reference, binding, emit)?;
+        decision(program, m, (a, r, key), &head.reference, binding, emit)?;
     }
     for head in &state.financial.family_heads {
         m.visit("fact_group.selected_family_head")?;
@@ -259,11 +276,18 @@ fn walk(
         )?;
         if let Some(reference) = family.get("decision_ref") {
             let reference = parse_owned_reference(m, a, reference)?;
-            decision(m, (a, r, key), reference.reference(), binding, emit)?;
+            decision(
+                program,
+                m,
+                (a, r, key),
+                reference.reference(),
+                binding,
+                emit,
+            )?;
         }
     }
     if let Some(prior) = locators.current_root_predecessor_ref() {
-        decision(m, (a, r, key), prior, binding, emit)?;
+        decision(program, m, (a, r, key), prior, binding, emit)?;
     }
     Ok(())
 }
@@ -413,6 +437,32 @@ mod tests {
     use super::*;
     use crate::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
     use serde_json::json;
+    #[test]
+    fn component_only_observation_and_link_have_no_new_fact_groups() {
+        use crate::policy::workflow::selected_program::{
+            SelectedCompilerSupport, compile_selected_publication,
+        };
+        let (legacy, _, _, _) = super::super::first_work_tests::test_inputs();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
+        let input = super::super::pricing::component_tests::component_input(&support, &mut author);
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let component = compile_selected_publication(input, &support, &mut compile).unwrap();
+        for schema in [
+            "ledger-workflow-cost-observation-attest/1",
+            "ledger-workflow-link-assert/1",
+        ] {
+            assert!(component_without_new_facts(&component, schema));
+            assert!(!component_without_new_facts(&legacy, schema));
+        }
+        assert!(!component_without_new_facts(
+            &component,
+            "ledger-workflow-unknown/1"
+        ));
+    }
     #[test]
     fn named_current_prior_and_none_evaluations_select_only_their_actual_facts() {
         let a = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();

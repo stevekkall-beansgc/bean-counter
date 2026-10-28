@@ -1822,6 +1822,7 @@ fn validate_descriptors(
             | "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276"
             | "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"
             | "sha256:8d775e597055ab47e894b325d5578c23475aa9ac79f8aa8dd04e10505fbad556"
+            | "sha256:40eef351a0953a5fa9b1aeac45c68409838cff3bdf8f83db1b5389fd711f630f"
             | "sha256:b83bb4fcff03820d37d50a6bb6e91e62db9d73a154b003d14ef6f5a4b211257d" => {
                 "ledger-workflow-policy-publication/6"
             }

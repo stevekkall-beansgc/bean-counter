@@ -28,7 +28,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
-pub(super) use replay::{reconstruct as reconstruct_held, ReplayedAcceptance};
+pub(super) use replay::{ReplayedAcceptance, reconstruct as reconstruct_held};
 use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)
@@ -186,8 +186,12 @@ impl AppAcceptanceInput {
         let context = program
             .context_schema_with_work(session.semantic_work())
             .map_err(core_error)?;
-        let terms = OwnedAcceptanceTerms::parse(body.bytes(), context, session)
-            .map_err(context_input_error)?;
+        let terms = if program.uses_component_lifecycle_recipe() {
+            OwnedAcceptanceTerms::parse_component(body.bytes(), context, program, session)
+        } else {
+            OwnedAcceptanceTerms::parse(body.bytes(), context, session)
+        }
+        .map_err(context_input_error)?;
         let normalized =
             request_wrapper::field(terms.canonical_value(), "binding_inputs", session)?;
         // Match duplicated exact direct refs AFTER the SAME terms normalizer.
@@ -886,7 +890,9 @@ async fn reconstruct_inner(
     let authority = request_wrapper::field(operation, "authority_snapshot", session)?;
     request_wrapper::same_text(
         request_wrapper::text(authority, "schema", session)?,
-        if publication.program().uses_stage_lifecycle_recipe() {
+        if publication.program().uses_stage_lifecycle_recipe()
+            || publication.program().uses_component_lifecycle_recipe()
+        {
             "ledger-workflow-agreement-authority/6"
         } else {
             "ledger-workflow-agreement-authority/5"

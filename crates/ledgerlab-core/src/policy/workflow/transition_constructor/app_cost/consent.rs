@@ -560,7 +560,9 @@ pub(in crate::policy::workflow::transition_constructor) fn original(
         .ok_or_else(|| shape::fail("owning app original assents"))?;
     let owner = InvocationToken::new();
     let assents = shape::array(m, b, "assent_refs")?;
-    if w::compare(m, assents.len(), 2usize)?.is_lt()
+    let component = program.uses_component_lifecycle_recipe();
+    let minimum = if component { 1usize } else { 2usize };
+    if w::compare(m, assents.len(), minimum)?.is_lt()
         || w::compare(m, assents.len(), 16usize)?.is_gt()
     {
         return Err(shape::fail(
@@ -648,7 +650,7 @@ pub(in crate::policy::workflow::transition_constructor) fn original(
         }
     }
     if !w::compare(m, customer_count, 1usize)?.is_eq()
-        || !w::compare(m, platform_count, 1usize)?.is_eq()
+        || !w::compare(m, platform_count, if component { 0usize } else { 1usize })?.is_eq()
     {
         return Err(shape::fail(
             "first app capability requires exact customer/platform assent",
@@ -871,4 +873,36 @@ mod management_tests {
         }
         assert!(check(7).is_ok());
     }
+    #[test]
+    fn component_original_checks_genuine_customer_assent_without_platform() {
+        use crate::validation_work::ResourceLimits;
+        use crate::policy::workflow::selected_program::{compile_selected_publication, SelectedCompilerSupport};
+        let (legacy, c, _, inputs) = super::super::super::first_work_tests::test_inputs();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author).unwrap();
+        let input = super::super::super::pricing::component_tests::component_input(&support, &mut author);
+        let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let component = compile_selected_publication(input, &support, &mut compile).unwrap();
+        let find = |schema: &str| -> Value {
+            inputs.iter().filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok()).find(|body| body["schema"] == schema && body["customer"] == "customer-A").unwrap()
+        };
+        let binding = find("ledger-workflow-binding/1");
+        let accepted = find("ledger-workflow-accepted-agreement/1");
+        let registered = find("ledger-workflow-customer-registration/1");
+        let terms_ref: ExactRef = serde_json::from_value(accepted["terms_ref"].clone()).unwrap();
+        let views: Vec<_> = inputs.iter().map(|row| EconomicRecordView { reference: &row.reference, canonical_body: &row.canonical_body }).collect();
+        let check = |program: &SelectedProgram, binding: &Value| {
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut child = session.meter_mut().local_economic_meter().unwrap();
+            let mut records = Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
+            original(program, &mut child, &mut records, &c, binding, &accepted, (&terms_ref, &registered))
+        };
+        check(&component, &binding).unwrap();
+        assert!(check(&legacy, &binding).is_err());
+        let mut bad_binding = binding.clone();
+        bad_binding["customer"] = json!("other-customer");
+        assert!(check(&component, &bad_binding).is_err());
+    }
+
 }

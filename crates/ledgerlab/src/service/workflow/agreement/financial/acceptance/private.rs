@@ -253,6 +253,7 @@ pub(super) fn normalize_inline(
             ("ledger-workflow-slot-binding-terms/7", 3),
             ("ledger-workflow-slot-binding-terms/3", 4),
             ("ledger-workflow-slot-binding-terms/8", 4),
+            ("ledger-workflow-observation-terms/1", 4),
             ("ledger-workflow-party-assent/3", 5),
             ("ledger-workflow-offer/4", 6),
             ("ledger-workflow-supplier-commitment/2", 7),
@@ -282,16 +283,20 @@ pub(super) fn normalize_inline(
         }
         if family == 4 {
             require(
-                publication.program().uses_stage_lifecycle_recipe(),
+                publication.program().uses_stage_lifecycle_recipe()
+                    || publication.program().uses_component_lifecycle_recipe(),
                 "UNSUPPORTED_SCHEMA_PROFILE",
             )?;
             request_wrapper::same_text(
                 schema,
-                stage_terms_schema(publication, request_wrapper::text(body, "slot", s)?, s)?,
+                structural_terms_schema(publication, request_wrapper::text(body, "slot", s)?, s)?,
                 s,
             )?;
             family = 3;
-        } else if family == 3 && publication.program().uses_stage_lifecycle_recipe() {
+        } else if family == 3
+            && (publication.program().uses_stage_lifecycle_recipe()
+                || publication.program().uses_component_lifecycle_recipe())
+        {
             return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
         }
         s.semantic_work()
@@ -318,13 +323,18 @@ pub(super) fn normalize_inline(
                     .map_err(core_error)?,
             ),
             3 => {
-                let stage = publication.program().uses_stage_lifecycle_recipe();
-                let schema = if stage {
-                    stage_terms_schema(publication, request_wrapper::text(body, "slot", s)?, s)?
+                let structural = publication.program().uses_stage_lifecycle_recipe()
+                    || publication.program().uses_component_lifecycle_recipe();
+                let schema = if structural {
+                    structural_terms_schema(
+                        publication,
+                        request_wrapper::text(body, "slot", s)?,
+                        s,
+                    )?
                 } else {
                     "ledger-workflow-slot-binding-terms/7"
                 };
-                let bytes = if stage {
+                let bytes = if structural {
                     SlotBindingTerms::normalize_stage_private_with_session(
                         publication.program(),
                         raw.bytes(),
@@ -611,8 +621,10 @@ pub(super) async fn resolve_graph(
                 request_wrapper::field(binding, "binding_ref", s)?,
                 "workflow-slot-terms",
                 (
-                    if publication.program().uses_stage_lifecycle_recipe() {
-                        stage_terms_schema(
+                    if publication.program().uses_stage_lifecycle_recipe()
+                        || publication.program().uses_component_lifecycle_recipe()
+                    {
+                        structural_terms_schema(
                             publication,
                             request_wrapper::text(binding, "slot", s)?,
                             s,
@@ -737,9 +749,11 @@ pub(super) fn validate_slots(
             .map_err(core_error)?;
         let terms = documents.body(request_wrapper::field(row, "binding_ref", s)?, s)?;
         let role = documents.body(request_wrapper::field(terms, "role_ref", s)?, s)?;
-        if publication.program().uses_stage_lifecycle_recipe() {
+        if publication.program().uses_stage_lifecycle_recipe()
+            || publication.program().uses_component_lifecycle_recipe()
+        {
             let schema =
-                stage_terms_schema(publication, request_wrapper::text(row, "slot", s)?, s)?;
+                structural_terms_schema(publication, request_wrapper::text(row, "slot", s)?, s)?;
             request_wrapper::same_text(request_wrapper::text(terms, "schema", s)?, schema, s)?;
             if schema == "ledger-workflow-slot-binding-terms/8" {
                 // The mandatory supplier::derive consumer validates this exact
@@ -764,14 +778,14 @@ pub(super) fn validate_slots(
 
 /// Select a slot's declared book from the actual owning original Policy.
 /// Matching terms still undergo the complete original graph/rights validator.
-fn stage_terms_schema(
+fn structural_terms_schema(
     publication: &prefix::RecompiledPublication,
     slot: &str,
     s: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
     let program = publication.program();
     require(
-        program.uses_stage_lifecycle_recipe(),
+        program.uses_stage_lifecycle_recipe() || program.uses_component_lifecycle_recipe(),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let target = program.root_policy_ref();
@@ -803,6 +817,9 @@ fn stage_terms_schema(
                 let book = request_wrapper::text(row, "book", s)?;
                 selected = Some(if same_recipe_text(book, "retail", s)? {
                     "ledger-workflow-slot-binding-terms/3"
+                } else if program.uses_component_lifecycle_recipe() {
+                    request_wrapper::same_text(book, "cost_observation", s)?;
+                    "ledger-workflow-observation-terms/1"
                 } else {
                     request_wrapper::same_text(book, "supplier", s)?;
                     "ledger-workflow-slot-binding-terms/8"

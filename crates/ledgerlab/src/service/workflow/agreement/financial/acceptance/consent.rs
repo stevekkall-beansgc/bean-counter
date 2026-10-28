@@ -301,6 +301,8 @@ pub(super) struct Coverage {
     fullterms: Vec<FulltermsConsent>,
     _fullterms_storage: ExternalBufferLease,
     pub(super) supplier: Option<super::supplier::SupplierCoverage>,
+    local_customer: Option<ObservedCustomerConsent>,
+    _local_customer_storage: Option<ExternalBufferLease>,
     _storage: ExternalBufferLease,
 }
 struct FulltermsConsent {
@@ -460,6 +462,8 @@ async fn observe_all_at(
         fullterms,
         _fullterms_storage: fullterms_storage,
         supplier: None,
+        local_customer: None,
+        _local_customer_storage: None,
         _storage: storage,
     };
     out.observations
@@ -467,6 +471,42 @@ async fn observe_all_at(
         .map_err(|_| ServiceError::Unavailable)?;
     let inputs = assents::Inputs::load(tx, incoming.key(), incoming, input, before, s).await?;
     let customer = inputs.select(input, None, s)?;
+    if publication.program().uses_component_lifecycle_recipe() {
+        require_component_customer_legs(input, binding, s)?;
+        let storage = s
+            .reserve_external_payload(std::mem::size_of::<ObservedCustomerConsent>())
+            .map_err(core_error)?;
+        let observed = if let Some(prefix) = historical.as_deref_mut() {
+            let customer_id = request_wrapper::field(input.terms.canonical_value(), "customer", s)?;
+            let registration = prefix
+                .original_customer_at(tx, incoming.key(), customer_id, before, s)
+                .await?;
+            input
+                .original_customer_consent(
+                    tx,
+                    incoming.key(),
+                    admission.enrollment_record(),
+                    registration,
+                    (customer, actor, at, before),
+                    s,
+                )
+                .await?
+        } else {
+            input
+                .customer_consent(
+                    tx,
+                    incoming.key(),
+                    admission.enrollment_record(),
+                    customer,
+                    (actor, at, before),
+                    s,
+                )
+                .await?
+        };
+        out.local_customer = Some(observed);
+        out._local_customer_storage = Some(storage);
+        return Ok(out);
+    }
     for leg in legs {
         s.semantic_work()
             .visit(Visit::Element)
@@ -686,6 +726,7 @@ impl Coverage {
             .iter()
             .map(|o| o.customer.assent())
             .chain(self.fullterms.iter().map(|o| o.customer.assent()))
+            .chain(self.local_customer.iter().map(|o| o.assent()))
     }
     fn party_assents(&self) -> impl Iterator<Item = &wire::SourceRecord> {
         self.observations
@@ -705,6 +746,11 @@ impl Coverage {
                     .chain(platform.evidence_refs())
             })
             .chain(self.supplier.iter().flat_map(|v| v.selected_refs()))
+            .chain(
+                self.local_customer
+                    .iter()
+                    .flat_map(|o| o.records().into_iter().map(|r| r.reference())),
+            )
     }
     pub(super) fn generated_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
         self.observations
@@ -716,6 +762,7 @@ impl Coverage {
                     .flat_map(|o| [o.customer.assent(), &o.party_assent]),
             )
             .chain(self.supplier.iter().flat_map(|v| v.records()))
+            .chain(self.local_customer.iter().map(|o| o.assent()))
     }
     pub(super) fn platform_mappings(
         &self,
@@ -723,6 +770,9 @@ impl Coverage {
         self.consent_pairs().map(|(_, p)| p.mapping())
     }
     pub(super) fn registered_customer(&self) -> Result<&current::source::SourceRecord> {
+        if let Some(customer) = &self.local_customer {
+            return Ok(customer.records()[0]);
+        }
         Ok(self
             .consent_pairs()
             .next()
@@ -807,6 +857,16 @@ impl Coverage {
         prefix: &mut prefix::FoldedInventory,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        if let Some(customer) = &self.local_customer {
+            let records = customer.records();
+            prefix.match_customer(records[0], s)?;
+            for record in records {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                prefix.require_record(record.reference(), s)?;
+            }
+        }
         for (customer, platform) in self.consent_pairs() {
             s.semantic_work()
                 .visit(Visit::Element)
@@ -998,7 +1058,14 @@ impl Coverage {
                     .map_err(core_error)?;
                 observations.push(observed);
             }
-            size(observations.len(), 1, 16, s)?;
+            let minimum =
+                if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)? {
+                    require_component_customer_legs(input, binding, s)?;
+                    0
+                } else {
+                    1
+                };
+            size(observations.len(), minimum, 16, s)?;
             let mut result = CurrentPlatformConsents {
                 observations,
                 supplier: Vec::new(),
@@ -1017,6 +1084,29 @@ impl Coverage {
         .await;
         terminal(result, tx, s)
     }
+}
+
+fn require_component_customer_legs(
+    input: &AppAcceptanceInput,
+    binding: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    request_wrapper::same_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)?;
+    let customer = request_wrapper::text(input.terms.canonical_value(), "customer", s)?;
+    let legs = request_wrapper::field(binding, "funding_legs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    size(legs.len(), 1, 16, s)?;
+    for leg in legs {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        request_wrapper::same_text(request_wrapper::text(leg, "mode", s)?, "customer_local", s)?;
+        for field in ["payer", "resource_owner"] {
+            request_wrapper::same_text(request_wrapper::text(leg, field, s)?, customer, s)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -1118,7 +1208,14 @@ pub(super) async fn observe_local_platforms(
         }
         observations.push(observed);
     }
-    size(observations.len(), 1, 16, s)?;
+    let minimum = if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)?
+    {
+        require_component_customer_legs(input, binding, s)?;
+        0
+    } else {
+        1
+    };
+    size(observations.len(), minimum, 16, s)?;
     Ok(CurrentPlatformConsents {
         observations,
         supplier: Vec::new(),

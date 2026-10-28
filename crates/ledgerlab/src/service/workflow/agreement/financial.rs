@@ -509,7 +509,9 @@ fn is_local_financial_schema(schema: &str) -> bool {
     matches!(
         schema,
         "ledger-workflow-work/1"
+            | "ledger-workflow-link-assert/1"
             | "ledger-workflow-fact-attest/1"
+            | "ledger-workflow-cost-observation-attest/1"
             | "ledger-workflow-family-close-attest/1"
             | "ledger-workflow-app-observe/1"
             | "ledger-workflow-app-cost-attest/1"
@@ -535,6 +537,7 @@ fn registered_financial_operation(kind: &str) -> bool {
     matches!(
         kind,
         "work.accept"
+            | "link.assert"
             | "evidence.retain"
             | "cost.finalize"
             | "cost.correct"
@@ -551,6 +554,7 @@ fn registered_financial_tuple(kind: &str, schema: &str) -> bool {
     matches!(
         (kind, schema),
         ("work.accept", "ledger-workflow-work/1")
+            | ("link.assert", "ledger-workflow-link-assert/1")
             | (
                 "invocation.authorize",
                 "ledger-workflow-invocation-authorize/1" | "ledger-workflow-stage-authorize/1"
@@ -563,6 +567,7 @@ fn registered_financial_tuple(kind: &str, schema: &str) -> bool {
                     | "ledger-workflow-family-close-attest/1"
                     | "ledger-workflow-app-observe/1"
                     | "ledger-workflow-app-cost-attest/1"
+                    | "ledger-workflow-cost-observation-attest/1"
             )
             | ("cost.finalize", "ledger-workflow-cost-finalize/2")
             | ("cost.correct", "ledger-workflow-cost-correct/2")

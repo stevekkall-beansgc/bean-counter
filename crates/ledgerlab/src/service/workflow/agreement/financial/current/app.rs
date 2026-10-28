@@ -59,6 +59,7 @@ pub(in super::super) struct ObservedAppBinding {
     // Ref/vector owners follow the work_state that holds their moved Refs.
     _chain_storage: Option<chain_links::ChainLinks>,
     _relation_head: Option<work_heads::RelationDecision>,
+    _selector_heads: Option<(Vec<work_heads::RelationDecision>, ExternalBufferLease)>,
     // Retain the paid typed-field selection separately from copied pool Refs.
     _fact_reference_groups: Option<OperationFactReferenceInputs>,
 }
@@ -382,7 +383,9 @@ pub(in super::super) async fn observe(
                     tx,
                     key,
                     chain_links::Selection {
-                        recipe: if program.uses_stage_lifecycle_recipe() {
+                        recipe: if program.uses_component_lifecycle_recipe() {
+                            chain_links::ClaimRecipe::Component
+                        } else if program.uses_stage_lifecycle_recipe() {
                             chain_links::ClaimRecipe::Stage
                         } else if program.uses_policy_semantics_recipe() {
                             chain_links::ClaimRecipe::Policy
@@ -847,6 +850,7 @@ async fn observe_binding(
             _verification_storage: None,
             _chain_storage: None,
             _relation_head: None,
+            _selector_heads: None,
             _fact_reference_groups: None,
         })
     }
@@ -948,6 +952,8 @@ impl ObservedAppBinding {
     }
 }
 
-pub(in super::super) use nonwork::{observe as observe_nonwork, retained_verification};
+pub(in super::super) use nonwork::{
+    observe as observe_nonwork, outcome_proof_payload, retained_verification,
+};
 
 pub(in super::super) use alias::construct as construct_work_alias;

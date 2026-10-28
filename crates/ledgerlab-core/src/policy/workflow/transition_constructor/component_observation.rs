@@ -96,6 +96,10 @@ pub(super) fn count(m: &mut CoreMeter, program: &SelectedProgram, activity: &str
         program.compiled_plan().canonical_value(),
         "typed_instructions",
     )? {
+        let opcode = shape::text(m, instruction, "opcode")?;
+        if !shape::same_text(m, opcode, "evaluate_rule")? {
+            continue;
+        }
         let rule = &instruction["rule"];
         let name = shape::text(m, rule, "activity")?;
         let kind = shape::text(m, &rule["formula"], "kind")?;
@@ -149,6 +153,10 @@ pub(super) fn append_original(
         "typed_instructions",
     )? {
         m.visit("component.observation_instruction")?;
+        let opcode = shape::text(m, instruction, "opcode")?;
+        if !shape::same_text(m, opcode, "evaluate_rule")? {
+            continue;
+        }
         let rule = &instruction["rule"];
         let rule_activity = shape::text(m, rule, "activity")?;
         let formula = &rule["formula"];
@@ -432,4 +440,38 @@ fn validate_verification(
         r.provenance(m, &c.key, reference.reference())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod mixed_plan_tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena, policy::workflow::selected_program::{compile_selected_publication, SelectedCompilerSupport}, validation_work::{OriginalAuditSession, ResourceLimits}};
+
+    #[test]
+    fn observation_count_ignores_family_instructions_in_actual_component_plan() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author).unwrap();
+        let input = super::super::pricing::component_tests::component_input(&support, &mut author);
+        let mut compilation = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program = compile_selected_publication(input, &support, &mut compilation).unwrap();
+        let instructions = program.compiled_plan().canonical_value()["typed_instructions"].as_array().unwrap();
+        assert!(instructions.iter().any(|i| i["opcode"] == "evaluate_family" && i.get("rule").is_none()));
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut m = session.meter_mut().local_economic_meter().unwrap();
+        assert_eq!(count(&mut m, &program, "support:complete").unwrap(), 1);
+        assert_eq!(count(&mut m, &program, "support:tool").unwrap(), 0);
+        let (_, context, _, inputs) = super::super::first_work_tests::test_inputs();
+        let views: Vec<_> = inputs.iter().map(|row| EconomicRecordView { reference: &row.reference, canonical_body: &row.canonical_body }).collect();
+        let mut records = Records::borrowed_app(&mut m, &arena, &context.key, &views, &[]).unwrap();
+        let binding = super::super::record_body::RecordBody::Legacy(serde_json::json!({"source_namespace":"fixture-source"}));
+        let blank = super::super::record_body::RecordBody::Legacy(serde_json::json!({}));
+        let reference = inputs[0].reference.clone();
+        let terms = authority::Terms { binding, accepted: blank.clone(), _activation: blank.clone(), catalog: blank.clone(), instantiation: blank.clone(), slot_terms: blank, slot_terms_ref: reference.clone(), role_ref: reference.clone() };
+        let payload = serde_json::json!({"schema":"ledger-workflow-work/1","activity":"support:tool","status":"succeeded","facts":{},"evidence_refs":[],"business_operation_id":"tool","customer":"customer","product_ref":{},"binding_ref":{}});
+        let original = OriginalObservationWork { terms: &terms, payload: &payload, claim_ref: &reference, decision_id: "decision", key: &context.key, received_at: &context.received_at };
+        let (mut actions, mut steps) = (Vec::new(), Vec::new());
+        append_original(&mut m, &mut records, &context, &program, original, (&mut actions, &mut steps)).unwrap();
+        assert!(actions.is_empty() && steps.is_empty());
+    }
 }

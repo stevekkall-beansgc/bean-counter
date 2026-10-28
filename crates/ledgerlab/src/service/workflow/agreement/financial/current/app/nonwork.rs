@@ -134,6 +134,18 @@ pub(in super::super::super) async fn observe(
             "UNSUPPORTED_SCHEMA_PROFILE",
         )?;
     }
+    if matches!(
+        schema,
+        "ledger-workflow-cost-observation-attest/1" | "ledger-workflow-link-assert/1"
+    ) {
+        require(
+            o.original
+                .publication
+                .program()
+                .uses_component_lifecycle_recipe(),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+    }
     pool.select_stage_recipe(o.original.publication.program());
     let original_binding = s
         .parse_representation(
@@ -166,6 +178,53 @@ pub(in super::super::super) async fn observe(
     work_capture::retain_namespace_birth_inputs(&mut o, tx, key, s).await?;
     let root = work_capture::retained_root(&mut o, tx, key, index, s).await?;
     o.work_root = Some(root);
+    // Component outcomes must resolve their declared path before the core
+    // locator can select heads. A later link.assert is not a Work-birth edge.
+    // Acquire the same complete, cutoff-bound chain used below, from the exact
+    // retained selector-start Work, without inferring an inbound path.
+    let mut preselected_chain = None;
+    if o.original
+        .publication
+        .program()
+        .uses_component_lifecycle_recipe()
+        && (schema == "ledger-workflow-outcome/2"
+            || (schema == "ledger-workflow-outcome-correction/2"
+                && payload.get("replacement").and_then(|v| v.get("selector_start_work_ref")).is_some()))
+    {
+        let selected = if schema == "ledger-workflow-outcome-correction/2" {
+            check::field(payload, "replacement", s)?
+        } else {
+            payload
+        };
+        let (start, _owner) =
+            source::from_value_local(check::field(selected, "selector_start_work_ref", s)?, s)?;
+        let body = s
+            .parse_representation(pool.body(&start)?, RepresentationKind::Record)
+            .map_err(core_error)?;
+        let work = check::field(body.value(), "payload", s)?;
+        let expected = wire::reference(o.original.acceptance.binding.reference(), s)?;
+        let binding_ref = check::field(work, "binding_ref", s)?;
+        let actual = s
+            .canonical_representation(binding_ref, RepresentationKind::Record)
+            .map_err(core_error)?;
+        require(actual.bytes() == expected.bytes(), "INTEGRITY_FAILURE")?;
+        let links = super::chain_links::acquire(
+            tx,
+            key,
+            super::chain_links::Selection {
+                recipe: super::chain_links::ClaimRecipe::Component,
+                binding: o.original.acceptance.binding.reference(),
+                customer: check::text(work, "customer", s)?,
+                chain: check::text(work, "chain", s)?,
+                before: o.before,
+            },
+            &mut pool,
+            s,
+        )
+        .await?;
+        pool.complete(tx, key, o.before, s).await?;
+        preselected_chain = Some((body, links));
+    }
     let mut locators = work_capture::with_capture(
         &o,
         key,
@@ -181,7 +240,7 @@ pub(in super::super::super) async fn observe(
                 &pool.views(),
                 s,
             )
-            .map_err(core_error)
+            .map_err(work_capture::local_construction_error)
         },
     )?;
     let mut state = if let Some(heads) = locators.work_heads() {
@@ -212,7 +271,75 @@ pub(in super::super::super) async fn observe(
         .await?;
     super::stage::retain_stage_operation(&mut o, &mut state, &mut pool, tx, key, payload, s)
         .await?;
-    if let Some(report) = locators.selector_start_work_heads() {
+    if o.original
+        .publication
+        .program()
+        .uses_component_lifecycle_recipe()
+    {
+        let reports = locators.selector_work_heads();
+        let count = reports.len();
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&count.into(), &3usize.into()])
+            .map_err(core_error)?;
+        require(count <= 3, "INTEGRITY_FAILURE")?;
+        s.semantic_work()
+            .arithmetic(
+                Op::Multiply,
+                &[
+                    &count.into(),
+                    &std::mem::size_of::<work_heads::RelationDecision>().into(),
+                ],
+            )
+            .map_err(core_error)?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<work_heads::RelationDecision>())
+            .and_then(|n| n.checked_add(std::mem::size_of::<Vec<work_heads::RelationDecision>>()))
+            .ok_or(ServiceError::Unavailable)?;
+        let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+        s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+        let mut held_reports = Vec::new();
+        held_reports
+            .try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for report in reports {
+            s.semantic_work()
+                .visit(ValidationVisit::Element)
+                .map_err(core_error)?;
+            let mut held = work_heads::observe_relation_decision(
+                tx,
+                &mut o.original,
+                key,
+                report,
+                &mut state,
+                s,
+            )
+            .await?;
+            if schema == "ledger-workflow-link-assert/1" {
+                work_heads::retain_relation_families(
+                    tx,
+                    &mut o.original,
+                    key,
+                    report,
+                    o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?,
+                    (&mut state, &mut held),
+                    s,
+                )
+                .await?;
+            }
+            let seed = s
+                .parse_representation(held.seed.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
+            pool.payload_refs(seed.value(), s)?;
+            if let Some(seed) = held.family_seed() {
+                let seed = s
+                    .parse_representation(seed.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                pool.payload_refs(seed.value(), s)?;
+            }
+            held_reports.push(held);
+        }
+        o._selector_heads = Some((held_reports, storage));
+    } else if let Some(report) = locators.selector_start_work_heads() {
         let held =
             work_heads::observe_relation_decision(tx, &mut o.original, key, report, &mut state, s)
                 .await?;
@@ -528,30 +655,45 @@ pub(in super::super::super) async fn observe(
             let chain = s
                 .parse_representation(pool.body(head)?, RepresentationKind::Record)
                 .map_err(core_error)?;
-            let mut links = super::chain_links::acquire(
-                tx,
-                key,
-                super::chain_links::Selection {
-                    recipe: if program.uses_stage_lifecycle_recipe() {
-                        super::chain_links::ClaimRecipe::Stage
-                    } else if program.uses_policy_semantics_recipe() {
-                        super::chain_links::ClaimRecipe::Policy
-                    } else {
-                        super::chain_links::ClaimRecipe::Declared
+            let mut links = if let Some((work, links)) = preselected_chain.take() {
+                let work = check::field(work.value(), "payload", s)?;
+                for field in ["customer", "chain"] {
+                    check::same_text(
+                        check::text(chain.value(), field, s)?,
+                        check::text(work, field, s)?,
+                        s,
+                    )?;
+                }
+                links
+            } else {
+                super::chain_links::acquire(
+                    tx,
+                    key,
+                    super::chain_links::Selection {
+                        recipe: if program.uses_component_lifecycle_recipe() {
+                            super::chain_links::ClaimRecipe::Component
+                        } else if program.uses_stage_lifecycle_recipe() {
+                            super::chain_links::ClaimRecipe::Stage
+                        } else if program.uses_policy_semantics_recipe() {
+                            super::chain_links::ClaimRecipe::Policy
+                        } else {
+                            super::chain_links::ClaimRecipe::Declared
+                        },
+                        binding: o.original.acceptance.binding.reference(),
+                        customer: check::text(chain.value(), "customer", s)?,
+                        chain: check::text(chain.value(), "chain", s)?,
+                        before: o.before,
                     },
-                    binding: o.original.acceptance.binding.reference(),
-                    customer: check::text(chain.value(), "customer", s)?,
-                    chain: check::text(chain.value(), "chain", s)?,
-                    before: o.before,
-                },
-                &mut pool,
-                s,
-            )
-            .await?;
+                    &mut pool,
+                    s,
+                )
+                .await?
+            };
             state.financial.links = std::mem::take(&mut links.references);
             o._chain_storage = Some(links);
         }
     }
+    require(preselected_chain.is_none(), "INTEGRITY_FAILURE")?;
     if program.uses_work_lifecycle_recipe() {
         let raw = s
             .canonical_representation(payload, RepresentationKind::OriginalRequest)
@@ -669,7 +811,7 @@ pub(in super::super::super) async fn retained_verification(
     selected.ok_or(ServiceError::IntegrityFailure)
 }
 
-fn outcome_proof_payload<'a>(
+pub(in super::super::super) fn outcome_proof_payload<'a>(
     payload: &'a Value,
     schema: &str,
     s: &mut OriginalAuditSession,
@@ -690,8 +832,10 @@ fn core_operation_kind(payload: &Value, s: &mut OriginalAuditSession) -> Result<
             "invocation.authorize"
         }
         "ledger-workflow-invocation-close/1" => "invocation.close",
+        "ledger-workflow-link-assert/1" => "link.assert",
         "ledger-workflow-stage-close/1" => "outcome.submit",
         "ledger-workflow-fact-attest/1"
+        | "ledger-workflow-cost-observation-attest/1"
         | "ledger-workflow-family-close-attest/1"
         | "ledger-workflow-app-observe/1"
         | "ledger-workflow-app-cost-attest/1" => "evidence.retain",

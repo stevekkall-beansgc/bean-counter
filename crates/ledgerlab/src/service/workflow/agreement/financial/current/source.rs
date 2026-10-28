@@ -638,6 +638,35 @@ pub(in super::super) async fn retained_local_record(
     })
 }
 
+/// Closed Claim1/Claim2 DATA bootstrap. The authenticated original Program
+/// and existing outcome consumer select the applicable retained recipe.
+pub(in super::super) async fn retained_outcome_claim(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let (reference, lease) = from_value_local(value, s)?;
+    super::super::request_wrapper::same_text(&reference.kind, "workflow-outcome-claim", s)?;
+    let stored = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    let schema = raw_text(stored.schema.bytes(), s)?;
+    let claim1 = equal_text(schema, "ledger-workflow-outcome-claim/1", s)?;
+    let claim2 = equal_text(schema, "ledger-workflow-outcome-claim/2", s)?;
+    require(claim1 || claim2, "INTEGRITY_FAILURE")?;
+    let parsed = local_record_value(key, &reference, stored.body.bytes(), schema, s)?;
+    Ok(SourceRecord {
+        parsed,
+        stored,
+        reference,
+        _reference_lease: lease,
+    })
+}
+
 /// Retained allocation DATA selected only by the authenticated original Stage
 /// Program. Origin/member and regenerated allocation comparisons remain with
 /// the lifecycle collector and constructor respectively.

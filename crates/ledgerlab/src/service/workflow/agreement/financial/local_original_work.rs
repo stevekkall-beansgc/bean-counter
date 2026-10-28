@@ -217,7 +217,22 @@ pub(super) async fn reconstruct_selected(
                     | "ledger-workflow-invocation-close/1"
                     | "ledger-workflow-work-reverse/2"
                     | "ledger-workflow-quantity-correction/2"
-            )),
+            ))
+            || (owner.program().uses_component_lifecycle_recipe()
+                && matches!(
+                    schema,
+                    "ledger-workflow-cost-observation-attest/1"
+                        | "ledger-workflow-link-assert/1"
+                        | "ledger-workflow-fact-attest/1"
+                        | "ledger-workflow-family-close-attest/1"
+                        | "ledger-workflow-outcome/1"
+                        | "ledger-workflow-outcome/2"
+                        | "ledger-workflow-outcome-correction/1"
+                        | "ledger-workflow-outcome-correction/2"
+                        | "ledger-workflow-outcome-close/2"
+                        | "ledger-workflow-work-reverse/2"
+                        | "ledger-workflow-quantity-correction/2"
+                )),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
 
@@ -228,7 +243,7 @@ pub(super) async fn reconstruct_selected(
     let (mut context, _context_owner) = super::local_original_context::capture_selected(
         w.operation(),
         activation.activation.reference(),
-        owner.program().uses_stage_lifecycle_recipe(),
+        owner.program(),
         s,
     )?;
 
@@ -258,7 +273,7 @@ pub(super) async fn reconstruct_selected(
         accepted_at: &context.accepted_at,
         sources: &primary,
     };
-    let locators = if work {
+    let mut locators = if work {
         None
     } else {
         Some(
@@ -272,197 +287,6 @@ pub(super) async fn reconstruct_selected(
             .map_err(core_error)?,
         )
     };
-
-    // Match fresh with_capture: only actual local locator roles enable
-    // secondary source groups. Plain Work captures its initiating source.
-    let secondary_roles = owner.program().uses_work_lifecycle_recipe()
-        && locators
-            .as_ref()
-            .is_some_and(|l| !l.required_authority_slots().is_empty());
-    let source_value = request_wrapper::field(binding.value(), "source_slots", s)?;
-    let source_metadata = s
-        .canonical_representation(source_value, RepresentationKind::Record)
-        .map_err(core_error)?;
-    let originals_value = request_wrapper::field(binding.value(), "authority_refs", s)?;
-    let original_metadata = s
-        .canonical_representation(originals_value, RepresentationKind::Record)
-        .map_err(core_error)?;
-    let primary_metadata = s
-        .canonical_representation(snapshot, RepresentationKind::Authority)
-        .map_err(core_error)?;
-    let source_bytes = source_metadata
-        .bytes()
-        .len()
-        .checked_add(original_metadata.bytes().len())
-        .and_then(|n| n.checked_add(primary_metadata.bytes().len()))
-        .ok_or(ServiceError::Unavailable)?;
-    let _frame_storage = s
-        .reserve_external_payload(
-            source_bytes
-                .checked_mul(32)
-                .ok_or(ServiceError::Unavailable)?
-                + 32 * (mem::size_of::<core::AuthorityContextData>()
-                    + mem::size_of::<current::source::ObservedSource>()
-                    + 32 * mem::size_of::<core::ExactRef>()
-                    + mem::size_of::<Vec<core::ExactRef>>()
-                    + mem::size_of::<prefix::source::InitialSource>()
-                    + mem::size_of::<&core::InitialSourceCorrespondence>()
-                    + mem::size_of::<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>(
-                    )),
-        )
-        .map_err(core_error)?;
-    context
-        .authorities
-        .try_reserve_exact(31)
-        .map_err(|_| ServiceError::Unavailable)?;
-    let mut observations = Vec::new();
-    observations
-        .try_reserve_exact(32)
-        .map_err(|_| ServiceError::Unavailable)?;
-    let slots = request_wrapper::field(binding.value(), "source_slots", s)?
-        .as_array()
-        .ok_or(ServiceError::IntegrityFailure)?;
-    for slot in slots {
-        let name = request_wrapper::text(slot, "name", s)?;
-        let primary_slot = name == context.authorities[0].source_slot;
-        let required = primary_slot
-            || locators
-                .as_ref()
-                .is_some_and(|l| l.required_authority_slots().iter().any(|v| v == name));
-        if !required {
-            continue;
-        }
-        let mut groups: Vec<(current::source::ObservedSource, Vec<core::ExactRef>)> = Vec::new();
-        groups
-            .try_reserve_exact(32)
-            .map_err(|_| ServiceError::Unavailable)?;
-        for nominated in request_wrapper::field(binding.value(), "authority_refs", s)?
-            .as_array()
-            .ok_or(ServiceError::IntegrityFailure)?
-        {
-            if request_wrapper::text(nominated, "kind", s)? != "workflow-source-grant" {
-                continue;
-            }
-            let (r, _lease) = current::source::from_value_local(nominated, s)?;
-            let body = s
-                .parse_representation(pool.body(&r)?, RepresentationKind::Record)
-                .map_err(core_error)?;
-            let source = request_wrapper::text(body.value(), "source", s)?;
-            let eligible = request_wrapper::field(slot, "sources", s)?
-                .as_array()
-                .ok_or(ServiceError::IntegrityFailure)?
-                .iter()
-                .any(|v| v.as_str() == Some(source));
-            if !eligible || (!secondary_roles && source != key.source) {
-                continue;
-            }
-            let observed = prefix.source_at(tx, key, nominated, sequence, s).await?;
-            if observed.current_grant_ref().is_none() {
-                continue;
-            }
-            let mut same = None;
-            for (position, (old, _)) in groups.iter().enumerate() {
-                if same_ref(old.enrollment_ref(), observed.enrollment_ref(), s)? {
-                    require(
-                        same_ref(old.state_ref(), observed.state_ref(), s)?
-                            && same_ref(
-                                old.current_grant_ref()
-                                    .ok_or(ServiceError::IntegrityFailure)?,
-                                observed
-                                    .current_grant_ref()
-                                    .ok_or(ServiceError::IntegrityFailure)?,
-                                s,
-                            )?,
-                        "STALE_REVISION",
-                    )?;
-                    same = Some(position);
-                }
-            }
-            if let Some(position) = same {
-                groups[position]
-                    .1
-                    .push(reference(observed.original_grant_ref(), s)?);
-            } else {
-                require(groups.len() < 32, "UNSUPPORTED_COMPOSITION")?;
-                let mut originals = Vec::new();
-                originals
-                    .try_reserve_exact(32)
-                    .map_err(|_| ServiceError::Unavailable)?;
-                originals.push(reference(observed.original_grant_ref(), s)?);
-                groups.push((observed, originals));
-            }
-        }
-        for (observed, originals) in groups {
-            let source = request_wrapper::text(observed.original_grant_body(), "source", s)?;
-            if primary_slot && source == key.source {
-                let frame = &context.authorities[0];
-                for (a, b) in [
-                    (&frame.enrollment_ref, observed.enrollment_ref()),
-                    (&frame.current_state_ref, observed.state_ref()),
-                    (
-                        &frame.current_grant_ref,
-                        observed
-                            .current_grant_ref()
-                            .ok_or(ServiceError::IntegrityFailure)?,
-                    ),
-                ] {
-                    require(same_ref(a, b, s)?, "INTEGRITY_FAILURE")?;
-                }
-                require(
-                    frame.original_grant_refs.len() == originals.len(),
-                    "INTEGRITY_FAILURE",
-                )?;
-                for (a, b) in frame.original_grant_refs.iter().zip(&originals) {
-                    require(same_ref(a, b, s)?, "INTEGRITY_FAILURE")?;
-                }
-            } else {
-                require(context.authorities.len() < 32, "UNSUPPORTED_COMPOSITION")?;
-                context.authorities.push(core::AuthorityContextData {
-                    source_slot: copy(name, s)?,
-                    enrollment_ref: reference(observed.enrollment_ref(), s)?,
-                    current_state_ref: reference(observed.state_ref(), s)?,
-                    current_grant_ref: reference(
-                        observed
-                            .current_grant_ref()
-                            .ok_or(ServiceError::IntegrityFailure)?,
-                        s,
-                    )?,
-                    original_grant_refs: originals,
-                    binding_ref: reference(&binding_ref, s)?,
-                    accepted_agreement_ref: reference(&accepted_ref, s)?,
-                    activation_ref: reference(activation.activation.reference(), s)?,
-                    authority_observation_ref: None,
-                });
-            }
-            observations.push(observed);
-        }
-    }
-    let mut primary_present = false;
-    for observed in &observations {
-        if same_ref(
-            observed.enrollment_ref(),
-            &context.authorities[0].enrollment_ref,
-            s,
-        )? {
-            primary_present = true;
-        }
-    }
-    require(primary_present, "AUTHORITY_REQUIRED")?;
-
-    let mut births = Vec::new();
-    births
-        .try_reserve_exact(context.authorities.len())
-        .map_err(|_| ServiceError::Unavailable)?;
-    for frame in &context.authorities {
-        births.push(
-            prefix::source::initial_for_enrollment(tx, key, &frame.enrollment_ref, sequence, s)
-                .await?,
-        );
-    }
-    let source_correspondences: Vec<_> = births
-        .iter()
-        .map(|(birth, _)| birth.correspondence())
-        .collect();
 
     // All copies below are bounded by actual retained input bytes plus explicit
     // typed carrier controls; original I bodies remain separately owned.
@@ -542,10 +366,40 @@ pub(super) async fn reconstruct_selected(
             "INTEGRITY_FAILURE",
         )?;
     }
+    let original_outcome_claim = if owner.program().uses_component_lifecycle_recipe()
+        && schema == "ledger-workflow-outcome-correction/2"
+    {
+        let (claim, _lease) = current::source::from_value_local(
+            request_wrapper::field(payload, "original_claim_ref", s)?, s,
+        )?;
+        Some(s.parse_representation(pool.body(&claim)?, RepresentationKind::Record).map_err(core_error)?)
+    } else {
+        None
+    };
+    let selector_start = if owner.program().uses_component_lifecycle_recipe() {
+        match schema {
+            "ledger-workflow-outcome/2" => payload.get("selector_start_work_ref"),
+            "ledger-workflow-outcome-correction/2" => original_outcome_claim.as_ref()
+                .and_then(|claim| claim.value().get("original_payload"))
+                .and_then(|original| original.get("selector_start_work_ref")),
+            _ => None,
+        }
+    } else {
+        None
+    };
     let chain_owner = if let Some(r) = payload
         .get("stage_instance_ref")
         .or_else(|| payload.get("work_ref"))
-    {
+        .or(selector_start)
+        .or_else(|| {
+            if owner.program().uses_component_lifecycle_recipe()
+                && schema == "ledger-workflow-link-assert/1"
+            {
+                payload.get("child")
+            } else {
+                None
+            }
+        }) {
         let (r, _lease) = current::source::from_value_local(r, s)?;
         Some(
             s.parse_representation(pool.body(&r)?, RepresentationKind::Record)
@@ -563,14 +417,31 @@ pub(super) async fn reconstruct_selected(
     } else {
         payload.get("stage_instance").unwrap_or(payload)
     };
-    let declared_stage_proofs = if owner.program().uses_stage_lifecycle_recipe()
+    if selector_start.is_some() {
+        let (selected_binding, _lease) = current::source::from_value_local(
+            request_wrapper::field(chain_subject, "binding_ref", s)?, s,
+        )?;
+        require(same_ref(&selected_binding, &binding_ref, s)?, "INTEGRITY_FAILURE")?;
+    }
+    let declared_proofs = if owner.program().uses_stage_lifecycle_recipe()
         && request_wrapper::text(payload, "schema", s)? == "ledger-workflow-stage-close/1"
     {
         Some(
             request_wrapper::field(payload, "fact_proofs", s)?
                 .as_array()
-                .ok_or(ServiceError::IntegrityFailure)?,
+                .ok_or(ServiceError::IntegrityFailure)?
+                .as_slice(),
         )
+    } else if owner.program().uses_component_lifecycle_recipe() {
+        let subject = current::app::outcome_proof_payload(payload, schema, s)?;
+        Some(if let Some(proofs) = subject.get("fact_proofs") {
+            proofs
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .as_slice()
+        } else {
+            &[]
+        })
     } else {
         None
     };
@@ -616,7 +487,7 @@ pub(super) async fn reconstruct_selected(
                     });
                 }
             }
-            "workflow-evidence-verification" if declared_stage_proofs.is_none() => financial
+            "workflow-evidence-verification" if declared_proofs.is_none() => financial
                 .evidence_verifications
                 .push(reference(row.reference, s)?),
             "workflow-link" if chain_subject.get("chain").is_some() => {
@@ -625,11 +496,25 @@ pub(super) async fn reconstruct_selected(
                 let body = s
                     .parse_representation(pool.body(&child)?, RepresentationKind::Record)
                     .map_err(core_error)?;
-                let subject = match request_wrapper::text(body.value(), "schema", s)? {
+                let outcome_predecessor = if owner.program().uses_component_lifecycle_recipe()
+                    && request_wrapper::text(body.value(), "schema", s)? == "ledger-workflow-outcome-claim/2"
+                {
+                    let predecessor = request_wrapper::field(v, "predecessor", s)?;
+                    let original = request_wrapper::field(body.value(), "original_payload", s)?;
+                    let start = request_wrapper::field(original, "selector_start_work_ref", s)?;
+                    let (predecessor_ref, _lease) = current::source::from_value_local(predecessor, s)?;
+                    let (start_ref, _lease) = current::source::from_value_local(start, s)?;
+                    require(same_ref(&predecessor_ref, &start_ref, s)?, "INTEGRITY_FAILURE")?;
+                    Some(s.parse_representation(pool.body(&predecessor_ref)?, RepresentationKind::Record).map_err(core_error)?)
+                } else {
+                    None
+                };
+                let subject_body = outcome_predecessor.as_ref().unwrap_or(&body);
+                let subject = match request_wrapper::text(subject_body.value(), "schema", s)? {
                     "ledger-workflow-work-record/1" => {
-                        request_wrapper::field(body.value(), "payload", s)?
+                        request_wrapper::field(subject_body.value(), "payload", s)?
                     }
-                    "ledger-workflow-stage-instance/1" => body.value(),
+                    "ledger-workflow-stage-instance/1" => subject_body.value(),
                     _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
                 };
                 let mut matches = true;
@@ -656,7 +541,7 @@ pub(super) async fn reconstruct_selected(
             _ => {}
         }
     }
-    if let Some(proofs) = declared_stage_proofs {
+    if let Some(proofs) = declared_proofs {
         // Repeat the forward declaration selector at the original cutoff. All
         // transitive Work proofs remain I, but are not this closure's proofs.
         financial
@@ -763,7 +648,39 @@ pub(super) async fn reconstruct_selected(
         let v = body.value();
         match row.reference.kind.as_str() {
             "workflow-decision" => {
+                let unpriced_reverse = schema == "ledger-workflow-work-reverse/2"
+                    && locators.as_ref().and_then(|l| l.work_heads()).is_some_and(|heads|
+                        heads.family_keys().is_empty() && heads.app_decision_ids().is_empty())
+                    && payload.get("family_closures").and_then(Value::as_array).is_some_and(Vec::is_empty)
+                    && payload.get("dependent_reversals").and_then(Value::as_array).is_some_and(Vec::is_empty);
+                if work && owner.program().uses_component_lifecycle_recipe()
+                    && request_wrapper::text(v, "kind", s)? == "outcome"
+                {
+                    continue;
+                }
                 let id = request_wrapper::field(v, "decision_id", s)?;
+                if matches!(schema, "ledger-workflow-fact-attest/1" | "ledger-workflow-outcome-correction/2" | "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2") && owner.program().uses_component_lifecycle_recipe() {
+                    let selected = locators.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+                    let heads = selected.work_heads().ok_or(ServiceError::IntegrityFailure)?;
+                    let decision_id = id.as_str().ok_or(ServiceError::IntegrityFailure)?;
+                    let mut matches = false;
+                    for wanted in std::iter::once(heads.root_decision_id())
+                        .chain(heads.family_keys().iter().map(|h| h.decision_id()))
+                        .chain(heads.app_decision_ids().iter().map(String::as_str))
+                        .chain(selected.selector_work_heads().iter().map(|h| h.root_decision_id()))
+                    {
+                        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                        s.semantic_work().scan_bytes(decision_id.len() + wanted.len()).map_err(core_error)?;
+                        matches |= decision_id == wanted;
+                    }
+                    if !matches { continue; }
+                }
+                if unpriced_reverse && owner.program().uses_component_lifecycle_recipe() {
+                    let root = locators.as_ref().and_then(|l| l.work_heads()).ok_or(ServiceError::IntegrityFailure)?.root_decision_id();
+                    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                    s.semantic_work().scan_bytes(id.as_str().ok_or(ServiceError::IntegrityFailure)?.len() + root.len()).map_err(core_error)?;
+                    if id.as_str() != Some(root) { continue; }
+                }
                 if prefix
                     .original_input("local-original-decision", &[id], &inputs, s)?
                     .is_some_and(|r| r.reference == row.reference)
@@ -828,6 +745,34 @@ pub(super) async fn reconstruct_selected(
             }
             _ => {}
         }
+    }
+    let _selected_owner;
+    if owner.program().uses_component_lifecycle_recipe()
+        && schema == "ledger-workflow-outcome-correction/2"
+    {
+        let root = locators.as_ref().and_then(|l| l.work_heads())
+            .ok_or(ServiceError::IntegrityFailure)?.root_decision_id();
+        let bytes = financial.decision_heads.len().checked_mul(mem::size_of::<core::DecisionHead>()).ok_or(ServiceError::Unavailable)?;
+        _selected_owner = Some(s.reserve_external_payload(bytes).map_err(core_error)?);
+        s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+        let mut selected = Vec::new();
+        selected.try_reserve_exact(financial.decision_heads.len()).map_err(|_| ServiceError::Unavailable)?;
+        for head in financial.decision_heads.drain(..) {
+            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+            s.semantic_work().scan_bytes(head.decision_id.len() + root.len()).map_err(core_error)?;
+            let mut keep = head.decision_id == root;
+            for family in &financial.family_heads {
+                let state = s.parse_representation(pool.body(&family.reference)?, RepresentationKind::Record).map_err(core_error)?;
+                if let Some(value) = state.value().get("decision_ref") {
+                    let (decision, _lease) = current::source::from_value_local(value, s)?;
+                    keep |= same_ref(&head.reference, &decision, s)?;
+                }
+            }
+            if keep { selected.push(head); }
+        }
+        financial.decision_heads = selected;
+    } else {
+        _selected_owner = None;
     }
     let (ck, _ck_owner) = local_inputs::core_key_with_owner(key, s)?;
     let stage_locator = core::select_stage_operation_locators(
@@ -1011,11 +956,39 @@ pub(super) async fn reconstruct_selected(
         if let Some(row) =
             prefix.original_input("local-original-work-claim", &[id.value()], &inputs, s)?
         {
-            financial.work_claims.push(reference(row.reference, s)?);
+            if !(owner.program().uses_component_lifecycle_recipe()
+                && matches!(schema, "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" | "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2"))
+            {
+                financial.work_claims.push(reference(row.reference, s)?);
+            }
         }
         let id = string(locator.root_decision_id(), s)?;
         prefix.original_input("local-original-decision", &[id.value()], &inputs, s)?;
-        prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
+        if !(owner.program().uses_component_lifecycle_recipe()
+            && matches!(schema, "ledger-workflow-link-assert/1" | "ledger-workflow-fact-attest/1"))
+        {
+            prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
+        }
+    }
+    if owner.program().uses_component_lifecycle_recipe() {
+        if let Some(locators) = &locators {
+            for report in locators.selector_work_heads() {
+                let claim = string(report.work_claim_id(), s)?;
+                require(
+                    prefix
+                        .original_input("local-original-work-claim", &[claim.value()], &inputs, s)?
+                        .is_some(),
+                    "INTEGRITY_FAILURE",
+                )?;
+                let id = string(report.root_decision_id(), s)?;
+                require(
+                    prefix
+                        .original_input("local-original-decision", &[id.value()], &inputs, s)?
+                        .is_some(),
+                    "INTEGRITY_FAILURE",
+                )?;
+            }
+        }
     }
     // Match the forward acquisition owner: Stage operations capture their
     // Chain, while Invocation close captures only its Invocation and Work claim.
@@ -1059,6 +1032,242 @@ pub(super) async fn reconstruct_selected(
             }
         }
     }
+    if owner.program().uses_component_lifecycle_recipe()
+        && matches!(
+            schema,
+            "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2"
+        )
+    {
+        let selected = locators.as_mut().ok_or(ServiceError::IntegrityFailure)?;
+        selected
+            .retain_current_root_predecessor(
+                owner.program(),
+                &ck,
+                (
+                    &financial.decision_heads,
+                    &capacities,
+                    &financial.stage_heads,
+                ),
+                &inputs,
+                s,
+            )
+            .map_err(core_error)?;
+        if let Some(prior) = selected.current_root_predecessor_ref() {
+            let mut found = false;
+            for input in &inputs {
+                found |= same_ref(input.reference, prior, s)?;
+            }
+            require(found, "INTEGRITY_FAILURE")?;
+        }
+        selected
+            .retain_current_family_outcome_links(
+                owner.program(),
+                &ck,
+                &financial.family_heads,
+                &inputs,
+                s,
+            )
+            .map_err(core_error)?;
+    }
+    // As in fresh nonWork capture, actual held original heads refine the
+    // required family roles before any secondary source group is selected.
+    // Match fresh with_capture: only actual local locator roles enable
+    // secondary source groups. Plain Work captures its initiating source.
+    let secondary_roles = owner.program().uses_work_lifecycle_recipe()
+        && locators
+            .as_ref()
+            .is_some_and(|l| !l.required_authority_slots().is_empty());
+    let source_value = request_wrapper::field(binding.value(), "source_slots", s)?;
+    let source_metadata = s
+        .canonical_representation(source_value, RepresentationKind::Record)
+        .map_err(core_error)?;
+    let originals_value = request_wrapper::field(binding.value(), "authority_refs", s)?;
+    let original_metadata = s
+        .canonical_representation(originals_value, RepresentationKind::Record)
+        .map_err(core_error)?;
+    let primary_metadata = s
+        .canonical_representation(snapshot, RepresentationKind::Authority)
+        .map_err(core_error)?;
+    let source_bytes = source_metadata
+        .bytes()
+        .len()
+        .checked_add(original_metadata.bytes().len())
+        .and_then(|n| n.checked_add(primary_metadata.bytes().len()))
+        .ok_or(ServiceError::Unavailable)?;
+    let _frame_storage = s
+        .reserve_external_payload(
+            source_bytes
+                .checked_mul(32)
+                .ok_or(ServiceError::Unavailable)?
+                + 32 * (mem::size_of::<core::AuthorityContextData>()
+                    + mem::size_of::<current::source::ObservedSource>()
+                    + 32 * mem::size_of::<core::ExactRef>()
+                    + mem::size_of::<Vec<core::ExactRef>>()
+                    + mem::size_of::<prefix::source::InitialSource>()
+                    + mem::size_of::<&core::InitialSourceCorrespondence>()
+                    + mem::size_of::<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>(
+                    )),
+        )
+        .map_err(core_error)?;
+    context
+        .authorities
+        .try_reserve_exact(31)
+        .map_err(|_| ServiceError::Unavailable)?;
+    let mut observations = Vec::new();
+    observations
+        .try_reserve_exact(32)
+        .map_err(|_| ServiceError::Unavailable)?;
+    let slots = request_wrapper::field(binding.value(), "source_slots", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    for slot in slots {
+        let name = request_wrapper::text(slot, "name", s)?;
+        let primary_slot = name == context.authorities[0].source_slot;
+        let required = primary_slot
+            || locators
+                .as_ref()
+                .is_some_and(|l| l.required_authority_slots().iter().any(|v| v == name));
+        if !required {
+            continue;
+        }
+        let mut groups: Vec<(current::source::ObservedSource, Vec<core::ExactRef>)> = Vec::new();
+        groups
+            .try_reserve_exact(32)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for nominated in request_wrapper::field(binding.value(), "authority_refs", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            if request_wrapper::text(nominated, "kind", s)? != "workflow-source-grant" {
+                continue;
+            }
+            let (r, _lease) = current::source::from_value_local(nominated, s)?;
+            let body = s
+                .parse_representation(pool.body(&r)?, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let source = request_wrapper::text(body.value(), "source", s)?;
+            let eligible = request_wrapper::field(slot, "sources", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .iter()
+                .any(|v| v.as_str() == Some(source));
+            if !eligible || (!secondary_roles && source != key.source) {
+                continue;
+            }
+            let observed = prefix.source_at(tx, key, nominated, sequence, s).await?;
+            if observed.current_grant_ref().is_none() {
+                continue;
+            }
+            let mut same = None;
+            for (position, (old, _)) in groups.iter().enumerate() {
+                if same_ref(old.enrollment_ref(), observed.enrollment_ref(), s)? {
+                    require(
+                        same_ref(old.state_ref(), observed.state_ref(), s)?
+                            && same_ref(
+                                old.current_grant_ref()
+                                    .ok_or(ServiceError::IntegrityFailure)?,
+                                observed
+                                    .current_grant_ref()
+                                    .ok_or(ServiceError::IntegrityFailure)?,
+                                s,
+                            )?,
+                        "STALE_REVISION",
+                    )?;
+                    same = Some(position);
+                }
+            }
+            if let Some(position) = same {
+                groups[position]
+                    .1
+                    .push(reference(observed.original_grant_ref(), s)?);
+            } else {
+                require(groups.len() < 32, "UNSUPPORTED_COMPOSITION")?;
+                let mut originals = Vec::new();
+                originals
+                    .try_reserve_exact(32)
+                    .map_err(|_| ServiceError::Unavailable)?;
+                originals.push(reference(observed.original_grant_ref(), s)?);
+                groups.push((observed, originals));
+            }
+        }
+        for (observed, originals) in groups {
+            let source = request_wrapper::text(observed.original_grant_body(), "source", s)?;
+            if primary_slot && source == key.source {
+                let frame = &context.authorities[0];
+                for (a, b) in [
+                    (&frame.enrollment_ref, observed.enrollment_ref()),
+                    (&frame.current_state_ref, observed.state_ref()),
+                    (
+                        &frame.current_grant_ref,
+                        observed
+                            .current_grant_ref()
+                            .ok_or(ServiceError::IntegrityFailure)?,
+                    ),
+                ] {
+                    require(same_ref(a, b, s)?, "INTEGRITY_FAILURE")?;
+                }
+                require(
+                    frame.original_grant_refs.len() == originals.len(),
+                    "INTEGRITY_FAILURE",
+                )?;
+                for (a, b) in frame.original_grant_refs.iter().zip(&originals) {
+                    require(same_ref(a, b, s)?, "INTEGRITY_FAILURE")?;
+                }
+            } else {
+                require(context.authorities.len() < 32, "UNSUPPORTED_COMPOSITION")?;
+                context.authorities.push(core::AuthorityContextData {
+                    source_slot: copy(name, s)?,
+                    enrollment_ref: reference(observed.enrollment_ref(), s)?,
+                    current_state_ref: reference(observed.state_ref(), s)?,
+                    current_grant_ref: reference(
+                        observed
+                            .current_grant_ref()
+                            .ok_or(ServiceError::IntegrityFailure)?,
+                        s,
+                    )?,
+                    original_grant_refs: originals,
+                    binding_ref: reference(&binding_ref, s)?,
+                    accepted_agreement_ref: reference(&accepted_ref, s)?,
+                    activation_ref: reference(activation.activation.reference(), s)?,
+                    authority_observation_ref: None,
+                });
+            }
+            observations.push(observed);
+        }
+    }
+    let mut primary_present = false;
+    for observed in &observations {
+        if same_ref(
+            observed.enrollment_ref(),
+            &context.authorities[0].enrollment_ref,
+            s,
+        )? {
+            primary_present = true;
+        }
+    }
+    require(primary_present, "AUTHORITY_REQUIRED")?;
+
+    let mut births = Vec::new();
+    births
+        .try_reserve_exact(context.authorities.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    for (i, frame) in context.authorities.iter().enumerate() {
+        let mut duplicate = false;
+        for prior in &context.authorities[..i] {
+            duplicate |= same_ref(&prior.enrollment_ref, &frame.enrollment_ref, s)?;
+        }
+        if !duplicate {
+            births.push(
+                prefix::source::initial_for_enrollment(tx, key, &frame.enrollment_ref, sequence, s)
+                    .await?,
+            );
+        }
+    }
+    let source_correspondences: Vec<_> = births
+        .iter()
+        .map(|(birth, _)| birth.correspondence())
+        .collect();
+
     let app = core::AppStateData {
         cost_heads: &[],
         observation_refs: &[],
@@ -1103,6 +1312,29 @@ pub(super) async fn reconstruct_selected(
         .canonical_representation(w.operation(), RepresentationKind::OperationFrame)
         .map_err(core_error)?;
 
+    // A Component report reversal can regenerate its unchanged original evaluation.
+    // It remains authenticated input, and is also an actual producer result.
+    if owner.program().uses_component_lifecycle_recipe()
+        && schema == "ledger-workflow-work-reverse/2"
+        && locators.as_ref().and_then(|l| l.work_heads()).is_some_and(|heads|
+            heads.family_keys().is_empty() && heads.app_decision_ids().is_empty())
+    {
+        let root = locators.as_ref().and_then(|l| l.work_heads()).ok_or(ServiceError::IntegrityFailure)?.root_decision_id();
+        let head = financial.decision_heads.iter().find(|h| h.decision_id == root).ok_or(ServiceError::IntegrityFailure)?;
+        let decision = s.parse_representation(pool.body(&head.reference)?, RepresentationKind::Record).map_err(core_error)?;
+        let (evaluation, _lease) = current::source::from_value_local(request_wrapper::field(decision.value(), "evaluation_ref", s)?, s)?;
+        for row in &inputs {
+            if same_ref(row.reference, &evaluation, s)? {
+                let receipt_results = request_wrapper::field(w.receipt(), "result_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+                let mut present = false;
+                for value in receipt_results {
+                    let (result, _lease) = current::source::from_value_local(value, s)?;
+                    present |= same_ref(&result, &evaluation, s)?;
+                }
+                if present { introduced.push(*row); }
+            }
+        }
+    }
     let candidate = core::reconstruct_original_candidate(
         owner.program(),
         &core::SavedFinancialInput {

@@ -611,7 +611,11 @@ pub(super) fn execute<'inv, 'raw>(
         "workflow-work-claim",
         "ledger-workflow-work-claim/1"
     )?;
-    call!(entry::work_claim, m, c, &work_claim_ref, &work_claim)?;
+    if program.uses_component_lifecycle_recipe() {
+        call!(entry::historical_work_claim, m, c, &work_claim_ref, &work_claim, &work)?;
+    } else {
+        call!(entry::work_claim, m, c, &work_claim_ref, &work_claim)?;
+    }
     call!(outcome::original_claim_association, m, &work_claim, &work)?;
     call!(equal, m, &work_claim["work_ref"], &json!(work_ref))?;
     call!(

@@ -127,7 +127,11 @@ pub(super) fn authority_with_refs(
     )?;
     let assents = encode(input.assent_refs(), s)?;
     let at = wire::string(at.as_str(), s)?;
-    let stage = same_recipe_text(input.registry(), wrappers::STAGE_LIFECYCLE_REGISTRY, s)?;
+    let stage = same_recipe_text(input.registry(), wrappers::STAGE_LIFECYCLE_REGISTRY, s)?
+        || same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)?;
+    if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)? {
+        same_bytes(supplier_verification_refs, b"[]", s)?;
+    }
     let schema_name = if stage {
         "ledger-workflow-agreement-authority/6"
     } else {

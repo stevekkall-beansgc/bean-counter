@@ -816,15 +816,26 @@ impl OwnedAcceptanceTerms {
         context: &super::super::FactSchema,
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        let result = Self::parse_inner(raw, context, session);
+        let result = Self::parse_inner(raw, context, None, session);
         if result.is_err() {
             session.invalidate();
         }
         result
     }
+    pub fn parse_component(
+        raw: &[u8], context: &super::super::FactSchema,
+        program: &super::super::selected_program::SelectedProgram,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        if !program.uses_component_lifecycle_recipe() { session.invalidate(); return Err(fail("component acceptance program")); }
+        let result = Self::parse_inner(raw, context, Some(program), session);
+        if result.is_err() { session.invalidate(); }
+        result
+    }
     fn parse_inner(
         raw: &[u8],
         context: &super::super::FactSchema,
+        program: Option<&super::super::selected_program::SelectedProgram>,
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
         let source = session.parse_representation(raw, Kind::SourceDefinition)?;
@@ -856,10 +867,14 @@ impl OwnedAcceptanceTerms {
             &arena,
             work,
         )?;
+        if let Some(program) = program {
+            let selected = program.context_schema_ref();
+            if !paid::compare_text(selected.id(), context_ref.id(), work)?.is_eq() || !paid::compare_text(selected.digest(), context_ref.digest(), work)?.is_eq() { return Err(fail("component context schema")); }
+        }
         normalization_scratch(&input.binding_inputs, &mut storage, &arena, work)?;
         input
             .binding_inputs
-            .normalize_with_work(&context_ref, true, work, |facts, m| {
+            .normalize_with_work(&context_ref, true, program.is_some(), work, |facts, m| {
                 context.validate_context_schema_with_work(m)?;
                 let owned = super::super::transition_constructor::owned_facts::normalize(
                     &arena, m, context, facts,

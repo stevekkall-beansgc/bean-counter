@@ -2,8 +2,8 @@
 //! check. This grouping creates no authority, merged grant or completion flag.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    validate_app_local_source_shape, validate_app_nominated_sources, ExactRef,
-    NominatedSourceFrame, NominatedSourceGrant,
+    ExactRef, NominatedSourceFrame, NominatedSourceGrant, validate_app_local_source_shape,
+    validate_app_nominated_sources,
 };
 
 struct Grants<'a> {
@@ -254,7 +254,13 @@ fn validate_selected(
             } else {
                 require_local_source_shape(binding, &frames.values, s)?;
             }
-            if publication.program().uses_stage_lifecycle_recipe() {
+            if publication.program().uses_component_lifecycle_recipe() {
+                publication
+                    .program()
+                    .require_local_admission_with_session(s)
+                    .map_err(core_error)?;
+                require_component_causal_clauses(documents, publication, binding, terms, s)?;
+            } else if publication.program().uses_stage_lifecycle_recipe() {
                 // The actual Stage profile has no family promise. Its original
                 // closure-share structure is checked by the selected compiler;
                 // all current/original source purposes above remain mandatory.
@@ -384,6 +390,144 @@ fn require_local_source_shape(
 // Existing slot projection already validates clause shape/mode/nomination and
 // exact app terms. NEW admission also requires the original family clause;
 // the compiler's policy declaration never supplies missing assent.
+fn require_component_causal_clauses(
+    documents: &private::InlineDocuments,
+    publication: &prefix::RecompiledPublication,
+    binding: &Value,
+    terms: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let program = publication.program();
+    require(
+        program.uses_component_lifecycle_recipe(),
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    let target = program.root_policy_ref();
+    let mut policy = None;
+    for document in program.source_documents() {
+        let r = document.reference();
+        if equal(r.kind(), target.kind(), s)?
+            && equal(r.id(), target.id(), s)?
+            && equal(r.digest(), target.digest(), s)?
+        {
+            require(
+                policy.replace(document.canonical_value()).is_none(),
+                "INVALID_REFERENCE",
+            )?;
+        }
+    }
+    let policy = policy.ok_or(ServiceError::IntegrityFailure)?;
+    let catalog = documents.body(request_wrapper::field(binding, "slot_catalog_ref", s)?, s)?;
+    let instantiation = documents.body(
+        request_wrapper::field(binding, "slot_instantiation_ref", s)?,
+        s,
+    )?;
+    let clauses = request_wrapper::field(terms, "causal_reversal_clauses", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let allowed = request_wrapper::field(terms, "allowed_activities", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let mut expected = 0usize;
+    for family in request_wrapper::field(policy, "families", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let selector = request_wrapper::field(family, "selector", s)?;
+        if !equal(
+            request_wrapper::text(selector, "binding_slot", s)?,
+            request_wrapper::text(terms, "slot", s)?,
+            s,
+        )? {
+            continue;
+        }
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&expected.into(), &1usize.into()])
+            .map_err(core_error)?;
+        expected = expected.checked_add(1).ok_or(ServiceError::Unavailable)?;
+        let mut mapped = None;
+        for row in request_wrapper::field(instantiation, "family_map", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            if equal(
+                request_wrapper::text(row, "template_key", s)?,
+                request_wrapper::text(family, "family_key", s)?,
+                s,
+            )? {
+                require(
+                    mapped
+                        .replace(request_wrapper::text(row, "slot_id", s)?)
+                        .is_none(),
+                    "INVALID_REFERENCE",
+                )?;
+            }
+        }
+        let mapped = mapped.ok_or(ServiceError::IntegrityFailure)?;
+        let mut original = None;
+        for row in request_wrapper::field(catalog, "families", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            if equal(request_wrapper::text(row, "slot_id", s)?, mapped, s)? {
+                require(original.replace(row).is_none(), "INVALID_REFERENCE")?;
+            }
+        }
+        let original = original.ok_or(ServiceError::IntegrityFailure)?;
+        for activity in [
+            request_wrapper::text(selector, "target_activity", s)?,
+            request_wrapper::text(family, "trigger_activity", s)?,
+        ] {
+            let mut found = false;
+            for value in allowed {
+                found |= equal(
+                    value.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                    activity,
+                    s,
+                )?;
+            }
+            require(found, "UNSUPPORTED_COMPOSITION")?;
+        }
+        let mut selected = None;
+        for clause in clauses {
+            if equal(request_wrapper::text(clause, "family_slot", s)?, mapped, s)? {
+                require(
+                    selected.replace(clause).is_none(),
+                    "UNSUPPORTED_COMPOSITION",
+                )?;
+            }
+        }
+        let clause = selected.ok_or_else(|| reject("UNSUPPORTED_COMPOSITION"))?;
+        for (field, wanted) in [
+            (
+                "root_component_slot",
+                request_wrapper::text(original, "target_component_slot", s)?,
+            ),
+            (
+                "correction_source_slot",
+                request_wrapper::text(family, "correction_source_slot", s)?,
+            ),
+            ("mode", "exact_inverse_and_permanent_close"),
+            (
+                "standalone_deadline_effect",
+                "does_not_expire_preaccepted_causal_reversal",
+            ),
+        ] {
+            require(
+                equal(request_wrapper::text(clause, field, s)?, wanted, s)?,
+                "UNSUPPORTED_COMPOSITION",
+            )?;
+        }
+    }
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&expected.into(), &clauses.len().into()])
+        .map_err(core_error)?;
+    require(expected == clauses.len(), "UNSUPPORTED_COMPOSITION")
+}
+
 fn require_local_causal_clause(
     terms: &Value,
     family: &Value,

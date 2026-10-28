@@ -28,12 +28,27 @@ pub(super) fn capture(
     activation: &ExactRef,
     s: &mut OriginalAuditSession,
 ) -> Result<(DraftContextData, ExternalBufferLease)> {
-    capture_selected(op, activation, false, s)
+    capture_profile(op, activation, false, false, s)
 }
 pub(super) fn capture_selected(
     op: &Value,
     activation: &ExactRef,
+    program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram,
+    s: &mut OriginalAuditSession,
+) -> Result<(DraftContextData, ExternalBufferLease)> {
+    capture_profile(
+        op,
+        activation,
+        program.uses_stage_lifecycle_recipe(),
+        program.uses_component_lifecycle_recipe(),
+        s,
+    )
+}
+fn capture_profile(
+    op: &Value,
+    activation: &ExactRef,
     stage: bool,
+    component: bool,
     s: &mut OriginalAuditSession,
 ) -> Result<(DraftContextData, ExternalBufferLease)> {
     let key = request_wrapper::field(op, "key", s)?;
@@ -45,7 +60,13 @@ pub(super) fn capture_selected(
     let schema = request_wrapper::text(snapshot, "schema", s)?;
     require(
         schema == "ledger-workflow-economic-authority/8"
-            || (stage && schema == "ledger-workflow-stage-authority/1"),
+            || (stage && schema == "ledger-workflow-stage-authority/1")
+            || (component
+                && schema == "ledger-workflow-economic-authority/9"
+                && matches!(
+                    request_wrapper::text(op, "kind", s)?,
+                    "work.reverse" | "quantity.correct"
+                )),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let originals = request_wrapper::field(snapshot, "original_grant_refs", s)?

@@ -872,9 +872,9 @@ impl StateKey {
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
         let domain = wire::string(domain, s)?;
-        let mut bytes = [b"".as_slice(); 12];
+        let mut bytes = [b"".as_slice(); 14];
         require(
-            !compare(parts.len() as u64, 4, s)?.is_gt(),
+            !compare(parts.len() as u64, 5, s)?.is_gt(),
             "INTEGRITY_FAILURE",
         )?;
         bytes[0] = b"[";
@@ -1887,6 +1887,25 @@ mod tests {
 
     fn session(arena: &AuditArena) -> OriginalAuditSession {
         OriginalAuditSession::for_resource_profile_v2(arena).unwrap()
+    }
+    #[test]
+    fn state_key_frames_five_outcome_parts_and_preserves_old_framing() {
+        let arena = AuditArena::new().unwrap();
+        let mut s = session(&arena);
+        let parts: [&[u8]; 5] = [b"\"agreement\"", b"\"family\"", b"\"target\"", b"\"source\"", b"\"token\""];
+        let original = StateKey::new("outcome", &parts, &mut s).unwrap();
+        for i in 0..parts.len() {
+            let mut changed = parts;
+            changed[i] = b"\"different\"";
+            let changed = StateKey::new("outcome", &changed, &mut s).unwrap();
+            assert_ne!(original.0.key(), changed.0.key());
+        }
+        let old = StateKey::new("old", &parts[..4], &mut s).unwrap();
+        let expected = wire::domain_digest(b"bean-counter/audit-local-state/1\0", &[b"[\"old\",\"agreement\",\"family\",\"target\",\"source\"]"], &mut s).unwrap();
+        let parsed = s.parse_representation(expected.bytes(), RepresentationKind::SourceDefinition).unwrap();
+        let locator = Locator::from_ref("audit-local-state", "audit", parsed.value().as_str().unwrap(), &mut s).unwrap();
+        assert_eq!(old.0.key(), locator.key());
+        assert!(StateKey::new("outcome", &[b"0".as_slice(); 6], &mut s).is_err());
     }
     fn entry(n: u32, sequence: u32, work: &mut OriginalAuditSession) -> Entry {
         Entry::from_ref(

@@ -1,8 +1,8 @@
 //! Exact accepted-context Reference operands under the acceptance's own cutoff.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    select_fact_reference_inputs, validate_lifecycle_context_references, EconomicRecordView,
-    ExactRef, FactReferenceInputs,
+    EconomicRecordView, ExactRef, FactReferenceInputs, select_fact_reference_inputs,
+    validate_lifecycle_context_references,
 };
 
 pub(super) struct ContextReferences {

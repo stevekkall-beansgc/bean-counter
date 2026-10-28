@@ -2534,7 +2534,21 @@ fn execute_with_state<'inv, 'raw>(
         proofs.attach(m, &mut records)?;
     }
     for closed in &closures {
-        records.push(closed.authority.clone());
+        let mut duplicate = false;
+        if program.uses_component_lifecycle_recipe() {
+            for prior in &records {
+                m.visit("component.family_authority_union")?;
+                if shape::same_ref(m, &prior.reference, &closed.authority.reference)? {
+                    if !shape::same_bytes(m, &prior.canonical_body, &closed.authority.canonical_body)? {
+                        return Err(shape::fail("component duplicate family authority bytes"));
+                    }
+                    duplicate = true;
+                }
+            }
+        }
+        if !duplicate {
+            records.push(closed.authority.clone());
+        }
     }
     if let Some(app) = &app_closures {
         for closed in &app.finalized {

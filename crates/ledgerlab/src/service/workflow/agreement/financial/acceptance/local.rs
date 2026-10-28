@@ -107,7 +107,9 @@ impl TargetedAcceptance {
         let authority =
             request_wrapper::field(origin.wrappers().operation(), "authority_snapshot", s)?;
         let refs = request_wrapper::field(authority, "app_consent_verification_refs", s)?;
-        let minimum = if publication.program().uses_stage_lifecycle_recipe() {
+        let minimum = if publication.program().uses_stage_lifecycle_recipe()
+            || publication.program().uses_component_lifecycle_recipe()
+        {
             0
         } else {
             1
@@ -142,6 +144,11 @@ impl TargetedAcceptance {
             )?;
             let expected = encode(&expected, s)?;
             same_bytes(actual.bytes(), expected.bytes(), s)?;
+        }
+        if publication.program().uses_component_lifecycle_recipe() {
+            let refs = request_wrapper::field(authority, "supplier_consent_verification_refs", s)?;
+            let refs = reference_set(refs, "workflow-verification", 0, 0, s)?;
+            same_bytes(refs.bytes(), b"[]", s)?;
         }
         let supplier_refs = if publication.program().uses_stage_lifecycle_recipe() {
             let refs = request_wrapper::field(authority, "supplier_consent_verification_refs", s)?;

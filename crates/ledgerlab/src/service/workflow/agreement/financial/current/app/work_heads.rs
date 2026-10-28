@@ -802,6 +802,14 @@ pub(super) struct RelationDecision {
     _projection: HeadLocator,
     _claim: AppClaimLocator,
     _storage: ExternalBufferLease,
+    _family_eligibility: Option<(ObservedWorkHeads, OwnedWorkState, ExternalBufferLease)>,
+}
+impl RelationDecision {
+    pub(super) fn family_seed(&self) -> Option<&AuditedBytes> {
+        self._family_eligibility
+            .as_ref()
+            .map(|(held, _, _)| &held.seeds)
+    }
 }
 pub(super) async fn observe_relation_decision(
     tx: &mut SqliteTx,
@@ -889,7 +897,119 @@ pub(super) async fn observe_relation_decision(
         _projection: head,
         _claim: claim,
         _storage: storage,
+        _family_eligibility: None,
     })
+}
+
+/// LinkAssert's predecessor owns the actual held family projections. Ordinary
+/// selector reports retain their existing Decision/Claim-only read footprint.
+pub(super) async fn retain_relation_families(
+    tx: &mut SqliteTx,
+    prefix: &mut prefix::LocatedAppAcceptance,
+    key: &OperationKey,
+    keys: &WorkHeadLocators,
+    parties: &super::super::super::acceptance::CurrentPlatformConsents,
+    selected: (&mut OwnedWorkState, &mut RelationDecision),
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let (state, relation) = selected;
+    require(relation._family_eligibility.is_none(), "INTEGRITY_FAILURE")?;
+    let held = observe(tx, prefix, key, keys, parties, s).await?;
+    let mut extra = held.typed_state(keys, parties, s)?;
+    let decisions = add(
+        state.financial.decision_heads.len(),
+        extra.financial.decision_heads.len(),
+        s,
+    )?;
+    let families = add(
+        state.financial.family_heads.len(),
+        extra.financial.family_heads.len(),
+        s,
+    )?;
+    let bytes = add(
+        product(
+            decisions,
+            mem::size_of::<ledgerlab_core::policy::workflow::transition_constructor::DecisionHead>(
+            ),
+            s,
+        )?,
+        product(
+            families,
+            mem::size_of::<ledgerlab_core::policy::workflow::transition_constructor::FamilyHead>(),
+            s,
+        )?,
+        s,
+    )?;
+    let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let mut decision_rows = Vec::new();
+    decision_rows
+        .try_reserve_exact(decisions)
+        .map_err(|_| ServiceError::Unavailable)?;
+    decision_rows.append(&mut state.financial.decision_heads);
+    for head in extra.financial.decision_heads.drain(..) {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        let mut duplicate = false;
+        for old in &decision_rows {
+            s.semantic_work()
+                .visit(ValidationVisit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(old.decision_id.len() + head.decision_id.len())
+                .map_err(core_error)?;
+            if old.decision_id == head.decision_id {
+                check::same_text(&old.revision, &head.revision, s)?;
+                require(
+                    work_capture::same_reference(&old.reference, &head.reference, s)?,
+                    "INTEGRITY_FAILURE",
+                )?;
+                duplicate = true;
+                break;
+            }
+        }
+        if !duplicate {
+            decision_rows.push(head);
+        }
+    }
+    let mut family_rows = Vec::new();
+    family_rows
+        .try_reserve_exact(families)
+        .map_err(|_| ServiceError::Unavailable)?;
+    family_rows.append(&mut state.financial.family_heads);
+    for head in extra.financial.family_heads.drain(..) {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        let mut duplicate = false;
+        for old in &family_rows {
+            s.semantic_work()
+                .visit(ValidationVisit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(old.family_slot.len() + head.family_slot.len())
+                .map_err(core_error)?;
+            if old.family_slot == head.family_slot
+                && work_capture::same_reference(&old.target_ref, &head.target_ref, s)?
+            {
+                check::same_text(&old.revision, &head.revision, s)?;
+                require(
+                    work_capture::same_reference(&old.reference, &head.reference, s)?,
+                    "INTEGRITY_FAILURE",
+                )?;
+                duplicate = true;
+                break;
+            }
+        }
+        if !duplicate {
+            family_rows.push(head);
+        }
+    }
+    state.financial.decision_heads = decision_rows;
+    state.financial.family_heads = family_rows;
+    relation._family_eligibility = Some((held, extra, owner));
+    Ok(())
 }
 
 pub(super) fn retain_stage_head(

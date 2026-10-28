@@ -2083,3 +2083,34 @@ pub(super) mod component_tests {
         calculate.meter_mut().finish_local_economic(m).unwrap();
     }
 }
+
+#[cfg(test)]
+
+#[test]
+fn component_observation_nomination_requires_selected_component_program() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::{OriginalAuditSession, ResourceLimits}};
+    use serde_json::{json, Value};
+    use crate::policy::workflow::{AcceptanceTerms, OwnedAcceptanceTerms, selected_program::{compile_selected_publication, SelectedCompilerSupport}};
+    let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+    let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author).unwrap();
+    let input = component_tests::component_input(&support, &mut author);
+    let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let program = compile_selected_publication(input, &support, &mut compile).unwrap();
+    let mut context_session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let context = program.context_schema_with_work(context_session.work()).unwrap();
+    let fixture: Value = serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-03-primary-author.json")).unwrap();
+    let mut body = fixture["records"].as_array().unwrap().iter().find(|row| row["name"] == "A.terms").unwrap()["body"].clone();
+    body["schema"] = json!("ledger-workflow-acceptance-terms/2");
+    body["binding_inputs"]["accepted_context"] = json!({"fact_schema_ref":program.context_schema_ref(),"facts":{}});
+    body["binding_inputs"]["source_slots"][0]["evidence_kinds"] = json!(["cost_observation"]);
+    let raw = serde_json::to_vec(&body).unwrap();
+    assert!(AcceptanceTerms::parse(&raw, context).is_err());
+    let parsed = AcceptanceTerms::parse_component(&raw, context, &program).unwrap();
+    let mut normal = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    assert!(OwnedAcceptanceTerms::parse(&raw, context, &mut normal).is_err());
+    let mut selected = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let owned = OwnedAcceptanceTerms::parse_component(&raw, context, &program, &mut selected).unwrap();
+    assert_eq!(owned.canonical_bytes(), parsed.canonical_bytes());
+    assert_eq!(owned.reference(), parsed.reference());
+}
