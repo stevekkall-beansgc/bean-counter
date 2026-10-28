@@ -29,6 +29,23 @@ fn reference(m: &mut CoreMeter, r: &ExactRef) -> Result<ExactRef> {
         digest: copy(m, &r.digest)?,
     })
 }
+// Only provenance sets that have already been independently validated enter
+// this producer union. Full Ref equality preserves same-id retained revisions.
+fn union_member<'a>(
+    m: &mut CoreMeter,
+    members: &mut Vec<&'a ExactRef>,
+    reference: &'a ExactRef,
+) -> Result<()> {
+    for prior in members.iter() {
+        m.visit("alias.input_union_compare")?;
+        if shape::same_ref(m, prior, reference)? {
+            return Ok(());
+        }
+    }
+    m.visit("alias.input_union_member")?;
+    members.push(reference);
+    Ok(())
+}
 fn literal(m: &mut CoreMeter, v: &Value, k: &str, want: &str) -> Result<()> {
     let actual = shape::text(m, v, k)?;
     if !shape::same_text(m, actual, want)? {
@@ -482,7 +499,7 @@ pub fn construct_local_work_alias_candidate(
             .chain(original.result.result_refs.iter())
             .chain([operation_view.reference, receipt_view.reference])
         {
-            borrowed.push(r);
+            union_member(s.meter_mut(), &mut borrowed, r)?;
         }
         // Copy the exact sorted union; the owning JSON array is DATA, not a
         // generic Ref/body traversal or a current-head selector.
@@ -617,6 +634,42 @@ mod tests {
             id: format!("wreceipt_{hex}"),
             digest: format!("sha256:{hex}"),
         }
+    }
+    #[test]
+    fn alias_provenance_union_deduplicates_full_refs_only() {
+        let a = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let first = ExactRef {
+            kind: "workflow-invocation".into(),
+            id: format!("winv_{}", "1".repeat(64)),
+            digest: format!("sha256:{}", "2".repeat(64)),
+        };
+        let later = ExactRef {
+            digest: format!("sha256:{}", "3".repeat(64)),
+            ..first.clone()
+        };
+        let other_kind = ExactRef {
+            kind: "workflow-work".into(),
+            ..first.clone()
+        };
+        let mut members = Vec::with_capacity(5);
+        // The current alias lookup and original result both retain the same
+        // Work Ref; the producer union must keep that provenance exactly once.
+        for item in [&first, &later, &first, &other_kind, &later] {
+            union_member(s.meter_mut(), &mut members, item).unwrap();
+        }
+        let union =
+            super::super::super::app_cost::reference_set(s.meter_mut(), &a, &members).unwrap();
+        let rows = union.value().as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        for item in [&first, &later, &other_kind] {
+            assert!(rows.contains(&serde_json::to_value(item).unwrap()));
+        }
+        // The request/set normalizer itself remains strict.
+        assert!(
+            super::super::super::app_cost::reference_set(s.meter_mut(), &a, &[&first, &first],)
+                .is_err()
+        );
     }
     #[test]
     fn alias_origin_receipt_uses_its_exact_domain_and_operation_joins() {
