@@ -1163,6 +1163,10 @@ async fn stage_work_occurrence_bootstrap_rolls_back() {
             "f837cf5b2ba4b2b3a6ecc7fff333f54792f3ce05c1330381733b4730f6a2fb9f",
             40,
         ),
+        "member-reverse" => (
+            "1a0ba127e60a7d83cdb8b11b713c849af9655f67dcf9e415536b34506a6d4436",
+            62,
+        ),
         _ => panic!("exact maintained Stage operand required"),
     };
     let raw = fs::read(root.join(format!("{operation}.request.json"))).unwrap();

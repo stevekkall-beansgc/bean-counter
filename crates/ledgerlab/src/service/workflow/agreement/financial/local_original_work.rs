@@ -563,6 +563,17 @@ pub(super) async fn reconstruct_selected(
     } else {
         payload.get("stage_instance").unwrap_or(payload)
     };
+    let declared_stage_proofs = if owner.program().uses_stage_lifecycle_recipe()
+        && request_wrapper::text(payload, "schema", s)? == "ledger-workflow-stage-close/1"
+    {
+        Some(
+            request_wrapper::field(payload, "fact_proofs", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?,
+        )
+    } else {
+        None
+    };
     let mut financial = core::DraftStateData::default();
     let mut parties = Vec::new();
     let mut invocations = Vec::new();
@@ -605,7 +616,7 @@ pub(super) async fn reconstruct_selected(
                     });
                 }
             }
-            "workflow-evidence-verification" => financial
+            "workflow-evidence-verification" if declared_stage_proofs.is_none() => financial
                 .evidence_verifications
                 .push(reference(row.reference, s)?),
             "workflow-link" if chain_subject.get("chain").is_some() => {
@@ -643,6 +654,44 @@ pub(super) async fn reconstruct_selected(
                 }
             }
             _ => {}
+        }
+    }
+    if let Some(proofs) = declared_stage_proofs {
+        // Repeat the forward declaration selector at the original cutoff. All
+        // transitive Work proofs remain I, but are not this closure's proofs.
+        financial
+            .evidence_verifications
+            .try_reserve_exact(inputs.len())
+            .map_err(|_| ServiceError::Unavailable)?;
+        for proof in proofs {
+            s.semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
+            let (attestation, _attestation_owner) = current::source::from_value_local(
+                request_wrapper::field(proof, "attestation_ref", s)?,
+                s,
+            )?;
+            let (selected, _selected_owner) =
+                current::app::retained_verification(tx, key, sequence, &attestation, s).await?;
+            let mut matched = None;
+            for input in &inputs {
+                if same_ref(input.reference, &selected, s)? {
+                    require(matched.replace(input).is_none(), "INTEGRITY_FAILURE")?;
+                }
+            }
+            let matched = matched.ok_or(ServiceError::IntegrityFailure)?;
+            let mut duplicate = false;
+            for old in &financial.evidence_verifications {
+                if same_ref(old, matched.reference, s)? {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if !duplicate {
+                financial
+                    .evidence_verifications
+                    .push(reference(matched.reference, s)?);
+            }
         }
     }
     if let Some(stage_ref) = payload.get("stage_instance_ref") {
@@ -968,10 +1017,9 @@ pub(super) async fn reconstruct_selected(
         prefix.original_input("local-original-decision", &[id.value()], &inputs, s)?;
         prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
     }
-    let chain = stage_locator
-        .as_ref()
-        .map(|l| l.chain())
-        .or_else(|| invocation_locator.as_ref().map(|l| l.chain()));
+    // Match the forward acquisition owner: Stage operations capture their
+    // Chain, while Invocation close captures only its Invocation and Work claim.
+    let chain = stage_locator.as_ref().map(|l| l.chain());
     if let Some(chain) = chain {
         let chain = string(chain, s)?;
         if let Some(row) = prefix.original_input(

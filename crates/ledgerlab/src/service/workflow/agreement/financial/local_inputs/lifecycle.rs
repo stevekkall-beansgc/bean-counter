@@ -66,6 +66,7 @@ impl LocalInputs {
             let native =
                 std::str::from_utf8(native.bytes()).map_err(|_| ServiceError::IntegrityFailure)?;
             check::same_text(check::text(parsed.value(), "schema", s)?, native, s)?;
+            let mut stage_closing_producer = None;
             if acceptance::same_recipe_text(&row.reference.kind, "workflow-action", s)? {
                 let producer_key = check::field(parsed.value(), "operation_key", s)?;
                 let identity = s
@@ -103,58 +104,149 @@ impl LocalInputs {
                     check::field(parsed.value(), "operation_key", s)?,
                     s,
                 )?;
+                if program.uses_stage_lifecycle_recipe()
+                    && acceptance::same_recipe_text(producer_kind, "outcome.submit", s)?
+                    && acceptance::same_recipe_text(
+                        check::text(parsed.value(), "book", s)?,
+                        "supplier",
+                        s,
+                    )?
+                    && acceptance::same_recipe_text(
+                        check::text(check::field(normalized, "payload", s)?, "schema", s)?,
+                        "ledger-workflow-stage-close/1",
+                        s,
+                    )?
+                {
+                    stage_closing_producer = Some(origin);
+                }
             }
             drop(parsed);
             let mut initial_invocation = None;
             if program.uses_stage_lifecycle_recipe()
                 && self.rows[index].reference.kind == "workflow-invocation"
             {
-                let parsed = s.parse_representation(body.bytes(), RepresentationKind::Record).map_err(core_error)?;
+                let parsed = s
+                    .parse_representation(body.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
                 let authority = check::field(parsed.value(), "original_authority_ref", s)?;
                 let (authority, _authority_owner) = source::from_value_local(authority, s)?;
-                let sequence = tx.workflow_selected_association_sequence(&authority, &key.logical_store_id, &key.scope, before, s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-                let origin = prefix::next(tx,key,sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?,sequence,s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx,s).await?;
-                let authority_value = wire::reference(&authority,s)?;
-                let authority_value = s.parse_representation(authority_value.bytes(),RepresentationKind::Record).map_err(core_error)?;
-                origin.require_member(authority_value.value(),s)?;
-                result_member(origin.wrappers().receipt(),authority_value.value(),s)?;
-                let invocation_id = check::text(parsed.value(),"invocation_id",s)?;
+                let sequence = tx
+                    .workflow_selected_association_sequence(
+                        &authority,
+                        &key.logical_store_id,
+                        &key.scope,
+                        before,
+                        s,
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let origin = prefix::next(
+                    tx,
+                    key,
+                    sequence
+                        .checked_sub(1)
+                        .ok_or(ServiceError::IntegrityFailure)?,
+                    sequence,
+                    s,
+                )
+                .await?
+                .ok_or(ServiceError::IntegrityFailure)?
+                .checked_wrappers(tx, s)
+                .await?;
+                let authority_value = wire::reference(&authority, s)?;
+                let authority_value = s
+                    .parse_representation(authority_value.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                origin.require_member(authority_value.value(), s)?;
+                result_member(origin.wrappers().receipt(), authority_value.value(), s)?;
+                let invocation_id = check::text(parsed.value(), "invocation_id", s)?;
                 let mut initial = None;
-                for value in check::field(origin.wrappers().receipt(),"result_refs",s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-                    if check::text(value,"kind",s)?!="workflow-invocation" { continue; }
-                    let row = source::retained_local_record(tx,key,value,("workflow-invocation","ledger-workflow-invocation/1"),before,s).await?;
-                    if acceptance::same_recipe_text(check::text(row.body(),"invocation_id",s)?,invocation_id,s)?
-                        && acceptance::same_recipe_text(check::text(row.body(),"revision",s)?,"1",s)?
-                    {
-                        require(initial.is_none(),"INTEGRITY_FAILURE")?;
-                        let encoded=wire::reference(row.reference(),s)?;
-                        initial=Some(s.parse_representation(encoded.bytes(),RepresentationKind::Record).map_err(core_error)?);
+                for value in check::field(origin.wrappers().receipt(), "result_refs", s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                {
+                    if check::text(value, "kind", s)? != "workflow-invocation" {
+                        continue;
+                    }
+                    let row = source::retained_local_record(
+                        tx,
+                        key,
+                        value,
+                        ("workflow-invocation", "ledger-workflow-invocation/1"),
+                        before,
+                        s,
+                    )
+                    .await?;
+                    if acceptance::same_recipe_text(
+                        check::text(row.body(), "invocation_id", s)?,
+                        invocation_id,
+                        s,
+                    )? && acceptance::same_recipe_text(
+                        check::text(row.body(), "revision", s)?,
+                        "1",
+                        s,
+                    )? {
+                        require(initial.is_none(), "INTEGRITY_FAILURE")?;
+                        let encoded = wire::reference(row.reference(), s)?;
+                        initial = Some(
+                            s.parse_representation(encoded.bytes(), RepresentationKind::Record)
+                                .map_err(core_error)?,
+                        );
                     }
                 }
-                let initial=initial.ok_or(ServiceError::IntegrityFailure)?;
+                let initial = initial.ok_or(ServiceError::IntegrityFailure)?;
                 initial_invocation = Some(initial);
             }
             let mut zero_stage = None;
-            if program.uses_stage_lifecycle_recipe() && row.reference.kind == "workflow-chain-state" {
-                let parsed=s.parse_representation(body.bytes(),RepresentationKind::Record).map_err(core_error)?;
-                if check::text(parsed.value(),"admitted_events",s)?=="0" {
-                    let producer_key=check::field(parsed.value(),"operation_key",s)?;
-                    let identity=s.canonical_representation(producer_key,RepresentationKind::Record).map_err(core_error)?;
-                    let origin=prefix::target(tx,key,identity,s).await?.checked_wrappers(tx,s).await?;
-                    require(origin.wrappers().sequence()<before,"INTEGRITY_FAILURE")?;
-                    let chain_ref=wire::reference(&row.reference,s)?;
-                    let chain_ref=s.parse_representation(chain_ref.bytes(),RepresentationKind::Record).map_err(core_error)?;
-                    origin.require_member(chain_ref.value(),s)?;
-                    result_member(origin.wrappers().receipt(),chain_ref.value(),s)?;
-                    let request=check::field(origin.wrappers().operation(),"request_evidence",s)?;
-                    let normalized=check::field(request,"normalized_request",s)?;
-                    check::same_text(check::text(check::field(normalized,"payload",s)?,"schema",s)?,"ledger-workflow-stage-authorize/1",s)?;
-                    let instance=unique_result(origin.wrappers().receipt(),"workflow-stage-instance",s)?;
-                    let state=unique_result(origin.wrappers().receipt(),"workflow-stage-state",s)?;
-                    for r in [instance,state] { origin.require_member(r,s)?; }
-                    let instance=s.canonical_representation(instance,RepresentationKind::Record).map_err(core_error)?;
-                    let state=s.canonical_representation(state,RepresentationKind::Record).map_err(core_error)?;
-                    zero_stage=Some((s.parse_representation(instance.bytes(),RepresentationKind::Record).map_err(core_error)?,s.parse_representation(state.bytes(),RepresentationKind::Record).map_err(core_error)?));
+            if program.uses_stage_lifecycle_recipe() && row.reference.kind == "workflow-chain-state"
+            {
+                let parsed = s
+                    .parse_representation(body.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                if check::text(parsed.value(), "admitted_events", s)? == "0" {
+                    let producer_key = check::field(parsed.value(), "operation_key", s)?;
+                    let identity = s
+                        .canonical_representation(producer_key, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let origin = prefix::target(tx, key, identity, s)
+                        .await?
+                        .checked_wrappers(tx, s)
+                        .await?;
+                    require(origin.wrappers().sequence() < before, "INTEGRITY_FAILURE")?;
+                    let chain_ref = wire::reference(&row.reference, s)?;
+                    let chain_ref = s
+                        .parse_representation(chain_ref.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    origin.require_member(chain_ref.value(), s)?;
+                    result_member(origin.wrappers().receipt(), chain_ref.value(), s)?;
+                    let request =
+                        check::field(origin.wrappers().operation(), "request_evidence", s)?;
+                    let normalized = check::field(request, "normalized_request", s)?;
+                    check::same_text(
+                        check::text(check::field(normalized, "payload", s)?, "schema", s)?,
+                        "ledger-workflow-stage-authorize/1",
+                        s,
+                    )?;
+                    let instance =
+                        unique_result(origin.wrappers().receipt(), "workflow-stage-instance", s)?;
+                    let state =
+                        unique_result(origin.wrappers().receipt(), "workflow-stage-state", s)?;
+                    for r in [instance, state] {
+                        origin.require_member(r, s)?;
+                    }
+                    let instance = s
+                        .canonical_representation(instance, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let state = s
+                        .canonical_representation(state, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    zero_stage = Some((
+                        s.parse_representation(instance.bytes(), RepresentationKind::Record)
+                            .map_err(core_error)?,
+                        s.parse_representation(state.bytes(), RepresentationKind::Record)
+                            .map_err(core_error)?,
+                    ));
                 }
             }
             let edges = select_lifecycle_input_edges(
@@ -167,8 +259,55 @@ impl LocalInputs {
                 s,
             )
             .map_err(core_error)?;
-            if let Some(initial) = initial_invocation.as_ref() { self.add_value(initial.value(),s)?; }
-            if let Some((instance,state))=zero_stage.as_ref() { self.add_value(instance.value(),s)?; self.add_value(state.value(),s)?; }
+            if let Some(origin) = stage_closing_producer {
+                // Allocations have no backward edge from their parent. Acquire
+                // only this exact closing supplier Action's original siblings.
+                // The child regenerates both bodies before any inversion.
+                let parent = wire::reference(&self.rows[index].reference, s)?;
+                let parent = s
+                    .parse_representation(parent.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let evidence = check::field(origin.wrappers().operation(), "request_evidence", s)?;
+                let normalized = check::field(evidence, "normalized_request", s)?;
+                let original = check::field(normalized, "payload", s)?;
+                for value in check::field(origin.wrappers().receipt(), "result_refs", s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                {
+                    s.semantic_work()
+                        .visit(ValidationVisit::Element)
+                        .map_err(core_error)?;
+                    if !acceptance::same_recipe_text(
+                        check::text(value, "kind", s)?,
+                        "workflow-allocation",
+                        s,
+                    )? {
+                        continue;
+                    }
+                    origin.require_member(value, s)?;
+                    let allocation =
+                        source::retained_stage_allocation(tx, key, value, program, before, s)
+                            .await?;
+                    equal(
+                        check::field(allocation.body(), "allocation_parent", s)?,
+                        parent.value(),
+                        s,
+                    )?;
+                    equal(
+                        check::field(allocation.body(), "stage_instance_ref", s)?,
+                        check::field(original, "stage_instance_ref", s)?,
+                        s,
+                    )?;
+                    self.add(allocation.reference(), s)?;
+                }
+            }
+            if let Some(initial) = initial_invocation.as_ref() {
+                self.add_value(initial.value(), s)?;
+            }
+            if let Some((instance, state)) = zero_stage.as_ref() {
+                self.add_value(instance.value(), s)?;
+                self.add_value(state.value(), s)?;
+            }
             for reference in edges.direct_refs() {
                 self.add(reference, s)?;
             }
@@ -241,6 +380,43 @@ impl LocalInputs {
                     s,
                 )?;
                 self.add(initial.reference(), s)?;
+                if program.uses_stage_lifecycle_recipe() {
+                    // Retained original consumption is the actual Work-owned
+                    // result, not today's same-ID mutable Invocation head.
+                    // These are comparison inputs; the child rederives them.
+                    for value in check::field(origin.wrappers().receipt(), "result_refs", s)?
+                        .as_array()
+                        .ok_or(ServiceError::IntegrityFailure)?
+                    {
+                        s.semantic_work()
+                            .visit(ValidationVisit::Element)
+                            .map_err(core_error)?;
+                        if !acceptance::same_recipe_text(
+                            check::text(value, "kind", s)?,
+                            "workflow-invocation",
+                            s,
+                        )? {
+                            continue;
+                        }
+                        origin.require_member(value, s)?;
+                        let completed = source::retained_local_record(
+                            tx,
+                            key,
+                            value,
+                            ("workflow-invocation", "ledger-workflow-invocation/1"),
+                            before,
+                            s,
+                        )
+                        .await?;
+                        check::same_text(check::text(completed.body(), "revision", s)?, "2", s)?;
+                        equal(
+                            check::field(completed.body(), "operation_key", s)?,
+                            check::field(work.body(), "key", s)?,
+                            s,
+                        )?;
+                        self.add(completed.reference(), s)?;
+                    }
+                }
             }
             self.rows[index].lifecycle_processed = true;
             self.complete(tx, key, before, s).await?;

@@ -609,7 +609,7 @@ pub(in super::super::super) async fn observe(
 
 /// Resolve one named assertion's verification only from its checked original
 /// retention receipt; downstream evidence consumers still verify every join.
-pub(super) async fn retained_verification(
+pub(in super::super::super) async fn retained_verification(
     tx: &mut SqliteTx,
     key: &OperationKey,
     before: i64,

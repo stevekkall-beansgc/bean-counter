@@ -532,8 +532,18 @@ pub(super) fn local_record_value(
     schema: &str,
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedValue> {
+    local_record_value_selected(key, reference, raw, schema, None, s)
+}
+fn local_record_value_selected(
+    key: &OperationKey,
+    reference: &ExactRef,
+    raw: &[u8],
+    schema: &str,
+    program: Option<&ledgerlab_core::policy::workflow::selected_program::SelectedProgram>,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedValue> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
-        OperationKey as CoreKey, select_local_input_edges,
+        OperationKey as CoreKey, select_local_input_edges, select_stage_local_input_edges,
     };
     let texts = [
         &key.logical_store_id,
@@ -572,14 +582,26 @@ pub(super) fn local_record_value(
     };
     // This kernel checks canonical bytes, local ID family and scoped digest.
     // It supplies no origin, currentness, semantic authority or chain proof.
-    let _edges = select_local_input_edges(
-        &core_key,
-        EconomicRecordView {
-            reference,
-            canonical_body: raw,
-        },
-        s,
-    )
+    let input = EconomicRecordView {
+        reference,
+        canonical_body: raw,
+    };
+    let _edges = if let Some(program) = program {
+        require(
+            program.uses_stage_lifecycle_recipe(),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        select_stage_local_input_edges(
+            program
+                .execution_registry()
+                .ok_or(ServiceError::IntegrityFailure)?,
+            &core_key,
+            input,
+            s,
+        )
+    } else {
+        select_local_input_edges(&core_key, input, s)
+    }
     .map_err(core_error)?;
     let parsed = s
         .parse_representation(raw, RepresentationKind::Record)
@@ -608,6 +630,45 @@ pub(in super::super) async fn retained_local_record(
         .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
     same(stored.schema.bytes(), expected.1.as_bytes(), s)?;
     let parsed = local_record_value(key, &reference, stored.body.bytes(), expected.1, s)?;
+    Ok(SourceRecord {
+        parsed,
+        stored,
+        reference,
+        _reference_lease: lease,
+    })
+}
+
+/// Retained allocation DATA selected only by the authenticated original Stage
+/// Program. Origin/member and regenerated allocation comparisons remain with
+/// the lifecycle collector and constructor respectively.
+pub(in super::super) async fn retained_stage_allocation(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    program: &ledgerlab_core::policy::workflow::selected_program::SelectedProgram,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    require(
+        program.uses_stage_lifecycle_recipe(),
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    let (reference, lease) = from_value_local(value, s)?;
+    super::super::request_wrapper::same_text(&reference.kind, "workflow-allocation", s)?;
+    let stored = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    same(stored.schema.bytes(), b"ledger-workflow-allocation/1", s)?;
+    let parsed = local_record_value_selected(
+        key,
+        &reference,
+        stored.body.bytes(),
+        "ledger-workflow-allocation/1",
+        Some(program),
+        s,
+    )?;
     Ok(SourceRecord {
         parsed,
         stored,

@@ -948,6 +948,6 @@ impl ObservedAppBinding {
     }
 }
 
-pub(in super::super) use nonwork::observe as observe_nonwork;
+pub(in super::super) use nonwork::{observe as observe_nonwork, retained_verification};
 
 pub(in super::super) use alias::construct as construct_work_alias;
