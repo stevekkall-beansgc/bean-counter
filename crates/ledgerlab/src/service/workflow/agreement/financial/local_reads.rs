@@ -81,6 +81,9 @@ pub(super) async fn current(
         .map_err(prefix::read_error)?;
     let origin = certified_origin(tx, key, &subject, before, s).await?;
     let mut pool = local_inputs::LocalInputs::new(s)?;
+    let evidence = request_wrapper::field(origin.wrappers().operation(), "request_evidence", s)?;
+    let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
+    pool.select_saved_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)?;
     pool.add(&subject, s)?;
     let mut initial = None;
     for reference in request_wrapper::field(origin.wrappers().receipt(), "result_refs", s)?
