@@ -78,6 +78,49 @@ pub(super) async fn local_selected_origin(
     result
 }
 
+/// Authenticate a billing record as an actual reconstructed result, not just
+/// a manifest input or an alias. The chronological candidate is trusted only
+/// after the original recipe and its complete prior inventory have folded.
+pub(super) async fn local_billing_record_origin(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+    body: &[u8],
+) -> Result<()> {
+    let mut s = take_read_session(tx)?;
+    let result = async {
+        let (_, _, sequence) = tx.workflow_agreement_document_origin(
+            &key.logical_store_id, &key.scope, reference,
+        ).await.map_err(crate::service::store_error)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let previous = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
+        let selected = prefix::next(tx, key, previous, sequence, &mut s).await?
+            .ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, &mut s).await?;
+        let requested = serde_json::to_value(reference).map_err(|_| ServiceError::IntegrityFailure)?;
+        selected.require_member(&requested, &mut s)?;
+        let op = selected.wrappers().operation();
+        require(request_wrapper::text(op, "schema", &mut s)? == "ledger-workflow-economic-operation/10", "INTEGRITY_FAILURE")?;
+        require(request_wrapper::text(selected.wrappers().receipt(), "result_kind", &mut s)? != "semantic_alias", "INTEGRITY_FAILURE")?;
+        let results = request_wrapper::field(op, "result_refs", &mut s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+        let expected = s.canonical_representation(&requested, ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+        let mut found = false;
+        for item in results {
+            let actual = s.canonical_representation(item, ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+            s.semantic_work().scan_bytes(actual.bytes().len()).map_err(core_error)?;
+            s.semantic_work().scan_bytes(expected.bytes().len()).map_err(core_error)?;
+            if actual.bytes() == expected.bytes() { found = true; }
+        }
+        require(found, "INTEGRITY_FAILURE")?;
+        let mut folded = prefix::fold_original_prefix(ledger, tx, key, &selected, &mut s).await?;
+        require(folded.introduced_at(&requested, body, &mut s)? == sequence, "INTEGRITY_FAILURE")?;
+        Ok(())
+    }.await;
+    retain_read_session(tx, s);
+    result
+}
+
 pub(super) async fn local_publication_origin(
     tx: &mut SqliteTx,
     key: &OperationKey,

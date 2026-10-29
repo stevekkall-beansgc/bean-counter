@@ -60,6 +60,14 @@ impl OriginInput {
     }
 }
 
+impl FoldedInventory {
+    pub(super) fn introduced_at(&mut self, reference: &Value, body: &[u8], session: &mut OriginalAuditSession) -> Result<i64> {
+        let (r, _lease) = current::source::from_value_local(reference, session)?;
+        self._inventory.compare_record(&r, body, session)?;
+        self._inventory.introduction_sequence(reference, session)
+    }
+}
+
 #[cfg(test)]
 impl FoldedInventory {
     /// Exact full enrollment Ref -> validated earliest introduction -> live

@@ -59,11 +59,23 @@ pub(in super::super::super) async fn read(
                 let payload:Canonical=serde_json::from_value(read.payload).map_err(|_|reject("INVALID_SHAPE"))?;
                 require(payload.representation=="canonical_bytes","INVALID_SHAPE")?;
                 let r=payload.r#ref;
-                require(source_kind(&r.kind)||matches!(r.kind.as_str(),"workflow-definition-fragment"|"workflow-compiled-plan"|"workflow-publication"|"workflow-authority"|"workflow-build-manifest"),"INVALID_REFERENCE")?;
+                require(source_kind(&r.kind)||matches!(r.kind.as_str(),"workflow-definition-fragment"|"workflow-compiled-plan"|"workflow-publication"|"workflow-authority"|"workflow-build-manifest"|"workflow-action"|"workflow-evaluation"),"INVALID_REFERENCE")?;
                 require(records::bytes(&r)?.len()<=1024,"INVALID_REFERENCE")?;
-                core::AgreementRef::parse(&records::bytes(&r)?).map_err(|_|reject("INVALID_REFERENCE"))?;
+                if matches!(r.kind.as_str(), "workflow-action" | "workflow-evaluation") {
+                    let prefix = if r.kind == "workflow-action" { "waction_" } else { "wdoc_" };
+                    let valid_hex = |v: &str| v.len() == 64 && v.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+                    let id = r.id.strip_prefix(prefix).ok_or_else(|| reject("INVALID_REFERENCE"))?;
+                    let digest = r.digest.strip_prefix("sha256:").ok_or_else(|| reject("INVALID_REFERENCE"))?;
+                    require(valid_hex(id) && valid_hex(digest) && (r.kind != "workflow-evaluation" || id == digest), "INVALID_REFERENCE")?;
+                } else {
+                    core::AgreementRef::parse(&records::bytes(&r)?).map_err(|_|reject("INVALID_REFERENCE"))?;
+                }
                 let d=loaded(tx,&key,&r).await?;
-                Box::pin(verify::document_origin(tx,&key,&r)).await?;
+                if matches!(r.kind.as_str(), "workflow-action" | "workflow-evaluation") {
+                    financial::local_billing_record_origin(ledger,tx,&key,&r,&d.bytes).await?;
+                } else {
+                    Box::pin(verify::document_origin(tx,&key,&r)).await?;
+                }
                 require(d.bytes.len()<=4194304,"RESPONSE_BUDGET_EXCEEDED")?;
                 wire(json!({"schema":"ledger-workflow-document-read/2","ref":r,"canonical_bytes_base64":super::super::super::publication::base64(&d.bytes),"canonical_bytes_sha256":records::raw_hash(&d.bytes),"body_bytes":d.bytes.len().to_string()}))
             },
