@@ -912,6 +912,10 @@ async fn retained_in_scope(
             if sequence >= operation.sequence {
                 return Err(ServiceError::IntegrityFailure);
             }
+            if definition_candidate_origin(tx, &identity, &kind, sequence, &document.reference).await? {
+                children.entry(identity).or_insert(false);
+                continue;
+            }
             if financial::local_selected_origin(tx, key, &document.reference, sequence).await? {
                 continue;
             }
@@ -1025,6 +1029,16 @@ pub(super) fn document_origin<'a>(
     })
 }
 
+// An indexed origin is only a locator. This hint bypasses the incompatible
+// financial framing probe; the retained worklist still verifies the complete
+// original certificate and all of its dependencies.
+pub(super) async fn definition_candidate_origin(tx: &mut SqliteTx, identity: &[u8], kind: &str, sequence: i64, reference: &RecordRef) -> Result<bool> {
+    if kind != "evidence.retain" { return Ok(false); }
+    let origin = tx.workflow_agreement_lookup(identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    if origin.sequence != sequence || !origin.members.contains(reference) { return Err(ServiceError::IntegrityFailure); }
+    Ok(transport::saved_definition_candidate(&origin.operation_bytes))
+}
+
 async fn document_origin_in_scope(
     tx: &mut SqliteTx,
     key: &OperationKey,
@@ -1045,6 +1059,12 @@ async fn document_origin_in_scope(
         .await
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
+    if definition_candidate_origin(tx, &identity, &kind, sequence, reference).await? {
+        let saved_key = origin_key(&identity, key)?;
+        let origin = tx.workflow_agreement_lookup(&identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+        retained(tx, &saved_key, &origin).await?;
+        return Ok(());
+    }
     if financial::local_selected_origin(tx, key, reference, sequence).await? {
         return Ok(());
     }

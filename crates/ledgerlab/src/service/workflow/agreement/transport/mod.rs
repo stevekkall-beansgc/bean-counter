@@ -25,6 +25,17 @@ pub(in crate::service::workflow) async fn verify_source_origin(
     require(source_kind(&reference.kind), "INVALID_REFERENCE")?;
     Box::pin(verify::document_origin(tx, key, reference)).await
 }
+/// Untrusted routing hint only. The retained certificate driver must still
+/// verify the complete saved request, descriptor, origin and alias closure.
+pub(in crate::service::workflow) fn saved_definition_candidate(raw: &[u8]) -> bool {
+    let Ok(operation) = canonical::parse_bounded(raw, 8388608) else { return false; };
+    let Some(evidence) = operation.get("request_evidence") else { return false; };
+    let Ok(registry) = evidence::registry_digest() else { return false; };
+    operation.get("schema").and_then(Value::as_str) == Some("ledger-workflow-operation-record/1")
+        && operation.get("kind").and_then(Value::as_str) == Some("evidence.retain")
+        && evidence.get("descriptor_resolution").and_then(|v| v.get("registry_digest")).and_then(Value::as_str) == Some(registry.as_str())
+        && evidence.get("normalized_request").and_then(|v| v.get("payload")).is_some_and(selected)
+}
 pub(super) fn selected(payload: &Value) -> bool {
     matches!(
         payload["schema"].as_str(),

@@ -230,7 +230,13 @@ impl LocalWorkflowLedger {
                 Some(kind) if agreement::financial::is_kind(&kind) => {
                     agreement::financial::original_status(self, tx, &key, raw_key).await
                 }
-                Some(_) => {
+                Some(kind) => {
+                    if kind == "evidence.retain" {
+                        let candidate = tx.workflow_agreement_lookup(&key.bytes()?).await.map_err(super::super::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+                        if agreement::transport::saved_definition_candidate(&candidate.operation_bytes) {
+                            return agreement::status(tx, &key).await;
+                        }
+                    }
                     if let Some(original)=agreement::financial::local_management_status(self,tx,&key,raw_key).await? {
                         Ok(original)
                     } else { agreement::status(tx,&key).await }
