@@ -2,11 +2,11 @@
 //! original Product supplies both slots and every endpoint is an exact Ref.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    authority, body, data::*, emitted_record::ConstructedEnvelope, records::Records, shape,
-    CoreMeter,
+    CoreMeter, authority, body, data::*, emitted_record::ConstructedEnvelope, records::Records,
+    shape,
 };
-use crate::{validation_work as w, Result};
-use serde_json::{json, Value};
+use crate::{Result, validation_work as w};
+use serde_json::{Value, json};
 
 fn product<'a>(m: &mut CoreMeter, program: &'a SelectedProgram, p: &Value) -> Result<&'a Value> {
     for d in program.source_documents() {
@@ -445,6 +445,70 @@ pub(super) struct ReportPath {
     pub decision: ExactRef,
     extra: Vec<ReportHop>,
     _owner: crate::canonical::audit_arena::ExternalBufferLease,
+}
+/// Read-only DATA captured during the original selected outcome constructor.
+/// The owner is transient and does not grant custody, authorization or commit.
+pub struct SelectedReportPath {
+    pub claim: ExactRef,
+    pub links: Vec<ExactRef>,
+    _owner: crate::canonical::audit_arena::ExternalBufferLease,
+}
+pub(super) fn capture_report_path(
+    m: &mut CoreMeter,
+    claim: &ExactRef,
+    closing: &ExactRef,
+    report: Option<&ReportPath>,
+) -> Result<SelectedReportPath> {
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("report capture arena"))?;
+    let count = if let Some(r) = report {
+        w::usize_add(m, 2, r.extra.len())?
+    } else {
+        1
+    };
+    let refs = std::iter::once(closing).chain(
+        report
+            .into_iter()
+            .flat_map(|r| std::iter::once(&r.link).chain(r.extra.iter().map(|h| &h.link))),
+    );
+    let mut bytes = std::mem::size_of::<SelectedReportPath>();
+    for r in std::iter::once(claim).chain(refs.clone()) {
+        m.visit("report.capture_ref")?;
+        for n in [
+            std::mem::size_of::<ExactRef>(),
+            r.kind.len(),
+            r.id.len(),
+            r.digest.len(),
+        ] {
+            bytes = w::usize_add(m, bytes, n)?;
+        }
+    }
+    let owner = arena.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    let mut links = Vec::new();
+    links
+        .try_reserve_exact(count)
+        .map_err(|_| shape::fail("report capture allocation"))?;
+    if links.capacity() > count {
+        return Err(shape::fail("report capture capacity"));
+    }
+    for r in refs {
+        m.visit("report.capture_copy")?;
+        for v in [&r.kind, &r.id, &r.digest] {
+            m.scan_bytes(v.len())?;
+        }
+        links.push(r.clone());
+    }
+    m.visit("report.capture_claim_copy")?;
+    for v in [&claim.kind, &claim.id, &claim.digest] {
+        m.scan_bytes(v.len())?;
+    }
+    Ok(SelectedReportPath {
+        claim: claim.clone(),
+        links,
+        _owner: owner,
+    })
 }
 impl ReportPath {
     pub(super) fn work_refs(&self) -> impl Iterator<Item = &ExactRef> {
@@ -1018,8 +1082,8 @@ mod tests {
     use crate::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::selected_program::{
-            compile_selected_publication, load_local_selected_execution, SelectedCompilerSupport,
-            SelectedSourceInput,
+            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
+            load_local_selected_execution,
         },
         validation_work::{OriginalAuditSession, ResourceLimits},
     };
@@ -1258,6 +1322,33 @@ mod tests {
         .unwrap();
         assert_eq!(original, unchanged);
         assert_ne!(original, a);
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::{
+        canonical::audit_arena::AuditArena,
+        validation_work::{OriginalAuditSession, ResourceLimits},
+    };
+    #[test]
+    fn direct_capture_keeps_exact_claim_and_closing_link() {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let claim = ExactRef {
+            kind: "workflow-outcome-claim".into(),
+            id: format!("woclaim_{}", "a".repeat(64)),
+            digest: format!("sha256:{}", "b".repeat(64)),
+        };
+        let link = ExactRef {
+            kind: "workflow-link".into(),
+            id: format!("wlink_{}", "c".repeat(64)),
+            digest: format!("sha256:{}", "d".repeat(64)),
+        };
+        let path = capture_report_path(session.meter_mut(), &claim, &link, None).unwrap();
+        assert_eq!(path.claim, claim);
+        assert_eq!(path.links, vec![link]);
     }
 }
 

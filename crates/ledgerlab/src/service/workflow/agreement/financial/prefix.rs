@@ -1025,6 +1025,7 @@ pub(super) struct FoldedInventory {
     programs: programs::CompletedPrograms,
     pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
 }
+pub(super) type PathSink<'a> = dyn FnMut(i64, ledgerlab_core::policy::workflow::transition_constructor::SelectedReportPath, &mut OriginalAuditSession) -> Result<()> + Send + 'a;
 /// Reuse the selected origin's SAME parent session, including its already-paid
 /// framing/identity work. Each earlier origin receives exactly its own session.
 pub(super) async fn fold_original_prefix(
@@ -1033,6 +1034,16 @@ pub(super) async fn fold_original_prefix(
     key: &OperationKey,
     selected: &LocatedWrappers,
     parent: &mut OriginalAuditSession,
+) -> Result<FoldedInventory> {
+    fold_original_prefix_capture(ledger, tx, key, selected, parent, None).await
+}
+pub(super) async fn fold_original_prefix_capture(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    selected: &LocatedWrappers,
+    parent: &mut OriginalAuditSession,
+    mut capture: Option<&mut PathSink<'_>>,
 ) -> Result<FoldedInventory> {
     let mut attempt = InputAttempt {
         failure: tx.workflow_proof_failure_handle(),
@@ -1084,13 +1095,13 @@ pub(super) async fn fold_original_prefix(
                     });
                 }
             }
-            if let Some(program) = fold_origin(
+            if let Some(program) = fold_origin_capture(
                         ledger,
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                 &setup,
-                publication.as_ref(),
+                (publication.as_ref(), capture.as_deref_mut()),
                 &mut session,
             )
             .await?
@@ -1113,13 +1124,13 @@ pub(super) async fn fold_original_prefix(
                 });
             }
         }
-        fold_origin(
+        fold_origin_capture(
                         ledger,
             tx,
             selected,
             inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
             &setup,
-            publication.as_ref(),
+            (publication.as_ref(), capture.as_deref_mut()),
             parent,
         )
         .await?;
@@ -1701,6 +1712,18 @@ async fn fold_origin(
     publication: Option<&RecompiledPublication>,
     s: &mut OriginalAuditSession,
 ) -> Result<Option<RecompiledPublication>> {
+    fold_origin_capture(ledger, tx, origin, prefix, setup, (publication, None), s).await
+}
+async fn fold_origin_capture(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    prefix: &mut FoldedInventory,
+    setup: &crate::service::billing::Setup,
+    selected: (Option<&RecompiledPublication>, Option<&mut PathSink<'_>>),
+    s: &mut OriginalAuditSession,
+) -> Result<Option<RecompiledPublication>> {
+    let (publication, capture) = selected;
     s.semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
@@ -1708,6 +1731,7 @@ async fn fold_origin(
         ._inventory
         .begin_origin_links(origin.wrappers().sequence(), s)?;
     let mut initial_source = None;
+    let mut selected_path = None;
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
     let cost_enrollment = origin.wrappers().class() == wrappers::WireClass::Financial
@@ -1778,7 +1802,9 @@ async fn fold_origin(
                 .await?
                 .ok_or(ServiceError::IntegrityFailure)?
         } else {
-            super::local_original_work::reconstruct_selected(ledger, tx, origin, prefix, s).await?
+            let (candidate, path) = super::local_original_work::reconstruct_selected_capture(ledger, tx, origin, prefix, s, capture.is_some()).await?;
+            selected_path = path;
+            candidate
         };
         prefix.fold_local_candidate(origin, &candidate, s)?;
         None
@@ -1836,6 +1862,9 @@ async fn fold_origin(
         prefix
             .programs
             .register_initial_source(origin.wrappers().sequence(), key, s)?;
+    }
+    if let (Some(sink), Some(path)) = (capture, selected_path) {
+        sink(origin.wrappers().sequence(), path, s)?;
     }
     Ok(publication)
 }

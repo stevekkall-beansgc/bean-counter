@@ -3,15 +3,15 @@
 //! real construction/assembly, never a draft promotion or success token.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    candidate::{assembly::Assembly, EconomicCandidate},
+    candidate::{EconomicCandidate, assembly::Assembly},
     construct,
     data::*,
     shape,
     working_value::owning_reference,
 };
 use crate::{
-    validation_work::{self as w, OriginalAuditSession, RepresentationKind, ValidationWork},
     Error, Result,
+    validation_work::{self as w, OriginalAuditSession, RepresentationKind, ValidationWork},
 };
 
 fn unfinished(s: &str) -> Error {
@@ -94,6 +94,15 @@ pub fn reconstruct_original_candidate<'a>(
     program: &SelectedProgram,
     saved: &'a SavedFinancialInput<'a>,
     session: &mut OriginalAuditSession,
+) -> Result<EconomicCandidate> {
+    reconstruct_original_candidate_capture(program, saved, session, None)
+}
+
+fn reconstruct_original_candidate_capture<'a>(
+    program: &SelectedProgram,
+    saved: &'a SavedFinancialInput<'a>,
+    session: &mut OriginalAuditSession,
+    mut capture: Option<&mut Option<super::declared_links::SelectedReportPath>>,
 ) -> Result<EconomicCandidate> {
     let result = (|| {
         session.check_cancelled()?;
@@ -301,13 +310,14 @@ pub fn reconstruct_original_candidate<'a>(
         } else {
             session.meter_mut().original_economic_meter()?
         };
-        let construction = construct::execute_complete(
+        let construction = construct::execute_complete_capture(
             program,
             c,
             payload.bytes(),
             saved.original_inputs,
             saved.original_state,
             &mut child,
+            capture.as_deref_mut(),
         )?;
         let assembly =
             Assembly::derive(&mut child, c, program, saved.original_state, construction)?;
@@ -343,6 +353,20 @@ pub fn reconstruct_original_candidate<'a>(
         session.invalidate();
     }
     result
+}
+/// Read-only selected path DATA; returned only after complete original comparison.
+pub fn reconstruct_original_candidate_with_report_path<'a>(
+    program: &SelectedProgram,
+    saved: &'a SavedFinancialInput<'a>,
+    session: &mut OriginalAuditSession,
+) -> Result<(
+    EconomicCandidate,
+    Option<super::declared_links::SelectedReportPath>,
+)> {
+    let mut path = None;
+    let candidate =
+        reconstruct_original_candidate_capture(program, saved, session, Some(&mut path))?;
+    Ok((candidate, path))
 }
 fn compare_saved(
     m: &mut super::CoreMeter,

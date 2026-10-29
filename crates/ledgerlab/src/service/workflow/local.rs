@@ -144,7 +144,7 @@ impl LocalWorkflowLedger {
         }
         let v = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
             .map_err(|_| reject("INVALID_SHAPE"))?;
-        if matches!(v["kind"].as_str(),Some("work.current"|"outcome.current")) {
+        if matches!(v["kind"].as_str(),Some("work.current"|"outcome.current"|"billing.explain")) {
             return agreement::financial::read_current(self,raw).await;
         }
         if v["kind"] == "operation.descriptors"

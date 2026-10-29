@@ -465,6 +465,7 @@ mod tests {
     }
     #[test]
     fn named_current_prior_and_none_evaluations_select_only_their_actual_facts() {
+        let (program, _, _, _) = super::super::first_work_tests::test_inputs();
         let a = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
         let mut producer = CoreMeter::new(65536).unwrap();
@@ -512,6 +513,7 @@ mod tests {
         for (i, d) in decisions.iter().enumerate() {
             let mut seen = Vec::new();
             decision(
+                &program,
                 s.meter_mut(),
                 (&a, &mut r, &key),
                 &d.reference,

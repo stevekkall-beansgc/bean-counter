@@ -4,7 +4,7 @@ use super::super::selected_program::SelectedProgram;
 use super::record_body::RecordBody;
 use super::records::SuppliedRecords;
 use super::{
-    arithmetic,
+    CoreMeter, arithmetic,
     authority::{self, EconomicMode},
     body, codec,
     data::*,
@@ -12,11 +12,11 @@ use super::{
     meter, outcome_proofs, pricing,
     records::{self, Records},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape, targets, CoreMeter,
+    shape, targets,
 };
-use crate::{domain::Timestamp, Error, Result};
+use crate::{Error, Result, domain::Timestamp};
 use num_bigint::BigInt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 macro_rules! call {
     ($f:path,$m:expr,$a:expr $(,)?) => {{
         let a = $a;
@@ -480,11 +480,9 @@ pub(super) fn execute<'inv, 'raw>(
     inputs: SuppliedRecords<'raw>,
     state: &DraftStateData,
     m: &mut CoreMeter,
-    intrinsic: Option<(
-        &'inv super::intrinsic_record::IntrinsicDataScope,
-        &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
-    )>,
+    read: super::construct::ReadSelection<'inv, '_>,
 ) -> Result<Construction<'inv, 'raw>> {
+    let (intrinsic, capture) = read;
     entry::context_selected(m, c, program)?;
     super::correction::dictionary_outcome(m, &p)?;
     let linked = program.uses_declared_work_link_recipe();
@@ -1383,6 +1381,14 @@ pub(super) fn execute<'inv, 'raw>(
         )?;
         (claim, link)
     };
+    if let Some(out) = capture {
+        *out = Some(super::declared_links::capture_report_path(
+            m,
+            &claim.reference,
+            &link.reference,
+            report.as_ref(),
+        )?);
+    }
     let effect_id = if let Some(report) = &report {
         super::declared_links::report_path_impl::effect(
             m,
@@ -3229,11 +3235,10 @@ mod local_head_view_tests {
     use crate::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::{
-            document_digest,
+            DefinitionRef, document_digest,
             selected_program::{
-                compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+                SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
             },
-            DefinitionRef,
         },
         validation_work::{OriginalAuditSession, ResourceLimits},
     };

@@ -4,16 +4,23 @@ use super::super::selected_program::SelectedProgram;
 use super::emitted_record::ConstructedEnvelope;
 use super::records::SuppliedRecords;
 use super::{
-    authority, body,
+    CoreMeter, Phase, authority, body,
     data::*,
     meter, pricing,
     records::{self},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape, CoreMeter, Phase,
+    shape,
 };
 use crate::{Error, Result};
 use num_bigint::BigInt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+pub(super) type ReadSelection<'inv, 'a> = (
+    Option<(
+        &'inv super::intrinsic_record::IntrinsicDataScope,
+        &'a [&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
+    )>,
+    Option<&'a mut Option<super::declared_links::SelectedReportPath>>,
+);
 fn unsupported(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
 }
@@ -53,7 +60,7 @@ pub(super) fn execute<'inv, 'raw>(
     m.begin_request(payload)?;
     m.phase(Phase::ParseNormalize);
     let p = super::working_value::WorkingValue::parse(m, payload)?;
-    execute_parsed(program, c, p, inputs, (state, None), m, intrinsic)
+    execute_parsed(program, c, p, inputs, (state, None), m, (intrinsic, None))
 }
 /// SAME monetary interpreter with the actual held extra app/capacity/party
 /// state. No caller-ready flag and no independent meter/budget is introduced.
@@ -64,6 +71,17 @@ pub(super) fn execute_complete<'raw>(
     inputs: &'raw [EconomicRecordView<'raw>],
     state: &EconomicStateData<'raw>,
     m: &mut CoreMeter,
+) -> Result<Construction<'raw, 'raw>> {
+    execute_complete_capture(program, c, payload, inputs, state, m, None)
+}
+pub(super) fn execute_complete_capture<'raw>(
+    program: &SelectedProgram,
+    c: &'raw DraftContextData,
+    payload: &[u8],
+    inputs: &'raw [EconomicRecordView<'raw>],
+    state: &EconomicStateData<'raw>,
+    m: &mut CoreMeter,
+    capture: Option<&mut Option<super::declared_links::SelectedReportPath>>,
 ) -> Result<Construction<'raw, 'raw>> {
     m.begin_request(payload)?;
     m.phase(Phase::ParseNormalize);
@@ -284,7 +302,7 @@ pub(super) fn execute_complete<'raw>(
         },
         (state.financial, Some(state)),
         m,
-        None,
+        (None, capture),
     )?;
     if program.uses_declared_work_link_recipe() || program.uses_policy_semantics_recipe() {
         let original = construction.economic.original_work.payload()?;
@@ -368,12 +386,10 @@ fn execute_parsed<'inv, 'raw>(
     inputs: SuppliedRecords<'raw>,
     selected_operands: (&DraftStateData, Option<&EconomicStateData>),
     m: &mut CoreMeter,
-    intrinsic: Option<(
-        &'inv super::intrinsic_record::IntrinsicDataScope,
-        &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
-    )>,
+    read: ReadSelection<'inv, '_>,
 ) -> Result<Construction<'inv, 'raw>> {
     let (state, complete_state) = selected_operands;
+    let (intrinsic, capture) = read;
     if m.representation_arena().is_some()
         && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome-close/2"))?
     {
@@ -396,7 +412,7 @@ fn execute_parsed<'inv, 'raw>(
         || program.uses_declared_work_link_recipe()
             && shape::same(m, &p["schema"], &json!("ledger-workflow-outcome/2"))?
     {
-        return super::outcome::execute(program, c, p, inputs, state, m, intrinsic);
+        return super::outcome::execute(program, c, p, inputs, state, m, (intrinsic, capture));
     }
     if !shape::same(m, &p["schema"], &json!("ledger-workflow-work/1"))? {
         if shape::same(

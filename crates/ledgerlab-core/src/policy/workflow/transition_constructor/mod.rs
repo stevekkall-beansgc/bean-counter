@@ -70,6 +70,7 @@ mod correction;
 mod cost;
 mod cost_postings;
 mod declared_links;
+pub use declared_links::SelectedReportPath;
 mod link_assert;
 mod input_selection;
 mod source_authority;
@@ -149,7 +150,7 @@ pub use candidate::{
 mod economic;
 pub use economic::{
     construct_economic_candidate, construct_local_financial_candidate,
-    reconstruct_original_candidate,
+    reconstruct_original_candidate, reconstruct_original_candidate_with_report_path,
 };
 
 mod local_financial_evidence;

@@ -103,6 +103,16 @@ pub(super) async fn reconstruct_selected(
     prefix: &mut prefix::FoldedInventory,
     s: &mut OriginalAuditSession,
 ) -> Result<EconomicCandidate> {
+    reconstruct_selected_capture(_ledger, tx, original, prefix, s, false).await.map(|(candidate, _)| candidate)
+}
+pub(super) async fn reconstruct_selected_capture(
+    _ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    prefix: &mut prefix::FoldedInventory,
+    s: &mut OriginalAuditSession,
+    capture_path: bool,
+) -> Result<(EconomicCandidate, Option<core::SelectedReportPath>)> {
     require(
         local_financial_original::verify(tx, original, None, s).await?,
         "UNSUPPORTED_SCHEMA_PROFILE",
@@ -1335,9 +1345,7 @@ pub(super) async fn reconstruct_selected(
             }
         }
     }
-    let candidate = core::reconstruct_original_candidate(
-        owner.program(),
-        &core::SavedFinancialInput {
+    let saved = core::SavedFinancialInput {
             operation: EconomicRecordView {
                 reference: &operation_ref,
                 canonical_body: operation.bytes(),
@@ -1348,10 +1356,12 @@ pub(super) async fn reconstruct_selected(
             original_state: &state,
             original_inputs: &inputs,
             introduced_results: &introduced,
-        },
-        s,
-    )
-    .map_err(core_error)?;
+        };
+    let (candidate, path) = if capture_path && request_wrapper::text(w.operation(), "kind", s)? == "outcome.submit" {
+        core::reconstruct_original_candidate_with_report_path(owner.program(), &saved, s).map_err(core_error)?
+    } else {
+        (core::reconstruct_original_candidate(owner.program(), &saved, s).map_err(core_error)?, None)
+    };
 
     let evidence = core::produce_local_financial_request_evidence(
         owner.program(),
@@ -1378,5 +1388,5 @@ pub(super) async fn reconstruct_selected(
 
     journal.compare_original(w, s)?;
 
-    Ok(candidate)
+    Ok((candidate, path))
 }

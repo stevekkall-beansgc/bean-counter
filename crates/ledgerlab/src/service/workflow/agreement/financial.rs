@@ -16,6 +16,8 @@ mod local_acceptance;
 mod local_activation;
 mod local_alias_original;
 mod local_cost_authority;
+mod local_explain_family;
+mod local_explain_decisions;
 mod local_financial;
 mod local_financial_original;
 mod local_inputs;
@@ -259,7 +261,7 @@ pub(in crate::service::workflow) async fn read_current(
     )?;
     let kind = request_wrapper::text(parsed.value(), "kind", &mut s)?;
     require(
-        matches!(kind, "work.current" | "outcome.current"),
+        matches!(kind, "work.current" | "outcome.current" | "billing.explain"),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let _key_owner = s
@@ -282,15 +284,11 @@ pub(in crate::service::workflow) async fn read_current(
     tx.workflow_main_session = true;
     let attempted = proof_session::with_proofs(&mut tx, &key, |tx| {
         Box::pin(async {
-            local_reads::current(
-                ledger,
-                tx,
-                &key,
-                kind,
-                request_wrapper::field(parsed.value(), "payload", &mut s)?,
-                &mut s,
-            )
-            .await
+            if kind == "billing.explain" {
+                local_reads::explain(ledger, tx, &key, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+            } else {
+                local_reads::current(ledger, tx, &key, kind, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+            }
         })
     })
     .await;
