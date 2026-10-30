@@ -247,6 +247,46 @@ impl SqliteTx {
     ) -> Result<Option<Vec<u8>>, StoreError> {
         super::m5::period_close_statement(self.conn(), customer, statement_hash).await
     }
+    pub(crate) async fn workflow_presentation_statement(
+        &mut self,
+        customer: &str,
+        hash: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::workflow_presentation_statement(self.conn(), customer, hash).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn m5_workflow_legacy_close(
+        &mut self,
+        customer: &str,
+        term: i64,
+        period: i64,
+        m3: i64,
+        m5: i64,
+        adjustments: &[super::m5::PresentableAdjustment],
+    ) -> Result<(serde_json::Value, serde_json::Value, String), StoreError> {
+        super::m5::expected_close_economics(
+            self.conn(),
+            customer,
+            term,
+            period,
+            m3,
+            m5,
+            adjustments,
+        )
+        .await
+    }
+    pub(crate) async fn m5_workflow_legacy_lines(
+        &mut self,
+        statement: &serde_json::Value,
+    ) -> Result<(serde_json::Value, serde_json::Value), StoreError> {
+        super::m5::workflow_legacy_lines(self.conn(), statement).await
+    }
+    pub(crate) async fn m5_statement_position(
+        &mut self,
+    ) -> Result<(i64, i64, i64, i64, i64), StoreError> {
+        sqlx::query_as("SELECT s.next_command_sequence,s.next_record_sequence,b.m3_high_water,b.m5_high_water,b.boundary_id FROM billing_m5_state s JOIN billing_m5_snapshot_boundaries b WHERE s.singleton=1 ORDER BY b.boundary_id DESC LIMIT 1")
+            .fetch_one(self.conn()).await.map_err(Into::into)
+    }
     pub(crate) async fn m5_ad_hoc_state(
         &mut self,
         customer: &str,
@@ -819,7 +859,7 @@ impl SqliteTx {
                     before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
                 if after != before {
                     match self.billing_schema_version().await? {
-                        12..=19 => {
+                        12..=20 => {
                             super::workflow::capacity::check(self.conn(), 0, 0).await?;
                         }
                         11 => {} // A verified opt-in attempt rolled back.

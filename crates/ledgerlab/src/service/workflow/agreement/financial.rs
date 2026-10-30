@@ -27,11 +27,12 @@ mod local_original_work;
 mod local_party;
 mod local_publication;
 mod local_reads;
+pub(crate) mod statement;
 mod management;
 use management::ManagementObservation;
 pub(in crate::service::workflow) use management::effective_setup;
 mod prefix;
-pub(in crate::service::workflow) use prefix::read_error as management_read_error;
+pub(crate) use prefix::read_error as management_read_error;
 mod publication_prepare;
 mod recovery;
 mod response;
@@ -546,6 +547,29 @@ fn fresh_reply<'a>(
         result
     })
 }
+// Construct only the selected branch in this non-async frame. Keeping every
+// concrete branch constructor in fresh_reply_in made its native polling frame
+// much larger than its saved Future, including for small party requests.
+fn fresh_branch<'a, F>(
+    session: &'a mut ledgerlab_core::validation_work::OriginalAuditSession,
+    build: impl FnOnce(&'a mut ledgerlab_core::validation_work::OriginalAuditSession) -> F,
+) -> Result<impl std::future::Future<Output = F::Output> + Send + 'a>
+where
+    F: std::future::Future + Send + 'a,
+{
+    let bytes = std::mem::size_of::<F>();
+    let storage = session.reserve_external_payload(bytes).map_err(core_error)?;
+    session.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let future = Box::pin(build(session));
+    // The payload drops before its lease, including cancellation before poll.
+    let held = (future, storage);
+    Ok(async move {
+        let mut held = held;
+        let result = held.0.as_mut().await;
+        drop(held);
+        result
+    })
+}
 fn is_local_financial_schema(schema: &str) -> bool {
     matches!(
         schema,
@@ -640,33 +664,31 @@ async fn fresh_reply_in(
             request_wrapper::text(req.payload(session)?, "schema", session)?,
         )
     {
-        return local_financial::prepare_registered_participant_append(
-            ledger,
-            tx,
-            req,
-            held_management,
-            session,
-        )
+        return fresh_branch(session, |session| {
+            local_financial::prepare_registered_participant_append(
+                ledger, tx, req, held_management, session,
+            )
+        })?
         .await
         .map(TransactionResult::Appended);
     }
     let key_body = request_wrapper::field(req.value(), "key", session)?;
     let management =
-        ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session)
+        fresh_branch(session, |session| ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session))?
             .await?;
-    management.recheck(ledger, tx, key, session).await?;
+    fresh_branch(session, |session| management.recheck(ledger, tx, key, session))?.await?;
     if req.kind() == "agreement.accept" {
         if request_wrapper::text(req.payload(session)?, "schema", session)?
             == "ledger-workflow-agreement-accept/9"
         {
             let reply =
-                local_acceptance::prepare_append(ledger, tx, req, &management, session).await?;
+                fresh_branch(session, |session| local_acceptance::prepare_append(ledger, tx, req, &management, session))?.await?;
             return Ok(TransactionResult::Appended(reply));
         }
         // AppAccept8 reaches the actual saved publication and SAME
         // terms/binding assembly. Its DATA owners do not bypass
         // complete chronology, consent/private graph or preparation.
-        let mut pending = acceptance::prepare(ledger, tx, req, session).await?;
+        let mut pending = fresh_branch(session, |session| acceptance::prepare(ledger, tx, req, session))?.await?;
         let evidence = evidence::acceptance(req, &pending, session)?;
         let members = pending.resolve_members(session)?;
         let journal = wire::frame_acceptance(
@@ -691,13 +713,13 @@ async fn fresh_reply_in(
         && request_wrapper::text(req.payload(session)?, "schema", session)?
             == "ledger-workflow-activation/1"
     {
-        let reply = local_activation::prepare_append(ledger, tx, req, &management, session).await?;
+        let reply = fresh_branch(session, |session| local_activation::prepare_append(ledger, tx, req, &management, session))?.await?;
         return Ok(TransactionResult::Appended(reply));
     }
     if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
         let payload = req.payload(session)?;
         let mut observed =
-            current::app::observe_activation(ledger, tx, req, payload, session).await?;
+            fresh_branch(session, |session| current::app::observe_activation(ledger, tx, req, payload, session))?.await?;
         if req.kind() == "agreement.activate" {
             let evidence = evidence::activation_material(
                 req,
@@ -734,7 +756,7 @@ async fn fresh_reply_in(
                 | "ledger-workflow-party-authorize/1"
                 | "ledger-workflow-party-revoke/1"
         ) {
-            let reply = local_party::prepare_append(ledger, tx, req, &management, session).await?;
+            let reply = fresh_branch(session, |session| local_party::prepare_append(ledger, tx, req, &management, session))?.await?;
             return Ok(TransactionResult::Appended(reply));
         }
     }
@@ -744,7 +766,7 @@ async fn fresh_reply_in(
             == "ledger-cost-authority-enroll/1"
     {
         let reply =
-            local_cost_authority::prepare_append(ledger, tx, req, &management, session).await?;
+            fresh_branch(session, |session| local_cost_authority::prepare_append(ledger, tx, req, &management, session))?.await?;
         return Ok(TransactionResult::Appended(reply));
     }
     if is_local_financial_schema(request_wrapper::text(
@@ -753,7 +775,7 @@ async fn fresh_reply_in(
         session,
     )?) {
         let reply =
-            local_financial::prepare_work_append(ledger, tx, req, &management, session).await?;
+            fresh_branch(session, |session| local_financial::prepare_work_append(ledger, tx, req, &management, session))?.await?;
         return Ok(TransactionResult::Appended(reply));
     }
 

@@ -3,6 +3,7 @@ mod event;
 pub mod fiscal_calendar;
 mod records;
 pub mod term_service;
+pub mod workflow_statement;
 mod time;
 use crate::{Error, Result};
 pub use calendar::*;

@@ -8,14 +8,33 @@ use ledgerlab_core::{
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
 
+/// Exact saved intent and retained associations have been checked. These owned
+/// inputs are DATA, not a completed economic reconstruction or audit result.
+pub(super) struct RetainedOriginalInputs {
+    pool: local_inputs::LocalInputs,
+}
+impl RetainedOriginalInputs {
+    pub(super) fn into_pool(self) -> local_inputs::LocalInputs {
+        self.pool
+    }
+}
+
 pub(super) async fn verify(
     tx: &mut SqliteTx,
     original: &prefix::LocatedWrappers,
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
+    Ok(retained_inputs(tx, original, incoming, s).await?.is_some())
+}
+pub(super) async fn retained_inputs(
+    tx: &mut SqliteTx,
+    original: &prefix::LocatedWrappers,
+    incoming: Option<&ingress::IncomingRequest>,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<RetainedOriginalInputs>> {
     if request_wrapper::text(original.wrappers().receipt(), "result_kind", s)? == "semantic_alias" {
-        return Ok(false);
+        return Ok(None);
     }
     verify_intent(tx, original, incoming, false, s).await
 }
@@ -25,7 +44,7 @@ pub(super) async fn verify_alias_transport(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    verify_intent(tx, original, incoming, false, s).await
+    Ok(verify_intent(tx, original, incoming, false, s).await?.is_some())
 }
 /// The enclosing adapter authenticates the actual mapped caller and permanent
 /// claim before this SAME original certificate compares only transport variance.
@@ -35,7 +54,7 @@ pub(super) async fn verify_work_alias(
     incoming: &ingress::IncomingRequest,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    verify_intent(tx, original, Some(incoming), true, s).await
+    Ok(verify_intent(tx, original, Some(incoming), true, s).await?.is_some())
 }
 async fn verify_intent(
     tx: &mut SqliteTx,
@@ -43,15 +62,15 @@ async fn verify_intent(
     incoming: Option<&ingress::IncomingRequest>,
     semantic_work_alias: bool,
     s: &mut OriginalAuditSession,
-) -> Result<bool> {
+) -> Result<Option<RetainedOriginalInputs>> {
     let w = original.wrappers();
     if w.class() != wrappers::WireClass::Financial {
-        return Ok(false);
+        return Ok(None);
     }
     let evidence = request_wrapper::field(w.operation(), "request_evidence", s)?;
     let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
     if !wrappers::is_local_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)? {
-        return Ok(false);
+        return Ok(None);
     }
     request_wrapper::same_text(
         request_wrapper::text(w.operation(), "schema", s)?,
@@ -190,5 +209,5 @@ async fn verify_intent(
         let _ = pool.body(&r)?;
     }
     s.check_cancelled().map_err(core_error)?;
-    Ok(true)
+    Ok(Some(RetainedOriginalInputs { pool }))
 }

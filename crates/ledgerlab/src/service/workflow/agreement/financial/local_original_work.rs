@@ -32,6 +32,72 @@ fn string(
     s.parse_representation(b.bytes(), RepresentationKind::Record)
         .map_err(core_error)
 }
+// Paid owners for the exact prior app claims selected by this original recipe.
+// Nothing is selected from comparison-only introductions or today's SQL heads.
+struct OriginalAppState {
+    costs: Vec<core::CostHead>,
+    observations: Vec<core::ExactRef>,
+    claims: Vec<core::ExactRef>,
+    consumed: Vec<core::ExactRef>,
+    owners: Vec<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    _control: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
+}
+impl OriginalAppState {
+    fn new(count: usize, s: &mut OriginalAuditSession) -> Result<Self> {
+        use ledgerlab_core::canonical::audit_arena::ExternalBufferLease;
+        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Multiply, &[&count.into(), &4usize.into()]).map_err(core_error)?;
+        let owners = count.checked_mul(4).ok_or(ServiceError::Unavailable)?;
+        let stride = mem::size_of::<core::CostHead>() + 3 * mem::size_of::<core::ExactRef>() + 4 * mem::size_of::<ExternalBufferLease>();
+        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Multiply, &[&count.into(), &stride.into()]).map_err(core_error)?;
+        let payload = count.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
+        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&payload.into(), &mem::size_of::<Self>().into()]).map_err(core_error)?;
+        let bytes = payload.checked_add(mem::size_of::<Self>()).ok_or(ServiceError::Unavailable)?;
+        let control = s.reserve_external_payload(bytes).map_err(core_error)?;
+        s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+        let mut out = Self { costs: Vec::new(), observations: Vec::new(), claims: Vec::new(), consumed: Vec::new(), owners: Vec::new(), _control: control };
+        out.costs.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+        out.observations.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+        out.claims.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+        out.consumed.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+        out.owners.try_reserve_exact(owners).map_err(|_| ServiceError::Unavailable)?;
+        for (actual, paid) in [(out.costs.capacity(), count), (out.observations.capacity(), count), (out.claims.capacity(), count), (out.consumed.capacity(), count), (out.owners.capacity(), owners)] {
+            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+            s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&actual.into(), &paid.into()]).map_err(core_error)?;
+            require(actual == paid, "INTEGRITY_FAILURE")?;
+        }
+        Ok(out)
+    }
+}
+fn retain_app_reference(
+    r: &core::ExactRef,
+    owners: &mut Vec<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    s: &mut OriginalAuditSession,
+) -> Result<core::ExactRef> {
+    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&owners.len().into(), &owners.capacity().into()]).map_err(core_error)?;
+    require(owners.len() < owners.capacity(), "INTEGRITY_FAILURE")?;
+    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&r.kind.len().into(), &r.id.len().into()]).map_err(core_error)?;
+    let head = r.kind.len().checked_add(r.id.len()).ok_or(ServiceError::Unavailable)?;
+    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&head.into(), &r.digest.len().into()]).map_err(core_error)?;
+    let bytes = head.checked_add(r.digest.len()).ok_or(ServiceError::Unavailable)?;
+    let owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(mem::size_of::<core::ExactRef>() + mem::size_of::<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>()).map_err(core_error)?;
+    let copied = reference(r, s)?;
+    owners.push(owner);
+    Ok(copied)
+}
+
+fn push_app_reference(
+    rows: &mut Vec<core::ExactRef>,
+    r: &core::ExactRef,
+    owners: &mut Vec<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&rows.len().into(), &rows.capacity().into()]).map_err(core_error)?;
+    require(rows.len() < rows.capacity(), "INTEGRITY_FAILURE")?;
+    rows.push(retain_app_reference(r, owners, s)?);
+    Ok(())
+}
+
 pub(super) fn same_ref(
     a: &core::ExactRef,
     b: &core::ExactRef,
@@ -113,39 +179,18 @@ pub(super) async fn reconstruct_selected_capture(
     s: &mut OriginalAuditSession,
     capture_path: bool,
 ) -> Result<(EconomicCandidate, Option<core::SelectedReportPath>)> {
-    require(
-        local_financial_original::verify(tx, original, None, s).await?,
-        "UNSUPPORTED_SCHEMA_PROFILE",
-    )?;
+    let pool = local_financial_original::retained_inputs(tx, original, None, s)
+        .await?
+        .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?
+        .into_pool();
 
     let w = original.wrappers();
     let key = original.key();
     let sequence = w.sequence();
     let evidence = request_wrapper::field(w.operation(), "request_evidence", s)?;
-    let resolution = request_wrapper::field(evidence, "descriptor_resolution", s)?;
     let normalized = request_wrapper::field(evidence, "normalized_request", s)?;
     let payload = request_wrapper::field(normalized, "payload", s)?;
     let work = request_wrapper::text(payload, "schema", s)? == "ledger-workflow-work/1";
-    let mut pool = local_inputs::LocalInputs::new(s)?;
-    pool.select_saved_registry(request_wrapper::text(resolution, "registry_digest", s)?, s)?;
-    for r in request_wrapper::field(w.manifest(), "members", s)?
-        .as_array()
-        .ok_or(ServiceError::IntegrityFailure)?
-    {
-        if !w.is_own_operation(r, s)? {
-            pool.add_value(r, s)?;
-        }
-    }
-    pool.complete(
-        tx,
-        key,
-        sequence
-            .checked_add(1)
-            .ok_or(ServiceError::IntegrityFailure)?,
-        s,
-    )
-    .await?;
-
     let all = pool.views();
     let _views = s
         .reserve_external_payload(3 * all.len() * mem::size_of::<EconomicRecordView<'_>>())
@@ -216,8 +261,20 @@ pub(super) async fn reconstruct_selected_capture(
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let schema = request_wrapper::text(payload, "schema", s)?;
+    // Complete the original state for the existing basic app bill recipes.
+    // Other profiles retain their own closed reconstruction branches below.
+    let basic_app = !owner.program().uses_stage_lifecycle_recipe()
+        && !owner.program().uses_component_lifecycle_recipe()
+        && owner.program().uses_app_cost_causal_recipe()
+        && matches!(schema,
+            "ledger-workflow-app-observe/1"
+                | "ledger-workflow-app-cost-attest/1"
+                | "ledger-workflow-cost-finalize/2"
+                | "ledger-workflow-cost-correct/2"
+                | "ledger-workflow-fact-attest/1"
+                | "ledger-workflow-outcome/1");
     require(
-        work || (owner.program().uses_stage_lifecycle_recipe()
+        work || basic_app || (owner.program().uses_stage_lifecycle_recipe()
             && matches!(
                 schema,
                 "ledger-workflow-fact-attest/1"
@@ -442,7 +499,7 @@ pub(super) async fn reconstruct_selected_capture(
                 .ok_or(ServiceError::IntegrityFailure)?
                 .as_slice(),
         )
-    } else if owner.program().uses_component_lifecycle_recipe() {
+    } else if basic_app || owner.program().uses_component_lifecycle_recipe() {
         let subject = current::app::outcome_proof_payload(payload, schema, s)?;
         Some(if let Some(proofs) = subject.get("fact_proofs") {
             proofs
@@ -966,7 +1023,7 @@ pub(super) async fn reconstruct_selected_capture(
         if let Some(row) =
             prefix.original_input("local-original-work-claim", &[id.value()], &inputs, s)?
         {
-            if !(owner.program().uses_component_lifecycle_recipe()
+            if !basic_app && !(owner.program().uses_component_lifecycle_recipe()
                 && matches!(schema, "ledger-workflow-outcome/1" | "ledger-workflow-outcome/2" | "ledger-workflow-outcome-correction/1" | "ledger-workflow-outcome-correction/2"))
             {
                 financial.work_claims.push(reference(row.reference, s)?);
@@ -974,7 +1031,11 @@ pub(super) async fn reconstruct_selected_capture(
         }
         let id = string(locator.root_decision_id(), s)?;
         prefix.original_input("local-original-decision", &[id.value()], &inputs, s)?;
-        if !(owner.program().uses_component_lifecycle_recipe()
+        // Basic evidence retention consumes the current root, but no Capacity. Fresh
+        // acquisition may prefetch that head without retaining it in exact I.
+        let evidence_retention = basic_app
+            && matches!(schema, "ledger-workflow-app-observe/1" | "ledger-workflow-app-cost-attest/1" | "ledger-workflow-fact-attest/1");
+        if !evidence_retention && !(owner.program().uses_component_lifecycle_recipe()
             && matches!(schema, "ledger-workflow-link-assert/1" | "ledger-workflow-fact-attest/1"))
         {
             prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
@@ -1017,16 +1078,63 @@ pub(super) async fn reconstruct_selected_capture(
             financial.chain_head = Some(reference(row.reference, s)?);
         }
     }
+    if basic_app && schema == "ledger-workflow-outcome/1" {
+        // The outcome names a Target, so select its original Work's typed
+        // Chain key. Only the completed cutoff and exact I may supply the head.
+        let heads = locators.as_ref().and_then(|l| l.work_heads())
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let core::FinancialHeadKey::Chain { logical_store_id, scope, customer, chain } = heads.chain_key() else {
+            return Err(ServiceError::IntegrityFailure);
+        };
+        for (actual, expected) in [
+            (logical_store_id.as_str(), key.logical_store_id.as_str()),
+            (scope[0].as_str(), key.scope[0].as_str()),
+            (scope[1].as_str(), key.scope[1].as_str()),
+        ] {
+            request_wrapper::same_text(actual, expected, s)?;
+        }
+        let customer = string(customer, s)?;
+        let chain = string(chain, s)?;
+        let row = prefix.original_input(
+            "local-original-chain", &[customer.value(), chain.value()], &inputs, s,
+        )?.ok_or(ServiceError::IntegrityFailure)?;
+        financial.chain_head = Some(reference(row.reference, s)?);
+    }
+    let mut app_state = if basic_app {
+        Some(OriginalAppState::new(locators.as_ref().ok_or(ServiceError::IntegrityFailure)?.claim_keys().len(), s)?)
+    } else {
+        None
+    };
     let mut retained_assertion = None;
     if let Some(locators) = &locators {
         for claim in locators.claim_keys() {
+            if basic_app { s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?; }
+            // Evidence retention uses its own permanent claims, not the
+            // Work's broadly prefetched app-cost component claims.
+            if basic_app && matches!(schema,
+                "ledger-workflow-app-observe/1" | "ledger-workflow-app-cost-attest/1" | "ledger-workflow-fact-attest/1")
+                && matches!(claim, core::PermanentClaimKey::AppCostComponent { .. })
+            {
+                continue;
+            }
             let key = prefix::local_claim_key(claim, s)?;
             if let Some(body) = prefix._inventory.head_body(&key, s)? {
                 // The constructor must receive that exact earlier claim, not N.
-                let matched = inputs
-                    .iter()
-                    .find(|row| row.canonical_body == body.bytes())
-                    .ok_or(ServiceError::IntegrityFailure)?;
+                let matched = if basic_app {
+                    let mut matched = None;
+                    for row in &inputs {
+                        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&row.canonical_body.len().into(), &body.bytes().len().into()]).map_err(core_error)?;
+                        let bytes = row.canonical_body.len().checked_add(body.bytes().len()).ok_or(ServiceError::Unavailable)?;
+                        s.semantic_work().scan_bytes(bytes).map_err(core_error)?;
+                        if row.canonical_body == body.bytes() {
+                            require(matched.replace(row).is_none(), "INTEGRITY_FAILURE")?;
+                        }
+                    }
+                    matched.ok_or(ServiceError::IntegrityFailure)?
+                } else {
+                    inputs.iter().find(|row| row.canonical_body == body.bytes()).ok_or(ServiceError::IntegrityFailure)?
+                };
                 match claim {
                     core::PermanentClaimKey::Assertion { .. } => {
                         retained_assertion = Some(reference(matched.reference, s)?)
@@ -1037,8 +1145,92 @@ pub(super) async fn reconstruct_selected_capture(
                     core::PermanentClaimKey::Outcome { .. } => financial
                         .outcome_claims
                         .push(reference(matched.reference, s)?),
+                    core::PermanentClaimKey::AppCall { .. }
+                    | core::PermanentClaimKey::AppComponentObservation { .. }
+                    | core::PermanentClaimKey::AppProviderCall { .. } => {
+                        let app = app_state.as_mut().ok_or(ServiceError::IntegrityFailure)?;
+                        push_app_reference(&mut app.observations, matched.reference, &mut app.owners, s)?;
+                    }
+                    core::PermanentClaimKey::AppCostComponent { .. } => {
+                        let app = app_state.as_mut().ok_or(ServiceError::IntegrityFailure)?;
+                        push_app_reference(&mut app.claims, matched.reference, &mut app.owners, s)?;
+                    }
+                    core::PermanentClaimKey::AppFinalEvidence { .. }
+                    | core::PermanentClaimKey::AppObservationRevision { .. } => {
+                        let app = app_state.as_mut().ok_or(ServiceError::IntegrityFailure)?;
+                        push_app_reference(&mut app.consumed, matched.reference, &mut app.owners, s)?;
+                    }
                     _ => return Err(reject("UNSUPPORTED_COMPOSITION")),
                 }
+            }
+        }
+    }
+    // Basic outcomes validate consumed app claims through their Decision
+    // operands, but do not consume the prefetched app-cost revision heads.
+    if let Some(app) = app_state.as_mut().filter(|_| schema != "ledger-workflow-outcome/1") {
+        for claim in &app.claims {
+            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+            let encoded = wire::reference(claim, s)?;
+            let parsed = s.parse_representation(encoded.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            if let Some(row) = prefix.original_input("local-original-app-cost", &[parsed.value()], &inputs, s)? {
+                let body = s.parse_representation(row.canonical_body, RepresentationKind::Record).map_err(core_error)?;
+                request_wrapper::same_text(request_wrapper::text(body.value(), "schema", s)?, "ledger-workflow-app-cost-revision/1", s)?;
+                let (actual, _lease) = current::source::from_value_local(request_wrapper::field(body.value(), "cost_claim_ref", s)?, s)?;
+                require(same_ref(claim, &actual, s)?, "INTEGRITY_FAILURE")?;
+                let revision = request_wrapper::text(body.value(), "revision", s)?;
+                let owner = s.reserve_external_payload(revision.len()).map_err(core_error)?;
+                s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&app.owners.len().into(), &app.owners.capacity().into()]).map_err(core_error)?;
+                require(app.owners.len() < app.owners.capacity(), "INTEGRITY_FAILURE")?;
+                s.semantic_work().write_bytes(mem::size_of::<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>()).map_err(core_error)?;
+                app.owners.push(owner);
+                s.semantic_work().write_bytes(mem::size_of::<core::CostHead>()).map_err(core_error)?;
+                s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&app.costs.len().into(), &app.costs.capacity().into()]).map_err(core_error)?;
+                require(app.costs.len() < app.costs.capacity(), "INTEGRITY_FAILURE")?;
+                app.costs.push(core::CostHead {
+                    cost_claim_ref: retain_app_reference(claim, &mut app.owners, s)?,
+                    revision: copy(revision, s)?,
+                    reference: retain_app_reference(row.reference, &mut app.owners, s)?,
+                });
+            }
+        }
+    }
+    if basic_app && schema == "ledger-workflow-cost-correct/2" {
+        // Fresh app correction selects the original observation and current
+        // final evidence from these exact claim/head operands. Repeat that
+        // selection at this original cutoff; unrelated transitive proofs stay I.
+        let app = app_state.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+        for (selected, field) in app.claims.iter().map(|r| (r, "observation_ref"))
+            .chain(app.costs.iter().map(|h| (&h.reference, "current_evidence_ref")))
+        {
+            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+            let body = s.parse_representation(pool.body(selected)?, RepresentationKind::Record).map_err(core_error)?;
+            let (attestation, _attestation_owner) = current::source::from_value_local(
+                request_wrapper::field(body.value(), field, s)?, s,
+            )?;
+            let (verification, _verification_owner) =
+                current::app::retained_verification(tx, key, sequence, &attestation, s).await?;
+            let mut matched = None;
+            for input in &inputs {
+                s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                if same_ref(input.reference, &verification, s)? {
+                    require(matched.replace(input).is_none(), "INTEGRITY_FAILURE")?;
+                }
+            }
+            let matched = matched.ok_or(ServiceError::IntegrityFailure)?;
+            let mut duplicate = false;
+            for old in &financial.evidence_verifications {
+                s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+                if same_ref(old, matched.reference, s)? {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if !duplicate {
+                s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                    &[&financial.evidence_verifications.len().into(), &financial.evidence_verifications.capacity().into()]).map_err(core_error)?;
+                require(financial.evidence_verifications.len() < financial.evidence_verifications.capacity(), "INTEGRITY_FAILURE")?;
+                s.semantic_work().write_bytes(mem::size_of::<core::ExactRef>()).map_err(core_error)?;
+                financial.evidence_verifications.push(reference(matched.reference, s)?);
             }
         }
     }
@@ -1279,10 +1471,10 @@ pub(super) async fn reconstruct_selected_capture(
         .collect();
 
     let app = core::AppStateData {
-        cost_heads: &[],
-        observation_refs: &[],
-        cost_claim_refs: &[],
-        evidence_consumption_refs: &[],
+        cost_heads: app_state.as_ref().map_or(&[], |a| a.costs.as_slice()),
+        observation_refs: app_state.as_ref().map_or(&[], |a| a.observations.as_slice()),
+        cost_claim_refs: app_state.as_ref().map_or(&[], |a| a.claims.as_slice()),
+        evidence_consumption_refs: app_state.as_ref().map_or(&[], |a| a.consumed.as_slice()),
     };
     let supplier = core::SupplierStateData {
         invocation_heads: &invocations,

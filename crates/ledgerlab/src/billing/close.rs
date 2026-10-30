@@ -57,7 +57,7 @@ fn integer(value: &Value, code: &'static str) -> Result<i128, ServiceError> {
         .map_err(|_| service::reject(code))
 }
 
-fn close_period_bounds(
+pub(super) fn close_period_bounds(
     state: &m5::PeriodCloseState,
     customer: &str,
     term_version: i64,
@@ -430,6 +430,8 @@ fn period_resolution_append_bytes(
 
 impl BillingLedger {
     pub async fn period_close(&self, raw: &[u8]) -> local::Result<Value> {
+        let request=ledgerlab_core::canonical::parse_bounded(raw,262144).map_err(|_|service::reject("BILLING_M5_REQUEST"))?;
+        if request["schema"]=="ledger-billing-period-close/2" { return self.workflow_period_close(raw).await; }
         self.period_close_inner(raw, None, false, PRODUCTION_CLOSE_LIMITS)
             .await
     }

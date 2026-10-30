@@ -292,10 +292,14 @@ impl SqliteTx {
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
             && !resource_compare(session, version, 19)?.is_eq()
+            && !resource_compare(session, version, 20)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
-        let full_ref_layout = resource_compare(session, version, 19)?.is_eq();
+        // The closed admission list above permits only19 or20 at this bound;
+        // both retain Invocation full-Ref columns. Keep one paid comparison
+        // for every previously supported version.
+        let full_ref_layout = resource_compare(session, version, 19)?.is_ge();
         if !journal_framing(documents, o, session)? {
             return Err(StoreError::Integrity("financial prepared framing").into());
         }

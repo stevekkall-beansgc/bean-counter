@@ -246,7 +246,7 @@ impl SqliteTx {
                 .fetch_one(self.conn())
                 .await?;
             let mut supported = false;
-            for allowed in [12i64, 13, 14, 15, 16, 17, 18, 19] {
+            for allowed in [12i64, 13, 14, 15, 16, 17, 18, 19, 20] {
                 if resource_compare(s, version, allowed)?.is_eq() {
                     supported = true;
                     break;
@@ -348,7 +348,7 @@ impl SqliteTx {
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
             let version = self.billing_schema_version().await?;
             let mut supported = false;
-            for allowed in [12i64, 13, 14, 15, 16, 17, 18, 19] {
+            for allowed in [12i64, 13, 14, 15, 16, 17, 18, 19, 20] {
                 if resource_compare(s, version, allowed)?.is_eq() {
                     supported = true;
                     break;

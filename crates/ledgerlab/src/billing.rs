@@ -25,9 +25,12 @@ mod fiscal;
 pub(crate) mod presentation;
 mod recurrence;
 mod term;
+pub(crate) mod workflow_statement;
+mod workflow_statement_frame;
 
 pub struct BillingLedger {
     store: SqliteStore,
+    path: std::path::PathBuf,
 }
 impl BillingLedger {
     /// Validate operator setup input and return a safe summary for confirmation.
@@ -206,7 +209,7 @@ impl BillingLedger {
             store.close().await;
             return Err(e.into());
         }
-        Ok(Self { store })
+        Ok(Self { store, path })
     }
 
     /// Explicitly upgrade a schema-8 or schema-9 billing installation after
@@ -796,6 +799,51 @@ mod tests {
         let serialized = serde_json::to_string(&summary).unwrap();
         assert!(!serialized.contains("No real customer assent"));
         assert!(!serialized.contains("No real authority attested"));
+    }
+
+    #[tokio::test]
+    async fn workflow_statement_adapter_borrows_exact_billing_owner() {
+        use super::service;
+        use crate::{
+            store::ports::{AcceptanceStore, AcceptanceTx},
+            ServiceError,
+        };
+        use std::{fs, time::Duration};
+        use tokio::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let a = root.join("a");
+        let b = root.join("b");
+        let setup = include_bytes!("../../../examples/billing/setup.json");
+        BillingLedger::init(&a, setup).await.unwrap();
+        BillingLedger::init(&b, setup).await.unwrap();
+        let billing = BillingLedger::open(&a).await.unwrap();
+        let adapter = crate::LocalWorkflowLedger::from_billing_store(&a, &billing.store)
+            .await
+            .unwrap();
+        drop(adapter);
+        // Equal logical IDs/configuration do not permit borrowing another path.
+        assert_eq!(
+            fs::read(a.join("billing.json")).unwrap(),
+            fs::read(b.join("billing.json")).unwrap()
+        );
+        assert!(
+            matches!(crate::LocalWorkflowLedger::from_billing_store(&b, &billing.store).await,
+            Err(ServiceError::Rejection(code)) if code == "AUTHORITY_REQUIRED")
+        );
+        // Both successful adapter drop and rejected construction leave the
+        // original writer, its owner lock, and ordinary billing checks alive.
+        let mut tx = billing
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+        let snapshot = tx.billing_snapshot().await.unwrap();
+        service::validate_snapshot(&snapshot).unwrap();
+        tx.rollback().await.unwrap();
+        billing.close().await;
+        let reopened = crate::LocalWorkflowLedger::open_local(&a).await.unwrap();
+        reopened.close().await;
     }
 
     #[tokio::test]

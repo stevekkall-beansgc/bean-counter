@@ -599,6 +599,98 @@ async fn actual_local_party_retention_commits_retries_and_reopens() {
     reopened.close().await;
 }
 
+
+#[tokio::test]
+async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
+    let (_dir, ledger, _path) = installation("selected-inputs-source").await;
+    let envelope = |id: &str, kind: &str, payload: Value| json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":kind,"key":key("selected-inputs-source",id),"payload":payload});
+    let retain = |id: &str, purpose: &str, metadata: Value| {
+        envelope(
+            id,
+            "evidence.retain",
+            json!({"schema":"ledger-workflow-evidence-retain/1","purpose":purpose,"subject":{"customer":"fold-customer"},"media_type":"text/plain;charset=utf-8","content_base64":"eA==","content_sha256":records::raw_hash(b"x"),"metadata":metadata}),
+        )
+    };
+    let customer_proof = ledger
+        .prerequisite(
+            &records::bytes(&retain(
+                "customer-proof",
+                "customer_registration",
+                json!({"acceptor":"fold-acceptor"}),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let registered=ledger.prerequisite(&records::bytes(&envelope("customer","authority.change",json!({"schema":"ledger-workflow-customer-register/1","action":"customer.register","expected_revision":"0","customer":"fold-customer","acceptor":"fold-acceptor","registration_evidence_ref":customer_proof["receipt"]["result_refs"][0]}))).unwrap()).await.unwrap();
+    let source_proof = ledger
+        .prerequisite(
+            &records::bytes(&retain(
+                "source-proof",
+                "source_enrollment",
+                json!({"source":"urn:example:work","principal_id":"example-operator"}),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let ceiling = json!({"principal_id":"example-operator","source":"urn:example:work","canonical_economic_namespace":"urn:example:work","customer_scope":["fold-customer"],"operations":["work.accept","quantity.correct"],"product_selectors":[{"names":["fold:product"]}],"activity_selectors":[{"names":["fold:work"]}],"link_selectors":[],"source_slots":["fold:worker"],"permissions":["read","submit","correct"],"starts_at":"2026-01-01T00:00:00Z","ends_at":"2030-01-01T00:00:00Z"});
+    let enrolled=ledger.prerequisite(&records::bytes(&envelope("enroll","authority.change",json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"fold-source","customer_refs":[registered["receipt"]["result_refs"][0]],"ceiling":ceiling,"evidence_ref":source_proof["receipt"]["result_refs"][0]}))).unwrap()).await.unwrap();
+    assert_eq!(enrolled["receipt"]["commit_sequence"], "4");
+    let selected = key("selected-inputs-source", "read-inputs");
+    let references: Vec<ledgerlab_core::policy::workflow::transition_constructor::ExactRef> =
+        serde_json::from_value(enrolled["receipt"]["result_refs"].clone()).unwrap();
+    assert_eq!(references.len(), 3);
+    let select = |kind: &str| {
+        let rows: Vec<_> = references.iter().filter(|r| r.kind == kind).collect();
+        assert_eq!(rows.len(), 1);
+        rows[0].clone()
+    };
+    let enrollment = select("workflow-source-enrollment");
+    let state = select("workflow-source-state");
+    assert!(state.id.starts_with("wsource_"));
+    let mut altered = vec![enrollment.clone(), state];
+    altered[1].digest = format!("sha256:{}", "0".repeat(64));
+    let earlier = serde_json::from_value(source_proof["receipt"]["result_refs"][0].clone()).unwrap();
+    for (inputs, before, succeeds) in [
+        (references.clone(), 5, true),
+        (altered, 5, false),
+        (vec![earlier, enrollment], 4, false),
+    ] {
+        let mut tx = ledger.store.begin(deadline()).await.unwrap();
+        let result = proof_session::with_proofs(&mut tx, &selected, |tx| {
+            Box::pin(async {
+                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new()
+                    .map_err(core_error)?;
+                let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                    .map_err(core_error)?;
+                let mut pool = local_inputs::LocalInputs::new(&mut session)?;
+                for reference in &inputs {
+                    pool.add(reference, &mut session)
+                        .expect("fixture locator syntax must succeed before acquisition");
+                }
+                pool.complete(tx, &selected, before, &mut session).await?;
+                let views = pool.views();
+                for reference in &inputs {
+                    assert!(views.iter().any(|row| row.reference == reference && !row.canonical_body.is_empty()));
+                }
+                Ok(())
+            })
+        }).await;
+        if succeeds {
+            result.unwrap();
+        } else {
+            match result.unwrap_err() {
+                ServiceError::IntegrityFailure => {},
+                ServiceError::Rejection(code) => assert_eq!(code, "INTEGRITY_FAILURE"),
+                other => panic!("unexpected selected-input failure: {other:?}"),
+            }
+        }
+        tx.rollback().await.unwrap();
+    }
+    ledger.close().await;
+}
+
 #[tokio::test]
 async fn chronological_fold_replays_real_administrative_source_chain_under_writer() {
     let (_dir, ledger, _path) = installation("chronological-real-source").await;

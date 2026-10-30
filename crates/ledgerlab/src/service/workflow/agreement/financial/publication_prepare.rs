@@ -563,6 +563,35 @@ mod support_selection_tests {
     use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
 
     #[test]
+    fn default_session_rejects_operator_descriptor_and_selects_default_descriptor() {
+        let operator_arena =
+            AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut operator = OriginalAuditSession::for_resource_profile_v2(&operator_arena).unwrap();
+        let operator_support =
+            SelectedCompilerSupport::local_execution_with_session(&mut operator).unwrap();
+        let operator_ref = serde_json::to_value(operator_support.reference()).unwrap();
+
+        let default_arena = AuditArena::new().unwrap();
+        let mut default = OriginalAuditSession::for_resource_profile_v2(&default_arena).unwrap();
+        assert!(matches!(
+            local_support(&operator_ref, &mut default),
+            Err(ServiceError::Rejection(code)) if code == "UNSUPPORTED_SCHEMA_PROFILE"
+        ));
+
+        let matching_arena = AuditArena::new().unwrap();
+        let mut matching = OriginalAuditSession::for_resource_profile_v2(&matching_arena).unwrap();
+        let expected =
+            SelectedCompilerSupport::local_execution_with_session(&mut matching).unwrap();
+        let expected_ref = serde_json::to_value(expected.reference()).unwrap();
+        assert_ne!(expected_ref, operator_ref);
+        let selected = local_support(&expected_ref, &mut matching).unwrap();
+        assert_eq!(
+            serde_json::to_value(selected.reference()).unwrap(),
+            expected_ref
+        );
+    }
+
+    #[test]
     fn local_support_selects_only_exact_binary_owned_descriptors() {
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();

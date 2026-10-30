@@ -164,7 +164,18 @@ pub(super) async fn verify_selected_association(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<()> {
-    let sequence = tx
+    let sequence = selected_association_sequence(tx, key, reference, before, session).await?;
+    let original = selected_association_frame(tx, key, sequence, session).await?;
+    original.require_exact_member(reference, session)
+}
+pub(super) async fn selected_association_sequence(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<i64> {
+    tx
         .workflow_selected_association_sequence(
             reference,
             &key.logical_store_id,
@@ -174,7 +185,15 @@ pub(super) async fn verify_selected_association(
         )
         .await
         .map_err(read_error)?
-        .ok_or(ServiceError::IntegrityFailure)?;
+        .ok_or(ServiceError::IntegrityFailure)
+}
+/// Mechanical wrapper certificate only; recipe semantics remain separate.
+pub(super) async fn selected_association_frame(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    sequence: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<LocatedWrappers> {
     session
         .semantic_work()
         .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
@@ -185,14 +204,21 @@ pub(super) async fn verify_selected_association(
     let original = next(tx, key, after, sequence, session)
         .await?
         .ok_or(ServiceError::IntegrityFailure)?;
-    let original = original.checked_wrappers(tx, session).await?;
-    let encoded = wire::reference(reference, session)?;
-    let parsed = session
-        .parse_representation(encoded.bytes(), RepresentationKind::Record)
-        .map_err(core_error)?;
-    original.require_member(parsed.value(), session)
+    original.checked_wrappers(tx, session).await
 }
 impl LocatedWrappers {
+    pub(super) fn require_exact_member(
+        &self,
+        reference: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let encoded = wire::reference(reference, session)?;
+        let parsed = session
+            .parse_representation(encoded.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        self.require_member(parsed.value(), session)
+    }
+
     pub(super) fn key(&self) -> &OperationKey {
         &self.key.key
     }
@@ -265,7 +291,7 @@ impl LocatedWrappers {
         result
     }
 }
-pub(in crate::service::workflow) fn read_error(error: FinancialReadError) -> ServiceError {
+pub(crate) fn read_error(error: FinancialReadError) -> ServiceError {
     match error {
         FinancialReadError::Store(error) => crate::service::store_error(error),
         FinancialReadError::Resource(error) => core_error(error),
@@ -1101,7 +1127,7 @@ pub(super) async fn fold_original_prefix_capture(
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                 &setup,
-                (publication.as_ref(), capture.as_deref_mut()),
+                (publication.as_ref(), capture.as_deref_mut(), None),
                 &mut session,
             )
             .await?
@@ -1130,7 +1156,7 @@ pub(super) async fn fold_original_prefix_capture(
             selected,
             inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
             &setup,
-            (publication.as_ref(), capture.as_deref_mut()),
+            (publication.as_ref(), capture.as_deref_mut(), None),
             parent,
         )
         .await?;
@@ -1143,6 +1169,75 @@ pub(super) async fn fold_original_prefix_capture(
     } else {
         parent.invalidate();
     }
+    result
+}
+
+/// Complete every physical workflow origin through one writer-held cutoff.
+/// Selection never filters the physical feed by asserted scope or result kind.
+pub(super) async fn fold_statement_prefix(
+    ledger: &LocalWorkflowLedger, tx: &mut SqliteTx, key: &OperationKey,
+    through: i64, parent: &mut OriginalAuditSession,
+    collector: &mut super::statement::Collector<'_>,
+) -> Result<()> {
+    let mut attempt = InputAttempt { failure: tx.workflow_proof_failure_handle(), finished: false };
+    let result = async {
+        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
+        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        let mut after = 0i64;
+        let mut inventory: Option<FoldedInventory> = None;
+        let mut publication = None;
+        loop {
+            let mut session = OriginalAuditSession::for_resource_profile_v2(parent.arena())
+                .map_err(core_error)?;
+            let Some(input) = next(tx, key, after, through, &mut session).await? else {
+                break;
+            };
+            let origin = input.checked_wrappers(tx, &mut session).await?;
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&origin.wrappers().sequence().into(), &after.into()],
+                )
+                .map_err(core_error)?;
+            require(origin.wrappers().sequence() > after, "INTEGRITY_FAILURE")?;
+            match &mut inventory {
+                Some(inventory) => inventory::Inventory::next_origin(
+                    &mut inventory._inventory,
+                    &origin,
+                    &mut session,
+                )?,
+                None => {
+                    let files = tx
+                        .workflow_original_scratch(&mut session)
+                        .map_err(read_error)?;
+                    inventory = Some(FoldedInventory {
+                        _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
+                        programs: programs::CompletedPrograms::new(),
+                        pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers::new(&mut session).map_err(core_error)?,
+                    });
+                }
+            }
+            if let Some(program) = fold_origin_capture(
+                        ledger,
+                tx,
+                &origin,
+                inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
+                &setup,
+                (publication.as_ref(), None, Some(&mut *collector)),
+                &mut session,
+            )
+            .await?
+            {
+                publication = Some(program);
+            }
+            after = origin.wrappers().sequence();
+            session.check_cancelled().map_err(core_error)?;
+        }
+        parent.check_cancelled().map_err(core_error)?;
+        Ok(())
+    }.await;
+    if result.is_ok() { attempt.finish(); } else { parent.invalidate(); }
     result
 }
 
@@ -1712,7 +1807,7 @@ async fn fold_origin(
     publication: Option<&RecompiledPublication>,
     s: &mut OriginalAuditSession,
 ) -> Result<Option<RecompiledPublication>> {
-    fold_origin_capture(ledger, tx, origin, prefix, setup, (publication, None), s).await
+    fold_origin_capture(ledger, tx, origin, prefix, setup, (publication, None, None), s).await
 }
 async fn fold_origin_capture(
     ledger: &LocalWorkflowLedger,
@@ -1720,10 +1815,11 @@ async fn fold_origin_capture(
     origin: &LocatedWrappers,
     prefix: &mut FoldedInventory,
     setup: &crate::service::billing::Setup,
-    selected: (Option<&RecompiledPublication>, Option<&mut PathSink<'_>>),
+    selected: (Option<&RecompiledPublication>, Option<&mut PathSink<'_>>, Option<&mut super::statement::Collector<'_>>),
     s: &mut OriginalAuditSession,
 ) -> Result<Option<RecompiledPublication>> {
-    let (publication, capture) = selected;
+    let (publication, capture, statement) = selected;
+    let mut statement_candidate = None;
     s.semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
@@ -1807,6 +1903,7 @@ async fn fold_origin_capture(
             candidate
         };
         prefix.fold_local_candidate(origin, &candidate, s)?;
+        if statement.is_some() { statement_candidate = Some(candidate); }
         None
     } else if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
@@ -1857,6 +1954,9 @@ async fn fold_origin_capture(
     };
 
     finish_origin(origin, prefix, s)?;
+    if let (Some(collector), Some(candidate)) = (statement, statement_candidate) {
+        collector.capture(origin, &candidate, prefix, s)?;
+    }
 
     if let Some(key) = initial_source {
         prefix
@@ -2130,6 +2230,24 @@ pub(super) fn local_claim_key(
             ],
             5,
         ),
+        PermanentClaimKey::AppCall { logical_store_id, source_namespace, call_id } => (
+            "local-original-app-call", [logical_store_id, source_namespace, call_id, "", ""], 3,
+        ),
+        PermanentClaimKey::AppComponentObservation { logical_store_id, original_work_ref, component_slot } => (
+            "local-original-app-component-observation", [logical_store_id, &original_work_ref.kind, &original_work_ref.id, &original_work_ref.digest, component_slot], 5,
+        ),
+        PermanentClaimKey::AppProviderCall { logical_store_id, provider, account, request_id } => (
+            "local-original-app-provider-call", [logical_store_id, provider, account, request_id, ""], 4,
+        ),
+        PermanentClaimKey::AppCostComponent { logical_store_id, original_work_ref, component_slot } => (
+            "local-original-app-cost-component", [logical_store_id, &original_work_ref.kind, &original_work_ref.id, &original_work_ref.digest, component_slot], 5,
+        ),
+        PermanentClaimKey::AppFinalEvidence { logical_store_id, final_evidence_ref } => (
+            "local-original-app-final-evidence", [logical_store_id, &final_evidence_ref.kind, &final_evidence_ref.id, &final_evidence_ref.digest, ""], 4,
+        ),
+        PermanentClaimKey::AppObservationRevision { logical_store_id, observation_ref, cost_revision } => (
+            "local-original-app-observation-revision", [logical_store_id, &observation_ref.kind, &observation_ref.id, &observation_ref.digest, cost_revision], 5,
+        ),
         _ => return Err(reject("UNSUPPORTED_COMPOSITION")),
     };
     let parts = &parts[..count];
@@ -2221,6 +2339,10 @@ impl FoldedInventory {
                 FinancialHeadKey::Capacity { root_decision_id } => {
                     let id = wire::string(root_decision_id, s)?;
                     inventory::StateKey::new("local-original-capacity", &[id.bytes()], s)?
+                }
+                FinancialHeadKey::AppCost { cost_claim_ref } => {
+                    let claim = wire::reference(cost_claim_ref, s)?;
+                    inventory::StateKey::new("local-original-app-cost", &[claim.bytes()], s)?
                 }
                 FinancialHeadKey::Invocation { invocation_id } => {
                     let id = wire::string(invocation_id, s)?;

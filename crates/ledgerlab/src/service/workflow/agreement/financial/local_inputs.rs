@@ -274,6 +274,13 @@ impl LocalInputs {
         before: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        // One completed wrapper, scoped to this exact held transaction/key/
+        // cutoff/session call. It proves association only, never semantics.
+        // Body/fullRef/schema/edge validation still runs for every input.
+        let _association_control = s
+            .reserve_external_payload(std::mem::size_of::<Option<prefix::LocatedWrappers>>())
+            .map_err(core_error)?;
+        let mut last_association: Option<prefix::LocatedWrappers> = None;
         let ck = CoreKey {
             logical_store_id: key.logical_store_id.clone(),
             scope: key.scope.clone(),
@@ -364,7 +371,33 @@ impl LocalInputs {
                 i += 1;
                 continue;
             }
-            prefix::verify_selected_association(tx, key, r, before, s).await?;
+            let sequence = prefix::selected_association_sequence(tx, key, r, before, s).await?;
+            let same_origin = if let Some(previous) = last_association.as_ref() {
+                let prior_sequence = previous.wrappers().sequence();
+                s.semantic_work()
+                    .arithmetic(
+                        ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                        &[&prior_sequence.into(), &sequence.into()],
+                    )
+                    .map_err(core_error)?;
+                prior_sequence == sequence
+            } else {
+                false
+            };
+            if !same_origin {
+                // Drop the old owner before acquisition; failed acquisition
+                // cannot leave an earlier or partial frame available for reuse.
+                drop(last_association.take());
+                let checked = prefix::selected_association_frame(tx, key, sequence, s).await?;
+                s.semantic_work()
+                    .write_bytes(std::mem::size_of::<prefix::LocatedWrappers>())
+                    .map_err(core_error)?;
+                last_association = Some(checked);
+            }
+            last_association
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .require_exact_member(r, s)?;
             let stored = tx
                 .workflow_financial_document(r, &key.logical_store_id, &key.scope, before, s)
                 .await

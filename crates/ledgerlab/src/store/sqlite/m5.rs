@@ -1,8 +1,8 @@
 //! Additive M5 persistence primitives. The coordinator owns terms, authority,
 //! arithmetic and statement composition; this module owns exact retained bytes.
 use crate::store::errors::StoreError;
-use ledgerlab_core::canonical::{CanonicalBytes, parse_bounded};
-use serde_json::{Value, json};
+use ledgerlab_core::canonical::{parse_bounded, CanonicalBytes};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 use std::collections::{BTreeMap, BTreeSet};
@@ -309,6 +309,7 @@ pub(crate) async fn recurrence_state(
         && schema != 17
         && schema != 18
         && schema != 19
+        && schema != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -462,6 +463,7 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -976,6 +978,30 @@ async fn presentable_adjustments(
     claim_statement: Option<(&str, &str)>,
     requested: Option<&BTreeSet<(String, String)>>,
 ) -> Result<Vec<PresentableAdjustment>, StoreError> {
+    presentable_adjustments_selected(
+        conn,
+        customer,
+        assigned_period,
+        m3_high_water,
+        m5_high_water,
+        claim_statement,
+        requested,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn presentable_adjustments_selected(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    assigned_period: Option<(i64, i64)>,
+    m3_high_water: i64,
+    m5_high_water: i64,
+    claim_statement: Option<(&str, &str)>,
+    requested: Option<&BTreeSet<(String, String)>>,
+    recovery: Option<(&str, &str, i64)>,
+) -> Result<Vec<PresentableAdjustment>, StoreError> {
     let rows: Vec<PresentableProjectionRow> = sqlx::query_as(
         "SELECT a.source_scope,a.adjustment_id,a.cause_kind,a.target_id,a.original_term_version,a.original_period_index,a.assigned_term_version,a.assigned_period_index,a.source_stream,a.source_sequence,a.signed_delta_atoms,p.presentation_kind,p.statement_id FROM billing_m5_adjustments a LEFT JOIN billing_m5_presentation_claims p ON p.customer=a.customer AND p.source_scope=a.source_scope AND p.adjustment_id=a.adjustment_id WHERE a.customer=? ORDER BY a.source_scope,a.adjustment_id"
     ).bind(customer).fetch_all(&mut *conn).await?;
@@ -999,7 +1025,19 @@ async fn presentable_adjustments(
         if requested.is_some_and(|keys| !keys.contains(&(source.clone(), adjustment_id.clone()))) {
             continue;
         }
-        if match claim_statement {
+        if let Some((kind, own, cutoff)) = recovery {
+            // A later presentation cannot change the original selection. Own
+            // claims and sources unclaimed at this cutoff remain eligible.
+            if statement_id.is_some()
+                && (statement_id.as_deref() != Some(own) || claim_kind.as_deref() != Some(kind))
+            {
+                let claim_sequence: i64 = sqlx::query_scalar("SELECT record_sequence FROM billing_m5_presentation_claims WHERE customer=? AND source_scope=? AND adjustment_id=?")
+                    .bind(customer).bind(&source).bind(&adjustment_id).fetch_one(&mut *conn).await?;
+                if claim_sequence <= cutoff {
+                    continue;
+                }
+            }
+        } else if match claim_statement {
             None => statement_id.is_some(),
             Some((kind, expected)) => {
                 statement_id.as_deref() != Some(expected) || claim_kind.as_deref() != Some(kind)
@@ -1017,9 +1055,15 @@ async fn presentable_adjustments(
         {
             continue;
         }
-        let original_closed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?)")
-            .bind(customer).bind(original_term_version).bind(original_period_index)
-            .fetch_one(&mut *conn).await?;
+        let original_closed: bool = if let Some((_, _, cutoff)) = recovery {
+            // This new retained view cannot borrow a close appended after its
+            // complete boundary. Released legacy selection remains unchanged.
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=? AND close_sequence<=?)")
+                .bind(customer).bind(original_term_version).bind(original_period_index).bind(cutoff).fetch_one(&mut *conn).await?
+        } else {
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?)")
+                .bind(customer).bind(original_term_version).bind(original_period_index).fetch_one(&mut *conn).await?
+        };
         if !original_closed {
             return Err(StoreError::InvalidStore("M5 unclosed adjustment origin"));
         }
@@ -1168,6 +1212,7 @@ pub(crate) async fn ad_hoc_state(
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1297,6 +1342,7 @@ pub(crate) async fn term_state(
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1355,6 +1401,7 @@ pub(crate) async fn term_transition_state(
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1445,6 +1492,7 @@ pub(crate) async fn period_resolve_state(
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1502,6 +1550,7 @@ pub(crate) async fn period_close_state(
         && version != 17
         && version != 18
         && version != 19
+        && version != 20
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1959,6 +2008,179 @@ pub(crate) async fn period_close_statement(
     customer: &str,
     statement_hash: &str,
 ) -> Result<Option<Vec<u8>>, StoreError> {
+    selected_period_close_statement(conn, customer, statement_hash, "ledger-billing-statement/4")
+        .await
+}
+
+/// The workflow read uses its own exact profile. Legacy finance export continues
+/// to select only statement/4; neither selector reconstructs or upgrades bytes.
+pub(crate) async fn workflow_period_close_statement(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    statement_hash: &str,
+) -> Result<Option<Vec<u8>>, StoreError> {
+    let retained = selected_period_close_statement(
+        conn,
+        customer,
+        statement_hash,
+        "ledger-billing-statement/5",
+    )
+    .await?;
+    if retained.is_some() {
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE p.customer=? AND p.statement_hash=? AND r.family='ledger-billing-period-close-record/2' AND c.family='ledger-billing-period-close/2'")
+            .bind(customer).bind(statement_hash).fetch_one(&mut *conn).await?;
+        if count != 1 {
+            return Err(StoreError::Integrity("workflow period close selection"));
+        }
+    }
+    Ok(retained)
+}
+
+/// Exact legacy component of a new presentation at its retained cutoff. This
+/// reuses released source/economic constructors; it is not workflow authority.
+pub(crate) async fn workflow_legacy_components(
+    conn: &mut SqliteConnection,
+    statement: &Value,
+) -> Result<(Value, Value, Value), StoreError> {
+    let customer = statement["customer"]
+        .as_str()
+        .ok_or(StoreError::Integrity("workflow customer"))?;
+    let standard = statement["schema"] == "ledger-billing-statement/5";
+    if !standard && statement["schema"] != "ledger-billing-ad-hoc-statement-result/2" {
+        return Err(StoreError::Integrity("workflow presentation schema"));
+    }
+    let period = if standard {
+        Some((
+            decimal(&statement["period_id"]["term_version"])?,
+            decimal(&statement["period_id"]["period_index"])?,
+        ))
+    } else {
+        None
+    };
+    let own = statement[if standard {
+        "statement_hash"
+    } else {
+        "statement_id"
+    }]
+    .as_str()
+    .ok_or(StoreError::Integrity("workflow presentation identity"))?;
+    let requested = if standard {
+        None
+    } else {
+        let refs = statement["adjustments"]
+            .as_array()
+            .ok_or(StoreError::Integrity("workflow adjustment refs"))?;
+        let mut keys = BTreeSet::new();
+        for r in refs {
+            let source = r["source"]
+                .as_str()
+                .ok_or(StoreError::Integrity("workflow adjustment source"))?;
+            let id = r["adjustment_id"]
+                .as_str()
+                .ok_or(StoreError::Integrity("workflow adjustment id"))?;
+            if r.as_object().is_none_or(|o| o.len() != 2)
+                || !keys.insert((source.to_owned(), id.to_owned()))
+            {
+                return Err(StoreError::Integrity("workflow adjustment refs"));
+            }
+        }
+        Some(keys)
+    };
+    let m3 = decimal(&statement["m3_high_water"])?;
+    let m5 = decimal(&statement["m5_high_water"])?;
+    let adjustments = presentable_adjustments_selected(
+        conn,
+        customer,
+        period,
+        m3,
+        m5,
+        None,
+        requested.as_ref(),
+        Some((
+            if standard {
+                "standard-period"
+            } else {
+                "ad-hoc"
+            },
+            own,
+            m5,
+        )),
+    )
+    .await?;
+    let claims = json!(adjustments
+        .iter()
+        .map(|a| json!({"customer":customer,"source":a.source,"adjustment_id":a.adjustment_id}))
+        .collect::<Vec<_>>());
+    if let Some((version, index)) = period {
+        let (lines, included, _) =
+            expected_close_economics(conn, customer, version, index, m3, m5, &adjustments).await?;
+        Ok((lines, included, claims))
+    } else {
+        if requested
+            .as_ref()
+            .is_none_or(|r| r.len() != adjustments.len())
+        {
+            return Err(StoreError::Integrity("workflow adjustment selection"));
+        }
+        let view = json!({"customer":customer,"statement_id":own});
+        let mut lines = Vec::new();
+        let mut refs = Vec::new();
+        for adjustment in &adjustments {
+            let (line, _) = crate::billing::presentation::adjustment_line(
+                customer, "ad_hoc", &view, adjustment,
+            )
+            .map_err(StoreError::InvalidStore)?;
+            lines.push(line);
+            refs.push(json!({"customer":customer,"source":adjustment.source,"adjustment_id":adjustment.adjustment_id}));
+        }
+        lines.sort_by(|a, b| a["line_id"].as_str().cmp(&b["line_id"].as_str()));
+        Ok((json!(lines), json!(refs), claims))
+    }
+}
+
+pub(crate) async fn workflow_legacy_lines(
+    conn: &mut SqliteConnection,
+    statement: &Value,
+) -> Result<(Value, Value), StoreError> {
+    let (lines, included, _) = workflow_legacy_components(conn, statement).await?;
+    Ok((lines, included))
+}
+
+/// Select only the new, already reconciled presentation profiles. Old finance
+/// export retains its statement/4-only selector and byte representation.
+pub(crate) async fn workflow_presentation_statement(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    statement_hash: &str,
+) -> Result<Option<Vec<u8>>, StoreError> {
+    let standard = workflow_period_close_statement(conn, customer, statement_hash).await?;
+    let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT c.response_bytes FROM billing_m5_commands c JOIN billing_m5_records r ON r.command_sequence=c.command_sequence WHERE c.family='ledger-billing-ad-hoc-statement/2' AND r.family='ledger-billing-ad-hoc-statement-record/2' AND c.customer=? AND json_extract(CAST(r.payload_bytes AS TEXT),'$.statement_hash')=? LIMIT 2")
+        .bind(customer).bind(statement_hash).fetch_all(&mut *conn).await?;
+    match (standard, rows.as_slice()) {
+        (None, []) => Ok(None),
+        (Some(v), []) => Ok(Some(v)),
+        (None, [raw]) => {
+            let v = canonical(raw, 262144)?;
+            if v["schema"] != "ledger-billing-ad-hoc-statement-result/2"
+                || v["customer"] != customer
+                || v["statement_hash"] != statement_hash
+            {
+                return Err(StoreError::Integrity("workflow presentation selection"));
+            }
+            Ok(Some(raw.clone()))
+        }
+        _ => Err(StoreError::Integrity(
+            "workflow duplicate presentation hash",
+        )),
+    }
+}
+
+async fn selected_period_close_statement(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    statement_hash: &str,
+    schema: &str,
+) -> Result<Option<Vec<u8>>, StoreError> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT statement_bytes FROM billing_m5_period_closes WHERE customer=? AND statement_hash=? ORDER BY term_version,period_index",
     )
@@ -1970,7 +2192,7 @@ pub(crate) async fn period_close_statement(
         [] => Ok(None),
         [bytes] => {
             let statement = canonical(bytes, 262_144)?;
-            if statement["schema"] != "ledger-billing-statement/4"
+            if statement["schema"] != schema
                 || statement["customer"] != customer
                 || statement["statement_hash"] != statement_hash
             {
@@ -2613,7 +2835,14 @@ pub(crate) async fn append(
         .map_err(|_| StoreError::Integrity("M5 request JSON"))?;
     canonical(command.response, 262_144)?;
     if identity["schema"] != "ledger-billing-m5-command-identity/1"
-        || identity["family"] != command.family
+        || identity["family"]
+            != if command.family == "ledger-billing-period-close/2" {
+                "ledger-billing-period-close/1"
+            } else if command.family == "ledger-billing-ad-hoc-statement/2" {
+                "ledger-billing-ad-hoc-statement/1"
+            } else {
+                command.family
+            }
         || identity["domain"] != command.domain
         || request["schema"] != command.family
         || identity.get("customer").and_then(Value::as_str) != command.customer
@@ -2906,6 +3135,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         }
     }
     verify_period_closes(conn).await?;
+    super::m5_workflow::verify(conn).await?;
     verify_presentation_claims(conn).await?;
     verify_ad_hoc_statements(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
@@ -3378,7 +3608,7 @@ async fn verify_fiscal_projections(
     Ok(())
 }
 
-async fn expected_close_economics(
+pub(crate) async fn expected_close_economics(
     conn: &mut SqliteConnection,
     customer: &str,
     term_version: i64,
@@ -3616,7 +3846,7 @@ async fn expected_close_economics(
 
 async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreError> {
     let rows: Vec<PeriodCloseProjectionRow> = sqlx::query_as(
-        "SELECT customer,term_version,period_index,boundary_resolution_id,snapshot_boundary_id,m3_high_water,m5_high_water,statement_hash,close_sequence,statement_bytes FROM billing_m5_period_closes ORDER BY close_sequence",
+        "SELECT p.customer,p.term_version,p.period_index,p.boundary_resolution_id,p.snapshot_boundary_id,p.m3_high_water,p.m5_high_water,p.statement_hash,p.close_sequence,p.statement_bytes FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence WHERE r.family='ledger-billing-period-close-record/1' ORDER BY p.close_sequence",
     )
     .fetch_all(&mut *conn)
     .await?;
@@ -3793,7 +4023,12 @@ async fn verify_presentation_claims(conn: &mut SqliteConnection) -> Result<(), S
             return Err(StoreError::InvalidStore("M5 claim projection"));
         }
         match kind.as_str() {
-            "standard-period" if family == "ledger-billing-period-close/1" => {
+            "standard-period"
+                if matches!(
+                    family.as_str(),
+                    "ledger-billing-period-close/1" | "ledger-billing-period-close/2"
+                ) =>
+            {
                 let close: bool = sqlx::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence WHERE p.customer=? AND p.statement_hash=? AND r.command_sequence=?)"
                 ).bind(&customer).bind(&statement_id).bind(command_sequence).fetch_one(&mut *conn).await?;
@@ -3801,7 +4036,12 @@ async fn verify_presentation_claims(conn: &mut SqliteConnection) -> Result<(), S
                     return Err(StoreError::InvalidStore("M5 standard claim owner"));
                 }
             }
-            "ad-hoc" if family == "ledger-billing-ad-hoc-statement/1" => {
+            "ad-hoc"
+                if matches!(
+                    family.as_str(),
+                    "ledger-billing-ad-hoc-statement/1" | "ledger-billing-ad-hoc-statement/2"
+                ) =>
+            {
                 let response: Vec<u8> = sqlx::query_scalar(
                     "SELECT response_bytes FROM billing_m5_commands WHERE command_sequence=?",
                 )
@@ -4521,11 +4761,9 @@ mod tests {
             hex(&hash(b"bean-counter/m5/response/1\0", &response)),
             command["response_hash_storage_only"]
         );
-        assert!(
-            command["result"]["receipt"]
-                .get("command_sequence")
-                .is_none()
-        );
+        assert!(command["result"]["receipt"]
+            .get("command_sequence")
+            .is_none());
     }
 
     #[test]
@@ -4535,6 +4773,166 @@ mod tests {
         assert!(matches!(
             capacity_within_limits(0, current_bytes, 0, 0, 1, 1, 2, 2, 101,),
             Err(StoreError::BillingHistoryLimit)
+        ));
+    }
+
+    #[tokio::test]
+    async fn statement_selectors_keep_exact_profiles_and_close_association() {
+        // Selector-only fixture: these tables intentionally do not claim a
+        // complete installation or replace the ordinary open-time verifier.
+        let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        for ddl in [
+            "CREATE TABLE billing_m5_period_closes(customer TEXT,statement_hash TEXT,term_version INTEGER,period_index INTEGER,close_sequence INTEGER,statement_bytes BLOB)",
+            "CREATE TABLE billing_m5_records(sequence INTEGER,command_sequence INTEGER,family TEXT)",
+            "CREATE TABLE billing_m5_commands(command_sequence INTEGER,family TEXT)",
+        ] {
+            sqlx::query(ddl).execute(&mut conn).await.unwrap();
+        }
+        let legacy = encode(
+            &json!({"schema":"ledger-billing-statement/4","customer":"customer","statement_hash":"legacy"}),
+        );
+        let workflow = encode(
+            &json!({"schema":"ledger-billing-statement/5","customer":"customer","statement_hash":"workflow"}),
+        );
+        for (id, hash, body) in [(1, "legacy", &legacy), (2, "workflow", &workflow)] {
+            sqlx::query("INSERT INTO billing_m5_period_closes VALUES('customer',?,1,?,?,?)")
+                .bind(hash)
+                .bind(id)
+                .bind(id)
+                .bind(body)
+                .execute(&mut conn)
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO billing_m5_records VALUES(2,2,'ledger-billing-period-close-record/2')",
+        )
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO billing_m5_commands VALUES(2,'ledger-billing-period-close/2')")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            period_close_statement(&mut conn, "customer", "legacy")
+                .await
+                .unwrap(),
+            Some(legacy)
+        );
+        assert_eq!(
+            workflow_period_close_statement(&mut conn, "customer", "workflow")
+                .await
+                .unwrap(),
+            Some(workflow)
+        );
+        assert!(matches!(
+            period_close_statement(&mut conn, "customer", "workflow").await,
+            Err(StoreError::Integrity("M5 period close selection"))
+        ));
+        assert!(matches!(
+            workflow_period_close_statement(&mut conn, "customer", "legacy").await,
+            Err(StoreError::Integrity("M5 period close selection"))
+        ));
+        assert!(
+            workflow_period_close_statement(&mut conn, "other", "workflow")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            workflow_period_close_statement(&mut conn, "customer", "absent")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        sqlx::query("UPDATE billing_m5_commands SET family='ledger-billing-period-close/1'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert!(matches!(
+            workflow_period_close_statement(&mut conn, "customer", "workflow").await,
+            Err(StoreError::Integrity("workflow period close selection"))
+        ));
+        sqlx::query("UPDATE billing_m5_commands SET family='ledger-billing-period-close/2'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE billing_m5_records SET family='ledger-billing-period-close-record/1'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert!(matches!(
+            workflow_period_close_statement(&mut conn, "customer", "workflow").await,
+            Err(StoreError::Integrity("workflow period close selection"))
+        ));
+        sqlx::query("UPDATE billing_m5_records SET family='ledger-billing-period-close-record/2'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO billing_m5_period_closes SELECT customer,statement_hash,term_version,period_index+1,close_sequence,statement_bytes FROM billing_m5_period_closes WHERE statement_hash='workflow'").execute(&mut conn).await.unwrap();
+        assert!(matches!(
+            workflow_period_close_statement(&mut conn, "customer", "workflow").await,
+            Err(StoreError::Integrity("M5 duplicate statement hash"))
+        ));
+    }
+
+    #[tokio::test]
+    async fn workflow_ad_hoc_selector_preserves_profile_and_duplicate_guards() {
+        // Point-selector DATA fixture only, not a completed producer proof.
+        let mut conn = SqliteConnection::connect("sqlite::memory:").await.unwrap();
+        for ddl in [
+            "CREATE TABLE billing_m5_period_closes(customer TEXT,statement_hash TEXT,term_version INTEGER,period_index INTEGER,close_sequence INTEGER,statement_bytes BLOB)",
+            "CREATE TABLE billing_m5_records(sequence INTEGER,command_sequence INTEGER,family TEXT,payload_bytes BLOB)",
+            "CREATE TABLE billing_m5_commands(command_sequence INTEGER,family TEXT,customer TEXT,response_bytes BLOB)",
+        ] {sqlx::query(ddl).execute(&mut conn).await.unwrap();}
+        let legacy = encode(
+            &json!({"schema":"ledger-billing-statement/4","customer":"customer","statement_hash":"legacy"}),
+        );
+        sqlx::query("INSERT INTO billing_m5_period_closes VALUES('customer','legacy',1,0,1,?)")
+            .bind(&legacy)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let adhoc = encode(
+            &json!({"schema":"ledger-billing-ad-hoc-statement-result/2","customer":"customer","statement_hash":"adhoc"}),
+        );
+        let record = encode(&json!({"statement_hash":"adhoc"}));
+        sqlx::query("INSERT INTO billing_m5_commands VALUES(2,'ledger-billing-ad-hoc-statement/2','customer',?)").bind(&adhoc).execute(&mut conn).await.unwrap();
+        sqlx::query("INSERT INTO billing_m5_records VALUES(2,2,'ledger-billing-ad-hoc-statement-record/2',?)").bind(&record).execute(&mut conn).await.unwrap();
+        assert_eq!(
+            workflow_presentation_statement(&mut conn, "customer", "adhoc")
+                .await
+                .unwrap(),
+            Some(adhoc)
+        );
+        assert_eq!(
+            period_close_statement(&mut conn, "customer", "legacy")
+                .await
+                .unwrap(),
+            Some(legacy)
+        );
+        assert!(
+            workflow_presentation_statement(&mut conn, "customer", "legacy")
+                .await
+                .is_err()
+        );
+        assert!(workflow_presentation_statement(&mut conn, "other", "adhoc")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(
+            workflow_presentation_statement(&mut conn, "customer", "absent")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        sqlx::query("INSERT INTO billing_m5_records SELECT sequence+1,command_sequence,family,payload_bytes FROM billing_m5_records WHERE sequence=2").execute(&mut conn).await.unwrap();
+        assert!(matches!(
+            workflow_presentation_statement(&mut conn, "customer", "adhoc").await,
+            Err(StoreError::Integrity(
+                "workflow duplicate presentation hash"
+            ))
         ));
     }
 

@@ -971,7 +971,7 @@ impl Inventory {
     }
     /// Exact earliest introduction in this completed-prefix inventory. This
     /// locator is not itself an origin or compilation proof.
-    pub(super) fn introduction_sequence(
+    pub(in super::super) fn introduction_sequence(
         &mut self,
         reference: &Value,
         s: &mut OriginalAuditSession,
@@ -1979,5 +1979,42 @@ mod tests {
         assert_eq!(index.file.metadata().unwrap().len(), file_length);
         drop(index);
         assert_eq!(arena.usage().unwrap().live_bytes, before);
+    }
+}
+
+#[cfg(test)]
+mod app_claim_key_tests {
+    use super::*;
+    use ledgerlab_core::policy::workflow::transition_constructor::{ExactRef, PermanentClaimKey};
+
+    fn claim(variant: usize, changed: Option<usize>) -> PermanentClaimKey {
+        let part = |n| if changed == Some(n) { "changed" } else { "same" }.to_owned();
+        let reference = || ExactRef { kind: part(1), id: part(2), digest: part(3) };
+        match variant {
+            0 => PermanentClaimKey::AppCall { logical_store_id: part(0), source_namespace: part(1), call_id: part(2) },
+            1 => PermanentClaimKey::AppComponentObservation { logical_store_id: part(0), original_work_ref: reference(), component_slot: part(4) },
+            2 => PermanentClaimKey::AppProviderCall { logical_store_id: part(0), provider: part(1), account: part(2), request_id: part(3) },
+            3 => PermanentClaimKey::AppCostComponent { logical_store_id: part(0), original_work_ref: reference(), component_slot: part(4) },
+            4 => PermanentClaimKey::AppFinalEvidence { logical_store_id: part(0), final_evidence_ref: reference() },
+            5 => PermanentClaimKey::AppObservationRevision { logical_store_id: part(0), observation_ref: reference(), cost_revision: part(4) },
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn original_app_claim_keys_preserve_variant_store_and_every_tuple_part() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut keys = Vec::new();
+        for (variant, fields) in [3, 5, 4, 5, 4, 5].into_iter().enumerate() {
+            let key = super::super::local_claim_key(&claim(variant, None), &mut session).unwrap();
+            let key = key.0.key().to_vec();
+            assert!(!keys.contains(&key), "distinct App claim variants must never alias");
+            for changed in 0..fields {
+                let other = super::super::local_claim_key(&claim(variant, Some(changed)), &mut session).unwrap();
+                assert_ne!(key.as_slice(), other.0.key(), "variant {variant}, tuple part {changed}");
+            }
+            keys.push(key);
+        }
     }
 }

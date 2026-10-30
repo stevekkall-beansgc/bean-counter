@@ -21,6 +21,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
             && !resource_compare(session, version, 19)?.is_eq()
+            && !resource_compare(session, version, 20)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -393,6 +394,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 17)?.is_eq()
             && !resource_compare(session, version, 18)?.is_eq()
             && !resource_compare(session, version, 19)?.is_eq()
+            && !resource_compare(session, version, 20)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }

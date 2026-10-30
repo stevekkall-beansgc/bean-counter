@@ -84,7 +84,7 @@ impl Drain {
 /// Reserve the existing256KiB I/O envelope in addition to those payloads.
 /// Its fixed metadata bound and the complete connected source/caller remain
 /// separate eligibility obligations; this is not a whole-memory proof.
-pub(super) fn binding_payload(
+pub(crate) fn binding_payload(
     bound: &[&[u8]],
     packed_fields: &[&[u8]],
     packed_integer_fields: usize,

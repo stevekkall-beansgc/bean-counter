@@ -8,6 +8,7 @@ mod request;
 pub(crate) mod resources;
 use crate::ServiceError;
 pub(crate) use agreement::financial::AttemptCancellation;
+pub(crate) use agreement::financial::management_read_error as statement_read_error;
 pub use agreement::WorkflowReply;
 pub use local::LocalWorkflowLedger;
 use serde_json::Value;

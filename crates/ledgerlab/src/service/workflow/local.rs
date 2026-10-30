@@ -59,6 +59,19 @@ impl LocalWorkflowLedger {
         .await
     }
     pub async fn open_local(path: &Path) -> Result<Self> {
+        let (path, config) = Self::local_configuration(path)?;
+        let store = SqliteStore::open(&path.join(".ledger"))
+            .await
+            .map_err(super::super::store_error)?;
+        match Self::initialize_local(&path, config, &store).await {
+            Ok(ledger) => Ok(ledger),
+            Err(error) => {
+                store.close().await;
+                Err(error)
+            }
+        }
+    }
+    fn local_configuration(path: &Path) -> Result<(std::path::PathBuf, Value)> {
         let path = local_io::normalize_path(path).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         local_io::private_existing(&path, true).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         let raw = local_io::read_file(&path.join("billing.json"), local_io::CONFIG_LIMIT)
@@ -78,10 +91,31 @@ impl LocalWorkflowLedger {
         local_io::private_existing(&directory, true).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         local_io::private_existing(&directory.join("local.db"), false)
             .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
-        let store = SqliteStore::open(&directory)
-            .await
+        Ok((path, config))
+    }
+    /// Borrow the already-open billing owner. Construction preserves ordinary
+    /// local identity checks; the billing facade retains pool/lock lifecycle.
+    pub(crate) async fn from_billing_store(path: &Path, store: &SqliteStore) -> Result<Self> {
+        let (path, config) = Self::local_configuration(path)?;
+        let (directory, database) = store
+            .workflow_owner_paths()
             .map_err(super::super::store_error)?;
-        let result = async {
+        let expected_directory = path
+            .join(".ledger")
+            .canonicalize()
+            .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
+        let expected_database = path
+            .join(".ledger/local.db")
+            .canonicalize()
+            .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
+        require(
+            directory == expected_directory && database == expected_database,
+            "AUTHORITY_REQUIRED",
+        )?;
+        Self::initialize_local(&path, config, store).await
+    }
+    async fn initialize_local(path: &Path, config: Value, store: &SqliteStore) -> Result<Self> {
+        let admin = async {
             let mut tx = store
                 .begin(deadline())
                 .await
@@ -92,7 +126,7 @@ impl LocalWorkflowLedger {
                 "AUTHORITY_REQUIRED",
             )?;
             tx.rollback().await.map_err(super::super::store_error)?;
-            Ok(LocalOwnerAdmin {
+            Ok::<_, ServiceError>(LocalOwnerAdmin {
                 instance: store.clone(),
                 configuration: path.join("billing.json"),
                 logical_store_id: setup.store_id,
@@ -103,30 +137,22 @@ impl LocalWorkflowLedger {
                 operator: setup.operator,
             })
         }
-        .await;
-        match result {
-            Ok(admin) => {
-                super::resources::Snapshot::capture(
-                    &admin.configuration,
-                    &admin.logical_store_id,
-                    &admin.scope,
-                )?;
-                Ok(Self {
-                    store,
-                    admin,
-                    #[cfg(test)]
-                    lose_reply: std::sync::atomic::AtomicBool::new(false),
-                    #[cfg(test)]
-                    preparation_gate: std::sync::Mutex::new(None),
-                    #[cfg(test)]
-                    preferred_root: std::sync::Mutex::new(None),
-                })
-            }
-            Err(e) => {
-                store.close().await;
-                Err(e)
-            }
-        }
+        .await?;
+        super::resources::Snapshot::capture(
+            &admin.configuration,
+            &admin.logical_store_id,
+            &admin.scope,
+        )?;
+        Ok(Self {
+            store: store.clone(),
+            admin,
+            #[cfg(test)]
+            lose_reply: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            preparation_gate: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            preferred_root: std::sync::Mutex::new(None),
+        })
     }
     /// Read an exact retained publication member in this verified owner scope.
     pub async fn read(&self, raw: &[u8]) -> Result<Value> {
@@ -144,8 +170,14 @@ impl LocalWorkflowLedger {
         }
         let v = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
             .map_err(|_| reject("INVALID_SHAPE"))?;
-        if matches!(v["kind"].as_str(),Some("work.current"|"outcome.current"|"billing.explain")) {
-            return agreement::financial::read_current(self,raw).await;
+        if v["kind"] == "billing.statement" {
+            return self.read_statement(raw).await;
+        }
+        if matches!(
+            v["kind"].as_str(),
+            Some("work.current" | "outcome.current" | "billing.explain")
+        ) {
+            return agreement::financial::read_current(self, raw).await;
         }
         if v["kind"] == "operation.descriptors"
             || v.get("payload")

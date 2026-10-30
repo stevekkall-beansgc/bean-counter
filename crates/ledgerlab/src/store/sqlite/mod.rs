@@ -10,6 +10,7 @@ mod connect;
 mod fence;
 mod inspect;
 pub(crate) mod m5;
+pub(crate) mod m5_workflow;
 pub(crate) mod migrate;
 mod outbox;
 mod outcomes;
@@ -217,7 +218,8 @@ impl SqliteStore {
                         || schema_version == 16
                         || schema_version == 17
                         || schema_version == 18
-                        || schema_version == 19,
+                        || schema_version == 19
+                        || schema_version == 20,
                 ),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
