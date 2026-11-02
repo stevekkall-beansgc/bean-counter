@@ -410,13 +410,11 @@ mod catalog_tests {
             assert_eq!(serde_json::to_value(selected).unwrap(), *entry);
         }
         assert!(select_inputs(catalog.clone(), &old_ref).is_err());
-        assert!(
-            select_inputs(
-                original.clone(),
-                &reference(&catalog["entries"][0]["recipe"]["compiler_ref"])
-            )
-            .is_err()
-        );
+        assert!(select_inputs(
+            original.clone(),
+            &reference(&catalog["entries"][0]["recipe"]["compiler_ref"])
+        )
+        .is_err());
     }
     #[test]
     fn workflow_build_catalog_rejects_mixed_unknown_and_malformed_entries() {
@@ -481,39 +479,33 @@ mod tests {
         std::fs::write(&path, body).unwrap();
         let got = observe_file_checked(&path, |_| Ok(()), || {}).unwrap();
         assert_eq!(got, (records::raw_hash(body), body.len() as u64));
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || std::fs::write(&path, b"changed").unwrap()
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || std::fs::write(&path, b"changed").unwrap()
+        )
+        .is_err());
         std::fs::write(&path, body).unwrap();
         let replacement = dir.path().join("replacement");
         std::fs::write(&replacement, body).unwrap();
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || std::fs::rename(&replacement, &path).unwrap()
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || std::fs::rename(&replacement, &path).unwrap()
+        )
+        .is_err());
         std::fs::write(&path, body).unwrap();
         let target = dir.path().join("target");
         std::fs::write(&target, body).unwrap();
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || {
-                    std::fs::remove_file(&path).unwrap();
-                    symlink(&target, &path).unwrap();
-                }
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || {
+                std::fs::remove_file(&path).unwrap();
+                symlink(&target, &path).unwrap();
+            }
+        )
+        .is_err());
         assert!(observe_file_checked(&path, |_| Ok(()), || {}).is_err());
         // The actual entry uses current_exe plus the hardcoded platform identity
         // check; this temporary-file seam claims no executable qualification.

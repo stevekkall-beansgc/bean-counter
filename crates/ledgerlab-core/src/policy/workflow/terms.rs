@@ -766,8 +766,10 @@ impl Projection {
                     work,
                 )?;
                 work.visit(Visit::Constraint)?;
-                if !old && !(app && paid::member(kind, &["app_usage", "app_final_cost"], work)?)
-                    && !(component && paid::member(kind, &["cost_observation"], work)?) {
+                if !old
+                    && !(app && paid::member(kind, &["app_usage", "app_final_cost"], work)?)
+                    && !(component && paid::member(kind, &["cost_observation"], work)?)
+                {
                     return Err(fail("source evidence kind"));
                 }
             }
@@ -886,10 +888,20 @@ impl AcceptanceTerms {
     }
     /// Component grammar is selected from the actual compiled program, not an
     /// assertion by the terms input or a new authority.
-    pub fn parse_component(raw: &[u8], context: &super::FactSchema, program: &super::selected_program::SelectedProgram) -> Result<Self> {
-        if !program.uses_component_lifecycle_recipe() { return Err(fail("component acceptance program")); }
+    pub fn parse_component(
+        raw: &[u8],
+        context: &super::FactSchema,
+        program: &super::selected_program::SelectedProgram,
+    ) -> Result<Self> {
+        if !program.uses_component_lifecycle_recipe() {
+            return Err(fail("component acceptance program"));
+        }
         let selected = program.context_schema_ref();
-        if selected.id() != context.document_id()? || selected.digest() != context.content_digest()? { return Err(fail("component context schema")); }
+        if selected.id() != context.document_id()?
+            || selected.digest() != context.content_digest()?
+        {
+            return Err(fail("component context schema"));
+        }
         Self::parse_inner(raw, context, true)
     }
     fn parse_inner(raw: &[u8], context: &super::FactSchema, component: bool) -> Result<Self> {

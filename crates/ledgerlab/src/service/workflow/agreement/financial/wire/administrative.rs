@@ -117,9 +117,19 @@ fn frame_inner(
     members: super::super::prefix::ResolvedMembers,
     session: &mut OriginalAuditSession,
 ) -> Result<PartyJournalData> {
-    frame_administration(incoming, pending.normalized_payload(), pending.authority.bytes(),
-        pending.at.as_str(), pending.result.reference(), evidence, sequence, members,
-        "ledger-workflow-party-management-authority/1", false, session)
+    frame_administration(
+        incoming,
+        pending.normalized_payload(),
+        pending.authority.bytes(),
+        pending.at.as_str(),
+        pending.result.reference(),
+        evidence,
+        sequence,
+        members,
+        "ledger-workflow-party-management-authority/1",
+        false,
+        session,
+    )
 }
 
 /// Same immutable administrative journal framing with actual producer DATA.
@@ -171,10 +181,22 @@ pub(in super::super) fn frame_administration(
     )?;
     let resolution = request::field(evidence.value(), "descriptor_resolution", session)?;
     let registry = request::text(resolution, "registry_digest", session)?;
-    if super::super::acceptance::same_recipe_text(authority_schema, "ledger-workflow-publication-authority/1", session)? {
+    if super::super::acceptance::same_recipe_text(
+        authority_schema,
+        "ledger-workflow-publication-authority/1",
+        session,
+    )? {
         request::same_text(incoming.kind(), "evidence.retain", session)?;
-        request::same_text(request::text(payload,"schema",session)?, "ledger-workflow-evidence-retain/1", session)?;
-        request::same_text(request::text(payload,"purpose",session)?, "admission_stop", session)?;
+        request::same_text(
+            request::text(payload, "schema", session)?,
+            "ledger-workflow-evidence-retain/1",
+            session,
+        )?;
+        request::same_text(
+            request::text(payload, "purpose", session)?,
+            "admission_stop",
+            session,
+        )?;
         request::same_text(registry, super::super::evidence::R1_REGISTRY, session)?;
     } else {
         let recipe = wrappers::recipe(
@@ -193,11 +215,7 @@ pub(in super::super) fn frame_administration(
             "ledger-workflow-agreement-manifest/1",
             session,
         )?;
-        request::same_text(
-            recipe.authority,
-            authority_schema,
-            session,
-        )?;
+        request::same_text(recipe.authority, authority_schema, session)?;
         request::same_text(recipe.closure, "absent", session)?;
     }
     let key = request::field(normalized, "key", session)?;
@@ -211,13 +229,7 @@ pub(in super::super) fn frame_administration(
     let sequence_bytes = sequence_string(sequence, session)?;
     let at = literal(accepted_at, session)?;
     let kind = literal(incoming.kind(), session)?;
-    let results = RefSet::new(
-        std::iter::once(result_ref),
-        1,
-        true,
-        session,
-    )?
-    .encode(session)?;
+    let results = RefSet::new(std::iter::once(result_ref), 1, true, session)?.encode(session)?;
     let operation = object(
         &[
             ("accepted_at", at.bytes()),
@@ -278,7 +290,11 @@ pub(in super::super) fn frame_administration(
         at.bytes(),
         sequence_bytes.bytes(),
         &manifest_ref,
-        if semantic_alias { b"\"semantic_alias\"" } else { b"\"administrative\"" },
+        if semantic_alias {
+            b"\"semantic_alias\""
+        } else {
+            b"\"administrative\""
+        },
         (results.bytes(), evidence.value()),
         session,
     )?;

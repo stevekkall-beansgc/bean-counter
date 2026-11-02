@@ -453,10 +453,15 @@ pub(super) fn prepare(
         let mut original_basis = vec![];
         for original_action in shape::array(m, &plan.original, "active_action_refs")? {
             m.visit("causal.original_named_root_basis")?;
-            let (reference, action) = outcome::root_basis_action(m, r, c, program, original_action)?;
+            let (reference, action) =
+                outcome::root_basis_action(m, r, c, program, original_action)?;
             let action_schema = shape::text(m, &action, "schema")?;
             if program.uses_component_lifecycle_recipe()
-                && shape::same_text(m, action_schema, "ledger-workflow-cost-observation-action/1")?
+                && shape::same_text(
+                    m,
+                    action_schema,
+                    "ledger-workflow-cost-observation-action/1",
+                )?
             {
                 continue;
             }

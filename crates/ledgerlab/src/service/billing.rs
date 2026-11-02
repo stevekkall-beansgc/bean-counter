@@ -1,7 +1,7 @@
 //! Ordinary local retail billing. Uses the existing evaluator and frozen v2
 //! envelopes; it never creates a supplier invocation or R3 capacity claim.
 use super::retained::base as b;
-use b::{Records, Result, array, bytes, core, reference, row, text};
+use b::{array, bytes, core, reference, row, text, Records, Result};
 use ledgerlab_core::{
     canonical::{self, Domain},
     domain::{self, Revision, Roles, Scope, Timestamp},
@@ -10,7 +10,7 @@ use ledgerlab_core::{
     wire::{Completion, EventKind},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 pub(crate) mod adjustment;
 pub(crate) mod control;
@@ -57,7 +57,11 @@ pub(crate) fn reject(code: &str) -> crate::ServiceError {
     crate::ServiceError::Rejection(code.into())
 }
 pub(crate) fn require(ok: bool, code: &str) -> Result<()> {
-    if ok { Ok(()) } else { Err(reject(code)) }
+    if ok {
+        Ok(())
+    } else {
+        Err(reject(code))
+    }
 }
 fn string(v: &Value) -> Result<String> {
     String::from_utf8(bytes(v)?).map_err(|_| b::integrity())
@@ -1472,10 +1476,9 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(postings.len(), 1);
         assert_eq!(postings[0]["body"]["amount"]["atoms"], "250");
-        assert!(
-            rows.iter()
-                .all(|r| !r["kind"].as_str().unwrap().starts_with("reservation-"))
-        );
+        assert!(rows
+            .iter()
+            .all(|r| !r["kind"].as_str().unwrap().starts_with("reservation-")));
     }
 
     #[test]
@@ -1600,16 +1603,14 @@ mod tests {
             "effective_at":"2026-09-06T00:00:00.000000Z",
             "reason":"End request for the wrong agreement must refuse"
         });
-        assert!(
-            control::prepare(
-                &snapshot,
-                &control::canonical_bytes(&ending).unwrap(),
-                &recorded_at,
-                &setup.customer,
-                &setup.source,
-            )
-            .is_err()
-        );
+        assert!(control::prepare(
+            &snapshot,
+            &control::canonical_bytes(&ending).unwrap(),
+            &recorded_at,
+            &setup.customer,
+            &setup.source,
+        )
+        .is_err());
     }
 
     #[test]

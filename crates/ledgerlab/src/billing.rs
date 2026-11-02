@@ -22,11 +22,11 @@ mod close;
 mod cumulative;
 mod export;
 mod fiscal;
+pub(crate) mod manual_credit;
 pub(crate) mod presentation;
 mod recurrence;
 mod term;
 pub(crate) mod workflow_statement;
-pub(crate) mod manual_credit;
 mod workflow_statement_frame;
 
 pub struct BillingLedger {
@@ -716,7 +716,9 @@ impl BillingLedger {
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
         let result = service::statement(&snapshot, customer, target)?;
-        tx.legacy_manual_profile_check(customer).await.map_err(store_error)?;
+        tx.legacy_manual_profile_check(customer)
+            .await
+            .map_err(store_error)?;
         tx.rollback().await.map_err(store_error)?;
         Ok(result)
     }
@@ -728,7 +730,9 @@ impl BillingLedger {
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
         let result = service::statement(&snapshot, customer, Some(target))?;
-        tx.legacy_manual_profile_check(customer).await.map_err(store_error)?;
+        tx.legacy_manual_profile_check(customer)
+            .await
+            .map_err(store_error)?;
         tx.rollback().await.map_err(store_error)?;
         Ok(result)
     }

@@ -4,7 +4,7 @@ use super::super::selected_program::SelectedProgram;
 use super::record_body::RecordBody;
 use super::records::SuppliedRecords;
 use super::{
-    CoreMeter, arithmetic,
+    arithmetic,
     authority::{self, EconomicMode},
     body, codec,
     data::*,
@@ -12,11 +12,11 @@ use super::{
     meter, outcome_proofs, pricing,
     records::{self, Records},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape, targets,
+    shape, targets, CoreMeter,
 };
-use crate::{Error, Result, domain::Timestamp};
+use crate::{domain::Timestamp, Error, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 macro_rules! call {
     ($f:path,$m:expr,$a:expr $(,)?) => {{
         let a = $a;
@@ -3235,10 +3235,11 @@ mod local_head_view_tests {
     use crate::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::{
-            DefinitionRef, document_digest,
+            document_digest,
             selected_program::{
-                SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
+                compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
             },
+            DefinitionRef,
         },
         validation_work::{OriginalAuditSession, ResourceLimits},
     };

@@ -3,14 +3,14 @@
 use ledgerlab_core::{
     canonical::{self, audit_arena::AuditArena},
     policy::workflow::{
-        DefinitionRef,
         selected_program::{
-            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
         },
+        DefinitionRef,
     },
     validation_work::OriginalAuditSession,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{fs, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();

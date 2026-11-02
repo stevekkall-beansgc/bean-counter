@@ -245,7 +245,8 @@ pub(in crate::service::workflow::agreement) async fn verify_capture(
 /// Retaining an explicit stop statement authenticates its original binding and
 /// target, but performs no stop/CAS/source-time admission itself.
 pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies_owned(
-    tx: &mut SqliteTx, key: &OperationKey,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
     input: &ledgerlab_core::policy::workflow::EvidenceInput,
     ledger: Option<&crate::service::workflow::local::LocalWorkflowLedger>,
 ) -> Result<Vec<Document>> {
@@ -265,10 +266,19 @@ pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies_
     // completes its original acceptance and exact target before returning DATA.
     let producer: ProducerRoute<'_> = serde_json::from_slice(&origin.1.operation_bytes)
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    if producer.request_evidence.normalized_request.payload.schema == "ledger-workflow-agreement-accept/9"
+    if producer.request_evidence.normalized_request.payload.schema
+        == "ledger-workflow-agreement-accept/9"
     {
         let ledger = ledger.ok_or(ServiceError::IntegrityFailure)?;
-        return financial::r1_stop_dependencies(ledger, tx, key, input, &target, (&origin.0, origin.1.sequence)).await;
+        return financial::r1_stop_dependencies(
+            ledger,
+            tx,
+            key,
+            input,
+            &target,
+            (&origin.0, origin.1.sequence),
+        )
+        .await;
     }
     let accepted = context::complete_accepted_binding(tx, key, &binding_ref, origin).await?;
     let b = canonical_body(&accepted.binding)?;

@@ -138,8 +138,7 @@ fn evidence_input(body: &Value) -> Result<ledgerlab_core::policy::workflow::Evid
         o.remove(k);
     }
     input["schema"] = json!(request_schema);
-    parse_evidence_payload(&input)
-        .map_err(|_| ServiceError::IntegrityFailure)
+    parse_evidence_payload(&input).map_err(|_| ServiceError::IntegrityFailure)
 }
 fn evidence_record(
     input: &ledgerlab_core::policy::workflow::EvidenceInput,
@@ -182,7 +181,11 @@ fn evidence_identity(
 }
 
 /// Called only after the facade has checked actual current local read access.
-pub(super) async fn status_owned(tx: &mut SqliteTx, key: &super::request::OperationKey, ledger: Option<&super::local::LocalWorkflowLedger>) -> Result<Value> {
+pub(super) async fn status_owned(
+    tx: &mut SqliteTx,
+    key: &super::request::OperationKey,
+    ledger: Option<&super::local::LocalWorkflowLedger>,
+) -> Result<Value> {
     let original = tx
         .workflow_agreement_lookup(&key.bytes()?)
         .await

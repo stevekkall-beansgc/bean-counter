@@ -3,15 +3,15 @@
 //! real construction/assembly, never a draft promotion or success token.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    candidate::{EconomicCandidate, assembly::Assembly},
+    candidate::{assembly::Assembly, EconomicCandidate},
     construct,
     data::*,
     shape,
     working_value::owning_reference,
 };
 use crate::{
-    Error, Result,
     validation_work::{self as w, OriginalAuditSession, RepresentationKind, ValidationWork},
+    Error, Result,
 };
 
 fn unfinished(s: &str) -> Error {

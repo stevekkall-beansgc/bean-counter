@@ -51,11 +51,19 @@ pub(in super::super) fn select_stop(
 ) -> Result<usize> {
     let mut selected = None;
     for (index, source) in sources.iter().enumerate() {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
         let original = source.original_grant_body();
-        if same_recipe_text(request_wrapper::text(original, "principal_id", s)?, actor, s)?
-            && same_recipe_text(request_wrapper::text(original, "source", s)?, &key.source, s)?
-        {
+        if same_recipe_text(
+            request_wrapper::text(original, "principal_id", s)?,
+            actor,
+            s,
+        )? && same_recipe_text(
+            request_wrapper::text(original, "source", s)?,
+            &key.source,
+            s,
+        )? {
             require(selected.replace(index).is_none(), "UNSUPPORTED_COMPOSITION")?;
         }
     }

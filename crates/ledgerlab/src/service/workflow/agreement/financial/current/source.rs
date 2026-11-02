@@ -4,7 +4,7 @@
 //! ceiling/subset/rights checks remain separate mandatory obligations.
 use super::*;
 use crate::store::sqlite::workflow::financial::{RetainedDocument, SourceHeadLocator};
-use ledgerlab_core::policy::workflow::{AgreementRef, transition_constructor::EconomicRecordView};
+use ledgerlab_core::policy::workflow::{transition_constructor::EconomicRecordView, AgreementRef};
 use sha2::{Digest, Sha256};
 pub(in super::super) struct SourceRecord {
     parsed: AuditedValue,
@@ -533,11 +533,17 @@ pub(in super::super) async fn retained_stop_binding(
     s: &mut OriginalAuditSession,
 ) -> Result<SourceRecord> {
     let (reference, lease) = from_value(value, "workflow-binding", s)?;
-    let stored = tx.workflow_financial_document(
-        &reference, &key.logical_store_id, &key.scope, before, s,
-    ).await.map_err(prefix::read_error)?.ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
-    s.semantic_work().scan_bytes(stored.schema.bytes().len()).map_err(core_error)?;
-    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+    let stored = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    s.semantic_work()
+        .scan_bytes(stored.schema.bytes().len())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare)
+        .map_err(core_error)?;
     let schema = if stored.schema.bytes() == b"ledger-workflow-binding/1" {
         "ledger-workflow-binding/1"
     } else if stored.schema.bytes() == b"ledger-workflow-binding/2" {
@@ -569,7 +575,7 @@ fn local_record_value_selected(
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedValue> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
-        OperationKey as CoreKey, select_local_input_edges, select_stage_local_input_edges,
+        select_local_input_edges, select_stage_local_input_edges, OperationKey as CoreKey,
     };
     let texts = [
         &key.logical_store_id,

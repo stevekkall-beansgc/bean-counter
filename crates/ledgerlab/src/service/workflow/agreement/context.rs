@@ -481,14 +481,19 @@ pub(super) async fn accepted_binding_origin(
 }
 
 pub(super) async fn observe_accepted_binding(
-    tx: &mut SqliteTx, key: &OperationKey, binding_ref: &RecordRef, before_sequence: i64,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    binding_ref: &RecordRef,
+    before_sequence: i64,
 ) -> Result<ObservedAcceptedBinding> {
     let origin = accepted_binding_origin(tx, key, binding_ref, before_sequence).await?;
     complete_accepted_binding(tx, key, binding_ref, origin).await
 }
 
 pub(super) async fn complete_accepted_binding(
-    tx: &mut SqliteTx, key: &OperationKey, binding_ref: &RecordRef,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    binding_ref: &RecordRef,
     origin: (RecordRef, JournalOperation, OperationKey),
 ) -> Result<ObservedAcceptedBinding> {
     let (accepted_ref, original, original_key) = origin;

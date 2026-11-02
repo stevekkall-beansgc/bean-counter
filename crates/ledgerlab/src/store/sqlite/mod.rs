@@ -10,8 +10,8 @@ mod connect;
 mod fence;
 mod inspect;
 pub(crate) mod m5;
-pub(crate) mod m5_workflow;
 pub(crate) mod m5_manual;
+pub(crate) mod m5_workflow;
 pub(crate) mod migrate;
 mod outbox;
 mod outcomes;
@@ -32,15 +32,15 @@ use std::{
     fs::OpenOptions,
     path::Path,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
 use tokio::{
     sync::{RwLock, Semaphore},
     task::JoinHandle,
-    time::{Instant, timeout_at},
+    time::{timeout_at, Instant},
 };
 pub(crate) use tx::{FinancialCommitError, SqliteTx, WorkflowProofFailureHandle};
 

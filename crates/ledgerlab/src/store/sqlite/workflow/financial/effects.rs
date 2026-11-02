@@ -14,9 +14,11 @@ fn key_parts<'a>(
         FinancialHeadKey::Invocation { invocation_id } => {
             ("invocation", [invocation_id, "", "", ""])
         }
-        FinancialHeadKey::Stage { agreement, chain, stage } => {
-            ("stage", [agreement, chain, stage, ""])
-        }
+        FinancialHeadKey::Stage {
+            agreement,
+            chain,
+            stage,
+        } => ("stage", [agreement, chain, stage, ""]),
         FinancialHeadKey::AppCost { cost_claim_ref: r } => {
             ("app_cost", [&r.kind, &r.id, &r.digest, ""])
         }
@@ -224,7 +226,15 @@ impl SqliteTx {
             );
         }
         let locator = match effect.key() {
-            FinancialHeadKey::Stage { agreement, chain, stage } => HeadKey::Stage { agreement, chain, stage },
+            FinancialHeadKey::Stage {
+                agreement,
+                chain,
+                stage,
+            } => HeadKey::Stage {
+                agreement,
+                chain,
+                stage,
+            },
             FinancialHeadKey::Invocation { invocation_id } => HeadKey::Invocation(invocation_id),
             FinancialHeadKey::AppCost { cost_claim_ref } => HeadKey::AppCost(cost_claim_ref),
             FinancialHeadKey::Cost { cost_claim_ref } => HeadKey::Cost(cost_claim_ref),

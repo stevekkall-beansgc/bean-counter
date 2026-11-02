@@ -6,7 +6,7 @@ use crate::store::sqlite::m5::{
 };
 use ledgerlab_core::canonical::CanonicalBytes;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 const AD_HOC: &str = "ledger-billing-ad-hoc-statement/1";
@@ -58,7 +58,10 @@ impl BillingLedger {
     pub async fn adjustment_statement(&self, raw: &[u8]) -> local::Result<Value> {
         let request = ledgerlab_core::canonical::parse_bounded(raw, 262144)
             .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
-        if matches!(request["schema"].as_str(),Some("ledger-billing-ad-hoc-statement/2"|"ledger-billing-ad-hoc-statement/3")) {
+        if matches!(
+            request["schema"].as_str(),
+            Some("ledger-billing-ad-hoc-statement/2" | "ledger-billing-ad-hoc-statement/3")
+        ) {
             return self.workflow_adjustment_statement(raw).await;
         }
         self.adjustment_statement_inner(raw, None).await

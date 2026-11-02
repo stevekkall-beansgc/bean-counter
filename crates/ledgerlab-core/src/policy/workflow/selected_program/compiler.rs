@@ -3033,9 +3033,15 @@ fn compile_selected_recipe(
             let value = json!(family.selector);
             let mut present = false;
             if matches!(recipe, SelectedRecipe::LocalComponentLifecycle1) {
-                for old in &paths { if super::super::transition_constructor::shape::same(m, old, &value)? { present = true; } }
+                for old in &paths {
+                    if super::super::transition_constructor::shape::same(m, old, &value)? {
+                        present = true;
+                    }
+                }
             }
-            if !present { paths.push(value); }
+            if !present {
+                paths.push(value);
+            }
         }
         let paths = set(m, paths)?;
         let mut plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":paths,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});

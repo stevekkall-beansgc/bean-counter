@@ -170,18 +170,27 @@ pub(super) async fn enrollment_payload(
         .await
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
-    let original = tx.workflow_agreement_lookup(&identity).await
-        .map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    let original = tx
+        .workflow_agreement_lookup(&identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
     let saved_key = OperationKey::parse(&identity)?;
     let operation = verify::checked(&original.operation_bytes, 8388608)?;
     let request = &operation["request_evidence"]["normalized_request"];
     require(
-        kind == "authority.change" && original.kind == kind
-            && original.sequence == sequence && original.members.contains(reference)
-            && saved_key.logical_store_id == key.logical_store_id && saved_key.scope == key.scope
-            && operation["key"] == json!(saved_key) && request["key"] == json!(saved_key)
+        kind == "authority.change"
+            && original.kind == kind
+            && original.sequence == sequence
+            && original.members.contains(reference)
+            && saved_key.logical_store_id == key.logical_store_id
+            && saved_key.scope == key.scope
+            && operation["key"] == json!(saved_key)
+            && request["key"] == json!(saved_key)
             && request["kind"] == "authority.change"
-            && operation["result_refs"].as_array().is_some_and(|refs| refs.contains(&json!(reference))),
+            && operation["result_refs"]
+                .as_array()
+                .is_some_and(|refs| refs.contains(&json!(reference))),
         "INTEGRITY_FAILURE",
     )?;
     let payload = &request["payload"];
@@ -198,10 +207,12 @@ pub(super) async fn enrollment_data(
 ) -> Result<SourceEnrollment> {
     let payload = enrollment_payload(tx, key, &document.reference).await?;
     if shared_namespace_schema(&payload) {
-        let owner: RecordRef = serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
-            .map_err(|_| ServiceError::IntegrityFailure)?;
+        let owner: RecordRef =
+            serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
         let owner = loaded(tx, key, &owner).await?;
-        let owner = SourceEnrollment::parse(&owner.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+        let owner =
+            SourceEnrollment::parse(&owner.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
         SourceEnrollment::parse_shared_namespace(&document.bytes, &payload, &owner)
             .map_err(|_| ServiceError::IntegrityFailure)
     } else {
@@ -321,7 +332,9 @@ pub(super) async fn prepare(
                 "AUTHORITY_REQUIRED",
             )?;
             Some(anchor)
-        } else { None };
+        } else {
+            None
+        };
         let dependencies = verify::authenticated_closure(
             tx,
             key,
@@ -381,7 +394,8 @@ pub(super) async fn prepare(
             SourceEnrollment::parse_shared_namespace(&bytes, payload, owner)
         } else {
             SourceEnrollment::parse(&bytes)
-        }.map_err(|_| ServiceError::IntegrityFailure)?;
+        }
+        .map_err(|_| ServiceError::IntegrityFailure)?;
         let enrollment_doc = data_document(
             "workflow-source-enrollment",
             e.canonical_value()
@@ -530,7 +544,10 @@ pub(super) async fn verify_closure(
     documents: &std::collections::BTreeMap<String, Document>,
 ) -> Result<()> {
     let mut enrollments = std::collections::BTreeMap::new();
-    for document in documents.values().filter(|d| d.reference.kind == "workflow-source-enrollment") {
+    for document in documents
+        .values()
+        .filter(|d| d.reference.kind == "workflow-source-enrollment")
+    {
         let e = enrollment_data(tx, key, document).await?;
         enrollments.insert(document.reference.id.clone(), e);
     }
@@ -538,7 +555,9 @@ pub(super) async fn verify_closure(
         let body = canonical_body(d)?;
         match d.reference.kind.as_str() {
             "workflow-source-enrollment" => {
-                let e = enrollments.get(&d.reference.id).ok_or(ServiceError::IntegrityFailure)?;
+                let e = enrollments
+                    .get(&d.reference.id)
+                    .ok_or(ServiceError::IntegrityFailure)?;
                 if e.canonical_bytes() != d.bytes
                     || json!(e.reference()) != json!(d.reference)
                     || e.scope() != &key.scope
@@ -587,7 +606,9 @@ pub(super) async fn verify_closure(
             "workflow-source-grant" => {
                 let g = SourceGrant::parse(&d.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
                 let original = doc(documents, &body["original_ceiling_ref"])?;
-                let e = enrollments.get(&original.reference.id).ok_or(ServiceError::IntegrityFailure)?;
+                let e = enrollments
+                    .get(&original.reference.id)
+                    .ok_or(ServiceError::IntegrityFailure)?;
                 if g.canonical_bytes() != d.bytes
                     || g.document_id() != d.reference.id
                     || g.content_digest() != d.reference.digest
@@ -600,7 +621,9 @@ pub(super) async fn verify_closure(
             }
             "workflow-source-state" => {
                 let original = doc(documents, &body["enrollment_ref"])?;
-                let e = enrollments.get(&original.reference.id).ok_or(ServiceError::IntegrityFailure)?;
+                let e = enrollments
+                    .get(&original.reference.id)
+                    .ok_or(ServiceError::IntegrityFailure)?;
                 let s =
                     SourceState::parse(&d.bytes, e).map_err(|_| ServiceError::IntegrityFailure)?;
                 if s.canonical_bytes() != d.bytes
@@ -871,9 +894,13 @@ pub(super) async fn namespace_owner_locator(
     enrollment: &RecordRef,
 ) -> Result<RecordRef> {
     let payload = enrollment_payload(tx, key, enrollment).await?;
-    require(payload["schema"] == "ledger-workflow-source-enroll/3", "INTEGRITY_FAILURE")?;
-    let owner: RecordRef = serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
-        .map_err(|_| ServiceError::IntegrityFailure)?;
+    require(
+        payload["schema"] == "ledger-workflow-source-enroll/3",
+        "INTEGRITY_FAILURE",
+    )?;
+    let owner: RecordRef =
+        serde_json::from_value(payload["namespace_owner_enrollment_ref"].clone())
+            .map_err(|_| ServiceError::IntegrityFailure)?;
     reference(&owner, "workflow-source-enrollment")?;
     Ok(owner)
 }

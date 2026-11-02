@@ -78,7 +78,9 @@ pub(super) fn evidence(req: &request::Request, normalized_payload: &Value) -> Re
         );
     }
     canonical::sort_set(&mut anchors).map_err(|_| ServiceError::IntegrityFailure)?;
-    let registry_bytes: &[u8] = if normalized_payload["schema"] == "ledger-workflow-evidence-retain/2" {
+    let registry_bytes: &[u8] = if normalized_payload["schema"]
+        == "ledger-workflow-evidence-retain/2"
+    {
         include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/platform-funding-evidence-02/registry.json")
     } else if source::shared_namespace_schema(normalized_payload) {
         include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/local-shared-namespace-01/registry.json")

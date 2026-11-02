@@ -5,11 +5,11 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::{
-        DefinitionRef,
         selected_program::{
-            SelectedCompilerSupport, SelectedProgram, SelectedSourceInput,
-            compile_selected_publication,
+            compile_selected_publication, SelectedCompilerSupport, SelectedProgram,
+            SelectedSourceInput,
         },
+        DefinitionRef,
     },
     validation_work::{
         ArithmeticOperation as Op, OriginalAuditSession, RepresentationKind as Kind,
@@ -564,8 +564,7 @@ mod support_selection_tests {
 
     #[test]
     fn default_session_rejects_operator_descriptor_and_selects_default_descriptor() {
-        let operator_arena =
-            AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let operator_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut operator = OriginalAuditSession::for_resource_profile_v2(&operator_arena).unwrap();
         let operator_support =
             SelectedCompilerSupport::local_execution_with_session(&mut operator).unwrap();

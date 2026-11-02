@@ -264,8 +264,13 @@ fn normalized(
             super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
         super::cost::normalize_request(session.meter_mut(), &mut value)?;
         *incoming = value.into_owned()?;
-    } else if shape::same_text(session.meter_mut(), old_schema, "ledger-workflow-link-assert/1")? {
-        let mut value = super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
+    } else if shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-link-assert/1",
+    )? {
+        let mut value =
+            super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
         super::link_assert::normalize(program, session.meter_mut(), &mut value)?;
         *incoming = value.into_owned()?;
     } else if shape::same_text(
@@ -741,36 +746,94 @@ mod tests {
     #[test]
     fn shared_work_alias_preserves_all_economic_intent_and_validates_transport() {
         use crate::policy::workflow::selected_program::compile_selected_publication;
-        let arena = AuditArena::with_resource_limits(crate::validation_work::ResourceLimits::unlimited()).unwrap();
+        let arena =
+            AuditArena::with_resource_limits(crate::validation_work::ResourceLimits::unlimited())
+                .unwrap();
         let mut compiling = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let support = SelectedCompilerSupport::local_shared_namespace_execution_with_session(&mut compiling).unwrap();
-        let mut source: Value = serde_json::from_slice(include_bytes!("../../../../../../examples/workflow-work-lifecycle/source.json")).unwrap();
+        let support =
+            SelectedCompilerSupport::local_shared_namespace_execution_with_session(&mut compiling)
+                .unwrap();
+        let mut source: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../examples/workflow-work-lifecycle/source.json"
+        ))
+        .unwrap();
         let documents = source["documents"].as_array_mut().unwrap();
-        let policy = documents.iter_mut().find(|v| v["schema"] == "ledger-workflow-policy/4").unwrap();
+        let policy = documents
+            .iter_mut()
+            .find(|v| v["schema"] == "ledger-workflow-policy/4")
+            .unwrap();
         policy["compiler_ref"] = json!(support.reference());
-        let digest = crate::policy::workflow::document_digest("ledger-workflow-policy/4", policy).unwrap();
-        let root = json!({"kind":"workflow-policy","id":format!("wdoc_{}",&digest[7..]),"digest":digest});
-        let schema = documents.iter().find(|v| v["schema"] == "ledger-workflow-fact-schema/1" && v["fields"].as_array().unwrap().iter().any(|f| f["name"] == "support:quantity")).unwrap();
-        let digest = crate::policy::workflow::document_digest("ledger-workflow-fact-schema/1", schema).unwrap();
+        let digest =
+            crate::policy::workflow::document_digest("ledger-workflow-policy/4", policy).unwrap();
+        let root =
+            json!({"kind":"workflow-policy","id":format!("wdoc_{}",&digest[7..]),"digest":digest});
+        let schema = documents
+            .iter()
+            .find(|v| {
+                v["schema"] == "ledger-workflow-fact-schema/1"
+                    && v["fields"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|f| f["name"] == "support:quantity")
+            })
+            .unwrap();
+        let digest =
+            crate::policy::workflow::document_digest("ledger-workflow-fact-schema/1", schema)
+                .unwrap();
         let schema = json!({"kind":"workflow-fact-schema","id":format!("wdoc_{}",&digest[7..]),"digest":digest});
-        let mut bytes: Vec<_> = documents.iter().map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect();
+        let mut bytes: Vec<_> = documents
+            .iter()
+            .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+            .collect();
         bytes.push(support.canonical_bytes().to_vec());
-        let p = compile_selected_publication(SelectedSourceInput { documents:bytes, root_policy_ref:serde_json::from_value(root).unwrap() }, &support, &mut compiling).unwrap();
-        let original=json!({"schema":"ledger-workflow-work/1","external_event_id":"original-delivery","business_operation_id":"one-completion","status":"succeeded","fact_schema_ref":schema,"facts":{"support:quantity":"0.1"},"fact_proofs":[],"links":[],"invocation_refs":[],"evidence_refs":[]});
-        let canonical_original=canonical::CanonicalBytes::from_value(&original).unwrap();
-        let mut incoming=original.clone(); incoming["external_event_id"]=json!("different-delivery"); incoming["facts"]["support:quantity"]=json!("0.100");
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let raw=canonical::CanonicalBytes::from_value(&incoming).unwrap();
-        let normalized=normalize_local_work_alias_intent(&p,canonical_original.as_slice(),raw.as_slice(),&mut s).unwrap();
-        assert_eq!(normalized.bytes(),canonical_original.as_slice());
-        incoming["status"]=json!("failed");
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let raw=canonical::CanonicalBytes::from_value(&incoming).unwrap();
-        assert_ne!(normalize_local_work_alias_intent(&p,canonical_original.as_slice(),raw.as_slice(),&mut s).unwrap().bytes(),canonical_original.as_slice());
-        incoming["external_event_id"]=json!("bad\ntransport");
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let raw=canonical::CanonicalBytes::from_value(&incoming).unwrap();
-        assert!(normalize_local_work_alias_intent(&p,canonical_original.as_slice(),raw.as_slice(),&mut s).is_err());
+        let p = compile_selected_publication(
+            SelectedSourceInput {
+                documents: bytes,
+                root_policy_ref: serde_json::from_value(root).unwrap(),
+            },
+            &support,
+            &mut compiling,
+        )
+        .unwrap();
+        let original = json!({"schema":"ledger-workflow-work/1","external_event_id":"original-delivery","business_operation_id":"one-completion","status":"succeeded","fact_schema_ref":schema,"facts":{"support:quantity":"0.1"},"fact_proofs":[],"links":[],"invocation_refs":[],"evidence_refs":[]});
+        let canonical_original = canonical::CanonicalBytes::from_value(&original).unwrap();
+        let mut incoming = original.clone();
+        incoming["external_event_id"] = json!("different-delivery");
+        incoming["facts"]["support:quantity"] = json!("0.100");
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
+        let normalized = normalize_local_work_alias_intent(
+            &p,
+            canonical_original.as_slice(),
+            raw.as_slice(),
+            &mut s,
+        )
+        .unwrap();
+        assert_eq!(normalized.bytes(), canonical_original.as_slice());
+        incoming["status"] = json!("failed");
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
+        assert_ne!(
+            normalize_local_work_alias_intent(
+                &p,
+                canonical_original.as_slice(),
+                raw.as_slice(),
+                &mut s
+            )
+            .unwrap()
+            .bytes(),
+            canonical_original.as_slice()
+        );
+        incoming["external_event_id"] = json!("bad\ntransport");
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
+        assert!(normalize_local_work_alias_intent(
+            &p,
+            canonical_original.as_slice(),
+            raw.as_slice(),
+            &mut s
+        )
+        .is_err());
     }
-
 }

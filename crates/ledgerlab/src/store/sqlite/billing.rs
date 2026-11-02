@@ -3,8 +3,8 @@ use super::workflow::capacity::SessionWork;
 use super::workflow::financial::FinancialReadError;
 use super::*;
 use crate::service::billing::{
-    MAX_RETAINED_ALIAS_BYTES, MAX_RETAINED_ALIASES, MAX_RETAINED_ENTRIES, MAX_RETAINED_ENTRY_BYTES,
-    ValidatedEntry,
+    ValidatedEntry, MAX_RETAINED_ALIASES, MAX_RETAINED_ALIAS_BYTES, MAX_RETAINED_ENTRIES,
+    MAX_RETAINED_ENTRY_BYTES,
 };
 use ledgerlab_core::validation_work::{
     ArithmeticOperation as ResourceOp, NoopValidationWork, OriginalAuditSession, ValidationVisit,
@@ -1911,18 +1911,16 @@ mod tests {
             .expect("the newest decision is addressable");
         assert_eq!(newest.ordinal, 1001);
         // An exact semantic lookup stays exact at the raised ceiling.
-        assert!(
-            tx.billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-777")
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            tx.billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-7777")
-                .await
-                .unwrap()
-                .is_none()
-        );
+        assert!(tx
+            .billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-777")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(tx
+            .billing_semantic_lookup("customer-1", "urn:example:work", b"semantic-7777")
+            .await
+            .unwrap()
+            .is_none());
         tx.rollback().await.unwrap();
         store.close().await;
         // The same holds after a reopen, so nothing depended on one connection.
@@ -2178,11 +2176,9 @@ mod tests {
                 .all(|entry| entry["target"] == serde_json::json!(target_a)),
             "A's own report explains A alone"
         );
-        assert!(
-            rows(&report_b)
-                .iter()
-                .all(|entry| entry["target"] == serde_json::json!(target_b))
-        );
+        assert!(rows(&report_b)
+            .iter()
+            .all(|entry| entry["target"] == serde_json::json!(target_b)));
         assert_eq!(
             a_rows
                 .iter()

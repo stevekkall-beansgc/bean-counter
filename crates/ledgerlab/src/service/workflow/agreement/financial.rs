@@ -17,8 +17,8 @@ mod local_acceptance;
 mod local_activation;
 mod local_alias_original;
 mod local_cost_authority;
-mod local_explain_family;
 mod local_explain_decisions;
+mod local_explain_family;
 mod local_financial;
 mod local_financial_original;
 mod local_inputs;
@@ -28,20 +28,20 @@ mod local_original_work;
 mod local_party;
 mod local_publication;
 mod local_reads;
-pub(crate) mod statement;
 mod management;
-use management::ManagementObservation;
+pub(crate) mod statement;
 pub(in crate::service::workflow) use management::effective_setup;
+use management::ManagementObservation;
 mod prefix;
 pub(crate) use prefix::read_error as management_read_error;
 mod publication_prepare;
 mod recovery;
 mod response;
 pub use response::WorkflowReply;
+mod r1_stop;
 mod request_wrapper;
 mod wire;
 mod wrappers;
-mod r1_stop;
 pub(super) use r1_stop::dependencies as r1_stop_dependencies;
 use std::sync::atomic::Ordering;
 
@@ -96,33 +96,71 @@ pub(super) async fn local_billing_record_origin(
 ) -> Result<()> {
     let mut s = take_read_session(tx)?;
     let result = async {
-        let (_, _, sequence) = tx.workflow_agreement_document_origin(
-            &key.logical_store_id, &key.scope, reference,
-        ).await.map_err(crate::service::store_error)?
+        let (_, _, sequence) = tx
+            .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
+            .await
+            .map_err(crate::service::store_error)?
             .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
-        let previous = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
-        let selected = prefix::next(tx, key, previous, sequence, &mut s).await?
-            .ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, &mut s).await?;
-        let requested = serde_json::to_value(reference).map_err(|_| ServiceError::IntegrityFailure)?;
+        let previous = sequence
+            .checked_sub(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let selected = prefix::next(tx, key, previous, sequence, &mut s)
+            .await?
+            .ok_or(ServiceError::IntegrityFailure)?
+            .checked_wrappers(tx, &mut s)
+            .await?;
+        let requested =
+            serde_json::to_value(reference).map_err(|_| ServiceError::IntegrityFailure)?;
         selected.require_member(&requested, &mut s)?;
         let op = selected.wrappers().operation();
-        require(request_wrapper::text(op, "schema", &mut s)? == "ledger-workflow-economic-operation/10", "INTEGRITY_FAILURE")?;
-        require(request_wrapper::text(selected.wrappers().receipt(), "result_kind", &mut s)? != "semantic_alias", "INTEGRITY_FAILURE")?;
-        let results = request_wrapper::field(op, "result_refs", &mut s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-        let expected = s.canonical_representation(&requested, ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+        require(
+            request_wrapper::text(op, "schema", &mut s)? == "ledger-workflow-economic-operation/10",
+            "INTEGRITY_FAILURE",
+        )?;
+        require(
+            request_wrapper::text(selected.wrappers().receipt(), "result_kind", &mut s)?
+                != "semantic_alias",
+            "INTEGRITY_FAILURE",
+        )?;
+        let results = request_wrapper::field(op, "result_refs", &mut s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let expected = s
+            .canonical_representation(
+                &requested,
+                ledgerlab_core::validation_work::RepresentationKind::Record,
+            )
+            .map_err(core_error)?;
         let mut found = false;
         for item in results {
-            let actual = s.canonical_representation(item, ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
-            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
-            s.semantic_work().scan_bytes(actual.bytes().len()).map_err(core_error)?;
-            s.semantic_work().scan_bytes(expected.bytes().len()).map_err(core_error)?;
-            if actual.bytes() == expected.bytes() { found = true; }
+            let actual = s
+                .canonical_representation(
+                    item,
+                    ledgerlab_core::validation_work::RepresentationKind::Record,
+                )
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(actual.bytes().len())
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(expected.bytes().len())
+                .map_err(core_error)?;
+            if actual.bytes() == expected.bytes() {
+                found = true;
+            }
         }
         require(found, "INTEGRITY_FAILURE")?;
         let mut folded = prefix::fold_original_prefix(ledger, tx, key, &selected, &mut s).await?;
-        require(folded.introduced_at(&requested, body, &mut s)? == sequence, "INTEGRITY_FAILURE")?;
+        require(
+            folded.introduced_at(&requested, body, &mut s)? == sequence,
+            "INTEGRITY_FAILURE",
+        )?;
         Ok(())
-    }.await;
+    }
+    .await;
     retain_read_session(tx, s);
     result
 }
@@ -265,7 +303,10 @@ pub(in crate::service::workflow) async fn read_current(
     )?;
     let kind = request_wrapper::text(parsed.value(), "kind", &mut s)?;
     require(
-        matches!(kind, "work.current" | "outcome.current" | "billing.explain" | "agreement.head"),
+        matches!(
+            kind,
+            "work.current" | "outcome.current" | "billing.explain" | "agreement.head"
+        ),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let _key_owner = s
@@ -289,11 +330,33 @@ pub(in crate::service::workflow) async fn read_current(
     let attempted = proof_session::with_proofs(&mut tx, &key, |tx| {
         Box::pin(async {
             if kind == "agreement.head" {
-                agreement_head_read::read(ledger, tx, &key, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+                agreement_head_read::read(
+                    ledger,
+                    tx,
+                    &key,
+                    request_wrapper::field(parsed.value(), "payload", &mut s)?,
+                    &mut s,
+                )
+                .await
             } else if kind == "billing.explain" {
-                local_reads::explain(ledger, tx, &key, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+                local_reads::explain(
+                    ledger,
+                    tx,
+                    &key,
+                    request_wrapper::field(parsed.value(), "payload", &mut s)?,
+                    &mut s,
+                )
+                .await
             } else {
-                local_reads::current(ledger, tx, &key, kind, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+                local_reads::current(
+                    ledger,
+                    tx,
+                    &key,
+                    kind,
+                    request_wrapper::field(parsed.value(), "payload", &mut s)?,
+                    &mut s,
+                )
+                .await
             }
         })
     })
@@ -563,8 +626,13 @@ where
     F: std::future::Future + Send + 'a,
 {
     let bytes = std::mem::size_of::<F>();
-    let storage = session.reserve_external_payload(bytes).map_err(core_error)?;
-    session.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let storage = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(bytes)
+        .map_err(core_error)?;
     let future = Box::pin(build(session));
     // The payload drops before its lease, including cancellation before poll.
     let held = (future, storage);
@@ -671,29 +739,42 @@ async fn fresh_reply_in(
     {
         return fresh_branch(session, |session| {
             local_financial::prepare_registered_participant_append(
-                ledger, tx, req, held_management, session,
+                ledger,
+                tx,
+                req,
+                held_management,
+                session,
             )
         })?
         .await
         .map(TransactionResult::Appended);
     }
     let key_body = request_wrapper::field(req.value(), "key", session)?;
-    let management =
-        fresh_branch(session, |session| ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session))?
-            .await?;
-    fresh_branch(session, |session| management.recheck(ledger, tx, key, session))?.await?;
+    let management = fresh_branch(session, |session| {
+        ManagementObservation::capture_owned(ledger, tx, key, key_body, held_management, session)
+    })?
+    .await?;
+    fresh_branch(session, |session| {
+        management.recheck(ledger, tx, key, session)
+    })?
+    .await?;
     if req.kind() == "agreement.accept" {
         if request_wrapper::text(req.payload(session)?, "schema", session)?
             == "ledger-workflow-agreement-accept/9"
         {
-            let reply =
-                fresh_branch(session, |session| local_acceptance::prepare_append(ledger, tx, req, &management, session))?.await?;
+            let reply = fresh_branch(session, |session| {
+                local_acceptance::prepare_append(ledger, tx, req, &management, session)
+            })?
+            .await?;
             return Ok(TransactionResult::Appended(reply));
         }
         // AppAccept8 reaches the actual saved publication and SAME
         // terms/binding assembly. Its DATA owners do not bypass
         // complete chronology, consent/private graph or preparation.
-        let mut pending = fresh_branch(session, |session| acceptance::prepare(ledger, tx, req, session))?.await?;
+        let mut pending = fresh_branch(session, |session| {
+            acceptance::prepare(ledger, tx, req, session)
+        })?
+        .await?;
         let evidence = evidence::acceptance(req, &pending, session)?;
         let members = pending.resolve_members(session)?;
         let journal = wire::frame_acceptance(
@@ -715,28 +796,45 @@ async fn fresh_reply_in(
         // precedes any call to workflow_app_acceptance_append.
     }
     if req.kind() == "agreement.activate"
-        && matches!(request_wrapper::text(req.payload(session)?, "schema", session)?,
-            "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1")
+        && matches!(
+            request_wrapper::text(req.payload(session)?, "schema", session)?,
+            "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1"
+        )
     {
         let payload = req.payload(session)?;
-        let revision = acceptance::counter(request_wrapper::text(payload, "expected_revision", session)?, session)?;
+        let revision = acceptance::counter(
+            request_wrapper::text(payload, "expected_revision", session)?,
+            session,
+        )?;
         let reply = if revision == 0 {
-            fresh_branch(session, |session| local_activation::prepare_append(ledger, tx, req, &management, session))?.await?
+            fresh_branch(session, |session| {
+                local_activation::prepare_append(ledger, tx, req, &management, session)
+            })?
+            .await?
         } else {
-            fresh_branch(session, |session| local_activation::prepare_later_append(ledger, tx, req, &management, session))?.await?
+            fresh_branch(session, |session| {
+                local_activation::prepare_later_append(ledger, tx, req, &management, session)
+            })?
+            .await?
         };
         return Ok(TransactionResult::Appended(reply));
     }
     if req.kind() == "agreement.revoke"
-        && request_wrapper::text(req.payload(session)?, "schema", session)? == "ledger-workflow-agreement-revoke/1"
+        && request_wrapper::text(req.payload(session)?, "schema", session)?
+            == "ledger-workflow-agreement-revoke/1"
     {
-        let reply = fresh_branch(session, |session| local_activation::prepare_later_append(ledger, tx, req, &management, session))?.await?;
+        let reply = fresh_branch(session, |session| {
+            local_activation::prepare_later_append(ledger, tx, req, &management, session)
+        })?
+        .await?;
         return Ok(TransactionResult::Appended(reply));
     }
     if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
         let payload = req.payload(session)?;
-        let mut observed =
-            fresh_branch(session, |session| current::app::observe_activation(ledger, tx, req, payload, session))?.await?;
+        let mut observed = fresh_branch(session, |session| {
+            current::app::observe_activation(ledger, tx, req, payload, session)
+        })?
+        .await?;
         if req.kind() == "agreement.activate" {
             let evidence = evidence::activation_material(
                 req,
@@ -773,7 +871,10 @@ async fn fresh_reply_in(
                 | "ledger-workflow-party-authorize/1"
                 | "ledger-workflow-party-revoke/1"
         ) {
-            let reply = fresh_branch(session, |session| local_party::prepare_append(ledger, tx, req, &management, session))?.await?;
+            let reply = fresh_branch(session, |session| {
+                local_party::prepare_append(ledger, tx, req, &management, session)
+            })?
+            .await?;
             return Ok(TransactionResult::Appended(reply));
         }
     }
@@ -782,8 +883,10 @@ async fn fresh_reply_in(
         && request_wrapper::text(req.payload(session)?, "schema", session)?
             == "ledger-cost-authority-enroll/1"
     {
-        let reply =
-            fresh_branch(session, |session| local_cost_authority::prepare_append(ledger, tx, req, &management, session))?.await?;
+        let reply = fresh_branch(session, |session| {
+            local_cost_authority::prepare_append(ledger, tx, req, &management, session)
+        })?
+        .await?;
         return Ok(TransactionResult::Appended(reply));
     }
     if is_local_financial_schema(request_wrapper::text(
@@ -791,8 +894,10 @@ async fn fresh_reply_in(
         "schema",
         session,
     )?) {
-        let reply =
-            fresh_branch(session, |session| local_financial::prepare_work_append(ledger, tx, req, &management, session))?.await?;
+        let reply = fresh_branch(session, |session| {
+            local_financial::prepare_work_append(ledger, tx, req, &management, session)
+        })?
+        .await?;
         return Ok(TransactionResult::Appended(reply));
     }
 

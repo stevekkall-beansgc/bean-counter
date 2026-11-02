@@ -82,8 +82,21 @@ impl SqliteTx {
     }
     /// Exact wrapper Ref lookup only. The caller must check the whole original
     /// operation/manifest/receipt certificate before consuming its bytes.
-    pub(crate) async fn workflow_wrapper_reference_sequence(&mut self, reference: &ExactRef, store: &str, scope: &[String;2], before:i64, session:&mut OriginalAuditSession) -> Result<Option<i64>,FinancialReadError> {
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) { return Err(invalid()); }
+    pub(crate) async fn workflow_wrapper_reference_sequence(
+        &mut self,
+        reference: &ExactRef,
+        store: &str,
+        scope: &[String; 2],
+        before: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<i64>, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(invalid());
+        }
         self.failed = true;
         let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             let sql = match reference.kind.as_str() {
@@ -104,7 +117,17 @@ impl SqliteTx {
             if !resource_compare(session,sequence,0)?.is_gt() || !resource_compare(session,sequence,before)?.is_lt() {return Err(invalid());}
             Ok(Some(sequence))
         }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
-        if result.is_ok(){session.check_cancelled()?;if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire)||self.financial_io.is_some(){return Err(invalid());}self.failed=false;}
+        if result.is_ok() {
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(invalid());
+            }
+            self.failed = false;
+        }
         result
     }
     /// An exact reference and earlier scoped membership select retained bytes,

@@ -599,7 +599,6 @@ async fn actual_local_party_retention_commits_retries_and_reopens() {
     reopened.close().await;
 }
 
-
 #[tokio::test]
 async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
     let (_dir, ledger, _path) = installation("selected-inputs-source").await;
@@ -665,7 +664,8 @@ async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
     altered[1].digest = format!("sha256:{}", "0".repeat(64));
     let earlier: ledgerlab_core::policy::workflow::transition_constructor::ExactRef =
         serde_json::from_value(source_proof["receipt"]["result_refs"][0].clone()).unwrap();
-    let customer = serde_json::from_value(customer_proof["receipt"]["result_refs"][0].clone()).unwrap();
+    let customer =
+        serde_json::from_value(customer_proof["receipt"]["result_refs"][0].clone()).unwrap();
     // The held original is now sequence 5, not a requested producer. These
     // actual seeds alternate producers 4,3,4,1,4, so a last-wrapper slot or a
     // current-original borrow alone cannot serve the nonadjacent repetitions.
@@ -726,7 +726,10 @@ async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
                         actual.1 < *ordinary_scans,
                         "borrowing must avoid redundant wrapper validation"
                     );
-                    assert_eq!(actual.2, *ordinary_live, "call-local wrapper storage must be released");
+                    assert_eq!(
+                        actual.2, *ordinary_live,
+                        "call-local wrapper storage must be released"
+                    );
                 } else {
                     ordinary = Some(actual);
                 }

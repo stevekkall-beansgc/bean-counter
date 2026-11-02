@@ -553,9 +553,7 @@ fn customer_only_stage(
         return Ok(false);
     }
     let legs = shape::array(m, binding, "funding_legs")?;
-    if w::compare(m, legs.len(), 1usize)?.is_lt()
-        || w::compare(m, legs.len(), 16usize)?.is_gt()
-    {
+    if w::compare(m, legs.len(), 1usize)?.is_lt() || w::compare(m, legs.len(), 16usize)?.is_gt() {
         return Err(shape::fail("customer-only Stage funding leg count"));
     }
     // Preserve the existing platform-funded route even for a no-share Stage.
@@ -687,7 +685,12 @@ pub(in crate::policy::workflow::transition_constructor) fn original(
         }
     }
     if !w::compare(m, customer_count, 1usize)?.is_eq()
-        || !w::compare(m, platform_count, if customer_only { 0usize } else { 1usize })?.is_eq()
+        || !w::compare(
+            m,
+            platform_count,
+            if customer_only { 0usize } else { 1usize },
+        )?
+        .is_eq()
     {
         return Err(shape::fail(
             "first app capability requires exact customer/platform assent",
@@ -913,56 +916,85 @@ mod management_tests {
     #[test]
     fn no_share_stage_original_requires_exact_customer_consent_and_funding() {
         use crate::policy::workflow::selected_program::{
-            compile_selected_publication, stage_fixture_normalized_source,
-            SelectedCompilerSupport, SelectedSourceInput,
+            compile_selected_publication, stage_fixture_normalized_source, SelectedCompilerSupport,
+            SelectedSourceInput,
         };
         use crate::{canonical::CanonicalBytes, validation_work::ResourceLimits};
         let (_legacy, c, _, inputs) = super::super::super::first_work_tests::test_inputs();
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let support = SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(
-            &mut author,
-        ).unwrap();
+        let support =
+            SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(&mut author)
+                .unwrap();
         let make = |no_share: bool| {
             let mut source: Value = serde_json::from_slice(include_bytes!(
                 "../../../../../../../examples/workflow-stage/source.json"
-            )).unwrap();
+            ))
+            .unwrap();
             if no_share {
                 for doc in source["documents"].as_array_mut().unwrap() {
                     if doc["schema"] == "ledger-workflow-slot-template/1" {
-                        doc["components"].as_array_mut().unwrap().retain(|row| row["book"] == "retail");
+                        doc["components"]
+                            .as_array_mut()
+                            .unwrap()
+                            .retain(|row| row["book"] == "retail");
                     }
                     if doc["schema"] == "ledger-workflow-policy/4" {
-                        doc["binding_slots"].as_array_mut().unwrap().retain(|row| row["book"] == "retail");
-                        doc["rules"].as_array_mut().unwrap().retain(|row| row["formula"]["kind"] != "closure_share");
+                        doc["binding_slots"]
+                            .as_array_mut()
+                            .unwrap()
+                            .retain(|row| row["book"] == "retail");
+                        doc["rules"]
+                            .as_array_mut()
+                            .unwrap()
+                            .retain(|row| row["formula"]["kind"] != "closure_share");
                     }
                 }
                 let docs = source["documents"].as_array_mut().unwrap();
-                let template = docs.iter().find(|doc| doc["schema"] == "ledger-workflow-slot-template/1").unwrap();
+                let template = docs
+                    .iter()
+                    .find(|doc| doc["schema"] == "ledger-workflow-slot-template/1")
+                    .unwrap();
                 let digest = crate::policy::workflow::document_digest(
-                    "ledger-workflow-slot-template/1", template,
-                ).unwrap();
+                    "ledger-workflow-slot-template/1",
+                    template,
+                )
+                .unwrap();
                 let reference = json!({"kind":"workflow-slot-template","id":format!("wdoc_{}", &digest[7..]),"digest":digest});
-                let policy = docs.iter_mut().find(|doc| doc["schema"] == "ledger-workflow-policy/4").unwrap();
+                let policy = docs
+                    .iter_mut()
+                    .find(|doc| doc["schema"] == "ledger-workflow-policy/4")
+                    .unwrap();
                 policy["slot_template_ref"] = reference;
             }
             let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let source = stage_fixture_normalized_source(&source, &support, &mut s).unwrap();
             let input = SelectedSourceInput {
-                documents: source["documents"].as_array().unwrap().iter()
+                documents: source["documents"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
                     .map(|v| CanonicalBytes::from_value(v).unwrap().into_vec())
-                    .chain(std::iter::once(support.canonical_bytes().to_vec())).collect(),
+                    .chain(std::iter::once(support.canonical_bytes().to_vec()))
+                    .collect(),
                 root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
             };
             compile_selected_publication(input, &support, &mut s).unwrap()
         };
         let no_share = make(true);
         let supplier = make(false);
-        assert!(no_share.no_share_stage_with_work(author.semantic_work()).unwrap());
-        assert!(!supplier.no_share_stage_with_work(author.semantic_work()).unwrap());
+        assert!(no_share
+            .no_share_stage_with_work(author.semantic_work())
+            .unwrap());
+        assert!(!supplier
+            .no_share_stage_with_work(author.semantic_work())
+            .unwrap());
         let find = |schema: &str| -> Value {
-            inputs.iter().filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok())
-                .find(|body| body["schema"] == schema && body["customer"] == "customer-A").unwrap()
+            inputs
+                .iter()
+                .filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok())
+                .find(|body| body["schema"] == schema && body["customer"] == "customer-A")
+                .unwrap()
         };
         let binding = find("ledger-workflow-binding/1");
         let accepted = find("ledger-workflow-accepted-agreement/1");
@@ -970,13 +1002,31 @@ mod management_tests {
         let assent = find("ledger-workflow-assent/1");
         let terms_ref: ExactRef = serde_json::from_value(accepted["terms_ref"].clone()).unwrap();
         let check = |program: &SelectedProgram, binding: &Value, missing: Option<&Value>| {
-            let views: Vec<_> = inputs.iter().filter(|row| {
-                missing.is_none_or(|reference| serde_json::to_value(&row.reference).unwrap() != *reference)
-            }).map(|row| EconomicRecordView { reference: &row.reference, canonical_body: &row.canonical_body }).collect();
+            let views: Vec<_> = inputs
+                .iter()
+                .filter(|row| {
+                    missing.is_none_or(|reference| {
+                        serde_json::to_value(&row.reference).unwrap() != *reference
+                    })
+                })
+                .map(|row| EconomicRecordView {
+                    reference: &row.reference,
+                    canonical_body: &row.canonical_body,
+                })
+                .collect();
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let mut child = session.meter_mut().local_economic_meter().unwrap();
-            let mut records = Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
-            original(program, &mut child, &mut records, &c, binding, &accepted, (&terms_ref, &registered))
+            let mut records =
+                Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
+            original(
+                program,
+                &mut child,
+                &mut records,
+                &c,
+                binding,
+                &accepted,
+                (&terms_ref, &registered),
+            )
         };
         check(&no_share, &binding, None).unwrap();
         assert!(check(&supplier, &binding, None).is_err());
@@ -999,33 +1049,60 @@ mod management_tests {
         bad["assent_refs"] = json!([extra.clone(), extra]);
         assert!(check(&no_share, &bad, None).is_err());
         for field in ["evidence_ref", "operator_attestation_ref"] {
-            assert!(check(&no_share, &binding, Some(&assent[field])).is_err(), "{field}");
+            assert!(
+                check(&no_share, &binding, Some(&assent[field])).is_err(),
+                "{field}"
+            );
         }
     }
     #[test]
     fn component_original_checks_genuine_customer_assent_without_platform() {
+        use crate::policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport,
+        };
         use crate::validation_work::ResourceLimits;
-        use crate::policy::workflow::selected_program::{compile_selected_publication, SelectedCompilerSupport};
         let (legacy, c, _, inputs) = super::super::super::first_work_tests::test_inputs();
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author).unwrap();
-        let input = super::super::super::pricing::component_tests::component_input(&support, &mut author);
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
+        let input =
+            super::super::super::pricing::component_tests::component_input(&support, &mut author);
         let mut compile = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let component = compile_selected_publication(input, &support, &mut compile).unwrap();
         let find = |schema: &str| -> Value {
-            inputs.iter().filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok()).find(|body| body["schema"] == schema && body["customer"] == "customer-A").unwrap()
+            inputs
+                .iter()
+                .filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok())
+                .find(|body| body["schema"] == schema && body["customer"] == "customer-A")
+                .unwrap()
         };
         let binding = find("ledger-workflow-binding/1");
         let accepted = find("ledger-workflow-accepted-agreement/1");
         let registered = find("ledger-workflow-customer-registration/1");
         let terms_ref: ExactRef = serde_json::from_value(accepted["terms_ref"].clone()).unwrap();
-        let views: Vec<_> = inputs.iter().map(|row| EconomicRecordView { reference: &row.reference, canonical_body: &row.canonical_body }).collect();
+        let views: Vec<_> = inputs
+            .iter()
+            .map(|row| EconomicRecordView {
+                reference: &row.reference,
+                canonical_body: &row.canonical_body,
+            })
+            .collect();
         let check = |program: &SelectedProgram, binding: &Value| {
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let mut child = session.meter_mut().local_economic_meter().unwrap();
-            let mut records = Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
-            original(program, &mut child, &mut records, &c, binding, &accepted, (&terms_ref, &registered))
+            let mut records =
+                Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
+            original(
+                program,
+                &mut child,
+                &mut records,
+                &c,
+                binding,
+                &accepted,
+                (&terms_ref, &registered),
+            )
         };
         check(&component, &binding).unwrap();
         assert!(check(&legacy, &binding).is_err());
@@ -1033,5 +1110,4 @@ mod management_tests {
         bad_binding["customer"] = json!("other-customer");
         assert!(check(&component, &bad_binding).is_err());
     }
-
 }

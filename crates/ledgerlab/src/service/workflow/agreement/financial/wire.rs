@@ -781,16 +781,28 @@ pub(super) struct JournalData<'a> {
     members: RefSet<'a>,
 }
 impl JournalData<'_> {
-    pub(super) fn compare_original(&self, original: &super::wrappers::OriginalWrappers, s: &mut OriginalAuditSession) -> Result<()> {
+    pub(super) fn compare_original(
+        &self,
+        original: &super::wrappers::OriginalWrappers,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
         for (actual, expected) in [
             (self.operation.bytes(), original.operation()),
             (self.manifest.bytes(), original.manifest()),
             (self.receipt.bytes(), original.receipt()),
         ] {
-            let expected = s.canonical_representation(expected, RepresentationKind::Record).map_err(core_error)?;
-            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-            s.semantic_work().scan_bytes(actual.len()).map_err(core_error)?;
-            s.semantic_work().scan_bytes(expected.bytes().len()).map_err(core_error)?;
+            let expected = s
+                .canonical_representation(expected, RepresentationKind::Record)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(actual.len())
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(expected.bytes().len())
+                .map_err(core_error)?;
             require(actual == expected.bytes(), "INTEGRITY_FAILURE")?;
         }
         Ok(())
@@ -916,12 +928,21 @@ fn frame_inner<'a>(
         }
     }
     let authority = if let Some(inline) = candidate.inline_authority() {
-        require(authority.is_none() && metadata.result_kind() == "semantic_alias", "INTEGRITY_FAILURE")?;
+        require(
+            authority.is_none() && metadata.result_kind() == "semantic_alias",
+            "INTEGRITY_FAILURE",
+        )?;
         require(candidate.introduced().is_empty(), "INTEGRITY_FAILURE")?;
-        require(ref_compare(inline.reference(), metadata.authority_ref(), session)?.is_eq(), "INTEGRITY_FAILURE")?;
+        require(
+            ref_compare(inline.reference(), metadata.authority_ref(), session)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
         inline
     } else {
-        require(metadata.result_kind() != "semantic_alias", "INTEGRITY_FAILURE")?;
+        require(
+            metadata.result_kind() != "semantic_alias",
+            "INTEGRITY_FAILURE",
+        )?;
         authority.ok_or(ServiceError::IntegrityFailure)?
     };
     request::same_text(authority.schema(), recipe.authority, session)?;

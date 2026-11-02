@@ -28,11 +28,9 @@ struct Registration {
 }
 fn normalized(req: &request::Request) -> Result<Value> {
     match req.kind() {
-        "evidence.retain" => {
-            parse_evidence_payload(req.payload())?
-                .canonical_value()
-                .map_err(typed_error)
-        }
+        "evidence.retain" => parse_evidence_payload(req.payload())?
+            .canonical_value()
+            .map_err(typed_error),
         "authority.change" if req.payload()["schema"] == "ledger-workflow-customer-register/1" => {
             let r: Registration = serde_json::from_value(req.payload().clone())
                 .map_err(|_| reject("INVALID_SHAPE"))?;
@@ -173,7 +171,12 @@ fn result_envelope(mut v: Value, duplicate: Option<&str>) -> Value {
     }
     v
 }
-async fn retry(ledger: &LocalWorkflowLedger, tx: &mut SqliteTx, req: &request::Request, old: &JournalOperation) -> Result<Value> {
+async fn retry(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &request::Request,
+    old: &JournalOperation,
+) -> Result<Value> {
     let result = verify::retained_owned(tx, req.key(), old, Some(ledger)).await?;
     let saved = &result["request_evidence"];
     if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
@@ -202,13 +205,17 @@ pub(super) async fn prepare_evidence(
     prepare_evidence_owned(tx, req, payload, owner, None).await
 }
 async fn prepare_evidence_owned(
-    tx: &mut SqliteTx, req: &request::Request, payload: &Value,
-    owner: (&str, &Timestamp, &str, &RecordRef), ledger: Option<&LocalWorkflowLedger>,
+    tx: &mut SqliteTx,
+    req: &request::Request,
+    payload: &Value,
+    owner: (&str, &Timestamp, &str, &RecordRef),
+    ledger: Option<&LocalWorkflowLedger>,
 ) -> Result<PreparedEvidence> {
     let (actor, at, mode, root) = owner;
     require(proof_session::present(tx, req.key())?, "INTEGRITY_FAILURE")?;
     let input = parse_evidence_payload(payload)?;
-    let checked_dependencies = validate_evidence_dependencies(tx, req.key(), &input, actor, mode, ledger).await?;
+    let checked_dependencies =
+        validate_evidence_dependencies(tx, req.key(), &input, actor, mode, ledger).await?;
     let result = evidence_record(&input, actor, at, mode, root)?;
     let results = vec![result.reference.clone()];
     let mut documents = vec![result];

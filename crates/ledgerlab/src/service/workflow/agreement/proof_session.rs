@@ -47,15 +47,26 @@ pub(super) fn retain_stop_storage(
     session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
 ) -> Result<()> {
     let bytes = std::mem::size_of::<StopStorage>();
-    let control = session.reserve_external_payload(bytes).map_err(super::super::core_error)?;
-    session.semantic_work().write_bytes(bytes).map_err(super::super::core_error)?;
-    SESSION.try_with(|state| {
-        let mut state = state.borrow_mut();
-        require(bound(&state, tx, key), "INTEGRITY_FAILURE")?;
-        let next = state.stop_storage.take();
-        state.stop_storage = Some(Box::new(StopStorage { _payload: payload, _control: control, next }));
-        Ok(())
-    }).map_err(|_| ServiceError::IntegrityFailure)?
+    let control = session
+        .reserve_external_payload(bytes)
+        .map_err(super::super::core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(bytes)
+        .map_err(super::super::core_error)?;
+    SESSION
+        .try_with(|state| {
+            let mut state = state.borrow_mut();
+            require(bound(&state, tx, key), "INTEGRITY_FAILURE")?;
+            let next = state.stop_storage.take();
+            state.stop_storage = Some(Box::new(StopStorage {
+                _payload: payload,
+                _control: control,
+                next,
+            }));
+            Ok(())
+        })
+        .map_err(|_| ServiceError::IntegrityFailure)?
 }
 impl State {
     fn invalidate(&mut self) {

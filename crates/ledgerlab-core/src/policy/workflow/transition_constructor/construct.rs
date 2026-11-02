@@ -4,16 +4,16 @@ use super::super::selected_program::SelectedProgram;
 use super::emitted_record::ConstructedEnvelope;
 use super::records::SuppliedRecords;
 use super::{
-    CoreMeter, Phase, authority, body,
+    authority, body,
     data::*,
     meter, pricing,
     records::{self},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape,
+    shape, CoreMeter, Phase,
 };
 use crate::{Error, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 pub(super) type ReadSelection<'inv, 'a> = (
     Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,

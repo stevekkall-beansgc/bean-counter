@@ -290,7 +290,8 @@ impl SqliteTx {
             "revoke" => p.target.is_some() && same(p.journal.kind, "agreement.revoke", s)?,
             _ => false,
         };
-        if !action_ok || p.expected_revision < 0
+        if !action_ok
+            || p.expected_revision < 0
             || p.expected_revision.checked_add(1) != Some(p.revision)
             || (p.expected_revision == 0) != p.prior_head.is_none()
             || (p.expected_revision == 0 && p.action != "activate")
@@ -347,14 +348,23 @@ impl SqliteTx {
             }
         }
         if let Some(target) = p.target {
-            if !same(&target.kind, "workflow-activation", s)? { return Err(invalid()); }
-            let args = [p.journal.identity, target.kind.as_bytes(), target.id.as_bytes(), target.digest.as_bytes()];
+            if !same(&target.kind, "workflow-activation", s)? {
+                return Err(invalid());
+            }
+            let args = [
+                p.journal.identity,
+                target.kind.as_bytes(),
+                target.id.as_bytes(),
+                target.digest.as_bytes(),
+            ];
             let payload = io::binding_payload(&args, &[], 0, 0, s)?;
             self.financial_reserve_io(s, payload)?;
             let present: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest WHERE m.identity_key=? AND d.kind=? AND d.id=? AND d.digest=? AND d.schema_name='ledger-workflow-activation-transition/1')")
                 .bind(p.journal.identity).bind(&target.kind).bind(&target.id).bind(&target.digest).fetch_one(self.conn()).await?;
             self.financial_finish_io(s).await?;
-            if !present { return Err(invalid()); }
+            if !present {
+                return Err(invalid());
+            }
         }
         let fields = [
             p.logical_store_id.as_bytes(),
@@ -380,13 +390,27 @@ impl SqliteTx {
             p.head.id.as_bytes(),
         ];
         if let Some(prior) = p.prior_head {
-            if !same(&prior.kind, "workflow-head-transition", s)? { return Err(invalid()); }
-            let fields = [p.head.id.as_bytes(), fields[0], fields[1], fields[2], fields[4], fields[3], prior.id.as_bytes(), prior.kind.as_bytes(), prior.digest.as_bytes()];
+            if !same(&prior.kind, "workflow-head-transition", s)? {
+                return Err(invalid());
+            }
+            let fields = [
+                p.head.id.as_bytes(),
+                fields[0],
+                fields[1],
+                fields[2],
+                fields[4],
+                fields[3],
+                prior.id.as_bytes(),
+                prior.kind.as_bytes(),
+                prior.digest.as_bytes(),
+            ];
             let payload = io::binding_payload(&fields, &[], 2, 0, s)?;
             self.financial_reserve_io(s, payload)?;
             let changed = sqlx::query("UPDATE workflow_agreement_heads SET revision=?,transition_id=? WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND customer=? AND head_kind='agreement_activation' AND revision=? AND transition_id=? AND EXISTS(SELECT 1 FROM workflow_documents d WHERE d.kind=? AND d.id=workflow_agreement_heads.transition_id AND d.digest=?)")
                 .bind(p.revision).bind(&p.head.id).bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(p.expected_revision).bind(&prior.id).bind(&prior.kind).bind(&prior.digest).execute(self.conn()).await?;
-            if changed.rows_affected() != 1 { return Err(StoreError::ExpectedCurrent.into()); }
+            if changed.rows_affected() != 1 {
+                return Err(StoreError::ExpectedCurrent.into());
+            }
         } else {
             let payload = io::binding_payload(&head_fields, &[], 2, 0, s)?;
             self.financial_reserve_io(s, payload)?;

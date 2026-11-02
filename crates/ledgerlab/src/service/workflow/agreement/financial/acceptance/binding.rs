@@ -3,7 +3,7 @@
 //! this body and actual retained catalog/instantiation/role/terms/grants. Neither
 //! a matching body nor this source record establishes consent or provenance.
 use super::*;
-use ledgerlab_core::policy::workflow::{DefinitionRef, selected_program::SelectedProgram};
+use ledgerlab_core::policy::workflow::{selected_program::SelectedProgram, DefinitionRef};
 
 fn definition(r: &DefinitionRef, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     let digest = wire::string(r.digest(), s)?;

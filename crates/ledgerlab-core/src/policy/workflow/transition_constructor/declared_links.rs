@@ -2,11 +2,11 @@
 //! original Product supplies both slots and every endpoint is an exact Ref.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter, authority, body, data::*, emitted_record::ConstructedEnvelope, records::Records,
-    shape,
+    authority, body, data::*, emitted_record::ConstructedEnvelope, records::Records, shape,
+    CoreMeter,
 };
-use crate::{Result, validation_work as w};
-use serde_json::{Value, json};
+use crate::{validation_work as w, Result};
+use serde_json::{json, Value};
 
 fn product<'a>(m: &mut CoreMeter, program: &'a SelectedProgram, p: &Value) -> Result<&'a Value> {
     for d in program.source_documents() {
@@ -1082,8 +1082,8 @@ mod tests {
     use crate::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::selected_program::{
-            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
-            load_local_selected_execution,
+            compile_selected_publication, load_local_selected_execution, SelectedCompilerSupport,
+            SelectedSourceInput,
         },
         validation_work::{OriginalAuditSession, ResourceLimits},
     };

@@ -20,14 +20,31 @@ use serde_json::{json, Value};
 pub(super) fn admission_activation_shape(m: &mut CoreMeter, v: &Value) -> Result<()> {
     let action = shape::text(m, v, "action")?;
     let fields: &[&str] = if shape::same_text(m, action, "activate")? {
-        &["schema", "action", "head_transition_ref", "binding_ref", "effective_at", "commit_sequence", "accepted_at"]
+        &[
+            "schema",
+            "action",
+            "head_transition_ref",
+            "binding_ref",
+            "effective_at",
+            "commit_sequence",
+            "accepted_at",
+        ]
     } else if shape::same_text(m, action, "replace")? {
         let target_value = shape::field(m, v, "target_transition_ref")?;
         let target = shape::reference(m, target_value)?;
         if !shape::same_text(m, &target.kind, "workflow-activation")? {
             return Err(shape::fail("replacement activation target kind"));
         }
-        &["schema", "action", "head_transition_ref", "binding_ref", "effective_at", "commit_sequence", "accepted_at", "target_transition_ref"]
+        &[
+            "schema",
+            "action",
+            "head_transition_ref",
+            "binding_ref",
+            "effective_at",
+            "commit_sequence",
+            "accepted_at",
+            "target_transition_ref",
+        ]
     } else {
         return Err(shape::fail("non-admitting activation transition"));
     };
@@ -1782,13 +1799,23 @@ mod activation_shape_tests {
         for value in [&initial, &replacement] {
             assert!(admission_activation_shape(&mut CoreMeter::new(65536).unwrap(), value).is_ok());
         }
-        let mut stop = replacement.clone(); stop["action"] = json!("revoke");
-        let mut absent = replacement.clone(); absent.as_object_mut().unwrap().remove("target_transition_ref");
-        let mut wrong_kind = replacement.clone(); wrong_kind["target_transition_ref"]["kind"] = json!("workflow-binding");
-        let mut extra = initial.clone(); extra["target_transition_ref"] = r;
-        let mut unknown = replacement; unknown["action"] = json!("unknown");
+        let mut stop = replacement.clone();
+        stop["action"] = json!("revoke");
+        let mut absent = replacement.clone();
+        absent
+            .as_object_mut()
+            .unwrap()
+            .remove("target_transition_ref");
+        let mut wrong_kind = replacement.clone();
+        wrong_kind["target_transition_ref"]["kind"] = json!("workflow-binding");
+        let mut extra = initial.clone();
+        extra["target_transition_ref"] = r;
+        let mut unknown = replacement;
+        unknown["action"] = json!("unknown");
         for value in [stop, absent, wrong_kind, extra, unknown] {
-            assert!(admission_activation_shape(&mut CoreMeter::new(65536).unwrap(), &value).is_err());
+            assert!(
+                admission_activation_shape(&mut CoreMeter::new(65536).unwrap(), &value).is_err()
+            );
         }
     }
 }

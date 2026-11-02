@@ -1,4 +1,4 @@
-use super::{Inner, read, write};
+use super::{read, write, Inner};
 use crate::store::{
     errors::{CommitError, StoreError},
     ports::AcceptanceTx,
@@ -6,12 +6,12 @@ use crate::store::{
 };
 use sqlx::{Connection as _, Sqlite, SqliteConnection, Transaction};
 use std::{
-    sync::{Arc, atomic::Ordering},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 use tokio::{
-    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
-    time::{Instant, timeout_at},
+    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
+    time::{timeout_at, Instant},
 };
 
 // Set the poison bit before every database await. If its future is dropped the

@@ -1437,30 +1437,78 @@ mod tests {
 #[cfg(test)]
 mod component_exposure_tests {
     use super::*;
-    use crate::{canonical::audit_arena::AuditArena, policy::workflow::selected_program::{compile_selected_publication, SelectedCompilerSupport}, validation_work::{OriginalAuditSession, ResourceLimits}};
+    use crate::{
+        canonical::audit_arena::AuditArena,
+        policy::workflow::selected_program::{
+            compile_selected_publication, SelectedCompilerSupport,
+        },
+        validation_work::{OriginalAuditSession, ResourceLimits},
+    };
     use serde_json::json;
     #[test]
     fn component_work_bound_uses_retail_terms3_and_refuses_app_terms() {
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
         let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let support = SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author).unwrap();
+        let support =
+            SelectedCompilerSupport::local_component_lifecycle_execution_with_session(&mut author)
+                .unwrap();
         let input = super::super::pricing::component_tests::component_input(&support, &mut author);
         let mut compilation = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let program = compile_selected_publication(input, &support, &mut compilation).unwrap();
-        let activity = program.source_documents().iter().find(|d| d.canonical_value()["schema"] == "ledger-workflow-product/1").unwrap().canonical_value()["activities"].as_array().unwrap().iter().find(|a| a["name"] == "support:complete").unwrap();
+        let activity = program
+            .source_documents()
+            .iter()
+            .find(|d| d.canonical_value()["schema"] == "ledger-workflow-product/1")
+            .unwrap()
+            .canonical_value()["activities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "support:complete")
+            .unwrap();
         let payload = json!({"activity":"support:complete","status":"failed","fact_schema_ref":activity["fact_schema"],"facts":{"support:quantity":"2"}});
         let cap = json!({"currency":"USD","scale":18,"atoms":"7000000000000000000"});
         let binding = json!({"accepted_context":{},"bindings":[{"slot":"support:retail"}],"funding_legs":[{"name":"support:customer","mode":"customer_local"}],"exposure_ceilings":[{"binding_slot":"support:retail","maximum":cap}]});
         let terms_body = json!({"schema":"ledger-workflow-slot-binding-terms/3","exposure_scope":"original_work","book":"retail","slot":"support:retail","exposure_ceiling":cap});
         let blank = super::super::record_body::RecordBody::Legacy(json!({}));
-        let reference = ExactRef {kind:"workflow-work-claim".into(),id:format!("wclaim_{}", "a".repeat(64)),digest:format!("sha256:{}", "a".repeat(64))};
-        let mut terms = Terms {binding:super::super::record_body::RecordBody::Legacy(binding),accepted:blank.clone(),_activation:blank.clone(),catalog:blank.clone(),instantiation:blank.clone(),slot_terms:super::super::record_body::RecordBody::Legacy(terms_body),slot_terms_ref:reference.clone(),role_ref:reference.clone()};
+        let reference = ExactRef {
+            kind: "workflow-work-claim".into(),
+            id: format!("wclaim_{}", "a".repeat(64)),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        };
+        let mut terms = Terms {
+            binding: super::super::record_body::RecordBody::Legacy(binding),
+            accepted: blank.clone(),
+            _activation: blank.clone(),
+            catalog: blank.clone(),
+            instantiation: blank.clone(),
+            slot_terms: super::super::record_body::RecordBody::Legacy(terms_body),
+            slot_terms_ref: reference.clone(),
+            role_ref: reference.clone(),
+        };
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let mut m = session.meter_mut().local_economic_meter().unwrap();
-        let bound = derive_per_work_bound(&mut m, &program, &payload, &reference, &terms, "original-worker").unwrap();
+        let bound = derive_per_work_bound(
+            &mut m,
+            &program,
+            &payload,
+            &reference,
+            &terms,
+            "original-worker",
+        )
+        .unwrap();
         assert_eq!(bound.maximum_positive, BigInt::from(0));
         terms.slot_terms.legacy_mut()["schema"] = json!("ledger-workflow-slot-binding-terms/6");
-        let error = derive_per_work_bound(&mut m, &program, &payload, &reference, &terms, "original-worker").err().unwrap();
+        let error = derive_per_work_bound(
+            &mut m,
+            &program,
+            &payload,
+            &reference,
+            &terms,
+            "original-worker",
+        )
+        .err()
+        .unwrap();
         assert_eq!(error.detail, "original exposure terms recipe");
     }
 }

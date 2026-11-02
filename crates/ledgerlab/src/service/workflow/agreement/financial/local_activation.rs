@@ -219,16 +219,45 @@ pub(super) async fn prepare_later_append(
             .uses_local_execution_recipe(),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
-    let parsed = s.parse_representation(observed.normalized_payload.bytes(), RepresentationKind::Record).map_err(core_error)?;
-    let shape = activation_verify::shape::select(req.kind(), request_wrapper::text(parsed.value(), "schema", s)?, |a,b| acceptance::same_recipe_text(a,b,s))?;
-    let expected = acceptance::counter(request_wrapper::text(parsed.value(), "expected_revision", s)?, s)?;
+    let parsed = s
+        .parse_representation(
+            observed.normalized_payload.bytes(),
+            RepresentationKind::Record,
+        )
+        .map_err(core_error)?;
+    let shape = activation_verify::shape::select(
+        req.kind(),
+        request_wrapper::text(parsed.value(), "schema", s)?,
+        |a, b| acceptance::same_recipe_text(a, b, s),
+    )?;
+    let expected = acceptance::counter(
+        request_wrapper::text(parsed.value(), "expected_revision", s)?,
+        s,
+    )?;
     for bound in [0u64, i64::MAX as u64] {
-        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&expected.into(), &bound.into()]).map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(
+                ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                &[&expected.into(), &bound.into()],
+            )
+            .map_err(core_error)?;
     }
     require(expected > 0 && expected < i64::MAX as u64, "INVALID_SCALAR")?;
-    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&expected.into(), &1u64.into()]).map_err(core_error)?;
-    let revision = expected.checked_add(1).ok_or(ServiceError::IntegrityFailure)?;
-    let admission = if shape.action == "revoke" { observed.stop_records.as_ref() } else { observed.admission_records.as_ref() }.ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Add,
+            &[&expected.into(), &1u64.into()],
+        )
+        .map_err(core_error)?;
+    let revision = expected
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let admission = if shape.action == "revoke" {
+        observed.stop_records.as_ref()
+    } else {
+        observed.admission_records.as_ref()
+    }
+    .ok_or(ServiceError::IntegrityFailure)?;
     let generated = [
         &admission.root,
         &admission.authority,
@@ -237,7 +266,13 @@ pub(super) async fn prepare_later_append(
         &observed.records.activation,
     ];
     let original = &observed.binding.original;
-    if shape.action != "revoke" { original.publication.program().require_local_admission_with_session(s).map_err(core_error)?; }
+    if shape.action != "revoke" {
+        original
+            .publication
+            .program()
+            .require_local_admission_with_session(s)
+            .map_err(core_error)?;
+    }
     let binding = s
         .parse_representation(
             original.acceptance.binding.bytes(),
@@ -245,31 +280,114 @@ pub(super) async fn prepare_later_append(
         )
         .map_err(core_error)?;
     if shape.action != "revoke" {
-        original.acceptance.require_local_admission_sources(&observed.binding.sources, &original.publication, binding.value(), &observed.binding.at, s)?;
+        original.acceptance.require_local_admission_sources(
+            &observed.binding.sources,
+            &original.publication,
+            binding.value(),
+            &observed.binding.at,
+            s,
+        )?;
     }
     // Full chronological acceptance owner, extended to the held writer cutoff.
-    let mut completed = prefix::acceptance_for_original(ledger, tx, req.key(), request_wrapper::field(parsed.value(), "accepted_binding_ref", s)?, observed.before(), s).await?;
+    let mut completed = prefix::acceptance_for_original(
+        ledger,
+        tx,
+        req.key(),
+        request_wrapper::field(parsed.value(), "accepted_binding_ref", s)?,
+        observed.before(),
+        s,
+    )
+    .await?;
     let setup = ledger.admin.read(&ledger.store, tx, req.key()).await?;
-    completed.current_sources(tx, req.key(), (ledger, &setup), &observed.binding.sources, observed.before(), s).await?;
-    let schedule = completed.completed_schedule(req.key(), binding.value(), observed.before(), expected, s)?;
+    completed
+        .current_sources(
+            tx,
+            req.key(),
+            (ledger, &setup),
+            &observed.binding.sources,
+            observed.before(),
+            s,
+        )
+        .await?;
+    let schedule =
+        completed.completed_schedule(req.key(), binding.value(), observed.before(), expected, s)?;
     if shape.action == "revoke" {
-        completed.completed_stop_evidence(tx, req.key(), parsed.value(), binding.value(), &setup.operator, observed.before(), s).await?;
+        completed
+            .completed_stop_evidence(
+                tx,
+                req.key(),
+                parsed.value(),
+                binding.value(),
+                &setup.operator,
+                observed.before(),
+                s,
+            )
+            .await?;
         schedule.require_stop_target(parsed.value(), original.acceptance.binding.reference(), s)?;
     }
-    let (head_doc, _h) = prefix::schedule_document(observed.records.head.reference(), observed.records.head.schema(), observed.records.head.bytes(), s)?;
-    let (activation_doc, _a) = prefix::schedule_document(observed.records.activation.reference(), observed.records.activation.schema(), observed.records.activation.bytes(), s)?;
-    let (binding_doc, _b) = prefix::schedule_document(original.acceptance.binding.reference(), original.acceptance.binding.schema(), original.acceptance.binding.bytes(), s)?;
-    let (next, _next_refs) = prefix::paid_transition(req.key(), request_wrapper::text(binding.value(), "customer", s)?, request_wrapper::text(binding.value(), "agreement_id", s)?, head_doc, activation_doc, binding_doc, s)?;
+    let (head_doc, _h) = prefix::schedule_document(
+        observed.records.head.reference(),
+        observed.records.head.schema(),
+        observed.records.head.bytes(),
+        s,
+    )?;
+    let (activation_doc, _a) = prefix::schedule_document(
+        observed.records.activation.reference(),
+        observed.records.activation.schema(),
+        observed.records.activation.bytes(),
+        s,
+    )?;
+    let (binding_doc, _b) = prefix::schedule_document(
+        original.acceptance.binding.reference(),
+        original.acceptance.binding.schema(),
+        original.acceptance.binding.bytes(),
+        s,
+    )?;
+    let (next, _next_refs) = prefix::paid_transition(
+        req.key(),
+        request_wrapper::text(binding.value(), "customer", s)?,
+        request_wrapper::text(binding.value(), "agreement_id", s)?,
+        head_doc,
+        activation_doc,
+        binding_doc,
+        s,
+    )?;
     activation_verify::schedule::check_next_with_session(&schedule.transitions, &next, s)?;
-    let prior = schedule.transitions.last().ok_or(ServiceError::IntegrityFailure)?;
+    let prior = schedule
+        .transitions
+        .last()
+        .ok_or(ServiceError::IntegrityFailure)?;
     let kind = wire::string(&prior.head.reference.kind, s)?;
     let id = wire::string(&prior.head.reference.id, s)?;
     let digest = wire::string(&prior.head.reference.digest, s)?;
-    let encoded = wire::object(&[("digest",digest.bytes()),("id",id.bytes()),("kind",kind.bytes())], 262144, s)?;
-    let prior_json = s.parse_representation(encoded.bytes(), RepresentationKind::Record).map_err(core_error)?;
-    let (prior_ref, _prior_lease) = current::source::from_value(prior_json.value(), "workflow-head-transition", s)?;
-    let target_name = match shape.action { "replace" => Some("replaces_transition_ref"), "revoke" => Some("transition_ref"), _ => None };
-    let target = target_name.map(|name| current::source::from_value(request_wrapper::field(parsed.value(), name, s)?, "workflow-activation", s)).transpose()?;
+    let encoded = wire::object(
+        &[
+            ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", kind.bytes()),
+        ],
+        262144,
+        s,
+    )?;
+    let prior_json = s
+        .parse_representation(encoded.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    let (prior_ref, _prior_lease) =
+        current::source::from_value(prior_json.value(), "workflow-head-transition", s)?;
+    let target_name = match shape.action {
+        "replace" => Some("replaces_transition_ref"),
+        "revoke" => Some("transition_ref"),
+        _ => None,
+    };
+    let target = target_name
+        .map(|name| {
+            current::source::from_value(
+                request_wrapper::field(parsed.value(), name, s)?,
+                "workflow-activation",
+                s,
+            )
+        })
+        .transpose()?;
 
     let selected = original
         .acceptance
@@ -306,17 +424,25 @@ pub(super) async fn prepare_later_append(
         members.add_record_ref(reference, s)?;
     }
     if shape.action == "revoke" {
-        for v in request_wrapper::field(parsed.value(), "evidence_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+        for v in request_wrapper::field(parsed.value(), "evidence_refs", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            s.semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
             let (reference, _lease) = current::source::from_value(v, "workflow-evidence", s)?;
-            prefix::verify_selected_association(tx, req.key(), &reference, observed.before(), s).await?;
+            prefix::verify_selected_association(tx, req.key(), &reference, observed.before(), s)
+                .await?;
             members.add_record_ref(&reference, s)?;
         }
     }
     let authority = s
         .parse_representation(admission.authority.bytes(), RepresentationKind::Authority)
         .map_err(core_error)?;
-    let fields: &[&str] = if shape.action == "revoke" { &[] } else if original.publication.program().uses_stage_lifecycle_recipe() {
+    let fields: &[&str] = if shape.action == "revoke" {
+        &[]
+    } else if original.publication.program().uses_stage_lifecycle_recipe() {
         &[
             "app_consent_verification_refs",
             "supplier_consent_verification_refs",
@@ -325,12 +451,16 @@ pub(super) async fn prepare_later_append(
         &["app_consent_verification_refs"]
     };
     for field in fields {
-        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+        s.semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
         for r in request_wrapper::field(authority.value(), field, s)?
             .as_array()
             .ok_or(ServiceError::IntegrityFailure)?
         {
-            s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+            s.semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
             let (r, _owner) = current::source::from_value(r, "workflow-verification", s)?;
             prefix::verify_selected_association(tx, req.key(), &r, observed.before(), s).await?;
             members.add_record_ref(&r, s)?;
@@ -355,31 +485,64 @@ pub(super) async fn prepare_later_append(
     )?;
     let reply = WorkflowReply::agreement(&journal, &evidence, s)?;
     let count = journal.members().len();
-    let stride = std::mem::size_of::<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>();
-    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Multiply, &[&count.into(), &stride.into()]).map_err(core_error)?;
+    let stride =
+        std::mem::size_of::<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>();
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Multiply,
+            &[&count.into(), &stride.into()],
+        )
+        .map_err(core_error)?;
     let refs_bytes = count.checked_mul(stride).ok_or(ServiceError::Unavailable)?;
     let document_bytes = 5 * std::mem::size_of::<FinancialDocument>();
-    s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add, &[&refs_bytes.into(), &document_bytes.into()]).map_err(core_error)?;
-    let bytes = refs_bytes.checked_add(document_bytes).ok_or(ServiceError::Unavailable)?;
+    s.semantic_work()
+        .arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Add,
+            &[&refs_bytes.into(), &document_bytes.into()],
+        )
+        .map_err(core_error)?;
+    let bytes = refs_bytes
+        .checked_add(document_bytes)
+        .ok_or(ServiceError::Unavailable)?;
     let _storage = s.reserve_external_payload(bytes).map_err(core_error)?;
     s.semantic_work().write_bytes(bytes).map_err(core_error)?;
     let mut documents = Vec::new();
-    documents.try_reserve_exact(5).map_err(|_| ServiceError::Unavailable)?;
+    documents
+        .try_reserve_exact(5)
+        .map_err(|_| ServiceError::Unavailable)?;
     let mut refs = Vec::new();
-    refs.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
+    refs.try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
     for (actual, paid) in [(documents.capacity(), 5), (refs.capacity(), count)] {
-        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
-        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&actual.into(), &paid.into()]).map_err(core_error)?;
+        s.semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(
+                ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                &[&actual.into(), &paid.into()],
+            )
+            .map_err(core_error)?;
         require(actual <= paid, "PROGRAM_BUDGET_EXCEEDED")?;
     }
     for r in generated {
-        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
-        documents.push(FinancialDocument { reference: r.reference(), schema: r.schema(), canonical_bytes: r.bytes() });
+        s.semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
+        documents.push(FinancialDocument {
+            reference: r.reference(),
+            schema: r.schema(),
+            canonical_bytes: r.bytes(),
+        });
     }
     for i in 0..count {
-        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+        s.semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
         let r = journal.members().at(i, s)?;
-        if !local_original_work::same_ref(r, journal.operation_reference(), s)? { refs.push(r); }
+        if !local_original_work::same_ref(r, journal.operation_reference(), s)? {
+            refs.push(r);
+        }
     }
     let journal_view = journal.storage_view(
         req,
@@ -418,7 +581,7 @@ pub(super) async fn prepare_later_append(
         intent: observed.records.intent.reference(),
         effective_at_us: effective.micros(),
         prior_head: Some(&prior_ref),
-        target: target.as_ref().map(|(r,_)| r),
+        target: target.as_ref().map(|(r, _)| r),
         action: shape.action,
     };
     management.recheck(ledger, tx, req.key(), s).await?;
@@ -431,19 +594,27 @@ pub(super) async fn prepare_later_append(
 /// Existing R1 management authority snapshot; this is framed DATA under the
 /// held real-local management owner, not a new stop authorization.
 pub(super) fn stop_retention_authority(
-    setup: &crate::service::billing::Setup, root: &wire::SourceRecord,
-    at: &Timestamp, s: &mut OriginalAuditSession,
+    setup: &crate::service::billing::Setup,
+    root: &wire::SourceRecord,
+    at: &Timestamp,
+    s: &mut OriginalAuditSession,
 ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
-    let actor = wire::string(&setup.operator,s)?;
-    let source = wire::string(&setup.source,s)?;
-    let refs = wire::RefSet::new(std::iter::once(root.reference()),1,true,s)?.encode(s)?;
-    let at = wire::string(at.as_str(),s)?;
-    wire::object(&[
-        ("authority_refs",refs.bytes()),("principal_id",actor.bytes()),
-        ("rights",br#"["admin"]"#),("schema",br#""ledger-workflow-publication-authority/1""#),
-        ("source",source.bytes()),
-        ("validated_at",at.bytes()),
-    ],262144,s)
+    let actor = wire::string(&setup.operator, s)?;
+    let source = wire::string(&setup.source, s)?;
+    let refs = wire::RefSet::new(std::iter::once(root.reference()), 1, true, s)?.encode(s)?;
+    let at = wire::string(at.as_str(), s)?;
+    wire::object(
+        &[
+            ("authority_refs", refs.bytes()),
+            ("principal_id", actor.bytes()),
+            ("rights", br#"["admin"]"#),
+            ("schema", br#""ledger-workflow-publication-authority/1""#),
+            ("source", source.bytes()),
+            ("validated_at", at.bytes()),
+        ],
+        262144,
+        s,
+    )
 }
 
 /// Exact local initial-activation originals reuse the completed acceptance/PUB
@@ -458,7 +629,10 @@ pub(super) async fn verify_original(
 ) -> Result<bool> {
     let original = origin.wrappers();
     if original.class() != wrappers::WireClass::Agreement
-        || !matches!(request_wrapper::text(original.operation(), "kind", s)?, "agreement.activate" | "agreement.revoke")
+        || !matches!(
+            request_wrapper::text(original.operation(), "kind", s)?,
+            "agreement.activate" | "agreement.revoke"
+        )
     {
         return Ok(false);
     }
@@ -469,7 +643,12 @@ pub(super) async fn verify_original(
     }
     let saved = ingress::IncomingRequest::parse(original.original_request().raw(), s)?;
     let payload = saved.payload(s)?;
-    if !matches!(request_wrapper::text(payload, "schema", s)?, "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1" | "ledger-workflow-agreement-revoke/1") {
+    if !matches!(
+        request_wrapper::text(payload, "schema", s)?,
+        "ledger-workflow-activation/1"
+            | "ledger-workflow-activation-replace/1"
+            | "ledger-workflow-agreement-revoke/1"
+    ) {
         return Ok(false);
     }
     let mut completed = prefix::acceptance_for_original(

@@ -1,8 +1,8 @@
 use crate::store::errors::StoreError;
 use sha2::{Digest, Sha256};
 use sqlx::{
-    SqlSafeStr, SqliteConnection,
     migrate::{Migration, MigrationType, Migrator},
+    SqlSafeStr, SqliteConnection,
 };
 const SQL: &str = include_str!("../../../migrations/sqlite/0001_first_slice.sql");
 const OUTBOX: &str = include_str!("../../../migrations/sqlite/0002_outbox.sql");
@@ -31,12 +31,22 @@ const ASSERTION_WORKFLOW: &str = include_str!("workflow/financial/assertion_sche
 const STAGE_WORKFLOW: &str = include_str!("workflow/financial/stage_schema.sql");
 const INVOCATION_WORKFLOW: &str = include_str!("workflow/financial/invocation_schema.sql");
 fn manual_credit_migration() -> Migration {
-    Migration::new(21, "operator manual credit custody".into(), MigrationType::Simple,
-        include_str!("workflow/manual_credit_schema.sql").into_sql_str(), false)
+    Migration::new(
+        21,
+        "operator manual credit custody".into(),
+        MigrationType::Simple,
+        include_str!("workflow/manual_credit_schema.sql").into_sql_str(),
+        false,
+    )
 }
 fn statement_workflow_migration() -> Migration {
-    Migration::new(20, "workflow statement membership".into(), MigrationType::Simple,
-        include_str!("workflow/statement_schema.sql").into_sql_str(), false)
+    Migration::new(
+        20,
+        "workflow statement membership".into(),
+        MigrationType::Simple,
+        include_str!("workflow/statement_schema.sql").into_sql_str(),
+        false,
+    )
 }
 fn invocation_workflow_migration() -> Migration {
     Migration::new(
@@ -1891,7 +1901,10 @@ impl super::SqliteTx {
 async fn invocation_retained_rows(conn: &mut SqliteConnection) -> Result<[u8; 32], StoreError> {
     workflow_retained_rows_except(conn, "").await
 }
-async fn workflow_retained_rows_except(conn: &mut SqliteConnection, excluded: &str) -> Result<[u8; 32], StoreError> {
+async fn workflow_retained_rows_except(
+    conn: &mut SqliteConnection,
+    excluded: &str,
+) -> Result<[u8; 32], StoreError> {
     use sqlx::{Row, TypeInfo, ValueRef};
     let tables: Vec<String> = sqlx::query_scalar("SELECT name FROM sqlite_schema WHERE type='table' AND substr(name,1,9)='workflow_' AND name<>? ORDER BY name").bind(excluded).fetch_all(&mut *conn).await?;
     let mut hash = Sha256::new();
@@ -1958,8 +1971,10 @@ async fn workflow_retained_rows_except(conn: &mut SqliteConnection, excluded: &s
 impl super::SqliteTx {
     /// Explicit workflow close/2 adoption; never invoked by ordinary open.
     pub(crate) async fn workflow_enable_statement_schema(&mut self) -> Result<(), StoreError> {
-        if self.failed { return Err(StoreError::InvalidStore("poisoned statement upgrade")); }
-        self.failed=true;
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned statement upgrade"));
+        }
+        self.failed = true;
         let result=async {
             let from=version(self.conn()).await?;
             if from==20 || from==21 { return Ok(()); }
@@ -1987,7 +2002,9 @@ impl super::SqliteTx {
             super::connect::integrity(self.conn()).await?;
             Ok(())
         }.await;
-        if result.is_ok() { self.failed=false; }
+        if result.is_ok() {
+            self.failed = false;
+        }
         result
     }
 
@@ -2030,7 +2047,9 @@ impl super::SqliteTx {
             super::connect::integrity(self.conn()).await?;
             Ok(())
         }).await.map_err(|_| self.workflow_timeout_error())?;
-        if result.is_ok() { self.failed = false; }
+        if result.is_ok() {
+            self.failed = false;
+        }
         result
     }
 }

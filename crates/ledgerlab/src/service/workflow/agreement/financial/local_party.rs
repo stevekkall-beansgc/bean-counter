@@ -94,7 +94,7 @@ pub(super) async fn verify_original(
             | "ledger-workflow-party-revoke/1"
             | "ledger-workflow-party-evidence-retain/1"
             | "ledger-workflow-party-evidence-retain/2"
-                | "ledger-workflow-party-evidence-retain/3"
+            | "ledger-workflow-party-evidence-retain/3"
     ) {
         return Ok(false);
     }

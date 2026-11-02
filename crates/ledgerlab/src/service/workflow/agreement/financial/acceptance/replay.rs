@@ -633,7 +633,11 @@ impl ReplayedAcceptance {
         &'a self,
         s: &mut OriginalAuditSession,
     ) -> Result<&'a Value> {
-        request_wrapper::field(self.original.input.terms.canonical_value(), "publication_ref", s)
+        request_wrapper::field(
+            self.original.input.terms.canonical_value(),
+            "publication_ref",
+            s,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

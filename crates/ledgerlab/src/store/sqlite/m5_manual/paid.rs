@@ -1,7 +1,7 @@
 //! Same-session bounded I/O for manual-credit custody. Returned DATA owns its
 //! arena leases; neither this module nor its SQL results grant original proof.
 use super::*;
-use crate::store::sqlite::workflow::financial::{FinancialReadError, io};
+use crate::store::sqlite::workflow::financial::{io, FinancialReadError};
 use ledgerlab_core::domain::workflow_statement::manual_credit as data;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, AuditedValue, ExternalBufferLease},
@@ -104,7 +104,11 @@ fn value(raw: &[u8], s: &mut OriginalAuditSession) -> Result<AuditedValue> {
 }
 fn require(ok: bool, s: &mut OriginalAuditSession) -> Result<()> {
     s.work().visit(Visit::Constraint)?;
-    if ok { Ok(()) } else { Err(bad().into()) }
+    if ok {
+        Ok(())
+    } else {
+        Err(bad().into())
+    }
 }
 fn fields(v: &Value, names: &[&str], s: &mut OriginalAuditSession) -> Result<()> {
     let object = v.as_object().ok_or_else(bad)?;

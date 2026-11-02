@@ -87,8 +87,7 @@ mod locked_head_tests {
     fn raw_sql_revision_matches_only_expected_counter_and_complete_prior_ref() {
         use crate::store::sqlite::workflow::financial::HeadLocator;
         use ledgerlab_core::{
-            canonical::audit_arena::AuditArena,
-            policy::workflow::transition_constructor::ExactRef,
+            canonical::audit_arena::AuditArena, policy::workflow::transition_constructor::ExactRef,
         };
 
         let prior = ExactRef {
@@ -123,7 +122,10 @@ mod locked_head_tests {
             assert_eq!(result, Err(reject("ORIGINAL_TERMS_MISMATCH")));
         }
         assert_eq!(check(b"\"1\"", k, i, d, 1), Err(reject("INVALID_SCALAR")));
-        assert_eq!(check(&[0xff], k, i, d, 1), Err(ServiceError::IntegrityFailure));
+        assert_eq!(
+            check(&[0xff], k, i, d, 1),
+            Err(ServiceError::IntegrityFailure)
+        );
     }
 }
 

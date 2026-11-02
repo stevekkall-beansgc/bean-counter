@@ -29,7 +29,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
-pub(super) use replay::{ReplayedAcceptance, reconstruct as reconstruct_held};
+pub(super) use replay::{reconstruct as reconstruct_held, ReplayedAcceptance};
 use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)

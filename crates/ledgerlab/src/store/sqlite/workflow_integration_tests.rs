@@ -459,13 +459,11 @@ impl SqliteTx {
                 .bind(kind).bind(id).bind(digest).bind(schema).bind(body).execute(self.conn()).await.unwrap_err();
             assert!(error.to_string().contains(expected), "{error}");
         }
-        assert!(
-            sqlx::query("PRAGMA foreign_key_check")
-                .fetch_all(self.conn())
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(self.conn())
+            .await
+            .unwrap()
+            .is_empty());
         super::workflow::capacity::check(self.conn(), 0, 0)
             .await
             .unwrap();

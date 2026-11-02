@@ -2759,15 +2759,13 @@ mod recipe_tests {
                 );
             }
         }
-        assert!(
-            recipe(
-                "outcome.close",
-                "ledger-workflow-outcome-close/2",
-                registry,
-                &mut session
-            )
-            .is_err()
-        );
+        assert!(recipe(
+            "outcome.close",
+            "ledger-workflow-outcome-close/2",
+            registry,
+            &mut session
+        )
+        .is_err());
         let ordinary = recipe(
             "work.accept",
             "ledger-workflow-work/1",
@@ -2786,33 +2784,27 @@ mod recipe_tests {
         .unwrap();
         assert_eq!(causal.operation, "ledger-workflow-economic-operation/4");
         assert_eq!(causal.authority, "ledger-workflow-economic-authority/3");
-        assert!(
-            recipe(
-                "work.accept",
-                "ledger-workflow-quantity-correction/2",
-                registry,
-                &mut session
-            )
-            .is_err()
-        );
-        assert!(
-            recipe(
-                "agreement.accept",
-                "ledger-workflow-agreement-accept/4",
-                registry,
-                &mut session
-            )
-            .is_err()
-        );
-        assert!(
-            recipe(
-                "quantity.correct",
-                "ledger-workflow-quantity-correction/2",
-                "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e",
-                &mut session
-            )
-            .is_err()
-        );
+        assert!(recipe(
+            "work.accept",
+            "ledger-workflow-quantity-correction/2",
+            registry,
+            &mut session
+        )
+        .is_err());
+        assert!(recipe(
+            "agreement.accept",
+            "ledger-workflow-agreement-accept/4",
+            registry,
+            &mut session
+        )
+        .is_err());
+        assert!(recipe(
+            "quantity.correct",
+            "ledger-workflow-quantity-correction/2",
+            "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e",
+            &mut session
+        )
+        .is_err());
     }
 }
 
@@ -2862,15 +2854,13 @@ mod supplier_dispatch_tests {
             assert!(recipe(kind, payload, CONSENT_REGISTRY, &mut session).is_err());
             assert!(descriptor_schema(kind, payload, CONSENT_REGISTRY, &mut session).is_err());
         }
-        assert!(
-            recipe(
-                "authority.change",
-                "ledger-workflow-party-authorize/1",
-                WORK_TARGET_REGISTRY,
-                &mut session
-            )
-            .is_err()
-        );
+        assert!(recipe(
+            "authority.change",
+            "ledger-workflow-party-authorize/1",
+            WORK_TARGET_REGISTRY,
+            &mut session
+        )
+        .is_err());
     }
     #[test]
     fn frozen_supplier_and_deadline_rows_dispatch_exact_saved_tuples() {

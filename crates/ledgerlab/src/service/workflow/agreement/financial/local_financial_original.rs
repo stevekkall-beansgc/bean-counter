@@ -3,7 +3,7 @@
 use super::*;
 use ledgerlab_core::{
     policy::workflow::transition_constructor::{
-        OperationKey as CoreKey, locate_local_subject_binding, normalize_local_saved_intent,
+        locate_local_subject_binding, normalize_local_saved_intent, OperationKey as CoreKey,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };
@@ -44,7 +44,9 @@ pub(super) async fn verify_alias_transport(
     incoming: Option<&ingress::IncomingRequest>,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    Ok(verify_intent(tx, original, incoming, false, s).await?.is_some())
+    Ok(verify_intent(tx, original, incoming, false, s)
+        .await?
+        .is_some())
 }
 /// The enclosing adapter authenticates the actual mapped caller and permanent
 /// claim before this SAME original certificate compares only transport variance.
@@ -54,7 +56,9 @@ pub(super) async fn verify_work_alias(
     incoming: &ingress::IncomingRequest,
     s: &mut OriginalAuditSession,
 ) -> Result<bool> {
-    Ok(verify_intent(tx, original, Some(incoming), true, s).await?.is_some())
+    Ok(verify_intent(tx, original, Some(incoming), true, s)
+        .await?
+        .is_some())
 }
 async fn verify_intent(
     tx: &mut SqliteTx,

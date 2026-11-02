@@ -127,8 +127,11 @@ pub(in super::super) fn frame_activation(
     members: ResolvedMembers,
     s: &mut OriginalAuditSession,
 ) -> Result<AgreementJournalData> {
-    require(matches!(incoming.kind(), "agreement.activate" | "agreement.revoke"), "INTEGRITY_FAILURE")
-        .inspect_err(|_| s.invalidate())?;
+    require(
+        matches!(incoming.kind(), "agreement.activate" | "agreement.revoke"),
+        "INTEGRITY_FAILURE",
+    )
+    .inspect_err(|_| s.invalidate())?;
     frame_agreement(
         incoming,
         normalized_payload,

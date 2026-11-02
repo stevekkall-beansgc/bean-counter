@@ -2,10 +2,10 @@
 use ledgerlab_core::{
     canonical::{self, audit_arena::AuditArena},
     policy::workflow::{
-        AcceptanceTerms, DefinitionRef, FactSchema,
         selected_program::{
-            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
+            compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
         },
+        AcceptanceTerms, DefinitionRef, FactSchema,
     },
     validation_work::{OriginalAuditSession, ResourceLimits},
 };

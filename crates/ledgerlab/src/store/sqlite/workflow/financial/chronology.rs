@@ -12,11 +12,18 @@ pub(crate) struct OriginalLocator {
 impl SqliteTx {
     /// Untrusted semantic locator only; the caller authenticates its original.
     pub(crate) async fn workflow_evidence_semantic_locator(
-        &mut self, store: &str, scope: &[String; 2], semantic: &[u8],
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        semantic: &[u8],
         session: &mut OriginalAuditSession,
     ) -> Result<Option<AuditedBytes>, FinancialReadError> {
         let prior = self.failed;
-        if prior || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+        if prior
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Err(StoreError::Integrity("poisoned evidence semantic lookup").into());
         }
         self.failed = true;
@@ -39,7 +46,11 @@ impl SqliteTx {
         if result.is_ok() {
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             session.check_cancelled()?;
-            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
                 return Err(StoreError::Integrity("unfinished evidence semantic lookup").into());
             }
             self.failed = prior;

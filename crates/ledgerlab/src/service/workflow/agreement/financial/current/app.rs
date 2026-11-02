@@ -9,7 +9,7 @@ mod stage;
 mod work_capture;
 mod work_heads;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    OperationFactReferenceInputs, select_work_fact_reference_inputs,
+    select_work_fact_reference_inputs, OperationFactReferenceInputs,
 };
 use ledgerlab_core::validation_work::ValidationVisit;
 
@@ -484,24 +484,44 @@ pub(in super::super) async fn observe_activation(
             )
             .map_err(core_error)?;
         let binding = observed._parsed_binding.value();
-        let stop_source = if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
-            Some(super::super::acceptance::select_stop(
-                &observed.sources, &observed.setup.operator, key, session,
-            )?)
+        let stop_source =
+            if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
+                Some(super::super::acceptance::select_stop(
+                    &observed.sources,
+                    &observed.setup.operator,
+                    key,
+                    session,
+                )?)
+            } else {
+                None
+            };
+        let stop_records = if let Some(index) = stop_source {
+            let source = observed
+                .sources
+                .get(index)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let scope = check::field(
+                check::field(incoming.value(), "key", session)?,
+                "scope",
+                session,
+            )?;
+            let root = super::party::produce::root(&observed.setup, scope, &observed.at, session)?;
+            let authority = super::super::activation::stop_authority(
+                source,
+                &root,
+                observed.original.acceptance.accepted_reference(),
+                observed.original.acceptance.binding.reference(),
+                binding,
+                payload.value(),
+                key,
+                &observed.setup.operator,
+                &observed.at,
+                session,
+            )?;
+            Some(ActivationAdmissionRecords { root, authority })
         } else {
             None
         };
-        let stop_records = if let Some(index) = stop_source {
-            let source = observed.sources.get(index).ok_or(ServiceError::IntegrityFailure)?;
-            let scope = check::field(check::field(incoming.value(), "key", session)?, "scope", session)?;
-            let root = super::party::produce::root(&observed.setup, scope, &observed.at, session)?;
-            let authority = super::super::activation::stop_authority(
-                source, &root, observed.original.acceptance.accepted_reference(),
-                observed.original.acceptance.binding.reference(), binding, payload.value(), key,
-                &observed.setup.operator, &observed.at, session,
-            )?;
-            Some(ActivationAdmissionRecords { root, authority })
-        } else { None };
         let admission_source =
             if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
                 None
@@ -612,14 +632,21 @@ pub(in super::super) async fn observe_activation(
             prior.as_ref().map(|v| v.value()),
             session,
         )?;
-        Ok((head, records, admission_source, stop_records, admission_records))
+        Ok((
+            head,
+            records,
+            admission_source,
+            stop_records,
+            admission_records,
+        ))
     }
     .await;
-    let (head, records, admission_source, stop_records, admission_records) = built.inspect_err(|_| {
-        session.invalidate();
-        tx.workflow_proof_failure_handle()
-            .store(true, std::sync::atomic::Ordering::Release);
-    })?;
+    let (head, records, admission_source, stop_records, admission_records) =
+        built.inspect_err(|_| {
+            session.invalidate();
+            tx.workflow_proof_failure_handle()
+                .store(true, std::sync::atomic::Ordering::Release);
+        })?;
     Ok(ObservedAppActivation {
         binding: observed,
         normalized_payload,

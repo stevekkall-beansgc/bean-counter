@@ -2539,7 +2539,11 @@ fn execute_with_state<'inv, 'raw>(
             for prior in &records {
                 m.visit("component.family_authority_union")?;
                 if shape::same_ref(m, &prior.reference, &closed.authority.reference)? {
-                    if !shape::same_bytes(m, &prior.canonical_body, &closed.authority.canonical_body)? {
+                    if !shape::same_bytes(
+                        m,
+                        &prior.canonical_body,
+                        &closed.authority.canonical_body,
+                    )? {
                         return Err(shape::fail("component duplicate family authority bytes"));
                     }
                     duplicate = true;

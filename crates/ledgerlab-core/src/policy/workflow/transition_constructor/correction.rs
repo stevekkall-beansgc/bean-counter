@@ -612,7 +612,14 @@ pub(super) fn execute<'inv, 'raw>(
         "ledger-workflow-work-claim/1"
     )?;
     if program.uses_component_lifecycle_recipe() {
-        call!(entry::historical_work_claim, m, c, &work_claim_ref, &work_claim, &work)?;
+        call!(
+            entry::historical_work_claim,
+            m,
+            c,
+            &work_claim_ref,
+            &work_claim,
+            &work
+        )?;
     } else {
         call!(entry::work_claim, m, c, &work_claim_ref, &work_claim)?;
     }

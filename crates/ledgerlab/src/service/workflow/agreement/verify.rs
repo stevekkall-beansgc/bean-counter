@@ -261,7 +261,9 @@ pub(super) async fn closure_owned(
         let body = canonical_body(&evidence)?;
         let input = evidence_input(&body)?;
         if input.purpose() == "admission_stop" {
-            let mut docs = activation_verify::stop_evidence_dependencies_owned(tx, key, &input, ledger).await?;
+            let mut docs =
+                activation_verify::stop_evidence_dependencies_owned(tx, key, &input, ledger)
+                    .await?;
             let root = parse_ref(&body["authority_ref"])?;
             let root_doc = super::loaded(tx, key, &root).await?;
             let root_body = canonical_body(&root_doc)?;
@@ -388,7 +390,10 @@ pub(super) async fn closure_owned(
     Ok(loaded.into_values().collect())
 }
 pub(super) async fn locator_dependencies_owned(
-    tx: &mut SqliteTx, key: &OperationKey, req: &request::Request, payload: &Value,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    req: &request::Request,
+    payload: &Value,
     ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<Vec<Document>> {
     if req.kind() == "evidence.retain" && payload["purpose"] == "admission_stop" {
@@ -402,7 +407,10 @@ pub(super) async fn locator_dependencies_owned(
         refs.push(parse_ref(&l["ref"])?);
     }
     if source::shared_namespace_schema(payload) && payload["action"] != "source.enroll" {
-        refs.push(source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?).await?);
+        refs.push(
+            source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?)
+                .await?,
+        );
     }
     authenticated_closure(tx, key, &refs).await
 }
@@ -549,7 +557,10 @@ async fn retained_local(
         seeds.push(parse_ref(&l["ref"])?);
     }
     if source::shared_namespace_schema(&payload) && payload["action"] != "source.enroll" {
-        seeds.push(source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?).await?);
+        seeds.push(
+            source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?)
+                .await?,
+        );
     }
     let docs = closure_owned(tx, key, &seeds, ledger).await?;
     let root_doc = docs
@@ -928,7 +939,9 @@ async fn retained_in_scope(
             if sequence >= operation.sequence {
                 return Err(ServiceError::IntegrityFailure);
             }
-            if definition_candidate_origin(tx, &identity, &kind, sequence, &document.reference).await? {
+            if definition_candidate_origin(tx, &identity, &kind, sequence, &document.reference)
+                .await?
+            {
                 children.entry(identity).or_insert(false);
                 continue;
             }
@@ -1049,11 +1062,27 @@ pub(super) fn document_origin<'a>(
 // An indexed origin is only a locator. This hint bypasses the incompatible
 // financial framing probe; the retained worklist still verifies the complete
 // original certificate and all of its dependencies.
-pub(super) async fn definition_candidate_origin(tx: &mut SqliteTx, identity: &[u8], kind: &str, sequence: i64, reference: &RecordRef) -> Result<bool> {
-    if kind != "evidence.retain" { return Ok(false); }
-    let origin = tx.workflow_agreement_lookup(identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
-    if origin.sequence != sequence || !origin.members.contains(reference) { return Err(ServiceError::IntegrityFailure); }
-    Ok(transport::saved_definition_candidate(&origin.operation_bytes))
+pub(super) async fn definition_candidate_origin(
+    tx: &mut SqliteTx,
+    identity: &[u8],
+    kind: &str,
+    sequence: i64,
+    reference: &RecordRef,
+) -> Result<bool> {
+    if kind != "evidence.retain" {
+        return Ok(false);
+    }
+    let origin = tx
+        .workflow_agreement_lookup(identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if origin.sequence != sequence || !origin.members.contains(reference) {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(transport::saved_definition_candidate(
+        &origin.operation_bytes,
+    ))
 }
 
 async fn document_origin_in_scope(
@@ -1078,7 +1107,11 @@ async fn document_origin_in_scope(
         .ok_or(ServiceError::IntegrityFailure)?;
     if definition_candidate_origin(tx, &identity, &kind, sequence, reference).await? {
         let saved_key = origin_key(&identity, key)?;
-        let origin = tx.workflow_agreement_lookup(&identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+        let origin = tx
+            .workflow_agreement_lookup(&identity)
+            .await
+            .map_err(crate::service::store_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
         retained(tx, &saved_key, &origin).await?;
         return Ok(());
     }
@@ -1118,7 +1151,9 @@ pub(super) async fn authenticated_closure(
     authenticated_closure_owned(tx, key, seeds, None).await
 }
 pub(super) async fn authenticated_closure_owned(
-    tx: &mut SqliteTx, key: &OperationKey, seeds: &[RecordRef],
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    seeds: &[RecordRef],
     ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<Vec<Document>> {
     if seeds.len() == 1 && seeds[0].kind == "workflow-head-transition" {

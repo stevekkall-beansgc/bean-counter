@@ -7,8 +7,8 @@ use crate::canonical::audit_arena::ExternalBufferLease;
 pub(super) mod alias;
 mod cost_enrollment;
 pub use cost_enrollment::{
-    construct_local_cost_authority_enrollment, normalize_local_cost_authority_enrollment_intent, CostAuthorityEnrollmentState,
-    LocalCostAuthorityEnrollment,
+    construct_local_cost_authority_enrollment, normalize_local_cost_authority_enrollment_intent,
+    CostAuthorityEnrollmentState, LocalCostAuthorityEnrollment,
 };
 pub(super) mod assembly;
 pub(super) mod heads;

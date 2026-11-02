@@ -1057,7 +1057,11 @@ impl Coverage {
                     .map_err(core_error)?;
                 observations.push(observed);
             }
-            let minimum = if customer_only_legs(input, binding, s)? { 0 } else { 1 };
+            let minimum = if customer_only_legs(input, binding, s)? {
+                0
+            } else {
+                1
+            };
             size(observations.len(), minimum, 16, s)?;
             let mut result = CurrentPlatformConsents {
                 observations,
@@ -1122,14 +1126,18 @@ fn customer_only_legs(
         .ok_or(ServiceError::IntegrityFailure)?;
     size(legs.len(), 1, 16, s)?;
     for leg in legs {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
         if !same_recipe_text(request_wrapper::text(leg, "mode", s)?, "customer_local", s)? {
             return Ok(false);
         }
     }
     let customer = request_wrapper::text(input.terms.canonical_value(), "customer", s)?;
     for leg in legs {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
         for field in ["payer", "resource_owner"] {
             s.semantic_work().visit(Visit::Field).map_err(core_error)?;
             request_wrapper::same_text(request_wrapper::text(leg, field, s)?, customer, s)?;
@@ -1137,7 +1145,10 @@ fn customer_only_legs(
     }
     // No supplier verifier consumes an additional provider assent on this
     // closed path. Keep exactly the genuine customer fullterms assent.
-    let assents = input.assent_refs().as_array().ok_or(ServiceError::IntegrityFailure)?;
+    let assents = input
+        .assent_refs()
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
     size(assents.len(), 1, 1, s)?;
     Ok(true)
 }
@@ -1241,7 +1252,11 @@ pub(super) async fn observe_local_platforms(
         }
         observations.push(observed);
     }
-    let minimum = if customer_only_legs(input, binding, s)? { 0 } else { 1 };
+    let minimum = if customer_only_legs(input, binding, s)? {
+        0
+    } else {
+        1
+    };
     size(observations.len(), minimum, 16, s)?;
     Ok(CurrentPlatformConsents {
         observations,

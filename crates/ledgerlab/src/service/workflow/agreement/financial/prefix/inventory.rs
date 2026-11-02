@@ -1169,7 +1169,7 @@ impl Inventory {
         copied(ENTRY_BYTES, s)?;
         let mut entry = record;
         copied(KEY_BYTES, s)?;
-        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0 .0);
         self.tree.replace_control(&entry, s)
     }
 }
@@ -1353,7 +1353,7 @@ impl Inventory {
             .map_err(core_error)?;
         let mut entry = Entry([0; ENTRY_BYTES]);
         copied(KEY_BYTES, s)?;
-        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0 .0);
         for (position, bytes) in [
             (216, offset.to_le_bytes().as_slice()),
             (224, (body.len() as u32).to_le_bytes().as_slice()),
@@ -1892,7 +1892,13 @@ mod tests {
     fn state_key_frames_five_outcome_parts_and_preserves_old_framing() {
         let arena = AuditArena::new().unwrap();
         let mut s = session(&arena);
-        let parts: [&[u8]; 5] = [b"\"agreement\"", b"\"family\"", b"\"target\"", b"\"source\"", b"\"token\""];
+        let parts: [&[u8]; 5] = [
+            b"\"agreement\"",
+            b"\"family\"",
+            b"\"target\"",
+            b"\"source\"",
+            b"\"token\"",
+        ];
         let original = StateKey::new("outcome", &parts, &mut s).unwrap();
         for i in 0..parts.len() {
             let mut changed = parts;
@@ -1901,9 +1907,22 @@ mod tests {
             assert_ne!(original.0.key(), changed.0.key());
         }
         let old = StateKey::new("old", &parts[..4], &mut s).unwrap();
-        let expected = wire::domain_digest(b"bean-counter/audit-local-state/1\0", &[b"[\"old\",\"agreement\",\"family\",\"target\",\"source\"]"], &mut s).unwrap();
-        let parsed = s.parse_representation(expected.bytes(), RepresentationKind::SourceDefinition).unwrap();
-        let locator = Locator::from_ref("audit-local-state", "audit", parsed.value().as_str().unwrap(), &mut s).unwrap();
+        let expected = wire::domain_digest(
+            b"bean-counter/audit-local-state/1\0",
+            &[b"[\"old\",\"agreement\",\"family\",\"target\",\"source\"]"],
+            &mut s,
+        )
+        .unwrap();
+        let parsed = s
+            .parse_representation(expected.bytes(), RepresentationKind::SourceDefinition)
+            .unwrap();
+        let locator = Locator::from_ref(
+            "audit-local-state",
+            "audit",
+            parsed.value().as_str().unwrap(),
+            &mut s,
+        )
+        .unwrap();
         assert_eq!(old.0.key(), locator.key());
         assert!(StateKey::new("outcome", &[b"0".as_slice(); 6], &mut s).is_err());
     }
@@ -1988,15 +2007,50 @@ mod app_claim_key_tests {
     use ledgerlab_core::policy::workflow::transition_constructor::{ExactRef, PermanentClaimKey};
 
     fn claim(variant: usize, changed: Option<usize>) -> PermanentClaimKey {
-        let part = |n| if changed == Some(n) { "changed" } else { "same" }.to_owned();
-        let reference = || ExactRef { kind: part(1), id: part(2), digest: part(3) };
+        let part = |n| {
+            if changed == Some(n) {
+                "changed"
+            } else {
+                "same"
+            }
+            .to_owned()
+        };
+        let reference = || ExactRef {
+            kind: part(1),
+            id: part(2),
+            digest: part(3),
+        };
         match variant {
-            0 => PermanentClaimKey::AppCall { logical_store_id: part(0), source_namespace: part(1), call_id: part(2) },
-            1 => PermanentClaimKey::AppComponentObservation { logical_store_id: part(0), original_work_ref: reference(), component_slot: part(4) },
-            2 => PermanentClaimKey::AppProviderCall { logical_store_id: part(0), provider: part(1), account: part(2), request_id: part(3) },
-            3 => PermanentClaimKey::AppCostComponent { logical_store_id: part(0), original_work_ref: reference(), component_slot: part(4) },
-            4 => PermanentClaimKey::AppFinalEvidence { logical_store_id: part(0), final_evidence_ref: reference() },
-            5 => PermanentClaimKey::AppObservationRevision { logical_store_id: part(0), observation_ref: reference(), cost_revision: part(4) },
+            0 => PermanentClaimKey::AppCall {
+                logical_store_id: part(0),
+                source_namespace: part(1),
+                call_id: part(2),
+            },
+            1 => PermanentClaimKey::AppComponentObservation {
+                logical_store_id: part(0),
+                original_work_ref: reference(),
+                component_slot: part(4),
+            },
+            2 => PermanentClaimKey::AppProviderCall {
+                logical_store_id: part(0),
+                provider: part(1),
+                account: part(2),
+                request_id: part(3),
+            },
+            3 => PermanentClaimKey::AppCostComponent {
+                logical_store_id: part(0),
+                original_work_ref: reference(),
+                component_slot: part(4),
+            },
+            4 => PermanentClaimKey::AppFinalEvidence {
+                logical_store_id: part(0),
+                final_evidence_ref: reference(),
+            },
+            5 => PermanentClaimKey::AppObservationRevision {
+                logical_store_id: part(0),
+                observation_ref: reference(),
+                cost_revision: part(4),
+            },
             _ => unreachable!(),
         }
     }
@@ -2009,10 +2063,19 @@ mod app_claim_key_tests {
         for (variant, fields) in [3, 5, 4, 5, 4, 5].into_iter().enumerate() {
             let key = super::super::local_claim_key(&claim(variant, None), &mut session).unwrap();
             let key = key.0.key().to_vec();
-            assert!(!keys.contains(&key), "distinct App claim variants must never alias");
+            assert!(
+                !keys.contains(&key),
+                "distinct App claim variants must never alias"
+            );
             for changed in 0..fields {
-                let other = super::super::local_claim_key(&claim(variant, Some(changed)), &mut session).unwrap();
-                assert_ne!(key.as_slice(), other.0.key(), "variant {variant}, tuple part {changed}");
+                let other =
+                    super::super::local_claim_key(&claim(variant, Some(changed)), &mut session)
+                        .unwrap();
+                assert_ne!(
+                    key.as_slice(),
+                    other.0.key(),
+                    "variant {variant}, tuple part {changed}"
+                );
             }
             keys.push(key);
         }

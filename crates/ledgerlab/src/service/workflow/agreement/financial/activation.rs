@@ -443,8 +443,16 @@ pub(super) fn stop_authority(
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
     let original = source.original_grant_body();
-    request_wrapper::same_text(request_wrapper::text(original, "principal_id", s)?, actor, s)?;
-    request_wrapper::same_text(request_wrapper::text(original, "source", s)?, &key.source, s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(original, "principal_id", s)?,
+        actor,
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(original, "source", s)?,
+        &key.source,
+        s,
+    )?;
     let enrollment = wire::reference(source.enrollment_ref(), s)?;
     let state_ref = wire::reference(source.state_ref(), s)?;
     let state = source.state_body();
@@ -453,19 +461,59 @@ pub(super) fn stop_authority(
     let status_value = wire::string(status, s)?;
     let grant_ref;
     let grant_status;
-    let _observation_storage = s.reserve_external_payload(6 * std::mem::size_of::<(&str, &[u8])>()).map_err(core_error)?;
-    s.semantic_work().write_bytes(6 * std::mem::size_of::<(&str, &[u8])>()).map_err(core_error)?;
+    let _observation_storage = s
+        .reserve_external_payload(6 * std::mem::size_of::<(&str, &[u8])>())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(6 * std::mem::size_of::<(&str, &[u8])>())
+        .map_err(core_error)?;
     let mut observation = Vec::new();
-    observation.try_reserve_exact(6).map_err(|_| ServiceError::Unavailable)?;
+    observation
+        .try_reserve_exact(6)
+        .map_err(|_| ServiceError::Unavailable)?;
     observation.push(("enrollment_ref", enrollment.bytes()));
     if acceptance::same_recipe_text(status, "active", s)? {
-        let grant = source.current_grant_body().ok_or(ServiceError::IntegrityFailure)?;
-        grant_ref = wire::reference(source.current_grant_ref().ok_or(ServiceError::IntegrityFailure)?, s)?;
-        let starts = Timestamp::parse_with_work(request_wrapper::text(grant, "starts_at", s)?, s.semantic_work()).map_err(core_error)?;
-        let ends = Timestamp::parse_with_work(request_wrapper::text(grant, "ends_at", s)?, s.semantic_work()).map_err(core_error)?;
-        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&at.micros().into(), &starts.micros().into()]).map_err(core_error)?;
-        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&at.micros().into(), &ends.micros().into()]).map_err(core_error)?;
-        grant_status = wire::string(if at.micros() < starts.micros() { "not_started" } else if at.micros() < ends.micros() { "valid" } else { "expired" }, s)?;
+        let grant = source
+            .current_grant_body()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        grant_ref = wire::reference(
+            source
+                .current_grant_ref()
+                .ok_or(ServiceError::IntegrityFailure)?,
+            s,
+        )?;
+        let starts = Timestamp::parse_with_work(
+            request_wrapper::text(grant, "starts_at", s)?,
+            s.semantic_work(),
+        )
+        .map_err(core_error)?;
+        let ends = Timestamp::parse_with_work(
+            request_wrapper::text(grant, "ends_at", s)?,
+            s.semantic_work(),
+        )
+        .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(
+                ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                &[&at.micros().into(), &starts.micros().into()],
+            )
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(
+                ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                &[&at.micros().into(), &ends.micros().into()],
+            )
+            .map_err(core_error)?;
+        grant_status = wire::string(
+            if at.micros() < starts.micros() {
+                "not_started"
+            } else if at.micros() < ends.micros() {
+                "valid"
+            } else {
+                "expired"
+            },
+            s,
+        )?;
         observation.push(("grant_ref", grant_ref.bytes()));
         observation.push(("grant_time_status", grant_status.bytes()));
     } else {
@@ -473,14 +521,21 @@ pub(super) fn stop_authority(
         require(source.current_grant_ref().is_none(), "INTEGRITY_FAILURE")?;
     }
     observation.extend([
-        ("revision", revision.bytes()), ("state_ref", state_ref.bytes()),
+        ("revision", revision.bytes()),
+        ("state_ref", state_ref.bytes()),
         ("status", status_value.bytes()),
     ]);
     let observation = wire::object(&observation, 262144, s)?;
     let actor = wire::string(actor, s)?;
     let source_name = wire::string(&key.source, s)?;
-    let root_body = s.parse_representation(root.bytes(), RepresentationKind::Authority).map_err(core_error)?;
-    let scope_value = request_wrapper::field(request_wrapper::field(root_body.value(), "basis", s)?, "scope", s)?;
+    let root_body = s
+        .parse_representation(root.bytes(), RepresentationKind::Authority)
+        .map_err(core_error)?;
+    let scope_value = request_wrapper::field(
+        request_wrapper::field(root_body.value(), "basis", s)?,
+        "scope",
+        s,
+    )?;
     let scope = encode(scope_value, s)?;
     let root = wire::reference(root.reference(), s)?;
     let accepted = wire::reference(accepted, s)?;
@@ -495,16 +550,33 @@ pub(super) fn stop_authority(
     let binding_namespace = encode(request_wrapper::field(binding, "source_namespace", s)?, s)?;
     same(namespace.bytes(), binding_namespace.bytes(), s)?;
     let at = wire::string(at.as_str(), s)?;
-    let body = wire::object(&[
-        ("accepted_agreement_ref", accepted.bytes()), ("actor", actor.bytes()),
-        ("agreement_id", agreement.bytes()), ("binding_ref", binding_ref.bytes()),
-        ("binding_source_namespace", namespace.bytes()), ("customer", customer.bytes()),
-        ("evidence_refs", evidence.bytes()), ("expected_activation_revision", expected.bytes()),
-        ("local_admin_ref", root.bytes()), ("observed_at", at.bytes()),
-        ("operation", br#""agreement.revoke""#), ("purpose", br#""stop""#),
-        ("schema", br#""ledger-workflow-agreement-authority/2""#), ("scope", scope.bytes()),
-        ("source", source_name.bytes()), ("source_observation", observation.bytes()),
-        ("target_transition_ref", target.bytes()),
-    ], 262144, s)?;
-    wire::source_record("workflow-authority", "ledger-workflow-agreement-authority/2", body, s)
+    let body = wire::object(
+        &[
+            ("accepted_agreement_ref", accepted.bytes()),
+            ("actor", actor.bytes()),
+            ("agreement_id", agreement.bytes()),
+            ("binding_ref", binding_ref.bytes()),
+            ("binding_source_namespace", namespace.bytes()),
+            ("customer", customer.bytes()),
+            ("evidence_refs", evidence.bytes()),
+            ("expected_activation_revision", expected.bytes()),
+            ("local_admin_ref", root.bytes()),
+            ("observed_at", at.bytes()),
+            ("operation", br#""agreement.revoke""#),
+            ("purpose", br#""stop""#),
+            ("schema", br#""ledger-workflow-agreement-authority/2""#),
+            ("scope", scope.bytes()),
+            ("source", source_name.bytes()),
+            ("source_observation", observation.bytes()),
+            ("target_transition_ref", target.bytes()),
+        ],
+        262144,
+        s,
+    )?;
+    wire::source_record(
+        "workflow-authority",
+        "ledger-workflow-agreement-authority/2",
+        body,
+        s,
+    )
 }

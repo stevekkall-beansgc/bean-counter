@@ -250,91 +250,208 @@ struct PaidTargetIndex<'a> {
     _storage: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
 }
 impl<'a> PaidTargetIndex<'a> {
-    fn build(history: &'a [Transition], at: Option<i64>, session: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<Self> {
-        use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    fn build(
+        history: &'a [Transition],
+        at: Option<i64>,
+        session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        use ledgerlab_core::validation_work::{
+            ArithmeticOperation as Op, ValidationVisit as Visit,
+        };
         let count = history.len();
-        session.semantic_work().arithmetic(Op::Multiply, &[&count.into(), &std::mem::size_of::<&str>().into()]).map_err(core_error)?;
-        let bytes = count.checked_mul(std::mem::size_of::<&str>()).ok_or(ServiceError::Unavailable)?;
-        let storage = session.reserve_external_payload(bytes).map_err(core_error)?;
-        session.semantic_work().write_bytes(bytes).map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Multiply,
+                &[&count.into(), &std::mem::size_of::<&str>().into()],
+            )
+            .map_err(core_error)?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<&str>())
+            .ok_or(ServiceError::Unavailable)?;
+        let storage = session
+            .reserve_external_payload(bytes)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(bytes)
+            .map_err(core_error)?;
         let mut ids = Vec::new();
-        ids.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
-        session.semantic_work().arithmetic(Op::Compare, &[&ids.capacity().into(), &count.into()]).map_err(core_error)?;
+        ids.try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&ids.capacity().into(), &count.into()])
+            .map_err(core_error)?;
         require(ids.capacity() <= count, "PROGRAM_BUDGET_EXCEEDED")?;
         for t in history {
-            session.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
             if let Some(at) = at {
-                session.semantic_work().arithmetic(Op::Compare, &[&t.at.micros().into(), &at.into()]).map_err(core_error)?;
-                if t.at.micros() > at { continue; }
+                session
+                    .semantic_work()
+                    .arithmetic(Op::Compare, &[&t.at.micros().into(), &at.into()])
+                    .map_err(core_error)?;
+                if t.at.micros() > at {
+                    continue;
+                }
             }
-            if let Some(target) = &t.target { ids.push(target.id.as_str()); }
+            if let Some(target) = &t.target {
+                ids.push(target.id.as_str());
+            }
         }
         // In-place heapsort gives deterministic O(n log n) comparisons and no
         // auxiliary allocation; the helper charges actual string bytes.
-        fn compare(a: &str, b: &str, s: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<std::cmp::Ordering> {
-            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        fn compare(
+            a: &str,
+            b: &str,
+            s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+        ) -> Result<std::cmp::Ordering> {
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
             s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
             s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
             Ok(a.cmp(b))
         }
-        fn sift(ids: &mut [&str], mut root: usize, end: usize, s: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<()> {
+        fn sift(
+            ids: &mut [&str],
+            mut root: usize,
+            end: usize,
+            s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+        ) -> Result<()> {
             loop {
-                s.semantic_work().arithmetic(Op::Multiply, &[&root.into(), &2usize.into()]).map_err(core_error)?;
+                s.semantic_work()
+                    .arithmetic(Op::Multiply, &[&root.into(), &2usize.into()])
+                    .map_err(core_error)?;
                 let doubled = root.checked_mul(2).ok_or(ServiceError::Unavailable)?;
-                s.semantic_work().arithmetic(Op::Add, &[&doubled.into(), &1usize.into()]).map_err(core_error)?;
+                s.semantic_work()
+                    .arithmetic(Op::Add, &[&doubled.into(), &1usize.into()])
+                    .map_err(core_error)?;
                 let child = doubled.checked_add(1).ok_or(ServiceError::Unavailable)?;
-                s.semantic_work().arithmetic(Op::Compare, &[&child.into(), &end.into()]).map_err(core_error)?;
-                if child >= end { break; }
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&child.into(), &end.into()])
+                    .map_err(core_error)?;
+                if child >= end {
+                    break;
+                }
                 let mut largest = child;
-                s.semantic_work().arithmetic(Op::Add, &[&child.into(), &1usize.into()]).map_err(core_error)?;
+                s.semantic_work()
+                    .arithmetic(Op::Add, &[&child.into(), &1usize.into()])
+                    .map_err(core_error)?;
                 let sibling = child.checked_add(1).ok_or(ServiceError::Unavailable)?;
-                s.semantic_work().arithmetic(Op::Compare, &[&sibling.into(), &end.into()]).map_err(core_error)?;
-                if sibling < end && compare(ids[child], ids[sibling], s)?.is_lt() { largest = sibling; }
-                if !compare(ids[root], ids[largest], s)?.is_lt() { break; }
-                s.semantic_work().visit(Visit::SortMove).map_err(core_error)?;
-                s.semantic_work().write_bytes(2 * std::mem::size_of::<&str>()).map_err(core_error)?;
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&sibling.into(), &end.into()])
+                    .map_err(core_error)?;
+                if sibling < end && compare(ids[child], ids[sibling], s)?.is_lt() {
+                    largest = sibling;
+                }
+                if !compare(ids[root], ids[largest], s)?.is_lt() {
+                    break;
+                }
+                s.semantic_work()
+                    .visit(Visit::SortMove)
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .write_bytes(2 * std::mem::size_of::<&str>())
+                    .map_err(core_error)?;
                 ids.swap(root, largest);
                 root = largest;
             }
             Ok(())
         }
         let n = ids.len();
-        session.semantic_work().arithmetic(Op::DivideRemainder, &[&n.into(), &2usize.into()]).map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&n.into(), &2usize.into()])
+            .map_err(core_error)?;
         for root in (0..n / 2).rev() {
-            session.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
             sift(&mut ids, root, n, session)?;
         }
         for end in (1..n).rev() {
-            session.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            session.semantic_work().visit(Visit::SortMove).map_err(core_error)?;
-            session.semantic_work().write_bytes(2 * std::mem::size_of::<&str>()).map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::SortMove)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .write_bytes(2 * std::mem::size_of::<&str>())
+                .map_err(core_error)?;
             ids.swap(0, end);
             sift(&mut ids, 0, end, session)?;
         }
-        Ok(Self { ids, _storage: storage })
+        Ok(Self {
+            ids,
+            _storage: storage,
+        })
     }
-    fn contains(&self, id: &str, session: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<bool> {
-        use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    fn contains(
+        &self,
+        id: &str,
+        session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<bool> {
+        use ledgerlab_core::validation_work::{
+            ArithmeticOperation as Op, ValidationVisit as Visit,
+        };
         let (mut low, mut high) = (0usize, self.ids.len());
         loop {
-            session.semantic_work().arithmetic(Op::Compare, &[&low.into(), &high.into()]).map_err(core_error)?;
-            if low >= high { break; }
-            session.semantic_work().visit(Visit::RefLookup).map_err(core_error)?;
-            session.semantic_work().arithmetic(Op::Subtract, &[&high.into(), &low.into()]).map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(Op::Compare, &[&low.into(), &high.into()])
+                .map_err(core_error)?;
+            if low >= high {
+                break;
+            }
+            session
+                .semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(Op::Subtract, &[&high.into(), &low.into()])
+                .map_err(core_error)?;
             let width = high - low;
-            session.semantic_work().arithmetic(Op::DivideRemainder, &[&width.into(), &2usize.into()]).map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&width.into(), &2usize.into()])
+                .map_err(core_error)?;
             let half = width / 2;
-            session.semantic_work().arithmetic(Op::Add, &[&low.into(), &half.into()]).map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(Op::Add, &[&low.into(), &half.into()])
+                .map_err(core_error)?;
             let middle = low.checked_add(half).ok_or(ServiceError::Unavailable)?;
             let item = self.ids[middle];
-            session.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-            session.semantic_work().scan_bytes(item.len()).map_err(core_error)?;
-            session.semantic_work().scan_bytes(id.len()).map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(item.len())
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(id.len())
+                .map_err(core_error)?;
             match item.cmp(id) {
                 std::cmp::Ordering::Less => {
-                    session.semantic_work().arithmetic(Op::Add, &[&middle.into(), &1usize.into()]).map_err(core_error)?;
+                    session
+                        .semantic_work()
+                        .arithmetic(Op::Add, &[&middle.into(), &1usize.into()])
+                        .map_err(core_error)?;
                     low = middle.checked_add(1).ok_or(ServiceError::Unavailable)?;
-                },
+                }
                 std::cmp::Ordering::Greater => high = middle,
                 std::cmp::Ordering::Equal => return Ok(true),
             }
@@ -346,84 +463,242 @@ impl<'a> PaidTargetIndex<'a> {
 /// Original-session counterpart of the existing check. It uses the same
 /// ordered-set membership and pending/stop semantics with paid scratch data.
 pub(in crate::service::workflow::agreement) fn check_next_with_session(
-    history: &[Transition], next: &Transition,
+    history: &[Transition],
+    next: &Transition,
     session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
 ) -> Result<()> {
-    use ledgerlab_core::validation_work::{ArithmeticOperation as Op, RepresentationKind, ValidationVisit as Visit};
+    use ledgerlab_core::validation_work::{
+        ArithmeticOperation as Op, RepresentationKind, ValidationVisit as Visit,
+    };
     let prior = history.last();
     let revision = prior.map_or(0, |p| p.revision);
-    session.semantic_work().arithmetic(Op::Add, &[&revision.into(), &1i64.into()]).map_err(core_error)?;
-    session.semantic_work().arithmetic(Op::Compare, &[&revision.into(), &next.revision.into()]).map_err(core_error)?;
-    if revision.checked_add(1) != Some(next.revision) { return Err(ServiceError::IntegrityFailure); }
-    if !paid_ref_eq(next.prior.as_ref(), prior.map(|p| &p.head.reference), session)? { return Err(ServiceError::IntegrityFailure); }
-    if let Some(p) = prior {
-        session.semantic_work().arithmetic(Op::Compare, &[&p.sequence.into(), &next.sequence.into()]).map_err(core_error)?;
-        session.semantic_work().arithmetic(Op::Compare, &[&p.at.micros().into(), &next.at.micros().into()]).map_err(core_error)?;
-        if p.sequence >= next.sequence || p.at.micros() > next.at.micros() { return Err(ServiceError::IntegrityFailure); }
+    session
+        .semantic_work()
+        .arithmetic(Op::Add, &[&revision.into(), &1i64.into()])
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&revision.into(), &next.revision.into()])
+        .map_err(core_error)?;
+    if revision.checked_add(1) != Some(next.revision) {
+        return Err(ServiceError::IntegrityFailure);
     }
-    session.semantic_work().arithmetic(Op::Compare, &[&next.effective.micros().into(), &next.at.micros().into()]).map_err(core_error)?;
-    if next.effective.micros() < next.at.micros() { return Err(ServiceError::IntegrityFailure); }
+    if !paid_ref_eq(
+        next.prior.as_ref(),
+        prior.map(|p| &p.head.reference),
+        session,
+    )? {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    if let Some(p) = prior {
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&p.sequence.into(), &next.sequence.into()])
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Compare,
+                &[&p.at.micros().into(), &next.at.micros().into()],
+            )
+            .map_err(core_error)?;
+        if p.sequence >= next.sequence || p.at.micros() > next.at.micros() {
+            return Err(ServiceError::IntegrityFailure);
+        }
+    }
+    session
+        .semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&next.effective.micros().into(), &next.at.micros().into()],
+        )
+        .map_err(core_error)?;
+    if next.effective.micros() < next.at.micros() {
+        return Err(ServiceError::IntegrityFailure);
+    }
     if next.action != ActivationAction::Revoke {
-        let binding = session.parse_representation(&next.binding.bytes, RepresentationKind::Record).map_err(core_error)?;
-        let _timestamps = session.reserve_external_payload(2 * (4 * 64 + 27)).map_err(core_error)?;
-        session.semantic_work().write_bytes(2 * (4 * 64 + 27)).map_err(core_error)?;
-        session.semantic_work().visit(Visit::Field).map_err(core_error)?;
-        let starts = Timestamp::parse_with_work(text(binding.value(), "starts_at")?, session.semantic_work()).map_err(core_error)?;
-        session.semantic_work().visit(Visit::Field).map_err(core_error)?;
-        let ends = binding.value().get("ends_at").map(|v| Timestamp::parse_with_work(v.as_str().ok_or(ServiceError::IntegrityFailure)?, session.semantic_work()).map_err(core_error)).transpose()?;
-        binding_interval_with_work(&next.effective, &starts, ends.as_ref(), session.semantic_work())?;
+        let binding = session
+            .parse_representation(&next.binding.bytes, RepresentationKind::Record)
+            .map_err(core_error)?;
+        let _timestamps = session
+            .reserve_external_payload(2 * (4 * 64 + 27))
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(2 * (4 * 64 + 27))
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .visit(Visit::Field)
+            .map_err(core_error)?;
+        let starts = Timestamp::parse_with_work(
+            text(binding.value(), "starts_at")?,
+            session.semantic_work(),
+        )
+        .map_err(core_error)?;
+        session
+            .semantic_work()
+            .visit(Visit::Field)
+            .map_err(core_error)?;
+        let ends = binding
+            .value()
+            .get("ends_at")
+            .map(|v| {
+                Timestamp::parse_with_work(
+                    v.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                    session.semantic_work(),
+                )
+                .map_err(core_error)
+            })
+            .transpose()?;
+        binding_interval_with_work(
+            &next.effective,
+            &starts,
+            ends.as_ref(),
+            session.semantic_work(),
+        )?;
     }
     let superseded = PaidTargetIndex::build(history, None, session)?;
     let mut pending = None;
     for t in history {
-        session.semantic_work().visit(Visit::Element).map_err(core_error)?;
-        session.semantic_work().arithmetic(Op::Compare, &[&t.effective.micros().into(), &next.at.micros().into()]).map_err(core_error)?;
-        if t.effective.micros() > next.at.micros() && !superseded.contains(&t.activation.reference.id, session)?
-            && pending.replace(t).is_some() {
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Compare,
+                &[&t.effective.micros().into(), &next.at.micros().into()],
+            )
+            .map_err(core_error)?;
+        if t.effective.micros() > next.at.micros()
+            && !superseded.contains(&t.activation.reference.id, session)?
+            && pending.replace(t).is_some()
+        {
             return Err(ServiceError::IntegrityFailure);
         }
     }
     match next.action {
-        ActivationAction::Activate => if pending.is_some() || next.target.is_some() { return Err(ServiceError::IntegrityFailure); },
-        ActivationAction::Replace => if !paid_ref_eq(pending.map(|t| &t.activation.reference), next.target.as_ref(), session)? { return Err(ServiceError::IntegrityFailure); },
+        ActivationAction::Activate => {
+            if pending.is_some() || next.target.is_some() {
+                return Err(ServiceError::IntegrityFailure);
+            }
+        }
+        ActivationAction::Replace => {
+            if !paid_ref_eq(
+                pending.map(|t| &t.activation.reference),
+                next.target.as_ref(),
+                session,
+            )? {
+                return Err(ServiceError::IntegrityFailure);
+            }
+        }
         ActivationAction::Revoke => {
-            session.semantic_work().arithmetic(Op::Compare, &[&next.effective.micros().into(), &next.at.micros().into()]).map_err(core_error)?;
-            if next.effective != next.at { return Err(ServiceError::IntegrityFailure); }
-            let selected = if pending.is_some() { pending } else { paid_boundary_at(history, &next.at, session)? };
-            if selected.is_none_or(|t| t.action == ActivationAction::Revoke) || !paid_ref_eq(selected.map(|t| &t.activation.reference), next.target.as_ref(), session)? { return Err(reject("ACTIVATION_SCHEDULE_CONFLICT")); }
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&next.effective.micros().into(), &next.at.micros().into()],
+                )
+                .map_err(core_error)?;
+            if next.effective != next.at {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let selected = if pending.is_some() {
+                pending
+            } else {
+                paid_boundary_at(history, &next.at, session)?
+            };
+            if selected.is_none_or(|t| t.action == ActivationAction::Revoke)
+                || !paid_ref_eq(
+                    selected.map(|t| &t.activation.reference),
+                    next.target.as_ref(),
+                    session,
+                )?
+            {
+                return Err(reject("ACTIVATION_SCHEDULE_CONFLICT"));
+            }
         }
     }
     Ok(())
 }
-fn paid_ref_eq(a: Option<&RecordRef>, b: Option<&RecordRef>, session: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<bool> {
+fn paid_ref_eq(
+    a: Option<&RecordRef>,
+    b: Option<&RecordRef>,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<bool> {
     use ledgerlab_core::validation_work::ValidationVisit as Visit;
-    session.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-    match (a,b) {
-        (None,None) => Ok(true),
-        (Some(a),Some(b)) => {
-            for (x,y) in [(&a.kind,&b.kind),(&a.id,&b.id),(&a.digest,&b.digest)] {
-                session.semantic_work().scan_bytes(x.len()).map_err(core_error)?;
-                session.semantic_work().scan_bytes(y.len()).map_err(core_error)?;
-                if x != y { return Ok(false); }
+    session
+        .semantic_work()
+        .visit(Visit::MemberCompare)
+        .map_err(core_error)?;
+    match (a, b) {
+        (None, None) => Ok(true),
+        (Some(a), Some(b)) => {
+            for (x, y) in [(&a.kind, &b.kind), (&a.id, &b.id), (&a.digest, &b.digest)] {
+                session
+                    .semantic_work()
+                    .scan_bytes(x.len())
+                    .map_err(core_error)?;
+                session
+                    .semantic_work()
+                    .scan_bytes(y.len())
+                    .map_err(core_error)?;
+                if x != y {
+                    return Ok(false);
+                }
             }
             Ok(true)
         }
         _ => Ok(false),
     }
 }
-pub(in crate::service::workflow::agreement) fn paid_boundary_at<'a>(history: &'a [Transition], at: &Timestamp, session: &mut ledgerlab_core::validation_work::OriginalAuditSession) -> Result<Option<&'a Transition>> {
+pub(in crate::service::workflow::agreement) fn paid_boundary_at<'a>(
+    history: &'a [Transition],
+    at: &Timestamp,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<Option<&'a Transition>> {
     use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
     let superseded = PaidTargetIndex::build(history, Some(at.micros()), session)?;
     let mut selected: Option<&Transition> = None;
     for t in history {
-        session.semantic_work().visit(Visit::Element).map_err(core_error)?;
-        session.semantic_work().arithmetic(Op::Compare, &[&t.at.micros().into(), &at.micros().into()]).map_err(core_error)?;
-        session.semantic_work().arithmetic(Op::Compare, &[&t.effective.micros().into(), &at.micros().into()]).map_err(core_error)?;
-        if t.at.micros() > at.micros() || t.effective.micros() > at.micros() || superseded.contains(&t.activation.reference.id, session)? { continue; }
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&t.at.micros().into(), &at.micros().into()])
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Compare,
+                &[&t.effective.micros().into(), &at.micros().into()],
+            )
+            .map_err(core_error)?;
+        if t.at.micros() > at.micros()
+            || t.effective.micros() > at.micros()
+            || superseded.contains(&t.activation.reference.id, session)?
+        {
+            continue;
+        }
         if let Some(old) = selected {
-            session.semantic_work().arithmetic(Op::Compare, &[&t.effective.micros().into(), &old.effective.micros().into()]).map_err(core_error)?;
-            session.semantic_work().arithmetic(Op::Compare, &[&t.sequence.into(), &old.sequence.into()]).map_err(core_error)?;
-            if (t.effective.micros(),t.sequence) < (old.effective.micros(),old.sequence) { continue; }
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&t.effective.micros().into(), &old.effective.micros().into()],
+                )
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(Op::Compare, &[&t.sequence.into(), &old.sequence.into()])
+                .map_err(core_error)?;
+            if (t.effective.micros(), t.sequence) < (old.effective.micros(), old.sequence) {
+                continue;
+            }
         }
         selected = Some(t);
     }

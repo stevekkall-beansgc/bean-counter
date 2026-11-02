@@ -4,8 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::transition_constructor::{
-        EconomicRecordView, ExactRef, OperationKey as CoreKey, select_component_local_input_edges,
-        select_local_input_edges, select_stage_local_input_edges,
+        select_component_local_input_edges, select_local_input_edges,
+        select_stage_local_input_edges, EconomicRecordView, ExactRef, OperationKey as CoreKey,
     },
     validation_work::{OriginalAuditSession, RepresentationKind},
 };

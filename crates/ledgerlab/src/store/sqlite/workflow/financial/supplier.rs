@@ -241,11 +241,20 @@ pub(crate) struct SupplierAccountOwner {
 }
 impl SqliteTx {
     pub(crate) async fn workflow_supplier_account_owner(
-        &mut self, namespace:&str, account:&str, environment:&str,
-        s:&mut OriginalAuditSession,
-    )->Result<Option<SupplierAccountOwner>,FinancialReadError>{
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(StoreError::Integrity("poisoned account lookup").into());}
-        self.failed=true;
+        &mut self,
+        namespace: &str,
+        account: &str,
+        environment: &str,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<SupplierAccountOwner>, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned account lookup").into());
+        }
+        self.failed = true;
         let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async{
             for (value,max) in [(namespace,256usize),(account,128),(environment,128)] {super::heads::locator_text(value,max,s)?;}
             let values=[namespace,account,environment];let bytes=values.map(str::as_bytes);
@@ -260,7 +269,17 @@ impl SqliteTx {
                 &values,&bytes,s).await?.ok_or_else(||FinancialReadError::Store(StoreError::Integrity("incomplete account owner row")))?;
             Ok(Some(SupplierAccountOwner{authority,activation}))
         }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
-        if result.is_ok(){s.check_cancelled()?;if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire)||self.financial_io.is_some(){return Err(StoreError::Integrity("unfinished account owner read").into());}self.failed=false;}
+        if result.is_ok() {
+            s.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(StoreError::Integrity("unfinished account owner read").into());
+            }
+            self.failed = false;
+        }
         result
     }
 }

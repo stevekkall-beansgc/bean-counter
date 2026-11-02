@@ -71,10 +71,18 @@ fn evidence_payload(schema: &str, session: &mut OriginalAuditSession) -> Result<
     )
 }
 fn supplier_payload(payload: &Value, session: &mut OriginalAuditSession) -> Result<bool> {
-    equal_text(check::text(payload, "schema", session)?, "ledger-workflow-party-evidence-retain/3", session)
+    equal_text(
+        check::text(payload, "schema", session)?,
+        "ledger-workflow-party-evidence-retain/3",
+        session,
+    )
 }
 fn commitment_payload(payload: &Value, session: &mut OriginalAuditSession) -> Result<bool> {
-    Ok(equal_text(check::text(payload, "schema", session)?, "ledger-workflow-party-evidence-retain/2", session)? || supplier_payload(payload, session)?)
+    Ok(equal_text(
+        check::text(payload, "schema", session)?,
+        "ledger-workflow-party-evidence-retain/2",
+        session,
+    )? || supplier_payload(payload, session)?)
 }
 fn evidence_schema(payload: &Value, session: &mut OriginalAuditSession) -> Result<&'static str> {
     Ok(if supplier_payload(payload, session)? {
@@ -85,14 +93,30 @@ fn evidence_schema(payload: &Value, session: &mut OriginalAuditSession) -> Resul
         "ledger-workflow-party-evidence/1"
     })
 }
-fn consent_kind(payload: &Value, consent: &Value, session: &mut OriginalAuditSession) -> Result<()> {
+fn consent_kind(
+    payload: &Value,
+    consent: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
     if supplier_payload(payload, session)? {
-        check::same_text(check::text(check::field(consent, "basis", session)?, "kind", session)?, "supplier_commitment", session)?;
+        check::same_text(
+            check::text(check::field(consent, "basis", session)?, "kind", session)?,
+            "supplier_commitment",
+            session,
+        )?;
         let selected = roles(consent, session)?;
         size(selected.len(), 1, 1, session)?;
-        check::same_text(selected[0].as_str().ok_or(ServiceError::IntegrityFailure)?, "provider", session)?;
+        check::same_text(
+            selected[0].as_str().ok_or(ServiceError::IntegrityFailure)?,
+            "provider",
+            session,
+        )?;
     } else if commitment_payload(payload, session)? {
-        check::same_text(check::text(check::field(consent, "basis", session)?, "kind", session)?, "acceptance_terms", session)?;
+        check::same_text(
+            check::text(check::field(consent, "basis", session)?, "kind", session)?,
+            "acceptance_terms",
+            session,
+        )?;
     }
     Ok(())
 }
@@ -1081,10 +1105,7 @@ fn construct(
         let metadata = encode(check::field(payload, "metadata", session)?, session)?;
         let subject = encode(check::field(payload, "subject", session)?, session)?;
         let scope = encode(scope_value, session)?;
-        let schema = wire::string(
-            evidence_schema(payload, session)?,
-            session,
-        )?;
+        let schema = wire::string(evidence_schema(payload, session)?, session)?;
         wire::object(
             &[
                 ("authority_ref", authority_ref.bytes()),

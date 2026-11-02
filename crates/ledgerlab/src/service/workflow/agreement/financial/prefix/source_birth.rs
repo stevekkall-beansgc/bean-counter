@@ -11,11 +11,23 @@ pub(in super::super) struct SourceBirthInputs {
     _storage: ExternalBufferLease,
 }
 impl SourceBirthInputs {
-    pub(in super::super) fn correspondence(&self) -> Option<&ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence> {
-        self.completed_source.as_ref().map(|(source, _)| source.correspondence())
+    pub(in super::super) fn correspondence(
+        &self,
+    ) -> Option<
+        &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence,
+    > {
+        self.completed_source
+            .as_ref()
+            .map(|(source, _)| source.correspondence())
     }
-    pub(in super::super) fn namespace_owner_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
-        self.completed_source.iter().flat_map(|(source, _)| source.input_views().chain(source.namespace_owner_views()))
+    pub(in super::super) fn namespace_owner_views(
+        &self,
+    ) -> impl Iterator<
+        Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
+    > {
+        self.completed_source
+            .iter()
+            .flat_map(|(source, _)| source.input_views().chain(source.namespace_owner_views()))
     }
 }
 pub(in super::super) struct RegisteredAdministrativeBirth {
@@ -234,7 +246,8 @@ impl LocatedAppAcceptance {
                     // Reconstruct the SAME complete administrative original. Its
                     // correspondence is construction DATA only; this path also
                     // certifies the saved owner Ref, members, custody and bodies.
-                    let source = Box::pin(super::source::reconstruct_initial(tx, &origin, s)).await?;
+                    let source =
+                        Box::pin(super::source::reconstruct_initial(tx, &origin, s)).await?;
                     completed_source = Some(super::retained_box(source, s)?);
                 }
                 let key = origin.key();

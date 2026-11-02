@@ -2,12 +2,14 @@
 //! cursor nor this parsed key establishes an origin, an introduction or a head.
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
-mod current_activation;
 mod completed_acceptance;
+mod current_activation;
 mod source_birth;
 pub(super) use source_birth::SourceBirthInputs;
 mod dependencies;
-pub(super) use current_activation::{paid_transition, schedule_document, CompletedInitialActivation, OwnedActivationSchedule};
+pub(super) use current_activation::{
+    paid_transition, schedule_document, CompletedInitialActivation, OwnedActivationSchedule,
+};
 pub(super) mod inventory;
 mod members;
 mod programs;
@@ -62,7 +64,12 @@ impl OriginInput {
 }
 
 impl FoldedInventory {
-    pub(super) fn introduced_at(&mut self, reference: &Value, body: &[u8], session: &mut OriginalAuditSession) -> Result<i64> {
+    pub(super) fn introduced_at(
+        &mut self,
+        reference: &Value,
+        body: &[u8],
+        session: &mut OriginalAuditSession,
+    ) -> Result<i64> {
         let (r, _lease) = current::source::from_value_local(reference, session)?;
         self._inventory.compare_record(&r, body, session)?;
         self._inventory.introduction_sequence(reference, session)
@@ -176,17 +183,16 @@ pub(super) async fn selected_association_sequence(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<i64> {
-    tx
-        .workflow_selected_association_sequence(
-            reference,
-            &key.logical_store_id,
-            &key.scope,
-            before,
-            session,
-        )
-        .await
-        .map_err(read_error)?
-        .ok_or(ServiceError::IntegrityFailure)
+    tx.workflow_selected_association_sequence(
+        reference,
+        &key.logical_store_id,
+        &key.scope,
+        before,
+        session,
+    )
+    .await
+    .map_err(read_error)?
+    .ok_or(ServiceError::IntegrityFailure)
 }
 /// Mechanical wrapper certificate only; recipe semantics remain separate.
 pub(super) async fn selected_association_frame(
@@ -662,103 +668,189 @@ pub(super) struct LocatedAppAcceptance {
 }
 #[allow(clippy::too_many_arguments)]
 async fn completed_stop_members(
-    tx: &mut SqliteTx, key: &OperationKey, prefix: &mut FoldedInventory, accepted: &LocatedWrappers,
-    root: &wire::SourceRecord, result: &wire::SourceRecord,
-    schedule: &OwnedActivationSchedule, target: &Value, s: &mut OriginalAuditSession,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    prefix: &mut FoldedInventory,
+    accepted: &LocatedWrappers,
+    root: &wire::SourceRecord,
+    result: &wire::SourceRecord,
+    schedule: &OwnedActivationSchedule,
+    target: &Value,
+    s: &mut OriginalAuditSession,
 ) -> Result<ResolvedMembers> {
-        let mut members = completed_stop_dependencies(tx, key, prefix, accepted, schedule, target, s).await?;
-        members.add_record_ref(root.reference(), s)?;
-        members.add_record_ref(result.reference(), s)?;
-        Ok(members)
+    let mut members =
+        completed_stop_dependencies(tx, key, prefix, accepted, schedule, target, s).await?;
+    members.add_record_ref(root.reference(), s)?;
+    members.add_record_ref(result.reference(), s)?;
+    Ok(members)
 }
 async fn completed_stop_dependencies(
-    tx: &mut SqliteTx, key: &OperationKey, prefix: &mut FoldedInventory, accepted: &LocatedWrappers,
-    schedule: &OwnedActivationSchedule, target: &Value, s: &mut OriginalAuditSession,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    prefix: &mut FoldedInventory,
+    accepted: &LocatedWrappers,
+    schedule: &OwnedActivationSchedule,
+    target: &Value,
+    s: &mut OriginalAuditSession,
 ) -> Result<ResolvedMembers> {
-        let mut members = ResolvedMembers::new(s)?;
-        for value in request_wrapper::field(accepted.wrappers().manifest(), "members", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            if accepted.wrappers().is_own_operation(value, s)? { continue; }
-            let kind = request_wrapper::text(value, "kind", s)?;
-            if super::acceptance::same_recipe_text(kind, "workflow-head-transition", s)? || super::acceptance::same_recipe_text(kind, "workflow-agreement-intent", s)? { continue; }
-            prefix._inventory.require_value(value, s)?;
-            members.add(value, s)?;
+    let mut members = ResolvedMembers::new(s)?;
+    for value in request_wrapper::field(accepted.wrappers().manifest(), "members", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        if accepted.wrappers().is_own_operation(value, s)? {
+            continue;
         }
-        let (wanted, _wanted_lease) = current::source::from_value(target, "workflow-activation", s)?;
-        let mut predecessor = ResolvedMembers::new(s)?;
-        let mut found = false;
-        for transition in &schedule.transitions {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            let actual = &transition.activation.reference;
-            if super::acceptance::same_recipe_text(&actual.kind, &wanted.kind, s)? && super::acceptance::same_recipe_text(&actual.id, &wanted.id, s)? && super::acceptance::same_recipe_text(&actual.digest, &wanted.digest, s)? {
-                require(!found, "INTEGRITY_FAILURE")?;
-                members.add_record_ref(&wanted, s)?;
-                let activation = s.parse_representation(&transition.activation.bytes, RepresentationKind::Record).map_err(core_error)?;
-                let head_ref = request_wrapper::field(activation.value(), "head_transition_ref", s)?;
-                predecessor.add(head_ref, s)?;
-                found = true;
+        let kind = request_wrapper::text(value, "kind", s)?;
+        if super::acceptance::same_recipe_text(kind, "workflow-head-transition", s)?
+            || super::acceptance::same_recipe_text(kind, "workflow-agreement-intent", s)?
+        {
+            continue;
+        }
+        prefix._inventory.require_value(value, s)?;
+        members.add(value, s)?;
+    }
+    let (wanted, _wanted_lease) = current::source::from_value(target, "workflow-activation", s)?;
+    let mut predecessor = ResolvedMembers::new(s)?;
+    let mut found = false;
+    for transition in &schedule.transitions {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let actual = &transition.activation.reference;
+        if super::acceptance::same_recipe_text(&actual.kind, &wanted.kind, s)?
+            && super::acceptance::same_recipe_text(&actual.id, &wanted.id, s)?
+            && super::acceptance::same_recipe_text(&actual.digest, &wanted.digest, s)?
+        {
+            require(!found, "INTEGRITY_FAILURE")?;
+            members.add_record_ref(&wanted, s)?;
+            let activation = s
+                .parse_representation(&transition.activation.bytes, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let head_ref = request_wrapper::field(activation.value(), "head_transition_ref", s)?;
+            predecessor.add(head_ref, s)?;
+            found = true;
+        }
+    }
+    require(found, "INVALID_REFERENCE")?;
+    let mut position = 0usize;
+    while {
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&position.into(), &predecessor.len().into()])
+            .map_err(core_error)?;
+        position < predecessor.len()
+    } {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let encoded = wire::reference(predecessor.at(position, s)?, s)?;
+        let reference = s
+            .parse_representation(encoded.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let body = prefix._inventory.body(reference.value(), s)?;
+        let body = s
+            .parse_representation(body.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let kind = request_wrapper::text(reference.value(), "kind", s)?;
+        dependencies::predecessor(
+            kind,
+            body.value(),
+            &mut |r, s| predecessor.add(r, s).map(|_| ()),
+            s,
+        )?;
+        if super::acceptance::same_recipe_text(kind, "workflow-source-enrollment", s)? {
+            let sequence = prefix
+                ._inventory
+                .introduction_sequence(reference.value(), s)?;
+            let previous = sequence
+                .checked_sub(1)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let origin = next(tx, key, previous, sequence, s)
+                .await?
+                .ok_or(ServiceError::IntegrityFailure)?
+                .checked_wrappers(tx, s)
+                .await?;
+            let payload =
+                request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+            if super::acceptance::same_recipe_text(
+                request_wrapper::text(payload, "schema", s)?,
+                "ledger-workflow-source-enroll/3",
+                s,
+            )? {
+                let owner = request_wrapper::field(payload, "namespace_owner_enrollment_ref", s)?;
+                prefix._inventory.require_value(owner, s)?;
+                predecessor.add(owner, s)?;
             }
         }
-        require(found, "INVALID_REFERENCE")?;
-        let mut position = 0usize;
-        while {
-            s.semantic_work().arithmetic(Op::Compare, &[&position.into(), &predecessor.len().into()]).map_err(core_error)?;
-            position < predecessor.len()
-        } {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            let encoded = wire::reference(predecessor.at(position, s)?, s)?;
-            let reference = s.parse_representation(encoded.bytes(), RepresentationKind::Record).map_err(core_error)?;
-            let body = prefix._inventory.body(reference.value(), s)?;
-            let body = s.parse_representation(body.bytes(), RepresentationKind::Record).map_err(core_error)?;
-            let kind = request_wrapper::text(reference.value(), "kind", s)?;
-            dependencies::predecessor(kind, body.value(), &mut |r, s| predecessor.add(r, s).map(|_| ()), s)?;
-            if super::acceptance::same_recipe_text(kind, "workflow-source-enrollment", s)? {
-                let sequence = prefix._inventory.introduction_sequence(reference.value(), s)?;
-                let previous = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
-                let origin = next(tx, key, previous, sequence, s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, s).await?;
-                let payload = request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
-                if super::acceptance::same_recipe_text(request_wrapper::text(payload, "schema", s)?, "ledger-workflow-source-enroll/3", s)? {
-                    let owner = request_wrapper::field(payload, "namespace_owner_enrollment_ref", s)?;
-                    prefix._inventory.require_value(owner, s)?;
-                    predecessor.add(owner, s)?;
-                }
-            }
-            members.add(reference.value(), s)?;
-            s.semantic_work().arithmetic(Op::Add, &[&position.into(), &1usize.into()]).map_err(core_error)?;
-            position = position.checked_add(1).ok_or(ServiceError::Unavailable)?;
-        }
-        Ok(members)
+        members.add(reference.value(), s)?;
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&position.into(), &1usize.into()])
+            .map_err(core_error)?;
+        position = position.checked_add(1).ok_or(ServiceError::Unavailable)?;
+    }
+    Ok(members)
 }
 impl LocatedAppAcceptance {
     /// Exact existing R1 stop dependency union, materialized only after complete
     /// accepted-binding and target-cutoff replay under this same writer.
     pub(super) async fn r1_stop_documents(
-        &mut self, tx: &mut SqliteTx, key: &OperationKey,
-        schedule: &OwnedActivationSchedule, target: &Value, s: &mut OriginalAuditSession,
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        schedule: &OwnedActivationSchedule,
+        target: &Value,
+        s: &mut OriginalAuditSession,
     ) -> Result<Vec<Document>> {
-        let prefix = self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?;
-        let members = completed_stop_dependencies(tx, key, prefix, &self._origin, schedule, target, s).await?;
+        let prefix = self
+            ._prefix
+            .as_mut()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let members =
+            completed_stop_dependencies(tx, key, prefix, &self._origin, schedule, target, s)
+                .await?;
         for reference in self.publication.required_refs() {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
             members.position(reference, s)?;
         }
         let count = members.len();
-        s.semantic_work().arithmetic(Op::Multiply, &[&count.into(), &std::mem::size_of::<Document>().into()]).map_err(core_error)?;
-        let bytes = count.checked_mul(std::mem::size_of::<Document>()).ok_or(ServiceError::Unavailable)?;
+        s.semantic_work()
+            .arithmetic(
+                Op::Multiply,
+                &[&count.into(), &std::mem::size_of::<Document>().into()],
+            )
+            .map_err(core_error)?;
+        let bytes = count
+            .checked_mul(std::mem::size_of::<Document>())
+            .ok_or(ServiceError::Unavailable)?;
         let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
         s.semantic_work().write_bytes(bytes).map_err(core_error)?;
         let mut documents = Vec::new();
-        documents.try_reserve_exact(count).map_err(|_| ServiceError::Unavailable)?;
-        s.semantic_work().arithmetic(Op::Compare, &[&documents.capacity().into(), &count.into()]).map_err(core_error)?;
+        documents
+            .try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&documents.capacity().into(), &count.into()])
+            .map_err(core_error)?;
         require(documents.capacity() <= count, "PROGRAM_BUDGET_EXCEEDED")?;
         proof_session::retain_stop_storage(tx, key, storage, s)?;
         for position in 0..count {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
             let reference = members.at(position, s)?;
             let encoded = wire::reference(reference, s)?;
-            let value = s.parse_representation(encoded.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            let value = s
+                .parse_representation(encoded.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
             let body = prefix._inventory.body(value.value(), s)?;
-            let parsed = s.parse_representation(body.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            let parsed = s
+                .parse_representation(body.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
             let schema = request_wrapper::text(parsed.value(), "schema", s)?;
             let (document, storage) = schedule_document(reference, schema, body.bytes(), s)?;
             proof_session::retain_stop_storage(tx, key, storage, s)?;
@@ -862,48 +954,111 @@ impl LocatedAppAcceptance {
                 let kind =
                     request_wrapper::text(origin.wrappers().operation(), "kind", &mut original)?;
                 let owned_revision = if origin.wrappers().class() == wrappers::WireClass::Agreement
-                    && completed_acceptance::matches_context(self._origin.key(), origin.key(), &mut original)?
-                {
-                    let payload = request_wrapper::field(origin.wrappers().original_request().value(), "payload", &mut original)?;
+                    && completed_acceptance::matches_context(
+                        self._origin.key(),
+                        origin.key(),
+                        &mut original,
+                    )? {
+                    let payload = request_wrapper::field(
+                        origin.wrappers().original_request().value(),
+                        "payload",
+                        &mut original,
+                    )?;
                     let schema = request_wrapper::text(payload, "schema", &mut original)?;
-                    let supported = (super::acceptance::same_recipe_text(kind, "agreement.activate", &mut original)?
-                        && super::acceptance::same_recipe_text(schema, "ledger-workflow-activation/1", &mut original)?)
-                        || (super::acceptance::same_recipe_text(kind, "agreement.activate", &mut original)?
-                            && super::acceptance::same_recipe_text(schema, "ledger-workflow-activation-replace/1", &mut original)?)
-                        || (super::acceptance::same_recipe_text(kind, "agreement.revoke", &mut original)?
-                            && super::acceptance::same_recipe_text(schema, "ledger-workflow-agreement-revoke/1", &mut original)?);
+                    let supported = (super::acceptance::same_recipe_text(
+                        kind,
+                        "agreement.activate",
+                        &mut original,
+                    )? && super::acceptance::same_recipe_text(
+                        schema,
+                        "ledger-workflow-activation/1",
+                        &mut original,
+                    )?) || (super::acceptance::same_recipe_text(
+                        kind,
+                        "agreement.activate",
+                        &mut original,
+                    )? && super::acceptance::same_recipe_text(
+                        schema,
+                        "ledger-workflow-activation-replace/1",
+                        &mut original,
+                    )?) || (super::acceptance::same_recipe_text(
+                        kind,
+                        "agreement.revoke",
+                        &mut original,
+                    )? && super::acceptance::same_recipe_text(
+                        schema,
+                        "ledger-workflow-agreement-revoke/1",
+                        &mut original,
+                    )?);
                     if supported {
-                        let revision = request_wrapper::text(payload, "expected_revision", &mut original)?;
-                        let supplied = request_wrapper::field(payload, "accepted_binding_ref", &mut original)?;
-                        let supplied = original.canonical_representation(supplied, RepresentationKind::Record).map_err(core_error)?;
-                        let selected = wire::reference(self.acceptance.binding.reference(), &mut original)?;
-                        original.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-                        original.semantic_work().scan_bytes(supplied.bytes().len()).map_err(core_error)?;
-                        original.semantic_work().scan_bytes(selected.bytes().len()).map_err(core_error)?;
+                        let revision =
+                            request_wrapper::text(payload, "expected_revision", &mut original)?;
+                        let supplied =
+                            request_wrapper::field(payload, "accepted_binding_ref", &mut original)?;
+                        let supplied = original
+                            .canonical_representation(supplied, RepresentationKind::Record)
+                            .map_err(core_error)?;
+                        let selected =
+                            wire::reference(self.acceptance.binding.reference(), &mut original)?;
+                        original
+                            .semantic_work()
+                            .visit(Visit::MemberCompare)
+                            .map_err(core_error)?;
+                        original
+                            .semantic_work()
+                            .scan_bytes(supplied.bytes().len())
+                            .map_err(core_error)?;
+                        original
+                            .semantic_work()
+                            .scan_bytes(selected.bytes().len())
+                            .map_err(core_error)?;
                         if supplied.bytes() == selected.bytes() {
                             Some(super::acceptance::counter(revision, &mut original)?)
-                        } else { None }
-                    } else { None }
-                } else { None };
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
                 if let Some(revision) = owned_revision {
                     self._prefix
                         .as_mut()
                         .ok_or(ServiceError::IntegrityFailure)?
                         ._inventory
                         .begin_origin_links(origin.wrappers().sequence(), &mut original)?;
-                    original.semantic_work().arithmetic(Op::Compare, &[&revision.into(), &0u64.into()]).map_err(core_error)?;
+                    original
+                        .semantic_work()
+                        .arithmetic(Op::Compare, &[&revision.into(), &0u64.into()])
+                        .map_err(core_error)?;
                     let replay = if revision == 0 {
                         super::activation::reconstruct_initial(
-                            tx, &origin, self.acceptance.audited()?, &self.publication,
-                            self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
-                            setup, &mut original,
-                        ).await?
+                            tx,
+                            &origin,
+                            self.acceptance.audited()?,
+                            &self.publication,
+                            self._prefix
+                                .as_mut()
+                                .ok_or(ServiceError::IntegrityFailure)?,
+                            setup,
+                            &mut original,
+                        )
+                        .await?
                     } else {
                         super::activation::reconstruct_later(
-                            tx, &origin, self.acceptance.audited()?, &self.publication,
-                            self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
-                            setup, &mut original,
-                        ).await?
+                            tx,
+                            &origin,
+                            self.acceptance.audited()?,
+                            &self.publication,
+                            self._prefix
+                                .as_mut()
+                                .ok_or(ServiceError::IntegrityFailure)?,
+                            setup,
+                            &mut original,
+                        )
+                        .await?
                     };
                     let binding = original
                         .parse_representation(
@@ -1184,7 +1339,13 @@ pub(super) struct FoldedInventory {
     pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
     last_acceptance: Option<completed_acceptance::RetainedAcceptance>,
 }
-pub(super) type PathSink<'a> = dyn FnMut(i64, ledgerlab_core::policy::workflow::transition_constructor::SelectedReportPath, &mut OriginalAuditSession) -> Result<()> + Send + 'a;
+pub(super) type PathSink<'a> = dyn FnMut(
+        i64,
+        ledgerlab_core::policy::workflow::transition_constructor::SelectedReportPath,
+        &mut OriginalAuditSession,
+    ) -> Result<()>
+    + Send
+    + 'a;
 /// Reuse the selected origin's SAME parent session, including its already-paid
 /// framing/identity work. Each earlier origin receives exactly its own session.
 pub(super) async fn fold_original_prefix(
@@ -1310,11 +1471,17 @@ pub(super) async fn fold_original_prefix_capture(
 /// Complete every physical workflow origin through one writer-held cutoff.
 /// Selection never filters the physical feed by asserted scope or result kind.
 pub(super) async fn fold_statement_prefix(
-    ledger: &LocalWorkflowLedger, tx: &mut SqliteTx, key: &OperationKey,
-    through: i64, parent: &mut OriginalAuditSession,
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    through: i64,
+    parent: &mut OriginalAuditSession,
     collector: &mut super::statement::Collector<'_>,
 ) -> Result<()> {
-    let mut attempt = InputAttempt { failure: tx.workflow_proof_failure_handle(), finished: false };
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
     let result = async {
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         let setup = ledger.admin.read(&ledger.store, tx, key).await?;
@@ -1374,7 +1541,11 @@ pub(super) async fn fold_statement_prefix(
         parent.check_cancelled().map_err(core_error)?;
         Ok(())
     }.await;
-    if result.is_ok() { attempt.finish(); } else { parent.invalidate(); }
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        parent.invalidate();
+    }
     result
 }
 
@@ -1940,26 +2111,66 @@ async fn folded_publication(
 /// Check a Binding against the already completed chronological acceptance and
 /// its actual selected publication. This never starts another prefix fold.
 async fn completed_local_stop_binding(
-    tx: &mut SqliteTx, origin: &LocatedWrappers, prefix: &mut FoldedInventory,
-    binding_ref: &Value, s: &mut OriginalAuditSession,
-) -> Result<(LocatedWrappers, super::acceptance::TargetedAcceptance, RecompiledPublication)> {
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    prefix: &mut FoldedInventory,
+    binding_ref: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<(
+    LocatedWrappers,
+    super::acceptance::TargetedAcceptance,
+    RecompiledPublication,
+)> {
     let sequence = prefix._inventory.introduction_sequence(binding_ref, s)?;
     require(sequence < origin.wrappers().sequence(), "INTEGRITY_FAILURE")?;
-    let previous = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
-    let accepted = next(tx, origin.key(), previous, sequence, s).await?
-        .ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, s).await?;
-    request_wrapper::same_text(request_wrapper::text(accepted.wrappers().operation(), "kind", s)?, "agreement.accept", s)?;
-    let payload = request_wrapper::field(accepted.wrappers().original_request().value(), "payload", s)?;
-    request_wrapper::same_text(request_wrapper::text(payload, "schema", s)?, "ledger-workflow-agreement-accept/9", s)?;
-    let publication = folded_publication(tx, origin.key(), request_wrapper::field(payload, "publication_ref", s)?, prefix, s).await?;
-    require(publication.program().uses_local_execution_recipe(), "UNSUPPORTED_SCHEMA_PROFILE")?;
-    let loaded = super::acceptance::TargetedAcceptance::load(tx, &accepted, &publication, s).await?;
-    let expected = s.canonical_representation(binding_ref, RepresentationKind::Record).map_err(core_error)?;
+    let previous = sequence
+        .checked_sub(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let accepted = next(tx, origin.key(), previous, sequence, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?
+        .checked_wrappers(tx, s)
+        .await?;
+    request_wrapper::same_text(
+        request_wrapper::text(accepted.wrappers().operation(), "kind", s)?,
+        "agreement.accept",
+        s,
+    )?;
+    let payload =
+        request_wrapper::field(accepted.wrappers().original_request().value(), "payload", s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(payload, "schema", s)?,
+        "ledger-workflow-agreement-accept/9",
+        s,
+    )?;
+    let publication = folded_publication(
+        tx,
+        origin.key(),
+        request_wrapper::field(payload, "publication_ref", s)?,
+        prefix,
+        s,
+    )
+    .await?;
+    require(
+        publication.program().uses_local_execution_recipe(),
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    let loaded =
+        super::acceptance::TargetedAcceptance::load(tx, &accepted, &publication, s).await?;
+    let expected = s
+        .canonical_representation(binding_ref, RepresentationKind::Record)
+        .map_err(core_error)?;
     let actual = wire::reference(loaded.binding.reference(), s)?;
-    s.semantic_work().scan_bytes(expected.bytes().len()).map_err(core_error)?;
-    s.semantic_work().scan_bytes(actual.bytes().len()).map_err(core_error)?;
+    s.semantic_work()
+        .scan_bytes(expected.bytes().len())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .scan_bytes(actual.bytes().len())
+        .map_err(core_error)?;
     require(expected.bytes() == actual.bytes(), "INTEGRITY_FAILURE")?;
-    prefix._inventory.compare_record(loaded.binding.reference(), loaded.binding.bytes(), s)?;
+    prefix
+        ._inventory
+        .compare_record(loaded.binding.reference(), loaded.binding.bytes(), s)?;
     Ok((accepted, loaded, publication))
 }
 async fn fold_origin(
@@ -1971,7 +2182,16 @@ async fn fold_origin(
     publication: Option<&RecompiledPublication>,
     s: &mut OriginalAuditSession,
 ) -> Result<Option<RecompiledPublication>> {
-    fold_origin_capture(ledger, tx, origin, prefix, setup, (publication, None, None), s).await
+    fold_origin_capture(
+        ledger,
+        tx,
+        origin,
+        prefix,
+        setup,
+        (publication, None, None),
+        s,
+    )
+    .await
 }
 async fn fold_origin_capture(
     ledger: &LocalWorkflowLedger,
@@ -1979,7 +2199,11 @@ async fn fold_origin_capture(
     origin: &LocatedWrappers,
     prefix: &mut FoldedInventory,
     setup: &crate::service::billing::Setup,
-    selected: (Option<&RecompiledPublication>, Option<&mut PathSink<'_>>, Option<&mut super::statement::Collector<'_>>),
+    selected: (
+        Option<&RecompiledPublication>,
+        Option<&mut PathSink<'_>>,
+        Option<&mut super::statement::Collector<'_>>,
+    ),
     s: &mut OriginalAuditSession,
 ) -> Result<Option<RecompiledPublication>> {
     let (publication, capture, statement) = selected;
@@ -2008,13 +2232,19 @@ async fn fold_origin_capture(
             .await?;
         None
     } else if origin.wrappers().class() == wrappers::WireClass::Agreement
-        && matches!(request_wrapper::text(literal, "schema", s)?,
-            "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1" | "ledger-workflow-agreement-revoke/1")
+        && matches!(
+            request_wrapper::text(literal, "schema", s)?,
+            "ledger-workflow-activation/1"
+                | "ledger-workflow-activation-replace/1"
+                | "ledger-workflow-agreement-revoke/1"
+        )
     {
         // Reuse the actual completed acceptance when the chronological owner
         // still retains it. Other Bindings keep their original acquisition.
         let wanted = request_wrapper::field(literal, "accepted_binding_ref", s)?;
-        s.semantic_work().write_bytes(std::mem::size_of_val(&prefix.last_acceptance)).map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of_val(&prefix.last_acceptance))
+            .map_err(core_error)?;
         let held = prefix.last_acceptance.take();
         let reuse = match &held {
             Some(held) => held.matches(wanted, origin, prefix, s)?,
@@ -2026,8 +2256,13 @@ async fn fold_origin_capture(
             let held = held.as_ref().ok_or(ServiceError::IntegrityFailure)?;
             let accepted = held.accepted();
             reloaded = folded_publication(
-                tx, origin.key(), accepted.original_publication_ref(s)?, prefix, s,
-            ).await?;
+                tx,
+                origin.key(),
+                accepted.original_publication_ref(s)?,
+                prefix,
+                s,
+            )
+            .await?;
             (accepted, &reloaded)
         } else {
             let bytes = {
@@ -2053,17 +2288,33 @@ async fn fold_origin_capture(
             .await?;
             (acquired.acceptance.audited()?, &acquired.publication)
         };
-        let expected = super::acceptance::counter(request_wrapper::text(literal, "expected_revision", s)?, s)?;
+        let expected =
+            super::acceptance::counter(request_wrapper::text(literal, "expected_revision", s)?, s)?;
         let replay = if expected == 0 {
-            super::activation::reconstruct_initial(tx, origin, accepted, publication, prefix, setup, s).await?
+            super::activation::reconstruct_initial(
+                tx,
+                origin,
+                accepted,
+                publication,
+                prefix,
+                setup,
+                s,
+            )
+            .await?
         } else {
-            super::activation::reconstruct_later(tx, origin, accepted, publication, prefix, setup, s).await?
+            super::activation::reconstruct_later(
+                tx,
+                origin,
+                accepted,
+                publication,
+                prefix,
+                setup,
+                s,
+            )
+            .await?
         };
         let binding = s
-            .parse_representation(
-                accepted.binding.bytes(),
-                RepresentationKind::Record,
-            )
+            .parse_representation(accepted.binding.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
         replay.fold(origin, prefix, binding.value(), s)?;
         completed_acceptance = held;
@@ -2079,12 +2330,22 @@ async fn fold_origin_capture(
                 .await?
                 .ok_or(ServiceError::IntegrityFailure)?
         } else {
-            let (candidate, path) = super::local_original_work::reconstruct_selected_capture(ledger, tx, origin, prefix, s, capture.is_some()).await?;
+            let (candidate, path) = super::local_original_work::reconstruct_selected_capture(
+                ledger,
+                tx,
+                origin,
+                prefix,
+                s,
+                capture.is_some(),
+            )
+            .await?;
             selected_path = path;
             candidate
         };
         prefix.fold_local_candidate(origin, &candidate, s)?;
-        if statement.is_some() { statement_candidate = Some(candidate); }
+        if statement.is_some() {
+            statement_candidate = Some(candidate);
+        }
         None
     } else if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
@@ -2115,7 +2376,9 @@ async fn fold_origin_capture(
         reconstructed.fold_original(origin, prefix, s)?;
         if publication.program().uses_local_execution_recipe() {
             completed_acceptance = Some(completed_acceptance::RetainedAcceptance::stage(
-                origin.wrappers().sequence(), reconstructed, s,
+                origin.wrappers().sequence(),
+                reconstructed,
+                s,
             )?);
         }
         None
@@ -2136,36 +2399,127 @@ async fn fold_origin_capture(
                 None
             }
             source::FoldedSource::LocalStopBinding(reference, alias) => {
-                let binding = s.parse_representation(reference.bytes(), RepresentationKind::Record).map_err(core_error)?;
-                let (accepted, loaded, publication) = completed_local_stop_binding(tx, origin, prefix, binding.value(), s).await?;
+                let binding = s
+                    .parse_representation(reference.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let (accepted, loaded, publication) =
+                    completed_local_stop_binding(tx, origin, prefix, binding.value(), s).await?;
                 if !alias {
                     let retained = source::reconstruct_retention(tx, origin, s).await?;
-                    let original_key = request_wrapper::field(origin.wrappers().original_request().value(), "key", s)?;
-                    let semantic = super::evidence::retained_semantic_identity(original_key, retained._input.canonical_value(), s)?;
-                    let semantic_key = semantic.bytes().get(1..semantic.bytes().len().saturating_sub(1)).ok_or(ServiceError::IntegrityFailure)?;
-                    let indexed = tx.workflow_evidence_semantic_locator(&origin.key().logical_store_id, &origin.key().scope, semantic_key, s).await.map_err(read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-                    let expected = s.canonical_representation(original_key, RepresentationKind::Record).map_err(core_error)?;
-                    s.semantic_work().scan_bytes(indexed.bytes().len()).map_err(core_error)?;
-                    s.semantic_work().scan_bytes(expected.bytes().len()).map_err(core_error)?;
+                    let original_key = request_wrapper::field(
+                        origin.wrappers().original_request().value(),
+                        "key",
+                        s,
+                    )?;
+                    let semantic = super::evidence::retained_semantic_identity(
+                        original_key,
+                        retained._input.canonical_value(),
+                        s,
+                    )?;
+                    let semantic_key = semantic
+                        .bytes()
+                        .get(1..semantic.bytes().len().saturating_sub(1))
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let indexed = tx
+                        .workflow_evidence_semantic_locator(
+                            &origin.key().logical_store_id,
+                            &origin.key().scope,
+                            semantic_key,
+                            s,
+                        )
+                        .await
+                        .map_err(read_error)?
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let expected = s
+                        .canonical_representation(original_key, RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    s.semantic_work()
+                        .scan_bytes(indexed.bytes().len())
+                        .map_err(core_error)?;
+                    s.semantic_work()
+                        .scan_bytes(expected.bytes().len())
+                        .map_err(core_error)?;
                     require(indexed.bytes() == expected.bytes(), "INTEGRITY_FAILURE")?;
-                    let body = s.parse_representation(loaded.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
-                    let head = prefix.activation_head(body.value(), s)?.ok_or(ServiceError::IntegrityFailure)?;
-                    let head = s.parse_representation(head.bytes(), RepresentationKind::Record).map_err(core_error)?;
-                    let revision = super::acceptance::counter(request_wrapper::text(head.value(), "new_revision", s)?, s)?;
-                    let schedule = prefix.activation_schedule(origin.key(), body.value(), revision, s)?;
-                    let target = request_wrapper::field(request_wrapper::field(retained._input.canonical_value(), "metadata", s)?, "target_transition_ref", s)?;
+                    let body = s
+                        .parse_representation(loaded.binding.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let head = prefix
+                        .activation_head(body.value(), s)?
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let head = s
+                        .parse_representation(head.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    let revision = super::acceptance::counter(
+                        request_wrapper::text(head.value(), "new_revision", s)?,
+                        s,
+                    )?;
+                    let schedule =
+                        prefix.activation_schedule(origin.key(), body.value(), revision, s)?;
+                    let target = request_wrapper::field(
+                        request_wrapper::field(retained._input.canonical_value(), "metadata", s)?,
+                        "target_transition_ref",
+                        s,
+                    )?;
                     schedule.require_target_ref(target, loaded.binding.reference(), s)?;
-                    let root_bytes = s.copy_representation(retained.management.root.canonical_body(), RepresentationKind::Authority).map_err(core_error)?;
-                    let root = wire::source_record("workflow-authority", "ledger-workflow-local-authority-snapshot/1", root_bytes, s)?;
-                    let members = completed_stop_members(tx, origin.key(), prefix, &accepted, &root, &retained.result, &schedule, target, s).await?;
+                    let root_bytes = s
+                        .copy_representation(
+                            retained.management.root.canonical_body(),
+                            RepresentationKind::Authority,
+                        )
+                        .map_err(core_error)?;
+                    let root = wire::source_record(
+                        "workflow-authority",
+                        "ledger-workflow-local-authority-snapshot/1",
+                        root_bytes,
+                        s,
+                    )?;
+                    let members = completed_stop_members(
+                        tx,
+                        origin.key(),
+                        prefix,
+                        &accepted,
+                        &root,
+                        &retained.result,
+                        &schedule,
+                        target,
+                        s,
+                    )
+                    .await?;
                     for reference in publication.required_refs() {
-                        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+                        s.semantic_work()
+                            .visit(Visit::Element)
+                            .map_err(core_error)?;
                         members.position(reference, s)?;
                     }
-                    let evidence = super::evidence::original_administration(origin, retained._input.canonical_bytes(), s)?;
-                    let authority = super::local_activation::stop_retention_authority(setup, &root, &retained.management.at, s)?;
-                    let saved = super::ingress::IncomingRequest::parse_original_administration(origin.wrappers().original_request().raw(), s)?;
-                    wire::frame_administration(&saved, retained._input.canonical_bytes(), authority.bytes(), retained.management.at.as_str(), retained.result.reference(), &evidence, origin.wrappers().sequence(), members, "ledger-workflow-publication-authority/1", false, s)?.compare_original(origin, s)?;
+                    let evidence = super::evidence::original_administration(
+                        origin,
+                        retained._input.canonical_bytes(),
+                        s,
+                    )?;
+                    let authority = super::local_activation::stop_retention_authority(
+                        setup,
+                        &root,
+                        &retained.management.at,
+                        s,
+                    )?;
+                    let saved = super::ingress::IncomingRequest::parse_original_administration(
+                        origin.wrappers().original_request().raw(),
+                        s,
+                    )?;
+                    wire::frame_administration(
+                        &saved,
+                        retained._input.canonical_bytes(),
+                        authority.bytes(),
+                        retained.management.at.as_str(),
+                        retained.result.reference(),
+                        &evidence,
+                        origin.wrappers().sequence(),
+                        members,
+                        "ledger-workflow-publication-authority/1",
+                        false,
+                        s,
+                    )?
+                    .compare_original(origin, s)?;
                 }
                 None
             }
@@ -2175,7 +2529,9 @@ async fn fold_origin_capture(
 
     finish_origin(origin, prefix, s)?;
     if let Some(completed) = completed_acceptance {
-        s.semantic_work().write_bytes(std::mem::size_of_val(&prefix.last_acceptance)).map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of_val(&prefix.last_acceptance))
+            .map_err(core_error)?;
         prefix.last_acceptance = Some(completed);
     }
     if let (Some(collector), Some(candidate)) = (statement, statement_candidate) {
@@ -2363,32 +2719,73 @@ impl FoldedInventory {
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         let customer_value = request_wrapper::field(binding, "customer", s)?;
-        let customer = s.canonical_representation(customer_value, RepresentationKind::SourceDefinition).map_err(core_error)?;
+        let customer = s
+            .canonical_representation(customer_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
         let agreement_value = request_wrapper::field(binding, "agreement_id", s)?;
-        let agreement = s.canonical_representation(agreement_value, RepresentationKind::SourceDefinition).map_err(core_error)?;
-        let parsed = s.parse_representation(records.head.bytes(), RepresentationKind::Record).map_err(core_error)?;
+        let agreement = s
+            .canonical_representation(agreement_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let parsed = s
+            .parse_representation(records.head.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
         let revision_text = request_wrapper::text(parsed.value(), "new_revision", s)?;
         let revision_number = super::acceptance::counter(revision_text, s)?;
         require(revision_number > 1, "INTEGRITY_FAILURE")?;
         let revision = wire::string(revision_text, s)?;
         let prior = request_wrapper::field(parsed.value(), "prior_head_ref", s)?;
         let prior_body = self._inventory.body(prior, s)?;
-        let old = s.parse_representation(prior_body.bytes(), RepresentationKind::Record).map_err(core_error)?;
-        let old_number = super::acceptance::counter(request_wrapper::text(old.value(), "new_revision", s)?, s)?;
-        s.semantic_work().arithmetic(Op::Add, &[&old_number.into(), &1u8.into()]).map_err(core_error)?;
-        require(old_number.checked_add(1) == Some(revision_number), "INTEGRITY_FAILURE")?;
-        let head = inventory::StateKey::new("agreement-activation-head", &[customer.bytes(), agreement.bytes()], s)?;
-        let semantic = inventory::StateKey::new("agreement-activation-semantic", &[customer.bytes(), agreement.bytes(), revision.bytes()], s)?;
-        let boundary = inventory::StateKey::new("agreement-activation-boundary-revision", &[customer.bytes(), agreement.bytes(), revision.bytes()], s)?;
+        let old = s
+            .parse_representation(prior_body.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let old_number =
+            super::acceptance::counter(request_wrapper::text(old.value(), "new_revision", s)?, s)?;
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&old_number.into(), &1u8.into()])
+            .map_err(core_error)?;
+        require(
+            old_number.checked_add(1) == Some(revision_number),
+            "INTEGRITY_FAILURE",
+        )?;
+        let head = inventory::StateKey::new(
+            "agreement-activation-head",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        let semantic = inventory::StateKey::new(
+            "agreement-activation-semantic",
+            &[customer.bytes(), agreement.bytes(), revision.bytes()],
+            s,
+        )?;
+        let boundary = inventory::StateKey::new(
+            "agreement-activation-boundary-revision",
+            &[customer.bytes(), agreement.bytes(), revision.bytes()],
+            s,
+        )?;
         self._inventory.match_head(&head, prior_body.bytes(), s)?;
         self._inventory.absent(&semantic, s)?;
         self._inventory.absent(&boundary, s)?;
-        for record in [root, authority, &records.intent, &records.head, &records.activation] {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            self._inventory.introduce(record.reference(), record.bytes(), origin.wrappers().sequence(), s)?;
+        for record in [
+            root,
+            authority,
+            &records.intent,
+            &records.head,
+            &records.activation,
+        ] {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            self._inventory.introduce(
+                record.reference(),
+                record.bytes(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
         }
-        self._inventory.set_head(&semantic, records.head.reference(), s)?;
-        self._inventory.set_head(&boundary, records.activation.reference(), s)?;
+        self._inventory
+            .set_head(&semantic, records.head.reference(), s)?;
+        self._inventory
+            .set_head(&boundary, records.activation.reference(), s)?;
         self._inventory.set_head(&head, records.head.reference(), s)
     }
 
@@ -2496,23 +2893,83 @@ pub(super) fn local_claim_key(
             ],
             5,
         ),
-        PermanentClaimKey::AppCall { logical_store_id, source_namespace, call_id } => (
-            "local-original-app-call", [logical_store_id, source_namespace, call_id, "", ""], 3,
+        PermanentClaimKey::AppCall {
+            logical_store_id,
+            source_namespace,
+            call_id,
+        } => (
+            "local-original-app-call",
+            [logical_store_id, source_namespace, call_id, "", ""],
+            3,
         ),
-        PermanentClaimKey::AppComponentObservation { logical_store_id, original_work_ref, component_slot } => (
-            "local-original-app-component-observation", [logical_store_id, &original_work_ref.kind, &original_work_ref.id, &original_work_ref.digest, component_slot], 5,
+        PermanentClaimKey::AppComponentObservation {
+            logical_store_id,
+            original_work_ref,
+            component_slot,
+        } => (
+            "local-original-app-component-observation",
+            [
+                logical_store_id,
+                &original_work_ref.kind,
+                &original_work_ref.id,
+                &original_work_ref.digest,
+                component_slot,
+            ],
+            5,
         ),
-        PermanentClaimKey::AppProviderCall { logical_store_id, provider, account, request_id } => (
-            "local-original-app-provider-call", [logical_store_id, provider, account, request_id, ""], 4,
+        PermanentClaimKey::AppProviderCall {
+            logical_store_id,
+            provider,
+            account,
+            request_id,
+        } => (
+            "local-original-app-provider-call",
+            [logical_store_id, provider, account, request_id, ""],
+            4,
         ),
-        PermanentClaimKey::AppCostComponent { logical_store_id, original_work_ref, component_slot } => (
-            "local-original-app-cost-component", [logical_store_id, &original_work_ref.kind, &original_work_ref.id, &original_work_ref.digest, component_slot], 5,
+        PermanentClaimKey::AppCostComponent {
+            logical_store_id,
+            original_work_ref,
+            component_slot,
+        } => (
+            "local-original-app-cost-component",
+            [
+                logical_store_id,
+                &original_work_ref.kind,
+                &original_work_ref.id,
+                &original_work_ref.digest,
+                component_slot,
+            ],
+            5,
         ),
-        PermanentClaimKey::AppFinalEvidence { logical_store_id, final_evidence_ref } => (
-            "local-original-app-final-evidence", [logical_store_id, &final_evidence_ref.kind, &final_evidence_ref.id, &final_evidence_ref.digest, ""], 4,
+        PermanentClaimKey::AppFinalEvidence {
+            logical_store_id,
+            final_evidence_ref,
+        } => (
+            "local-original-app-final-evidence",
+            [
+                logical_store_id,
+                &final_evidence_ref.kind,
+                &final_evidence_ref.id,
+                &final_evidence_ref.digest,
+                "",
+            ],
+            4,
         ),
-        PermanentClaimKey::AppObservationRevision { logical_store_id, observation_ref, cost_revision } => (
-            "local-original-app-observation-revision", [logical_store_id, &observation_ref.kind, &observation_ref.id, &observation_ref.digest, cost_revision], 5,
+        PermanentClaimKey::AppObservationRevision {
+            logical_store_id,
+            observation_ref,
+            cost_revision,
+        } => (
+            "local-original-app-observation-revision",
+            [
+                logical_store_id,
+                &observation_ref.kind,
+                &observation_ref.id,
+                &observation_ref.digest,
+                cost_revision,
+            ],
+            5,
         ),
         _ => return Err(reject("UNSUPPORTED_COMPOSITION")),
     };
@@ -2707,7 +3164,7 @@ impl FoldedInventory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ledgerlab_core::canonical::{CanonicalBytes, audit_arena::AuditArena};
+    use ledgerlab_core::canonical::{audit_arena::AuditArena, CanonicalBytes};
     fn scope() -> OperationKey {
         OperationKey {
             logical_store_id: "local".into(),

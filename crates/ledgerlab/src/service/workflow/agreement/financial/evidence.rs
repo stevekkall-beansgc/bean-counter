@@ -13,8 +13,10 @@ const SHARED_NAMESPACE_REGISTRY: &str =
     "sha256:486006021470309c58c9fc18638fab8a21c6e52431dc6aaf4dcb051eadc62996";
 const SOURCE_PARTICIPANT_REGISTRY: &str =
     "sha256:3413b928959d6f114b22ec7390172b7d48058050df3489e3d7a08680b78fe28d";
-pub(super) const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
-pub(super) const PLATFORM_FUNDING_REGISTRY: &str = "sha256:2fa74f5678d0d6422073a1aa00d8edcbfaaab9df22f248acdce188474a3866b1";
+pub(super) const R1_REGISTRY: &str =
+    "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
+pub(super) const PLATFORM_FUNDING_REGISTRY: &str =
+    "sha256:2fa74f5678d0d6422073a1aa00d8edcbfaaab9df22f248acdce188474a3866b1";
 
 /// The existing evidence semantic identity, encoded with the owning session.
 /// The returned canonical JSON string contains the index key between its quotes.
@@ -24,17 +26,54 @@ pub(super) fn retained_semantic_identity(
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
     let mut values = Vec::new();
-    let _lease = s.reserve_external_payload(7 * std::mem::size_of::<AuditedBytes>()).map_err(core_error)?;
-    s.semantic_work().write_bytes(7 * std::mem::size_of::<AuditedBytes>()).map_err(core_error)?;
-    values.try_reserve_exact(7).map_err(|_| ServiceError::Unavailable)?;
-    for (object, name) in [(key, "logical_store_id"), (key, "scope"), (input, "purpose"), (input, "subject"), (input, "media_type"), (input, "content_sha256"), (input, "metadata")] {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+    let _lease = s
+        .reserve_external_payload(7 * std::mem::size_of::<AuditedBytes>())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(7 * std::mem::size_of::<AuditedBytes>())
+        .map_err(core_error)?;
+    values
+        .try_reserve_exact(7)
+        .map_err(|_| ServiceError::Unavailable)?;
+    for (object, name) in [
+        (key, "logical_store_id"),
+        (key, "scope"),
+        (input, "purpose"),
+        (input, "subject"),
+        (input, "media_type"),
+        (input, "content_sha256"),
+        (input, "metadata"),
+    ] {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
         let value = request_wrapper::field(object, name, s)?;
-        values.push(s.canonical_representation(value, Kind::SourceDefinition).map_err(core_error)?);
+        values.push(
+            s.canonical_representation(value, Kind::SourceDefinition)
+                .map_err(core_error)?,
+        );
     }
-    wire::domain_digest(b"bean-counter/workflow-evidence-input/1\0", &[
-        b"[", values[0].bytes(), b",", values[1].bytes(), b",", values[2].bytes(), b",", values[3].bytes(), b",", values[4].bytes(), b",", values[5].bytes(), b",", values[6].bytes(), b"]",
-    ], s)
+    wire::domain_digest(
+        b"bean-counter/workflow-evidence-input/1\0",
+        &[
+            b"[",
+            values[0].bytes(),
+            b",",
+            values[1].bytes(),
+            b",",
+            values[2].bytes(),
+            b",",
+            values[3].bytes(),
+            b",",
+            values[4].bytes(),
+            b",",
+            values[5].bytes(),
+            b",",
+            values[6].bytes(),
+            b"]",
+        ],
+        s,
+    )
 }
 pub(super) struct RequestEvidence {
     parsed: AuditedValue,
@@ -285,7 +324,12 @@ fn party_anchors(
         s,
     )?
     .is_eq();
-    let supplier = cmp(schema.as_bytes(), b"ledger-workflow-party-evidence-retain/3", s)?.is_eq();
+    let supplier = cmp(
+        schema.as_bytes(),
+        b"ledger-workflow-party-evidence-retain/3",
+        s,
+    )?
+    .is_eq();
     request_wrapper::same_text(
         wrappers::descriptor_schema(req.kind(), schema, registry, s)?,
         if commitment || supplier {
@@ -348,7 +392,11 @@ fn party_anchors(
             if commitment || supplier {
                 request_wrapper::same_text(
                     request_wrapper::text(basis, "kind", s)?,
-                    if supplier { "supplier_commitment" } else { "acceptance_terms" },
+                    if supplier {
+                        "supplier_commitment"
+                    } else {
+                        "acceptance_terms"
+                    },
                     s,
                 )?;
                 return Ok(out);
@@ -399,9 +447,13 @@ pub(super) fn local_party(
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
     let payload = req.payload(s)?;
-    let registry = if request_wrapper::text(payload, "schema", s)? == "ledger-workflow-party-evidence-retain/3" {
+    let registry = if request_wrapper::text(payload, "schema", s)?
+        == "ledger-workflow-party-evidence-retain/3"
+    {
         wrappers::STAGE_LIFECYCLE_REGISTRY
-    } else { wrappers::LOCAL_REGISTRY };
+    } else {
+        wrappers::LOCAL_REGISTRY
+    };
     party_with_registry(req, pending, registry, s)
 }
 fn party_with_registry(
@@ -992,7 +1044,10 @@ pub(super) fn activation_material(
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
     let result = (|| {
-        require(matches!(req.kind(), "agreement.activate" | "agreement.revoke"), "INTEGRITY_FAILURE")?;
+        require(
+            matches!(req.kind(), "agreement.activate" | "agreement.revoke"),
+            "INTEGRITY_FAILURE",
+        )?;
         let parsed = s
             .parse_representation(normalized_payload, Kind::Record)
             .map_err(core_error)?;
@@ -1010,9 +1065,12 @@ pub(super) fn activation_material(
             descriptors.bytes(),
             s,
         )?;
-        let target_field = if req.kind() == "agreement.revoke" { "transition_ref" } else { "replaces_transition_ref" };
-        if let Some(target) = request_wrapper::optional_field(payload, target_field, s)?
-        {
+        let target_field = if req.kind() == "agreement.revoke" {
+            "transition_ref"
+        } else {
+            "replaces_transition_ref"
+        };
+        if let Some(target) = request_wrapper::optional_field(payload, target_field, s)? {
             anchors.add(
                 "activation_target",
                 "activation_target",
@@ -1063,7 +1121,20 @@ mod commitment_tests {
     fn retained_semantic_identity_matches_existing_evidence_domain() {
         let key = serde_json::json!({"logical_store_id":"store","scope":["tenant","env"]});
         let input = serde_json::json!({"purpose":"admission_stop","subject":{"customer":"A"},"media_type":"text/plain","content_sha256":"sha256:abc","metadata":{"reason":"revoked"}});
-        let expected = super::super::super::super::records::hash("workflow-evidence-input", 1, &serde_json::json!([key["logical_store_id"],key["scope"],input["purpose"],input["subject"],input["media_type"],input["content_sha256"],input["metadata"]])).unwrap();
+        let expected = super::super::super::super::records::hash(
+            "workflow-evidence-input",
+            1,
+            &serde_json::json!([
+                key["logical_store_id"],
+                key["scope"],
+                input["purpose"],
+                input["subject"],
+                input["media_type"],
+                input["content_sha256"],
+                input["metadata"]
+            ]),
+        )
+        .unwrap();
         let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
         let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let actual = retained_semantic_identity(&key, &input, &mut s).unwrap();
@@ -1120,16 +1191,27 @@ mod commitment_tests {
     #[test]
     fn supplier_successor_literal_retains_only_immediate_authorization_anchor() {
         use ledgerlab_core::canonical::audit_arena::AuditArena;
-        let r=|kind:&str| serde_json::json!({"kind":kind,"id":format!("wdoc_{}","1".repeat(64)),"digest":format!("sha256:{}","1".repeat(64))});
-        for (registry,accepted) in [(wrappers::STAGE_LIFECYCLE_REGISTRY,true),(wrappers::LOCAL_REGISTRY,false),(COMMITMENT_REGISTRY,false)] {
-            let value=serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"evidence.retain",
+        let r = |kind: &str| serde_json::json!({"kind":kind,"id":format!("wdoc_{}","1".repeat(64)),"digest":format!("sha256:{}","1".repeat(64))});
+        for (registry, accepted) in [
+            (wrappers::STAGE_LIFECYCLE_REGISTRY, true),
+            (wrappers::LOCAL_REGISTRY, false),
+            (COMMITMENT_REGISTRY, false),
+        ] {
+            let value = serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"evidence.retain",
                 "key":{"logical_store_id":"test-store","scope":["test","local"],"source":"owner","operation_id":"supplier-consent"},
                 "payload":{"schema":"ledger-workflow-party-evidence-retain/3","metadata":{"purpose":"party_consent","consent":{"authorization_ref":r("workflow-authority"),"basis":{"kind":"supplier_commitment","commitment_ref":r("workflow-offer"),"offer_ref":r("workflow-offer"),"supplier_terms_ref":r("workflow-slot-terms")}}}}});
-            let arena=AuditArena::new().unwrap(); let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let raw=serde_json::to_vec(&value).unwrap(); let req=ingress::IncomingRequest::parse(&raw,&mut s).unwrap();
-            let result=party_anchors(&req,req.payload(&mut s).unwrap(),registry,&mut s);
-            assert_eq!(result.is_ok(),accepted);
-            if let Ok(anchors)=result { assert_eq!(anchors.len,1); let (locators,_)=anchors.arrays(&mut s).unwrap(); let parsed:Value=serde_json::from_slice(locators.bytes()).unwrap(); assert_eq!(parsed.as_array().unwrap().len(),1); }
+            let arena = AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let raw = serde_json::to_vec(&value).unwrap();
+            let req = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+            let result = party_anchors(&req, req.payload(&mut s).unwrap(), registry, &mut s);
+            assert_eq!(result.is_ok(), accepted);
+            if let Ok(anchors) = result {
+                assert_eq!(anchors.len, 1);
+                let (locators, _) = anchors.arrays(&mut s).unwrap();
+                let parsed: Value = serde_json::from_slice(locators.bytes()).unwrap();
+                assert_eq!(parsed.as_array().unwrap().len(), 1);
+            }
         }
     }
     #[test]

@@ -1,10 +1,10 @@
 //! Mechanical custody for explicit operator credits, separate from workflow
 //! Actions and legacy causal adjustments. Semantic authority stays with the
 //! completed held-prefix producer; opening checks retained byte associations.
-use super::{SqliteTx, m5};
+use super::{m5, SqliteTx};
 use crate::store::errors::StoreError;
 use ledgerlab_core::canonical::{self, CanonicalBytes};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sqlx::SqliteConnection;
 
 mod paid;
@@ -491,11 +491,9 @@ mod tests {
                 .bind(id).bind(seq).bind(first).bind(first).execute(&mut conn).await.unwrap();
             let rejected = sqlx::query("INSERT INTO billing_manual_credit_membership VALUES('customer','store','tenant','env','billing-manual-credit',?,'digest',?,?,?,'other-hash')")
                 .bind(id).bind(seq+1).bind(second).bind(second).execute(&mut conn).await.unwrap_err();
-            assert!(
-                rejected
-                    .as_database_error()
-                    .is_some_and(|e| e.is_unique_violation())
-            );
+            assert!(rejected
+                .as_database_error()
+                .is_some_and(|e| e.is_unique_violation()));
         }
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM billing_manual_credit_membership")
@@ -510,12 +508,10 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(
-            sqlx::query("DELETE FROM billing_manual_credit_membership")
-                .execute(&mut conn)
-                .await
-                .is_err()
-        );
+        assert!(sqlx::query("DELETE FROM billing_manual_credit_membership")
+            .execute(&mut conn)
+            .await
+            .is_err());
         sqlx::query("ROLLBACK").execute(&mut conn).await.unwrap();
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT count(*) FROM billing_m5_records")

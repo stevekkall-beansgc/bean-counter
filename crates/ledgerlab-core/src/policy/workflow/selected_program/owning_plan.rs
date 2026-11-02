@@ -828,9 +828,15 @@ pub(super) fn build(
         let selector = shape::field(m, body, "selector")?;
         let mut present = false;
         if component {
-            for old in &paths { if shape::same(m, old.value(), selector)? { present = true; } }
+            for old in &paths {
+                if shape::same(m, old.value(), selector)? {
+                    present = true;
+                }
+            }
         }
-        if !present { paths.push(a.clone_value(selector, m)?); }
+        if !present {
+            paths.push(a.clone_value(selector, m)?);
+        }
     }
     let mut activity_table = vector(m, &a, activities.len())?;
     let opcode = a.string_value("close_stage", m)?;

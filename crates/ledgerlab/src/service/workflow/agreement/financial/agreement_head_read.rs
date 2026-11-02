@@ -317,36 +317,8 @@ mod tests {
                 locator("1", &expected.reference().digest, &mut s),
                 locator("2", &format!("sha256:{}", "0".repeat(64)), &mut s),
             ] {
-                assert!(
-                    checked_head(
-                        &key,
-                        "customer-A",
-                        "agreement-A",
-                        head,
-                        s.canonical_representation(&body, Kind::Record).unwrap(),
-                        &held,
-                        &mut s
-                    )
-                    .is_err()
-                );
-            }
-            assert!(
-                checked_head(
+                assert!(checked_head(
                     &key,
-                    "customer-B",
-                    "agreement-A",
-                    head,
-                    s.canonical_representation(&body, Kind::Record).unwrap(),
-                    &held,
-                    &mut s
-                )
-                .is_err()
-            );
-            let mut wrong_scope = key.clone();
-            wrong_scope.scope[1] = "other".into();
-            assert!(
-                checked_head(
-                    &wrong_scope,
                     "customer-A",
                     "agreement-A",
                     head,
@@ -354,8 +326,30 @@ mod tests {
                     &held,
                     &mut s
                 )
-                .is_err()
-            );
+                .is_err());
+            }
+            assert!(checked_head(
+                &key,
+                "customer-B",
+                "agreement-A",
+                head,
+                s.canonical_representation(&body, Kind::Record).unwrap(),
+                &held,
+                &mut s
+            )
+            .is_err());
+            let mut wrong_scope = key.clone();
+            wrong_scope.scope[1] = "other".into();
+            assert!(checked_head(
+                &wrong_scope,
+                "customer-A",
+                "agreement-A",
+                head,
+                s.canonical_representation(&body, Kind::Record).unwrap(),
+                &held,
+                &mut s
+            )
+            .is_err());
         }
 
         // Actual empty installation: the facade authenticates the owner and
@@ -385,20 +379,16 @@ mod tests {
             );
             let mut invalid = request.clone();
             invalid["payload"]["head_kind"] = json!("latest");
-            assert!(
-                ledger
-                    .read(&records::bytes(&invalid).unwrap())
-                    .await
-                    .is_err()
-            );
+            assert!(ledger
+                .read(&records::bytes(&invalid).unwrap())
+                .await
+                .is_err());
             let mut invalid = request;
             invalid["payload"]["source"] = json!("pretend-reader");
-            assert!(
-                ledger
-                    .read(&records::bytes(&invalid).unwrap())
-                    .await
-                    .is_err()
-            );
+            assert!(ledger
+                .read(&records::bytes(&invalid).unwrap())
+                .await
+                .is_err());
         }
     }
 }

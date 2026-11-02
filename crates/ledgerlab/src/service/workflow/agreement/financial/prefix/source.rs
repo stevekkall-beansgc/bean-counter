@@ -800,11 +800,16 @@ async fn retention_inner<'a>(
     )?;
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
-    let input = if same(request_wrapper::text(literal, "schema", s)?, "ledger-workflow-evidence-retain/2", s)? {
+    let input = if same(
+        request_wrapper::text(literal, "schema", s)?,
+        "ledger-workflow-evidence-retain/2",
+        s,
+    )? {
         ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize_platform_funding(literal, s)
     } else {
         ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(literal, s)
-    }.map_err(core_error)?;
+    }
+    .map_err(core_error)?;
     let p = input.canonical_value();
     let saved = request_wrapper::field(
         request_wrapper::field(operation, "request_evidence", s)?,
@@ -868,8 +873,13 @@ async fn retention_inner<'a>(
         // origin inventory before staging this evidence. A stop consumer still
         // must select the actual accepted Binding and target schedule.
         let binding = current::source::retained_stop_binding(
-            tx, origin.key(), binding_ref, origin.wrappers().sequence(), s,
-        ).await?;
+            tx,
+            origin.key(),
+            binding_ref,
+            origin.wrappers().sequence(),
+            s,
+        )
+        .await?;
         let target = current::source::retained_record(
             tx,
             origin.key(),
@@ -938,21 +948,54 @@ pub(in super::super) struct InitialSource {
     namespace_owner: Option<(Box<InitialSource>, ExternalBufferLease)>,
 }
 impl InitialSource {
-    pub(in super::super) fn correspondence(&self) -> &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence {
+    pub(in super::super) fn correspondence(
+        &self,
+    ) -> &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence
+    {
         &self.correspondence
     }
-    pub(in super::super) fn namespace_owner_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
-        self.namespace_owner.iter().flat_map(|(owner, _)| owner.input_views())
+    pub(in super::super) fn namespace_owner_views(
+        &self,
+    ) -> impl Iterator<
+        Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
+    > {
+        self.namespace_owner
+            .iter()
+            .flat_map(|(owner, _)| owner.input_views())
     }
-    pub(in super::super) fn input_views(&self) -> impl Iterator<Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>> {
+    pub(in super::super) fn input_views(
+        &self,
+    ) -> impl Iterator<
+        Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
+    > {
         use ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView;
         [
-            EconomicRecordView { reference: self.root.reference(), canonical_body: self.root.canonical_body() },
-            EconomicRecordView { reference: self.evidence.reference(), canonical_body: self.evidence.canonical_body() },
-            EconomicRecordView { reference: self.enrollment.reference(), canonical_body: self.enrollment.bytes() },
-            EconomicRecordView { reference: self.grant.reference(), canonical_body: self.grant.bytes() },
-            EconomicRecordView { reference: self.state.reference(), canonical_body: self.state.bytes() },
-        ].into_iter().chain(self.customers.iter().map(|r| EconomicRecordView { reference: r.reference(), canonical_body: r.canonical_body() }))
+            EconomicRecordView {
+                reference: self.root.reference(),
+                canonical_body: self.root.canonical_body(),
+            },
+            EconomicRecordView {
+                reference: self.evidence.reference(),
+                canonical_body: self.evidence.canonical_body(),
+            },
+            EconomicRecordView {
+                reference: self.enrollment.reference(),
+                canonical_body: self.enrollment.bytes(),
+            },
+            EconomicRecordView {
+                reference: self.grant.reference(),
+                canonical_body: self.grant.bytes(),
+            },
+            EconomicRecordView {
+                reference: self.state.reference(),
+                canonical_body: self.state.bytes(),
+            },
+        ]
+        .into_iter()
+        .chain(self.customers.iter().map(|r| EconomicRecordView {
+            reference: r.reference(),
+            canonical_body: r.canonical_body(),
+        }))
     }
 }
 // Fixed one-hop canonical owner lookup. Source3 cannot anchor another Source3,
@@ -967,7 +1010,8 @@ pub(super) async fn canonical_namespace_owner(
     s: &mut OriginalAuditSession,
 ) -> Result<(Box<InitialSource>, ExternalBufferLease)> {
     origin.require_member(reference, s)?;
-    let (reference, _reference_owner) = current::source::from_value(reference, "workflow-source-enrollment", s)?;
+    let (reference, _reference_owner) =
+        current::source::from_value(reference, "workflow-source-enrollment", s)?;
     let sequence = tx
         .workflow_selected_association_sequence(
             &reference,
@@ -1024,14 +1068,31 @@ pub(super) async fn canonical_namespace_owner(
 /// Exact completed administrative birth for a retained enrollment. The result
 /// repeats saved raw/member/root/owner joins at the requested historical cutoff.
 pub(in super::super) async fn initial_for_enrollment(
-    tx: &mut SqliteTx, key: &OperationKey,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
     enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
-    before: i64, s: &mut OriginalAuditSession,
+    before: i64,
+    s: &mut OriginalAuditSession,
 ) -> Result<(Box<InitialSource>, ExternalBufferLease)> {
-    let sequence = tx.workflow_selected_association_sequence(enrollment, &key.logical_store_id, &key.scope, before, s)
-        .await.map_err(read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-    let prior = sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
-    let origin = next(tx, key, prior, sequence, s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx, s).await?;
+    let sequence = tx
+        .workflow_selected_association_sequence(
+            enrollment,
+            &key.logical_store_id,
+            &key.scope,
+            before,
+            s,
+        )
+        .await
+        .map_err(read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let prior = sequence
+        .checked_sub(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let origin = next(tx, key, prior, sequence, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?
+        .checked_wrappers(tx, s)
+        .await?;
     let source = Box::pin(reconstruct_initial(tx, &origin, s)).await?;
     let expected = wire::reference(enrollment, s)?;
     let actual = wire::reference(source.enrollment.reference(), s)?;
@@ -2365,9 +2426,17 @@ pub(super) async fn fold(
         "semantic_alias",
         s,
     )? {
-        let literal = request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
-        if same(request_wrapper::text(literal, "schema", s)?, "ledger-workflow-evidence-retain/1", s)?
-            && same(request_wrapper::text(literal, "purpose", s)?, "admission_stop", s)? {
+        let literal =
+            request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+        if same(
+            request_wrapper::text(literal, "schema", s)?,
+            "ledger-workflow-evidence-retain/1",
+            s,
+        )? && same(
+            request_wrapper::text(literal, "purpose", s)?,
+            "admission_stop",
+            s,
+        )? {
             let binding = fold_stop_alias(tx, origin, inventory, setup, s).await?;
             return Ok(FoldedSource::LocalStopBinding(binding, true));
         }
@@ -2393,7 +2462,7 @@ pub(super) async fn fold(
         "ledger-workflow-party-revoke/1",
         "ledger-workflow-party-evidence-retain/1",
         "ledger-workflow-party-evidence-retain/2",
-                    "ledger-workflow-party-evidence-retain/3",
+        "ledger-workflow-party-evidence-retain/3",
     ] {
         if same(schema, party, s)? {
             let result = origin.reconstruct_party(tx, inventory, s).await?;
@@ -2531,14 +2600,26 @@ pub(super) async fn fold(
         }
         inventory.set_head(&head, r.state.reference(), s)?;
     } else if same(schema, "ledger-workflow-evidence-retain/1", s)?
-        || same(schema, "ledger-workflow-evidence-retain/2", s)? {
+        || same(schema, "ledger-workflow-evidence-retain/2", s)?
+    {
         let r = reconstruct_retention(tx, origin, s).await?;
         let local_binding = if let Some(binding) = &r.dependencies[0] {
-            if same(request_wrapper::text(r._input.canonical_value(), "purpose", s)?, "admission_stop", s)?
-                && same(request_wrapper::text(binding.body(), "schema", s)?, "ledger-workflow-binding/2", s)? {
+            if same(
+                request_wrapper::text(r._input.canonical_value(), "purpose", s)?,
+                "admission_stop",
+                s,
+            )? && same(
+                request_wrapper::text(binding.body(), "schema", s)?,
+                "ledger-workflow-binding/2",
+                s,
+            )? {
                 Some(wire::reference(binding.reference(), s)?)
-            } else { None }
-        } else { None };
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         custody(r.management.root.body(), setup, s)?;
         for record in r.dependencies.iter().flatten() {
             s.semantic_work()
@@ -2547,8 +2628,18 @@ pub(super) async fn fold(
             inventory.compare_record(record.reference(), record.canonical_body(), s)?;
         }
         if let Some(binding) = local_binding {
-            inventory.introduce(r.management.root.reference(), r.management.root.canonical_body(), origin.wrappers().sequence(), s)?;
-            inventory.introduce(r.result.reference(), r.result.bytes(), origin.wrappers().sequence(), s)?;
+            inventory.introduce(
+                r.management.root.reference(),
+                r.management.root.canonical_body(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
+            inventory.introduce(
+                r.result.reference(),
+                r.result.bytes(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
             return Ok(FoldedSource::LocalStopBinding(binding, false));
         }
         stage(inventory, &r.management.root, &[&r.result], None, origin, s)?;
@@ -2562,22 +2653,70 @@ pub(super) async fn fold(
 /// The semantic index is a locator only; compare its original's full result
 /// with that completed inventory before accepting any alias journal.
 async fn fold_stop_alias(
-    tx: &mut SqliteTx, origin: &LocatedWrappers, inventory: &mut inventory::Inventory,
-    setup: &crate::service::billing::Setup, s: &mut OriginalAuditSession,
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    inventory: &mut inventory::Inventory,
+    setup: &crate::service::billing::Setup,
+    s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
-    let saved = ingress::IncomingRequest::parse_original_administration(origin.wrappers().original_request().raw(), s)?;
-    let input = ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(saved.payload(s)?, s).map_err(core_error)?;
-    let binding_ref = request_wrapper::field(request_wrapper::field(input.canonical_value(), "metadata", s)?, "binding_ref", s)?;
-    let binding = current::source::retained_stop_binding(tx, origin.key(), binding_ref, origin.wrappers().sequence(), s).await?;
-    if !same(request_wrapper::text(binding.body(), "schema", s)?, "ledger-workflow-binding/2", s)? { return Err(ServiceError::Unavailable); }
+    let saved = ingress::IncomingRequest::parse_original_administration(
+        origin.wrappers().original_request().raw(),
+        s,
+    )?;
+    let input =
+        ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(saved.payload(s)?, s)
+            .map_err(core_error)?;
+    let binding_ref = request_wrapper::field(
+        request_wrapper::field(input.canonical_value(), "metadata", s)?,
+        "binding_ref",
+        s,
+    )?;
+    let binding = current::source::retained_stop_binding(
+        tx,
+        origin.key(),
+        binding_ref,
+        origin.wrappers().sequence(),
+        s,
+    )
+    .await?;
+    if !same(
+        request_wrapper::text(binding.body(), "schema", s)?,
+        "ledger-workflow-binding/2",
+        s,
+    )? {
+        return Err(ServiceError::Unavailable);
+    }
     let key = request_wrapper::field(saved.value(), "key", s)?;
-    let semantic = super::super::evidence::retained_semantic_identity(key, input.canonical_value(), s)?;
-    let semantic_key = semantic.bytes().get(1..semantic.bytes().len().saturating_sub(1)).ok_or(ServiceError::IntegrityFailure)?;
-    let identity = tx.workflow_evidence_semantic_locator(&origin.key().logical_store_id, &origin.key().scope, semantic_key, s).await.map_err(super::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-    let prior = super::target(tx, origin.key(), identity, s).await?.checked_wrappers(tx, s).await?;
-    require(prior.wrappers().sequence() < origin.wrappers().sequence(), "INTEGRITY_FAILURE")?;
+    let semantic =
+        super::super::evidence::retained_semantic_identity(key, input.canonical_value(), s)?;
+    let semantic_key = semantic
+        .bytes()
+        .get(1..semantic.bytes().len().saturating_sub(1))
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let identity = tx
+        .workflow_evidence_semantic_locator(
+            &origin.key().logical_store_id,
+            &origin.key().scope,
+            semantic_key,
+            s,
+        )
+        .await
+        .map_err(super::read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let prior = super::target(tx, origin.key(), identity, s)
+        .await?
+        .checked_wrappers(tx, s)
+        .await?;
+    require(
+        prior.wrappers().sequence() < origin.wrappers().sequence(),
+        "INTEGRITY_FAILURE",
+    )?;
     let retained = reconstruct_retention(tx, &prior, s).await?;
-    same_bytes(input.canonical_bytes(), retained._input.canonical_bytes(), s)?;
+    same_bytes(
+        input.canonical_bytes(),
+        retained._input.canonical_bytes(),
+        s,
+    )?;
     custody(retained.management.root.body(), setup, s)?;
     inventory.compare_record(retained.result.reference(), retained.result.bytes(), s)?;
     for dependency in retained.dependencies.iter().flatten() {
@@ -2585,13 +2724,33 @@ async fn fold_stop_alias(
     }
     let management = management(tx, origin, s).await?;
     custody(management.root.body(), setup, s)?;
-    inventory.introduce(management.root.reference(), management.root.canonical_body(), origin.wrappers().sequence(), s)?;
-    let root_bytes = s.copy_representation(management.root.canonical_body(), RepresentationKind::Authority).map_err(core_error)?;
-    let root = wire::source_record("workflow-authority", "ledger-workflow-local-authority-snapshot/1", root_bytes, s)?;
+    inventory.introduce(
+        management.root.reference(),
+        management.root.canonical_body(),
+        origin.wrappers().sequence(),
+        s,
+    )?;
+    let root_bytes = s
+        .copy_representation(
+            management.root.canonical_body(),
+            RepresentationKind::Authority,
+        )
+        .map_err(core_error)?;
+    let root = wire::source_record(
+        "workflow-authority",
+        "ledger-workflow-local-authority-snapshot/1",
+        root_bytes,
+        s,
+    )?;
     let mut members = super::ResolvedMembers::new(s)?;
     members.add_record_ref(management.root.reference(), s)?;
-    for value in request_wrapper::field(prior.wrappers().manifest(), "members", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+    for value in request_wrapper::field(prior.wrappers().manifest(), "members", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
         if !prior.wrappers().is_own_operation(value, s)? {
             let body = inventory.body(value, s)?;
             let kind = request_wrapper::text(value, "kind", s)?;
@@ -2600,9 +2759,24 @@ async fn fold_stop_alias(
             members.add(value, s)?;
         }
     }
-    let evidence = super::super::evidence::original_administration(origin, input.canonical_bytes(), s)?;
-    let authority = super::super::local_activation::stop_retention_authority(setup, &root, &management.at, s)?;
-    wire::frame_administration(&saved, input.canonical_bytes(), authority.bytes(), management.at.as_str(), retained.result.reference(), &evidence, origin.wrappers().sequence(), members, "ledger-workflow-publication-authority/1", true, s)?.compare_original(origin, s)?;
+    let evidence =
+        super::super::evidence::original_administration(origin, input.canonical_bytes(), s)?;
+    let authority =
+        super::super::local_activation::stop_retention_authority(setup, &root, &management.at, s)?;
+    wire::frame_administration(
+        &saved,
+        input.canonical_bytes(),
+        authority.bytes(),
+        management.at.as_str(),
+        retained.result.reference(),
+        &evidence,
+        origin.wrappers().sequence(),
+        members,
+        "ledger-workflow-publication-authority/1",
+        true,
+        s,
+    )?
+    .compare_original(origin, s)?;
     wire::reference(binding.reference(), s)
 }
 pub(in super::super) fn custody(

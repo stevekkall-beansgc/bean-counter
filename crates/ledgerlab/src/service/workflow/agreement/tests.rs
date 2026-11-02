@@ -1306,51 +1306,93 @@ async fn registered_source_admin_keeps_owner_and_target_distinct_through_origina
     let mut shared_proof = proof_payload();
     shared_proof["purpose"] = json!("source_enrollment");
     shared_proof["subject"] = json!({"customer":customer_name});
-    shared_proof["metadata"] = json!({"source":"urn:example:replacement","principal_id":"example-operator"});
-    let shared_proof = ledger.prerequisite(&records::bytes(&envelope("shared-proof", "evidence.retain", shared_proof)).unwrap()).await.unwrap();
+    shared_proof["metadata"] =
+        json!({"source":"urn:example:replacement","principal_id":"example-operator"});
+    let shared_proof = ledger
+        .prerequisite(
+            &records::bytes(&envelope("shared-proof", "evidence.retain", shared_proof)).unwrap(),
+        )
+        .await
+        .unwrap();
     let mut shared_ceiling = ceiling.clone();
     shared_ceiling["source"] = json!("urn:example:replacement");
-    let shared = envelope("shared-enroll", "authority.change", json!({
-        "schema":"ledger-workflow-source-enroll/3", "action":"source.enroll", "expected_revision":"0",
-        "enrollment_id":"shared-registration", "customer_refs":request["payload"]["customer_refs"],
-        "ceiling":shared_ceiling, "evidence_ref":result_ref(&shared_proof,"workflow-evidence"),
-        "namespace_owner_enrollment_ref":enrollment
-    }));
+    let shared = envelope(
+        "shared-enroll",
+        "authority.change",
+        json!({
+            "schema":"ledger-workflow-source-enroll/3", "action":"source.enroll", "expected_revision":"0",
+            "enrollment_id":"shared-registration", "customer_refs":request["payload"]["customer_refs"],
+            "ceiling":shared_ceiling, "evidence_ref":result_ref(&shared_proof,"workflow-evidence"),
+            "namespace_owner_enrollment_ref":enrollment
+        }),
+    );
     let before_shared = retained_projection_counts(&path).await;
     let mut wrong_owner = shared.clone();
     wrong_owner["key"]["operation_id"] = json!("shared-wrong-kind");
-    wrong_owner["payload"]["namespace_owner_enrollment_ref"] = request["payload"]["customer_refs"][0].clone();
-    assert!(ledger.prerequisite(&records::bytes(&wrong_owner).unwrap()).await.is_err());
+    wrong_owner["payload"]["namespace_owner_enrollment_ref"] =
+        request["payload"]["customer_refs"][0].clone();
+    assert!(ledger
+        .prerequisite(&records::bytes(&wrong_owner).unwrap())
+        .await
+        .is_err());
     let mut old_shared = shared.clone();
     old_shared["key"]["operation_id"] = json!("shared-old-recipe");
     old_shared["payload"]["schema"] = json!("ledger-workflow-source-enroll/2");
-    assert!(ledger.prerequisite(&records::bytes(&old_shared).unwrap()).await.is_err());
+    assert!(ledger
+        .prerequisite(&records::bytes(&old_shared).unwrap())
+        .await
+        .is_err());
     assert_eq!(retained_projection_counts(&path).await, before_shared);
     let shared_raw = records::bytes(&shared).unwrap();
     let shared_enrolled = ledger.prerequisite(&shared_raw).await.unwrap();
     let shared_ref = result_ref(&shared_enrolled, "workflow-source-enrollment");
     let mut restricted_ceiling = shared_ceiling.clone();
     restricted_ceiling["permissions"] = json!(["read"]);
-    let shared_restrict = envelope("shared-restrict", "authority.change", json!({
-        "schema":"ledger-workflow-source-restrict/3", "action":"source.restrict", "expected_revision":"1",
-        "enrollment_ref":shared_ref, "replacement_ceiling":restricted_ceiling
-    }));
+    let shared_restrict = envelope(
+        "shared-restrict",
+        "authority.change",
+        json!({
+            "schema":"ledger-workflow-source-restrict/3", "action":"source.restrict", "expected_revision":"1",
+            "enrollment_ref":shared_ref, "replacement_ceiling":restricted_ceiling
+        }),
+    );
     let shared_restrict_raw = records::bytes(&shared_restrict).unwrap();
     let shared_restricted = ledger.prerequisite(&shared_restrict_raw).await.unwrap();
-    let shared_revoke = envelope("shared-revoke", "authority.change", json!({
-        "schema":"ledger-workflow-source-revoke/3", "action":"source.revoke", "expected_revision":"2",
-        "enrollment_ref":shared_ref, "reason":"Independent replacement delivery retired"
-    }));
+    let shared_revoke = envelope(
+        "shared-revoke",
+        "authority.change",
+        json!({
+            "schema":"ledger-workflow-source-revoke/3", "action":"source.revoke", "expected_revision":"2",
+            "enrollment_ref":shared_ref, "reason":"Independent replacement delivery retired"
+        }),
+    );
     let shared_revoke_raw = records::bytes(&shared_revoke).unwrap();
     let shared_revoked = ledger.prerequisite(&shared_revoke_raw).await.unwrap();
     let before_remap = retained_projection_counts(&path).await;
     let mut remap = shared.clone();
     remap["key"]["operation_id"] = json!("shared-remap");
     remap["payload"]["enrollment_id"] = json!("another-shared-registration");
-    assert!(ledger.prerequisite(&records::bytes(&remap).unwrap()).await.is_err());
+    assert!(ledger
+        .prerequisite(&records::bytes(&remap).unwrap())
+        .await
+        .is_err());
     assert_eq!(retained_projection_counts(&path).await, before_remap);
-    let mut tx = ledger.store.begin(crate::service::workflow::local::deadline()).await.unwrap();
-    assert_eq!(tx.workflow_agreement_namespace(&key.logical_store_id, &key.scope, "urn:example:replacement").await.unwrap().as_deref(), Some("urn:example:meter"));
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(
+        tx.workflow_agreement_namespace(
+            &key.logical_store_id,
+            &key.scope,
+            "urn:example:replacement"
+        )
+        .await
+        .unwrap()
+        .as_deref(),
+        Some("urn:example:meter")
+    );
     tx.rollback().await.unwrap();
     let baseline = retained_projection_counts(&path).await;
     ledger.close().await;

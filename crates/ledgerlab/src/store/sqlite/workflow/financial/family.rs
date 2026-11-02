@@ -2,7 +2,7 @@
 //! returned full Target/head Ref is actual projection DATA, never a candidate
 //! target or authority. Multiple matches are integrity failure, never latest.
 use super::*;
-use heads::{HeadKey, HeadLocator, locator_text};
+use heads::{locator_text, HeadKey, HeadLocator};
 pub(crate) struct FamilyIdentityHead {
     pub target_kind: AuditedBytes,
     pub target_id: AuditedBytes,

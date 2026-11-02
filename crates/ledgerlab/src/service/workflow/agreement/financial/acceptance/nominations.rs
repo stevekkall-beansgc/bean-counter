@@ -2,8 +2,8 @@
 //! check. This grouping creates no authority, merged grant or completion flag.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    ExactRef, NominatedSourceFrame, NominatedSourceGrant, validate_app_local_source_shape,
-    validate_app_nominated_sources,
+    validate_app_local_source_shape, validate_app_nominated_sources, ExactRef,
+    NominatedSourceFrame, NominatedSourceGrant,
 };
 
 struct Grants<'a> {

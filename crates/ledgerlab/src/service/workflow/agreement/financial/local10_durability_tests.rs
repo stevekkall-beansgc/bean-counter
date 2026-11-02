@@ -6,7 +6,7 @@ use super::*;
 use crate::service::workflow::local::deadline;
 use crate::store::ports::AcceptanceStore;
 use ledgerlab_core::validation_work::RepresentationKind;
-use sqlx::{AssertSqlSafe, Connection, SqliteConnection, sqlite::SqliteConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, AssertSqlSafe, Connection, SqliteConnection};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -44,13 +44,11 @@ fn fixture(case: &str) -> (tempfile::TempDir, PathBuf, Vec<u8>, OperationKey, Ve
             .expect("explicit maintained synthetic fixture required"),
     );
     let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(
-        run["classification"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase()
-            .contains("synthetic")
-    );
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary
         .path()
@@ -462,13 +460,11 @@ async fn current_reads_preserve_completed_lifecycle_and_use_actual_owner() {
             .expect("explicit completed lifecycle fixture"),
     );
     let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(
-        run["classification"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase()
-            .contains("synthetic")
-    );
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
     let temporary = tempfile::tempdir().unwrap();
     let installation = temporary
         .path()
@@ -619,12 +615,10 @@ async fn local_root_dependency_allows_monotone_source_restriction_and_exact_retr
     request["key"]["operation_id"] = json!("local-root-cannot-restore-original-rights");
     request["payload"]["expected_revision"] = json!("2");
     request["payload"]["replacement_ceiling"] = original["payload"]["ceiling"].clone();
-    assert!(
-        reopened
-            .prerequisite(&records::bytes(&request).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(reopened
+        .prerequisite(&records::bytes(&request).unwrap())
+        .await
+        .is_err());
     reopened.close().await;
     assert_eq!(snapshot(&path).await, after);
     assert_eq!(fs::read(path.join("billing.json")).unwrap(), config);
@@ -639,13 +633,11 @@ async fn local10_attested_administrative_originals_reopen_status_and_retry() {
     assert!(crate::build_identity::embedded_inputs().is_ok());
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
     let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(
-        run["classification"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase()
-            .contains("synthetic")
-    );
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary
         .path()
@@ -698,13 +690,11 @@ async fn local10_local_acceptance_original_status_and_identity_retry() {
     assert!(crate::build_identity::embedded_inputs().is_ok());
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
     let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(
-        run["classification"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase()
-            .contains("synthetic")
-    );
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
     let raw = fs::read(root.join("acceptance-control.request.json")).unwrap();
     let request: Value = serde_json::from_slice(&raw).unwrap();
     let saved: Value =
@@ -761,13 +751,11 @@ async fn local10_local_acceptance_original_status_and_identity_retry() {
 async fn local10_initial_activation_original_status_after_linked_closure() {
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
     let run: Value = serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
-    assert!(
-        run["classification"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase()
-            .contains("synthetic")
-    );
+    assert!(run["classification"]
+        .as_str()
+        .unwrap()
+        .to_ascii_lowercase()
+        .contains("synthetic"));
     let original = fs::read(root.join("activation.request.json")).unwrap();
     let request: Value = serde_json::from_slice(&original).unwrap();
     let saved: Value =
@@ -1219,13 +1207,11 @@ async fn stage_work_occurrence_bootstrap_rolls_back() {
                 .unwrap(),
             19
         );
-        assert!(
-            sqlx::query("PRAGMA foreign_key_check")
-                .fetch_all(&mut integrity)
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut integrity)
+            .await
+            .unwrap()
+            .is_empty());
         assert_eq!(
             sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
                 .fetch_all(&mut integrity)
@@ -1318,17 +1304,24 @@ async fn component_terminal_owning_original_and_same_key_path_conflict_are_read_
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
     let terminal = fs::read(root.join("Tool-original-D-quantity1.request.json")).unwrap();
     let original_f = fs::read(root.join("F-original-v2.request.json")).unwrap();
-    let saved_f: Value = serde_json::from_slice(
-        &fs::read(root.join("F-original-v2.committed.json")).unwrap(),
-    ).unwrap();
-    let alternate: Value = serde_json::from_slice(
-        &fs::read(root.join("C-alternate-work.committed.json")).unwrap(),
-    ).unwrap();
-    let alternate = alternate["receipt"]["result_refs"].as_array().unwrap().iter()
-        .find(|r| r["kind"] == "workflow-work").unwrap();
+    let saved_f: Value =
+        serde_json::from_slice(&fs::read(root.join("F-original-v2.committed.json")).unwrap())
+            .unwrap();
+    let alternate: Value =
+        serde_json::from_slice(&fs::read(root.join("C-alternate-work.committed.json")).unwrap())
+            .unwrap();
+    let alternate = alternate["receipt"]["result_refs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["kind"] == "workflow-work")
+        .unwrap();
     let mut changed: Value = serde_json::from_slice(&original_f).unwrap();
     assert_eq!(changed["key"], saved_f["receipt"]["key"]);
-    assert_eq!(saved_f["receipt"]["original_request_bytes_sha256"], records::raw_hash(&original_f));
+    assert_eq!(
+        saved_f["receipt"]["original_request_bytes_sha256"],
+        records::raw_hash(&original_f)
+    );
     let original_selector = changed["payload"]["selector_start_work_ref"].clone();
     assert_ne!(original_selector, *alternate);
     changed["payload"]["selector_start_work_ref"] = alternate.clone();
@@ -1337,14 +1330,22 @@ async fn component_terminal_owning_original_and_same_key_path_conflict_are_read_
     assert_eq!(records::bytes(&changed).unwrap(), original_f);
 
     let temporary = tempfile::tempdir().unwrap();
-    let installation = temporary.path().canonicalize().unwrap().join("installation");
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
     copy_private_tree(&root.join("installation"), &installation);
     let before = snapshot_tables(&installation, true).await;
     let config = fs::read(installation.join("billing.json")).unwrap();
-    let ledger = LocalWorkflowLedger::open_local(&installation).await.unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
     let snapshot = ledger.resource_snapshot().unwrap();
     let arena = snapshot.arena().unwrap();
-    let mut original = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut original =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     let terminal = ingress::IncomingRequest::parse(&terminal, &mut original).unwrap();
     let mut tx = snapshot.begin(&ledger.store, &mut original).await.unwrap();
     tx.workflow_main_session = true;
@@ -1352,13 +1353,18 @@ async fn component_terminal_owning_original_and_same_key_path_conflict_are_read_
         Box::pin(async {
             ledger.admin.read(&ledger.store, tx, terminal.key()).await?;
             let key = request_wrapper::field(terminal.value(), "key", &mut original)?;
-            let identity = original.canonical_representation(key, RepresentationKind::Record).map_err(core_error)?;
+            let identity = original
+                .canonical_representation(key, RepresentationKind::Record)
+                .map_err(core_error)?;
             let selected = prefix::target(tx, terminal.key(), identity, &mut original).await?;
             let selected = selected.checked_wrappers(tx, &mut original).await?;
-            let _owning = prefix::fold_original_prefix(&ledger, tx, terminal.key(), &selected, &mut original).await?;
+            let _owning =
+                prefix::fold_original_prefix(&ledger, tx, terminal.key(), &selected, &mut original)
+                    .await?;
             Ok(())
         })
-    }).await;
+    })
+    .await;
     tx.rollback().await.unwrap();
     assert_eq!(snapshot_tables(&installation, true).await, before);
     assert_eq!(fs::read(installation.join("billing.json")).unwrap(), config);
@@ -1366,31 +1372,55 @@ async fn component_terminal_owning_original_and_same_key_path_conflict_are_read_
 
     // A separate responsible-original attempt and transaction exercises only
     // the saved request comparison. No submit, append or public retry executes.
-    let mut compare = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut compare =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     let incoming = ingress::IncomingRequest::parse(&changed_raw, &mut compare).unwrap();
     let mut tx = snapshot.begin(&ledger.store, &mut compare).await.unwrap();
     tx.workflow_main_session = true;
     let compared = proof_session::with_proofs(&mut tx, incoming.key(), |tx| {
         Box::pin(async {
             ledger.admin.read(&ledger.store, tx, incoming.key()).await?;
-            original_query_in(&ledger, tx, incoming.key(), OriginalQuery::Retry(&incoming), &mut compare).await
+            original_query_in(
+                &ledger,
+                tx,
+                incoming.key(),
+                OriginalQuery::Retry(&incoming),
+                &mut compare,
+            )
+            .await
         })
-    }).await;
+    })
+    .await;
     tx.rollback().await.unwrap();
-    assert!(matches!(compared, Err(ServiceError::Rejection(ref code)) if code == "IDENTITY_CONFLICT"), "{compared:?}");
-    let mut receipt = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    assert!(
+        matches!(compared, Err(ServiceError::Rejection(ref code)) if code == "IDENTITY_CONFLICT"),
+        "{compared:?}"
+    );
+    let mut receipt =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     let unchanged = ingress::IncomingRequest::parse(&original_f, &mut receipt).unwrap();
     let mut tx = snapshot.begin(&ledger.store, &mut receipt).await.unwrap();
     let checked = proof_session::with_proofs(&mut tx, unchanged.key(), |tx| {
         Box::pin(async {
-            ledger.admin.read(&ledger.store, tx, unchanged.key()).await?;
+            ledger
+                .admin
+                .read(&ledger.store, tx, unchanged.key())
+                .await?;
             let key = request_wrapper::field(unchanged.value(), "key", &mut receipt)?;
-            let identity = receipt.canonical_representation(key, RepresentationKind::Record).map_err(core_error)?;
+            let identity = receipt
+                .canonical_representation(key, RepresentationKind::Record)
+                .map_err(core_error)?;
             let selected = prefix::target(tx, unchanged.key(), identity, &mut receipt).await?;
             let selected = selected.checked_wrappers(tx, &mut receipt).await?;
-            require(selected.wrappers().receipt() == &saved_f["receipt"], "INTEGRITY_FAILURE")
+            require(
+                selected.wrappers().receipt() == &saved_f["receipt"],
+                "INTEGRITY_FAILURE",
+            )
         })
-    }).await;
+    })
+    .await;
     tx.rollback().await.unwrap();
     ledger.close().await;
     assert_eq!(snapshot_tables(&installation, true).await, before);
@@ -1402,36 +1432,72 @@ async fn component_terminal_owning_original_and_same_key_path_conflict_are_read_
 #[ignore = "requires the preserved Component Tool request and private 65-operation copy"]
 async fn component_tool_actual_append_original_and_rollback() {
     let root = PathBuf::from(std::env::var_os("LEDGER_WORKFLOW_TEST_FIXTURE").unwrap());
-    let operation = std::env::var("LEDGER_WORKFLOW_TEST_OPERATION").unwrap_or_else(|_| "Tool-work".into());
-    let expected = match operation.as_str() { "Tool-work" => 65, "observation" => 67, "F-original-outcome" => 71, "F-original" | "F-original-v2" => 75, "G-discount10" => 81, "A-quantity1" => 87, _ => panic!("unsupported Component proof operand") };
+    let operation =
+        std::env::var("LEDGER_WORKFLOW_TEST_OPERATION").unwrap_or_else(|_| "Tool-work".into());
+    let expected = match operation.as_str() {
+        "Tool-work" => 65,
+        "observation" => 67,
+        "F-original-outcome" => 71,
+        "F-original" | "F-original-v2" => 75,
+        "G-discount10" => 81,
+        "A-quantity1" => 87,
+        _ => panic!("unsupported Component proof operand"),
+    };
     let raw = fs::read(root.join(format!("{operation}.request.json"))).unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let installation = temporary.path().canonicalize().unwrap().join("installation");
-    copy_private_tree(&root.join(format!("{operation}-failed-quiescent-installation")), &installation);
+    let installation = temporary
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("installation");
+    copy_private_tree(
+        &root.join(format!("{operation}-failed-quiescent-installation")),
+        &installation,
+    );
     let before = snapshot_tables(&installation, true).await;
     assert_eq!(operations(&before), expected);
     let config = fs::read(installation.join("billing.json")).unwrap();
-    let ledger = LocalWorkflowLedger::open_local(&installation).await.unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&installation)
+        .await
+        .unwrap();
     let snapshot = ledger.resource_snapshot().unwrap();
     let arena = snapshot.arena().unwrap();
-    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut session =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     let request = ingress::IncomingRequest::parse(&raw, &mut session).unwrap();
     let mut tx = snapshot.begin(&ledger.store, &mut session).await.unwrap();
     tx.workflow_main_session = true;
-    let result = proof_session::with_proofs(&mut tx, request.key(), |tx| Box::pin(async {
-        ledger.admin.read(&ledger.store, tx, request.key()).await?;
-        let held = ledger.admin.read_management(&ledger.store, tx, request.key(), &mut session).await?;
-        let reply = fresh_reply_in(&ledger, tx, &request, held, &mut session).await?;
-        require(matches!(reply, TransactionResult::Appended(_)), "INTEGRITY_FAILURE")?;
-        proof_session::after_append(tx, request.key())?;
-        let mut original = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
-        let key = request_wrapper::field(request.value(), "key", &mut original)?;
-        let identity = original.canonical_representation(key, RepresentationKind::Record).map_err(core_error)?;
-        let selected = prefix::target(tx, request.key(), identity, &mut original).await?;
-        let selected = selected.checked_wrappers(tx, &mut original).await?;
-        prefix::fold_original_prefix(&ledger, tx, request.key(), &selected, &mut original).await?;
-        Ok(())
-    })).await;
+    let result = proof_session::with_proofs(&mut tx, request.key(), |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, request.key()).await?;
+            let held = ledger
+                .admin
+                .read_management(&ledger.store, tx, request.key(), &mut session)
+                .await?;
+            let reply = fresh_reply_in(&ledger, tx, &request, held, &mut session).await?;
+            require(
+                matches!(reply, TransactionResult::Appended(_)),
+                "INTEGRITY_FAILURE",
+            )?;
+            proof_session::after_append(tx, request.key())?;
+            let mut original =
+                ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
+                    &arena,
+                )
+                .map_err(core_error)?;
+            let key = request_wrapper::field(request.value(), "key", &mut original)?;
+            let identity = original
+                .canonical_representation(key, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let selected = prefix::target(tx, request.key(), identity, &mut original).await?;
+            let selected = selected.checked_wrappers(tx, &mut original).await?;
+            prefix::fold_original_prefix(&ledger, tx, request.key(), &selected, &mut original)
+                .await?;
+            Ok(())
+        })
+    })
+    .await;
     tx.rollback().await.unwrap();
     ledger.close().await;
     assert_eq!(snapshot_tables(&installation, true).await, before);

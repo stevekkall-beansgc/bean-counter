@@ -155,19 +155,65 @@ pub(in super::super::super) async fn observe(
         .map_err(core_error)?;
     o.activation = Some(if kind == "invocation.authorize" {
         o.original
-            .current_activation(ledger, tx, key, original_binding.value(), &o.at, o.before, s)
+            .current_activation(
+                ledger,
+                tx,
+                key,
+                original_binding.value(),
+                &o.at,
+                o.before,
+                s,
+            )
             .await?
-    } else if !o.original.publication.program().uses_stage_lifecycle_recipe()
-        && !o.original.publication.program().uses_component_lifecycle_recipe()
+    } else if !o
+        .original
+        .publication
+        .program()
+        .uses_stage_lifecycle_recipe()
+        && !o
+            .original
+            .publication
+            .program()
+            .uses_component_lifecycle_recipe()
         && subject.original_work_ref().is_some()
     {
-        o.original.original_work_activation(ledger, tx, key, original_binding.value(),
-            subject.original_work_ref().ok_or(ServiceError::IntegrityFailure)?, &o.at, o.before, s).await?
+        o.original
+            .original_work_activation(
+                ledger,
+                tx,
+                key,
+                original_binding.value(),
+                subject
+                    .original_work_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?,
+                &o.at,
+                o.before,
+                s,
+            )
+            .await?
     } else if schema == "ledger-workflow-fact-attest/1"
-        && !o.original.publication.program().uses_stage_lifecycle_recipe()
-        && !o.original.publication.program().uses_component_lifecycle_recipe()
+        && !o
+            .original
+            .publication
+            .program()
+            .uses_stage_lifecycle_recipe()
+        && !o
+            .original
+            .publication
+            .program()
+            .uses_component_lifecycle_recipe()
     {
-        o.original.original_fact_activation(ledger, tx, key, original_binding.value(), &o.at, o.before, s).await?
+        o.original
+            .original_fact_activation(
+                ledger,
+                tx,
+                key,
+                original_binding.value(),
+                &o.at,
+                o.before,
+                s,
+            )
+            .await?
     } else {
         o.original
             .original_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)
@@ -200,7 +246,10 @@ pub(in super::super::super) async fn observe(
         .uses_component_lifecycle_recipe()
         && (schema == "ledger-workflow-outcome/2"
             || (schema == "ledger-workflow-outcome-correction/2"
-                && payload.get("replacement").and_then(|v| v.get("selector_start_work_ref")).is_some()))
+                && payload
+                    .get("replacement")
+                    .and_then(|v| v.get("selector_start_work_ref"))
+                    .is_some()))
     {
         let selected = if schema == "ledger-workflow-outcome-correction/2" {
             check::field(payload, "replacement", s)?

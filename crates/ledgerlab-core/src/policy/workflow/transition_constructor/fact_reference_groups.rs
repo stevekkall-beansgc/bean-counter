@@ -2,7 +2,6 @@
 //! new evidence or recursively re-executed referenced endpoint is introduced.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter,
     data::{EconomicRecordView, EconomicStateData, ExactRef, OperationKey},
     fact_references::{self, FactReferenceInputs},
     local_locators::LocalOperationLocators,
@@ -10,11 +9,12 @@ use super::{
     records::Records,
     shape,
     working_value::{owning_definition, owning_reference, parse_owned_reference},
+    CoreMeter,
 };
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, OriginalAuditSession, RepresentationKind, ValidationWork},
+    Result,
 };
 use serde_json::Value;
 use std::mem;
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn component_only_observation_and_link_have_no_new_fact_groups() {
         use crate::policy::workflow::selected_program::{
-            SelectedCompilerSupport, compile_selected_publication,
+            compile_selected_publication, SelectedCompilerSupport,
         };
         let (legacy, _, _, _) = super::super::first_work_tests::test_inputs();
         let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
