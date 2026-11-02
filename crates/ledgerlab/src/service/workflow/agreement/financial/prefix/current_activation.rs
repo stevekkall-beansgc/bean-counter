@@ -1559,98 +1559,6 @@ pub(in super::super) fn paid_transition(
     ))
 }
 
-#[cfg(test)]
-mod paid_transition_tests {
-    use super::*;
-    use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
-    #[test]
-    fn paid_reconstruction_matches_existing_original_semantic_records() {
-        let f: Value = serde_json::from_slice(include_bytes!(
-            "../../testdata/r1-binding-scope-independent.json"
-        ))
-        .unwrap();
-        let body = |name: &str| {
-            f["vectors"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|v| v["name"] == name)
-                .unwrap()["body"]
-                .clone()
-        };
-        let mut binding = body("A.binding");
-        binding["schema"] = serde_json::json!("ledger-workflow-binding/2");
-        let binding =
-            super::super::super::super::records::source_document("workflow-binding", binding)
-                .unwrap();
-        let mut h = body("A.activation-head-v1");
-        h["accepted_binding_ref"] = serde_json::json!(binding.reference);
-        let key = OperationKey::parse(
-            &super::super::super::super::records::bytes(&h["operation_key"]).unwrap(),
-        )
-        .unwrap();
-        let head = super::super::super::super::record::semantic_document(
-            "workflow-head-transition",
-            &key,
-            "customer-A",
-            "agreement-A",
-            1,
-            h,
-        )
-        .unwrap();
-        let mut a = body("A.activation-v1");
-        a["binding_ref"] = serde_json::json!(binding.reference);
-        a["head_transition_ref"] = serde_json::json!(head.reference);
-        let activation = super::super::super::super::record::semantic_document(
-            "workflow-activation",
-            &key,
-            "customer-A",
-            "agreement-A",
-            1,
-            a,
-        )
-        .unwrap();
-        let copy = |d: &crate::store::sqlite::workflow::Document| {
-            crate::store::sqlite::workflow::Document {
-                reference: d.reference.clone(),
-                schema: d.schema.clone(),
-                bytes: d.bytes.clone(),
-            }
-        };
-        let wrong_scope = OperationKey {
-            scope: ["foreign".into(), "scope".into()],
-            ..key.clone()
-        };
-        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
-        let mut denied = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        assert!(paid_transition(
-            &wrong_scope,
-            "customer-A",
-            "agreement-A",
-            copy(&head),
-            copy(&activation),
-            copy(&binding),
-            &mut denied
-        )
-        .is_err());
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let expected = activation.reference.clone();
-        let (transition, _leases) = paid_transition(
-            &key,
-            "customer-A",
-            "agreement-A",
-            head,
-            activation,
-            binding,
-            &mut session,
-        )
-        .unwrap();
-        assert_eq!(transition.activation.reference, expected);
-        assert_eq!(transition.revision, 1);
-        assert!(session.usage().semantic_work > 0);
-    }
-}
-
 impl FoldedInventory {
     pub(in super::super) fn completed_fact_activation(
         &mut self,
@@ -1901,4 +1809,96 @@ async fn full_current_activation(
         .as_mut()
         .ok_or(ServiceError::IntegrityFailure)?
         .completed_current_activation(key, binding_ref, binding, at, s)
+}
+
+#[cfg(test)]
+mod paid_transition_tests {
+    use super::*;
+    use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::ResourceLimits};
+    #[test]
+    fn paid_reconstruction_matches_existing_original_semantic_records() {
+        let f: Value = serde_json::from_slice(include_bytes!(
+            "../../testdata/r1-binding-scope-independent.json"
+        ))
+        .unwrap();
+        let body = |name: &str| {
+            f["vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["name"] == name)
+                .unwrap()["body"]
+                .clone()
+        };
+        let mut binding = body("A.binding");
+        binding["schema"] = serde_json::json!("ledger-workflow-binding/2");
+        let binding =
+            super::super::super::super::records::source_document("workflow-binding", binding)
+                .unwrap();
+        let mut h = body("A.activation-head-v1");
+        h["accepted_binding_ref"] = serde_json::json!(binding.reference);
+        let key = OperationKey::parse(
+            &super::super::super::super::records::bytes(&h["operation_key"]).unwrap(),
+        )
+        .unwrap();
+        let head = super::super::super::super::record::semantic_document(
+            "workflow-head-transition",
+            &key,
+            "customer-A",
+            "agreement-A",
+            1,
+            h,
+        )
+        .unwrap();
+        let mut a = body("A.activation-v1");
+        a["binding_ref"] = serde_json::json!(binding.reference);
+        a["head_transition_ref"] = serde_json::json!(head.reference);
+        let activation = super::super::super::super::record::semantic_document(
+            "workflow-activation",
+            &key,
+            "customer-A",
+            "agreement-A",
+            1,
+            a,
+        )
+        .unwrap();
+        let copy = |d: &crate::store::sqlite::workflow::Document| {
+            crate::store::sqlite::workflow::Document {
+                reference: d.reference.clone(),
+                schema: d.schema.clone(),
+                bytes: d.bytes.clone(),
+            }
+        };
+        let wrong_scope = OperationKey {
+            scope: ["foreign".into(), "scope".into()],
+            ..key.clone()
+        };
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut denied = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(paid_transition(
+            &wrong_scope,
+            "customer-A",
+            "agreement-A",
+            copy(&head),
+            copy(&activation),
+            copy(&binding),
+            &mut denied
+        )
+        .is_err());
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let expected = activation.reference.clone();
+        let (transition, _leases) = paid_transition(
+            &key,
+            "customer-A",
+            "agreement-A",
+            head,
+            activation,
+            binding,
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(transition.activation.reference, expected);
+        assert_eq!(transition.revision, 1);
+        assert!(session.usage().semantic_work > 0);
+    }
 }

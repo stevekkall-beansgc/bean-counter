@@ -231,156 +231,6 @@ pub(super) fn predecessor(
     Ok(())
 }
 
-#[cfg(test)]
-mod predecessor_tests {
-    use super::*;
-    #[test]
-    fn stop_predecessor_keeps_closed_management_and_publication_edges() {
-        let reference =
-            |kind: &str, name: &str| serde_json::json!({"kind":kind,"id":name,"digest":name});
-        let evidence = reference("workflow-evidence", "evidence");
-        let admin = reference("workflow-authority", "admin");
-        let compiler = reference("workflow-compiler-descriptor", "compiler");
-        let plan = reference("workflow-compiled-plan", "plan");
-        let policy = reference("workflow-policy", "policy");
-        let management = serde_json::json!({"schema":"ledger-workflow-party-management-authority/1","evidence_refs":[evidence],"local_admin_ref":admin});
-        let publication = serde_json::json!({"schema":"ledger-workflow-publication/1","compiled_plan_ref":plan,"compiler_ref":compiler,"root_policy_ref":policy,"source_refs":[compiler,policy],"provenance":{"binary_sha256":"digest","build_manifest_digest":"digest","source_sha":"source"}});
-        for (kind, value, expected) in [
-            (
-                "workflow-authority",
-                management.clone(),
-                vec![evidence, admin],
-            ),
-            (
-                "workflow-publication",
-                publication.clone(),
-                vec![plan, compiler.clone(), policy.clone(), compiler, policy],
-            ),
-            (
-                "workflow-authority",
-                serde_json::json!({"schema":"ledger-workflow-local-authority-snapshot/1"}),
-                vec![],
-            ),
-        ] {
-            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let mut actual = Vec::new();
-            predecessor(
-                kind,
-                &value,
-                &mut |v, _| {
-                    actual.push(v.clone());
-                    Ok(())
-                },
-                &mut session,
-            )
-            .unwrap();
-            assert_eq!(actual, expected);
-        }
-        for (kind, mut value, schema) in [
-            (
-                "workflow-authority",
-                management,
-                "ledger-workflow-party-management-authority/2",
-            ),
-            (
-                "workflow-publication",
-                publication.clone(),
-                "ledger-workflow-publication/2",
-            ),
-            (
-                "workflow-publication",
-                publication.clone(),
-                "ledger-workflow-party-management-authority/1",
-            ),
-            ("unknown-kind", publication, "ledger-workflow-publication/1"),
-        ] {
-            value["schema"] = serde_json::json!(schema);
-            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let mut actual = Vec::new();
-            assert!(predecessor(
-                kind,
-                &value,
-                &mut |v, _| {
-                    actual.push(v.clone());
-                    Ok(())
-                },
-                &mut session
-            )
-            .is_err());
-            assert!(actual.is_empty());
-        }
-    }
-    #[test]
-    fn head_walk_uses_only_binding_and_prior_head() {
-        let binding =
-            serde_json::json!({"kind":"workflow-binding","id":"binding","digest":"digest"});
-        let prior =
-            serde_json::json!({"kind":"workflow-head-transition","id":"prior","digest":"digest"});
-        let ignored =
-            serde_json::json!({"kind":"workflow-evidence","id":"ignored","digest":"digest"});
-        let body = serde_json::json!({"accepted_binding_ref":binding,"prior_head_ref":prior,"other":ignored});
-        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut actual = Vec::new();
-        predecessor(
-            "workflow-head-transition",
-            &body,
-            &mut |v, _| {
-                actual.push(v.clone());
-                Ok(())
-            },
-            &mut session,
-        )
-        .unwrap();
-        assert_eq!(
-            actual,
-            vec![
-                body["accepted_binding_ref"].clone(),
-                body["prior_head_ref"].clone()
-            ]
-        );
-    }
-    #[test]
-    fn selected_policy_predecessor_uses_four_definition_refs() {
-        let fixture: Value = serde_json::from_slice(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/candidates/full-suite-v1/core/party-commitment-first-01/fixture-input.json"))).unwrap();
-        fn find_policy(v: &Value) -> Option<&Value> {
-            if v.get("schema").and_then(Value::as_str) == Some("ledger-workflow-policy/4") {
-                return Some(v);
-            }
-            match v {
-                Value::Array(a) => a.iter().find_map(find_policy),
-                Value::Object(o) => o.values().find_map(find_policy),
-                _ => None,
-            }
-        }
-        let policy = find_policy(&fixture).unwrap();
-        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut actual = Vec::new();
-        predecessor(
-            "workflow-policy",
-            policy,
-            &mut |v, _| {
-                actual.push(v.clone());
-                Ok(())
-            },
-            &mut session,
-        )
-        .unwrap();
-        assert_eq!(
-            actual,
-            [
-                "product_ref",
-                "context_schema_ref",
-                "slot_template_ref",
-                "compiler_ref"
-            ]
-            .map(|name| policy[name].clone())
-        );
-    }
-}
 fn equal(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     s.semantic_work()
         .visit(Visit::MemberCompare)
@@ -580,4 +430,155 @@ pub(super) fn body(v: &Value, emit: &mut Emit<'_>, s: &mut OriginalAuditSession)
         generic(v, emit, s)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod predecessor_tests {
+    use super::*;
+    #[test]
+    fn stop_predecessor_keeps_closed_management_and_publication_edges() {
+        let reference =
+            |kind: &str, name: &str| serde_json::json!({"kind":kind,"id":name,"digest":name});
+        let evidence = reference("workflow-evidence", "evidence");
+        let admin = reference("workflow-authority", "admin");
+        let compiler = reference("workflow-compiler-descriptor", "compiler");
+        let plan = reference("workflow-compiled-plan", "plan");
+        let policy = reference("workflow-policy", "policy");
+        let management = serde_json::json!({"schema":"ledger-workflow-party-management-authority/1","evidence_refs":[evidence],"local_admin_ref":admin});
+        let publication = serde_json::json!({"schema":"ledger-workflow-publication/1","compiled_plan_ref":plan,"compiler_ref":compiler,"root_policy_ref":policy,"source_refs":[compiler,policy],"provenance":{"binary_sha256":"digest","build_manifest_digest":"digest","source_sha":"source"}});
+        for (kind, value, expected) in [
+            (
+                "workflow-authority",
+                management.clone(),
+                vec![evidence, admin],
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                vec![plan, compiler.clone(), policy.clone(), compiler, policy],
+            ),
+            (
+                "workflow-authority",
+                serde_json::json!({"schema":"ledger-workflow-local-authority-snapshot/1"}),
+                vec![],
+            ),
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut actual = Vec::new();
+            predecessor(
+                kind,
+                &value,
+                &mut |v, _| {
+                    actual.push(v.clone());
+                    Ok(())
+                },
+                &mut session,
+            )
+            .unwrap();
+            assert_eq!(actual, expected);
+        }
+        for (kind, mut value, schema) in [
+            (
+                "workflow-authority",
+                management,
+                "ledger-workflow-party-management-authority/2",
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                "ledger-workflow-publication/2",
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                "ledger-workflow-party-management-authority/1",
+            ),
+            ("unknown-kind", publication, "ledger-workflow-publication/1"),
+        ] {
+            value["schema"] = serde_json::json!(schema);
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut actual = Vec::new();
+            assert!(predecessor(
+                kind,
+                &value,
+                &mut |v, _| {
+                    actual.push(v.clone());
+                    Ok(())
+                },
+                &mut session
+            )
+            .is_err());
+            assert!(actual.is_empty());
+        }
+    }
+    #[test]
+    fn head_walk_uses_only_binding_and_prior_head() {
+        let binding =
+            serde_json::json!({"kind":"workflow-binding","id":"binding","digest":"digest"});
+        let prior =
+            serde_json::json!({"kind":"workflow-head-transition","id":"prior","digest":"digest"});
+        let ignored =
+            serde_json::json!({"kind":"workflow-evidence","id":"ignored","digest":"digest"});
+        let body = serde_json::json!({"accepted_binding_ref":binding,"prior_head_ref":prior,"other":ignored});
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut actual = Vec::new();
+        predecessor(
+            "workflow-head-transition",
+            &body,
+            &mut |v, _| {
+                actual.push(v.clone());
+                Ok(())
+            },
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(
+            actual,
+            vec![
+                body["accepted_binding_ref"].clone(),
+                body["prior_head_ref"].clone()
+            ]
+        );
+    }
+    #[test]
+    fn selected_policy_predecessor_uses_four_definition_refs() {
+        let fixture: Value = serde_json::from_slice(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/candidates/full-suite-v1/core/party-commitment-first-01/fixture-input.json"))).unwrap();
+        fn find_policy(v: &Value) -> Option<&Value> {
+            if v.get("schema").and_then(Value::as_str) == Some("ledger-workflow-policy/4") {
+                return Some(v);
+            }
+            match v {
+                Value::Array(a) => a.iter().find_map(find_policy),
+                Value::Object(o) => o.values().find_map(find_policy),
+                _ => None,
+            }
+        }
+        let policy = find_policy(&fixture).unwrap();
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut actual = Vec::new();
+        predecessor(
+            "workflow-policy",
+            policy,
+            &mut |v, _| {
+                actual.push(v.clone());
+                Ok(())
+            },
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(
+            actual,
+            [
+                "product_ref",
+                "context_schema_ref",
+                "slot_template_ref",
+                "compiler_ref"
+            ]
+            .map(|name| policy[name].clone())
+        );
+    }
 }

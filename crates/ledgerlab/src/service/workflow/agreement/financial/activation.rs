@@ -331,101 +331,6 @@ pub(super) fn binding_interval(
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn owning_activation_projection_keeps_same_schedule_counter_and_ref_normalization() {
-        let vectors: Value =
-            serde_json::from_slice(include_bytes!("../testdata/descriptor-independent.json"))
-                .unwrap();
-        for name in ["A.activate", "B.activate"] {
-            let op = vectors["operations"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|v| v["name"] == name)
-                .unwrap();
-            let mut envelope = op["request_evidence"]["normalized_request"].clone();
-            envelope["payload"]["expected_revision"] = json!("000");
-            envelope["payload"]["effective"] =
-                json!({"kind":"not_before","at":"2026-10-13T00:00:20Z"});
-            let p = &envelope["payload"];
-            let body = json!({"schema":"ledger-workflow-binding/1","agreement_id":p["agreement_id"],"policy_ref":p["policy_ref"],"product_ref":p["product_ref"],"fact_schema_refs":p["fact_schema_refs"],"compiled_plan_ref":p["compiled_plan_ref"]});
-            let old_binding = Document {
-                reference: serde_json::from_value(p["accepted_binding_ref"].clone()).unwrap(),
-                schema: "ledger-workflow-binding/1".into(),
-                bytes: records::bytes(&body).unwrap(),
-            };
-            let req =
-                request::Request::parse_agreement(&records::bytes(&envelope).unwrap()).unwrap();
-            let expected = activation_verify::normalize(&req, &old_binding).unwrap();
-            let mut app_binding = body;
-            app_binding["schema"] = json!("ledger-workflow-binding/2");
-            let reference: ExactRef =
-                serde_json::from_value(p["accepted_binding_ref"].clone()).unwrap();
-            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let actual =
-                normalize("agreement.activate", p, &reference, &app_binding, &mut s).unwrap();
-            assert_eq!(actual.bytes(), records::bytes(&expected).unwrap());
-            let original_retry =
-                normalize_original_retry("agreement.activate", p, &reference, &app_binding, &mut s)
-                    .unwrap();
-            assert_eq!(original_retry.bytes(), actual.bytes());
-            drop(original_retry);
-            drop(actual);
-            let mut changed = p.clone();
-            changed["accepted_binding_ref"] = json!({"kind":"workflow-binding","id":format!("wdoc_{}", "0".repeat(64)),"digest":format!("sha256:{}", "0".repeat(64))});
-            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-            let mut fresh = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            assert_eq!(
-                normalize(
-                    "agreement.activate",
-                    &changed,
-                    &reference,
-                    &app_binding,
-                    &mut fresh
-                )
-                .err()
-                .unwrap(),
-                reject("INVALID_REFERENCE")
-            );
-            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-            let mut retry = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            assert_eq!(
-                normalize_original_retry(
-                    "agreement.activate",
-                    &changed,
-                    &reference,
-                    &app_binding,
-                    &mut retry
-                )
-                .err()
-                .unwrap(),
-                reject("IDENTITY_CONFLICT")
-            );
-            for failure in 0..3 {
-                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-                let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-                let mut bad = p.clone();
-                match failure {
-                    0 => bad["effective"]["ignored"] = json!(true),
-                    1 => {
-                        bad["fact_schema_refs"] =
-                            json!([bad["fact_schema_refs"][0], bad["fact_schema_refs"][0]])
-                    }
-                    _ => bad["expected_revision"] = json!("9223372036854775808"),
-                }
-                assert!(
-                    normalize("agreement.activate", &bad, &reference, &app_binding, &mut s)
-                        .is_err()
-                );
-            }
-        }
-    }
-}
-
 /// Mechanical existing Authority2 stop document from one actual source. The
 /// caller must separately authenticate the completed owner, stop evidence,
 /// selected target and real management root before using this document.
@@ -579,4 +484,99 @@ pub(super) fn stop_authority(
         body,
         s,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn owning_activation_projection_keeps_same_schedule_counter_and_ref_normalization() {
+        let vectors: Value =
+            serde_json::from_slice(include_bytes!("../testdata/descriptor-independent.json"))
+                .unwrap();
+        for name in ["A.activate", "B.activate"] {
+            let op = vectors["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["name"] == name)
+                .unwrap();
+            let mut envelope = op["request_evidence"]["normalized_request"].clone();
+            envelope["payload"]["expected_revision"] = json!("000");
+            envelope["payload"]["effective"] =
+                json!({"kind":"not_before","at":"2026-10-13T00:00:20Z"});
+            let p = &envelope["payload"];
+            let body = json!({"schema":"ledger-workflow-binding/1","agreement_id":p["agreement_id"],"policy_ref":p["policy_ref"],"product_ref":p["product_ref"],"fact_schema_refs":p["fact_schema_refs"],"compiled_plan_ref":p["compiled_plan_ref"]});
+            let old_binding = Document {
+                reference: serde_json::from_value(p["accepted_binding_ref"].clone()).unwrap(),
+                schema: "ledger-workflow-binding/1".into(),
+                bytes: records::bytes(&body).unwrap(),
+            };
+            let req =
+                request::Request::parse_agreement(&records::bytes(&envelope).unwrap()).unwrap();
+            let expected = activation_verify::normalize(&req, &old_binding).unwrap();
+            let mut app_binding = body;
+            app_binding["schema"] = json!("ledger-workflow-binding/2");
+            let reference: ExactRef =
+                serde_json::from_value(p["accepted_binding_ref"].clone()).unwrap();
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let actual =
+                normalize("agreement.activate", p, &reference, &app_binding, &mut s).unwrap();
+            assert_eq!(actual.bytes(), records::bytes(&expected).unwrap());
+            let original_retry =
+                normalize_original_retry("agreement.activate", p, &reference, &app_binding, &mut s)
+                    .unwrap();
+            assert_eq!(original_retry.bytes(), actual.bytes());
+            drop(original_retry);
+            drop(actual);
+            let mut changed = p.clone();
+            changed["accepted_binding_ref"] = json!({"kind":"workflow-binding","id":format!("wdoc_{}", "0".repeat(64)),"digest":format!("sha256:{}", "0".repeat(64))});
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut fresh = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_eq!(
+                normalize(
+                    "agreement.activate",
+                    &changed,
+                    &reference,
+                    &app_binding,
+                    &mut fresh
+                )
+                .err()
+                .unwrap(),
+                reject("INVALID_REFERENCE")
+            );
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut retry = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert_eq!(
+                normalize_original_retry(
+                    "agreement.activate",
+                    &changed,
+                    &reference,
+                    &app_binding,
+                    &mut retry
+                )
+                .err()
+                .unwrap(),
+                reject("IDENTITY_CONFLICT")
+            );
+            for failure in 0..3 {
+                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+                let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let mut bad = p.clone();
+                match failure {
+                    0 => bad["effective"]["ignored"] = json!(true),
+                    1 => {
+                        bad["fact_schema_refs"] =
+                            json!([bad["fact_schema_refs"][0], bad["fact_schema_refs"][0]])
+                    }
+                    _ => bad["expected_revision"] = json!("9223372036854775808"),
+                }
+                assert!(
+                    normalize("agreement.activate", &bad, &reference, &app_binding, &mut s)
+                        .is_err()
+                );
+            }
+        }
+    }
 }

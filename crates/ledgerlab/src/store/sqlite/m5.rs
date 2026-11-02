@@ -4762,6 +4762,27 @@ fn utc_us(value: &Value) -> Result<i64, StoreError> {
     .map_err(|_| StoreError::InvalidStore("M5 timestamp"))
 }
 
+/// Fail closed only for legacy complete projections that cannot encode the new
+/// economic source. Exact immutable presentation reads do not use this gate.
+pub(crate) async fn require_no_manual_credits(
+    conn: &mut SqliteConnection,
+    customer: Option<&str>,
+    start: i64,
+    end: i64,
+    cutoff: i64,
+) -> Result<(), StoreError> {
+    let exists:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='billing_manual_credits')").fetch_one(&mut *conn).await?;
+    if exists == 0 {
+        return Ok(());
+    }
+    let present:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_manual_credits WHERE (? IS NULL OR customer=?) AND accepted_at_us>=? AND accepted_at_us<? AND record_sequence<=?)")
+        .bind(customer).bind(customer).bind(start).bind(end).bind(cutoff).fetch_one(&mut *conn).await?;
+    if present != 0 {
+        return Err(StoreError::ManualCreditProfileRequired);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5117,25 +5138,4 @@ mod tests {
         let store = SqliteStore::open(dir.path()).await.unwrap();
         store.close().await;
     }
-}
-
-/// Fail closed only for legacy complete projections that cannot encode the new
-/// economic source. Exact immutable presentation reads do not use this gate.
-pub(crate) async fn require_no_manual_credits(
-    conn: &mut SqliteConnection,
-    customer: Option<&str>,
-    start: i64,
-    end: i64,
-    cutoff: i64,
-) -> Result<(), StoreError> {
-    let exists:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='billing_manual_credits')").fetch_one(&mut *conn).await?;
-    if exists == 0 {
-        return Ok(());
-    }
-    let present:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_manual_credits WHERE (? IS NULL OR customer=?) AND accepted_at_us>=? AND accepted_at_us<? AND record_sequence<=?)")
-        .bind(customer).bind(customer).bind(start).bind(end).bind(cutoff).fetch_one(&mut *conn).await?;
-    if present != 0 {
-        return Err(StoreError::ManualCreditProfileRequired);
-    }
-    Ok(())
 }
