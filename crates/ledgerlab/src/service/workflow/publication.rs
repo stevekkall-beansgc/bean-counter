@@ -209,10 +209,11 @@ pub(super) struct BuildProvenance {
 impl BuildProvenance {
     pub(super) fn capture(compiler_ref: &core::DefinitionRef) -> Result<Self> {
         let captured = provenance::VerifiedBuildProvenance::capture(
-            crate::build_identity::embedded_inputs().map_err(|_| ServiceError::Unavailable)?,
+            crate::build_identity::embedded_inputs().map_err(|_| { eprintln!("DIAG provenance embedded inputs failed"); ServiceError::Unavailable })?,
             compiler_ref,
         )
-        .map_err(|_| ServiceError::Unavailable)?;
+        .map_err(|_| { eprintln!("DIAG provenance capture failed"); ServiceError::Unavailable })?;
+        eprintln!("DIAG provenance capture passed");
         Ok(Self {
             projection: captured.projection,
             manifest: Some(captured.manifest),

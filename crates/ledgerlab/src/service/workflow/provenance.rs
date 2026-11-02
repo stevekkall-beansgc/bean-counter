@@ -207,9 +207,11 @@ impl VerifiedBuildProvenance {
         embedded: Value,
         compiler_ref: &ledgerlab_core::policy::workflow::DefinitionRef,
     ) -> Result<Self> {
-        let inputs = select_inputs(embedded, compiler_ref)?;
+        let inputs = select_inputs(embedded, compiler_ref).map_err(|e| { eprintln!("DIAG provenance selection failed"); e })?;
+        eprintln!("DIAG provenance selection passed");
         let path = std::env::current_exe().map_err(|_| ServiceError::Unavailable)?;
-        let (sha256, len) = observe_file(&path)?;
+        let (sha256, len) = observe_file(&path).map_err(|e| { eprintln!("DIAG executable observation failed"); e })?;
+        eprintln!("DIAG executable observation passed");
         let manifest = Manifest {
             schema: "ledger-workflow-build-manifest/1".into(),
             build_inputs: inputs,

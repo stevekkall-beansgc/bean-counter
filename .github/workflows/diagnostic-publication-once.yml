@@ -1,0 +1,42 @@
+name: diagnostic-publication-once
+on:
+  push:
+    branches: [codex/bean-counter-linux-publication-diagnostic-20261102]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Build isolated diagnostic candidate
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION" = "24.04.5 LTS (Noble Numbat)"
+          test "$(uname -m)" = x86_64
+          rustup toolchain install 1.98.1 --profile minimal
+          sh scripts/package-linux-x86_64.sh "$RUNNER_TEMP/diagnostic-artifacts"
+      - name: Observe one fresh synthetic publication
+        run: |
+          set -euo pipefail
+          umask 077
+          capture="$RUNNER_TEMP/diagnostic-artifacts.workflow-build/target/x86_64-unknown-linux-gnu/release"
+          (cd "$capture" && sha256sum ledger examples/prepare_local_publication examples/prepare_local_terms) > "$RUNNER_TEMP/diagnostic-hashes.txt"
+          sha256sum "$RUNNER_TEMP/diagnostic-artifacts.workflow-build/build-inputs.json" | cut -d " " -f 1 >> "$RUNNER_TEMP/diagnostic-hashes.txt"
+          python3 diagnostics/publication_once.py --ledger "$capture/ledger" --publication-helper "$capture/examples/prepare_local_publication" --terms-helper "$capture/examples/prepare_local_terms" --output "$RUNNER_TEMP/diagnostic-once"
+      - name: Retain diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: publication-diagnostic-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/diagnostic-once/diagnostic-summary.json
+            ${{ runner.temp }}/diagnostic-once/012-publication.stderr
+            ${{ runner.temp }}/diagnostic-hashes.txt
+          if-no-files-found: warn
+          retention-days: 1
