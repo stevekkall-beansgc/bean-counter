@@ -2843,7 +2843,9 @@ fn stage(
     }
     complete_manifest_references(
         inventory,
-        records.iter().map(|r| r.reference()).chain(extra),
+        std::iter::once(root.reference())
+            .chain(records.iter().map(|r| r.reference()))
+            .chain(extra),
         origin,
         s,
     )
