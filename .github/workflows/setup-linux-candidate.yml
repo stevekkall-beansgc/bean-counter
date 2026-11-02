@@ -39,6 +39,9 @@ jobs:
           rustc --version
           cargo --version
           git rev-parse HEAD
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          printf 'CANDIDATE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
       - name: Reject malformed archive regressions
         run: |
           python3 scripts/test-native-package.py
@@ -51,8 +54,8 @@ jobs:
           artifact_dir="$PWD/work/m8-linux/artifacts"
           mkdir -p "$PWD/work/m8-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
-          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
-          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v${CANDIDATE_VERSION}-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" --version "$CANDIDATE_VERSION"
+          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v${CANDIDATE_VERSION}-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" --version "$CANDIDATE_VERSION"
           cp scripts/verify-native-package.py scripts/install-native-package.py scripts/install-linux-x86_64.sh "$artifact_dir/"
       - name: Check out exact schema-10 legacy source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -71,7 +74,7 @@ jobs:
           set -euo pipefail
           artifact_dir="$PWD/work/m8-linux/artifacts"
           install_dir="$PWD/work/m8-linux/installed"
-          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.11.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
+          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v${CANDIDATE_VERSION}-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir" --version "$CANDIDATE_VERSION"
           file "$install_dir/ledger"
           ldd "$install_dir/ledger"
           python3 "$install_dir/scripts/check-package-docs.py" "$install_dir"
@@ -147,7 +150,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bean-counter-v0.11.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          name: bean-counter-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             work/m8-linux/artifacts/
             work/workflow-linux/**/RUN.json
