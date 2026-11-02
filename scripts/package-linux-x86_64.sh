@@ -20,7 +20,7 @@ cd "$repo"
 # immutable capture beside the requested fresh artifact directory.
 cargo fetch --locked
 capture="$1.workflow-build"
-python3 "$repo/scripts/build_workflow.py" --local-execution --operator-resources --conditional-work --output "$capture"
+python3 "$repo/scripts/build_workflow.py" --local-execution --operator-resources --integrated-local-profiles --output "$capture"
 capture=$(CDPATH= cd -- "$capture" && pwd -P)
 export LEDGER_WORKFLOW_BUILD_INPUTS_JSON="$capture/build-inputs.json"
 export CARGO_TARGET_DIR="$capture/target"

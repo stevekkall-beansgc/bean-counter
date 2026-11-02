@@ -23,11 +23,29 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def workflow_build_evidence(inputs_path, commit, version, target):
+def strict_json(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON key")
+            result[key] = value
+        return result
+    return json.loads(raw, object_pairs_hook=unique)
+
+
+def workflow_build_evidence(inputs_path, commit, version, target, binary_path=None):
     if not inputs_path.is_file():
         raise SystemExit("workflow package requires its captured build-inputs file")
     raw = inputs_path.read_bytes()
-    inputs = json.loads(raw)
+    try:
+        inputs = strict_json(raw)
+    except (ValueError, UnicodeError) as error:
+        raise SystemExit(f"invalid workflow build inputs: {error}") from error
+    if not isinstance(inputs, dict):
+        raise SystemExit("invalid workflow build inputs: expected an object")
+    if inputs.get("schema") == build_workflow.CATALOG_SCHEMA:
+        return catalog_build_evidence(inputs_path, raw, inputs, commit, version, target, binary_path)
     recipe = inputs["recipe"]
     inventory_raw = inputs_path.with_name("inventory.json").read_bytes()
     inventory = json.loads(inventory_raw)
@@ -48,6 +66,59 @@ def workflow_build_evidence(inputs_path, commit, version, target):
             or recipe["compiler_ref"] != compiler_ref
             or recipe["features"] != []):
         raise SystemExit("workflow build inputs do not match this exact clean release candidate")
+    return raw, inventory_raw
+
+
+def catalog_build_evidence(inputs_path, raw, inputs, commit, version, target, binary_path):
+    """Validate the complete fixed catalog and bind the locally built binary."""
+    try:
+        capture = inputs_path.parent
+        source = capture / "source"
+        inventory_path = capture / "inventory.json"
+        qualified_path = capture / "qualified.json"
+        if target not in ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"):
+            raise ValueError("unsupported capture target")
+        if any(p.is_symlink() for p in (capture, inputs_path, source, inventory_path, qualified_path)):
+            raise ValueError("symlink in capture evidence")
+        inventory_raw = inventory_path.read_bytes()
+        inventory = strict_json(inventory_raw)
+        qualification = strict_json(qualified_path.read_bytes())
+        files = build_workflow.selected(source.resolve())
+        actual_inventory, inventory_digest = build_workflow.inventory(files)
+        checkout = Path(__file__).resolve().parents[1]
+        if files != build_workflow.selected(checkout) or inventory != actual_inventory:
+            raise ValueError("capture source differs from inventory or checkout")
+        entries = inputs["entries"]
+        first = entries[0]
+        source_info, recipe = first["source"], first["recipe"]
+        if (set(first) != {"schema", "source", "recipe"}
+                or first["schema"] != "ledger-workflow-build-inputs/1"
+                or set(source_info) != {"base_commit", "state", "inventory_digest", "file_count", "total_bytes"}
+                or set(recipe) != {"package_name", "package_version", "build_profile", "target", "features", "rustc_version", "cargo_version", "rustflags", "cargo_lock_digest", "compiler_ref"}
+                or source_info != {"base_commit": commit, "state": "clean_commit", "inventory_digest": inventory_digest,
+                                   "file_count": len(files), "total_bytes": str(sum(map(len, files.values())))}
+                or recipe["package_name"] != "ledgerlab-cli" or recipe["package_version"] != version
+                or recipe["build_profile"] != "release" or recipe["target"] != target
+                or recipe["features"] != [] or recipe["rustflags"] != []
+                or recipe["rustc_version"] != output("rustc", "--version")
+                or recipe["cargo_version"] != output("cargo", "--version")
+                or recipe["cargo_lock_digest"] != "sha256:" + hashlib.sha256(files["Cargo.lock"]).hexdigest()
+                or inputs != build_workflow.integrated_catalog(files, first)):
+            raise ValueError("catalog source, recipe or compiler identities differ")
+        expected_binary = capture / "target" / target / "release" / "ledger"
+        binary_components = (capture / "target", capture / "target" / target,
+                             capture / "target" / target / "release", expected_binary)
+        if (binary_path is None or any(p.is_symlink() for p in binary_components)
+                or binary_path.is_symlink() or not binary_path.is_file()
+                or binary_path.absolute() != expected_binary.absolute()):
+            raise ValueError("packaged executable is not the captured executable")
+        if qualification != {"source_inventory_digest": inventory_digest,
+                             "build_inputs_sha256": hashlib.sha256(raw).hexdigest(),
+                             "status": "captured inputs unchanged; local build observation only",
+                             "binary_sha256": sha(binary_path)}:
+            raise ValueError("captured executable or qualification differs")
+    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
+        raise SystemExit(f"invalid workflow catalog capture: {error}") from error
     return raw, inventory_raw
 
 
@@ -129,10 +200,10 @@ def main():
         raise SystemExit(f"refusing existing artifact directory: {artifacts}")
     workflow_inputs = None
     workflow_inventory = None
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR", repo / "target")) / target / "release" / "ledger"
     if workflow_candidate:
         inputs_path = Path(os.environ.get("LEDGER_WORKFLOW_BUILD_INPUTS_JSON", ""))
-        workflow_inputs, workflow_inventory = workflow_build_evidence(inputs_path, commit, version, target)
-    target_dir = Path(os.environ.get("CARGO_TARGET_DIR", repo / "target")) / target / "release" / "ledger"
+        workflow_inputs, workflow_inventory = workflow_build_evidence(inputs_path, commit, version, target, target_dir)
     if not target_dir.is_file():
         raise SystemExit(f"missing native release binary: {target_dir}")
     # Only the advertised architecture/OS wrappers are permitted to call this builder.
@@ -181,6 +252,9 @@ def main():
             shutil.copyfile(repo / "docs/workflow-candidate-testing.md", docs / "workflow-candidate-testing.md")
             (stage / "WORKFLOW-BUILD-INPUTS.json").write_bytes(workflow_inputs)
             (stage / "WORKFLOW-SOURCE-INVENTORY.json").write_bytes(workflow_inventory)
+            if strict_json(workflow_inputs).get("schema") == build_workflow.CATALOG_SCHEMA:
+                (stage / "WORKFLOW-CAPTURE-QUALIFIED.json").write_bytes(
+                    inputs_path.with_name("qualified.json").read_bytes())
             with (stage / "README.md").open("a", encoding="utf-8") as readme:
                 readme.write("\n## Supported checkpoint workflow\n\nPublication and native qualification are established only by the matching release page and QUALIFICATION.json; this is not a full-registry capability claim. Read [the supported scope](docs/local-workflow-supported-recipe.md) and [the synthetic walkthrough](examples/workflow-conditional/README.md). The two input-only helpers are in `helpers/`.\n")
             helpers = stage / "helpers"
@@ -265,7 +339,8 @@ def main():
             build_info.update({
                 "workflow_build_inputs_sha256": hashlib.sha256(workflow_inputs).hexdigest(),
                 "workflow_source_inventory_sha256": hashlib.sha256(workflow_inventory).hexdigest(),
-                "workflow_capture_command": "python3 scripts/build_workflow.py --local-execution --operator-resources --conditional-work --output <CAPTURE>",
+                "workflow_capture_command": "python3 scripts/build_workflow.py --local-execution --operator-resources " +
+                    ("--integrated-local-profiles" if strict_json(workflow_inputs).get("schema") == build_workflow.CATALOG_SCHEMA else "--conditional-work") + " --output <CAPTURE>",
                 "cargo_build_command": f"cargo build --locked --offline --package ledgerlab-cli --target {target} --target-dir <CAPTURE>/target --release (cwd <CAPTURE>/source)",
                 "workflow_helper_build_command": f"LEDGER_WORKFLOW_BUILD_INPUTS_JSON=<CAPTURE>/build-inputs.json CARGO_TARGET_DIR=<CAPTURE>/target cargo build --manifest-path <CAPTURE>/source/Cargo.toml --package ledgerlab --example prepare_local_publication --example prepare_local_terms --target {target} --release --locked --offline",
                 "workflow_path_notation": "<CAPTURE> denotes the declared build capture; private absolute paths are omitted",

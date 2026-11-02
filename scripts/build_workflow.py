@@ -201,6 +201,11 @@ def main():
     build+=['--no-run'] if args.test else ['--release']
     subprocess.run(build,cwd=capture,env=env,check=True)
     if selected(capture)!=files: raise ValueError('captured build inputs changed during compilation')
-    (output/'qualified.json').write_text(json.dumps({'source_inventory_digest':inv_digest,'build_inputs_sha256':digest(encoded),'status':'captured inputs unchanged; local build observation only'},indent=2)+'\n')
+    qualification={'source_inventory_digest':inv_digest,'build_inputs_sha256':digest(encoded),'status':'captured inputs unchanged; local build observation only'}
+    if args.integrated_local_profiles and not args.test:
+        binary=output/'target'/target/'release'/'ledger'
+        if binary.is_symlink() or not binary.is_file(): raise ValueError('captured executable missing or nonregular')
+        qualification['binary_sha256']=digest(binary.read_bytes())
+    (output/'qualified.json').write_text(json.dumps(qualification,indent=2)+'\n')
     print('Captured build completed; source inventory retained beside artifact.')
 if __name__=='__main__': main()

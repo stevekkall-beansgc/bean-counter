@@ -42,6 +42,84 @@ def parse_json(data, name):
     return value
 
 
+def canonical(value):
+    if isinstance(value, dict):
+        return '{' + ','.join(canonical(k) + ':' + canonical(value[k])
+                              for k in sorted(value, key=lambda s: s.encode('utf-16-be'))) + '}'
+    if isinstance(value, list):
+        return '[' + ','.join(map(canonical, value)) + ']'
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+
+
+def verify_catalog_evidence(files, build, identity):
+    raw = files.get("WORKFLOW-BUILD-INPUTS.json")
+    if raw is None:
+        require("WORKFLOW-CAPTURE-QUALIFIED.json" not in files
+                and "--integrated-local-profiles" not in build.get("workflow_capture_command", ""),
+                "missing workflow catalog inputs")
+        return
+    catalog = parse_json(raw, "workflow build inputs")
+    if catalog.get("schema") != "ledger-workflow-build-input-catalog/1":
+        require("WORKFLOW-CAPTURE-QUALIFIED.json" not in files
+                and "--integrated-local-profiles" not in build.get("workflow_capture_command", ""),
+                "invalid workflow catalog schema")
+        return  # Historical single-profile packages retain their existing path.
+    require(set(catalog) == {"schema", "entries"}, "invalid workflow catalog fields")
+    required = {"WORKFLOW-SOURCE-INVENTORY.json", "WORKFLOW-CAPTURE-QUALIFIED.json"}
+    require(required <= files.keys(), "missing workflow catalog evidence")
+    inventory_raw = files["WORKFLOW-SOURCE-INVENTORY.json"]
+    inventory = parse_json(inventory_raw, "workflow source inventory")
+    qualified = parse_json(files["WORKFLOW-CAPTURE-QUALIFIED.json"], "workflow qualification")
+    inventory_digest = "sha256:" + sha(b"bean-counter/build-source-inventory/1\0" + canonical(inventory).encode())
+    require(build.get("workflow_build_inputs_sha256") == sha(raw)
+            and build.get("workflow_source_inventory_sha256") == sha(inventory_raw),
+            "workflow evidence hashes disagree")
+    require(qualified == {"source_inventory_digest": inventory_digest,
+                          "build_inputs_sha256": sha(raw),
+                          "status": "captured inputs unchanged; local build observation only",
+                          "binary_sha256": sha(files["ledger"])}, "workflow qualification disagrees")
+    entries = catalog["entries"]
+    expected = ("1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
+                "5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc",
+                "f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b")
+    require(isinstance(entries, list) and len(entries) == len(expected), "invalid workflow catalog size")
+    rows = inventory.get("entries")
+    require(set(inventory) == {"schema", "recipe", "entries"}
+            and inventory.get("schema") == "ledger-build-source-inventory/1"
+            and inventory.get("recipe") == "bean-counter-build-inputs/1" and isinstance(rows, list),
+            "invalid workflow inventory")
+    require(all(isinstance(row, dict) and set(row) == {"path", "bytes", "sha256"}
+                and isinstance(row["path"], str) and row["path"] and not row["path"].startswith("/")
+                and all(part not in ("", ".", "..") for part in row["path"].split("/"))
+                and isinstance(row["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", row["sha256"])
+                and isinstance(row["bytes"], str) and row["bytes"].isdigit() for row in rows),
+            "invalid workflow inventory rows")
+    require([row["path"] for row in rows] == sorted({row["path"] for row in rows}, key=lambda s: s.encode("utf-16-be")),
+            "workflow inventory paths are not canonical")
+    lock = [row for row in rows if row["path"] == "Cargo.lock"]
+    require(len(lock) == 1, "missing workflow lockfile")
+    source = {"base_commit": identity["source_commit"], "state": "clean_commit",
+              "inventory_digest": inventory_digest, "file_count": len(rows),
+              "total_bytes": str(sum(int(row["bytes"]) for row in rows))}
+    common = None
+    for entry, digest in zip(entries, expected):
+        require(isinstance(entry, dict) and set(entry) == {"schema", "source", "recipe"}
+                and entry["schema"] == "ledger-workflow-build-inputs/1" and entry["source"] == source,
+                "workflow catalog source differs")
+        recipe = entry["recipe"]
+        require(isinstance(recipe, dict) and set(recipe) == {"package_name", "package_version", "build_profile", "target", "features", "rustc_version", "cargo_version", "rustflags", "cargo_lock_digest", "compiler_ref"},
+                "invalid workflow recipe")
+        ref = {"kind": "workflow-compiler-descriptor", "id": "wdoc_" + digest, "digest": "sha256:" + digest}
+        require(recipe["compiler_ref"] == ref and recipe["package_name"] == "ledgerlab-cli"
+                and recipe["package_version"] == identity["version"] and recipe["target"] == identity["target"]
+                and recipe["build_profile"] == "release" and recipe["features"] == [] and recipe["rustflags"] == []
+                and recipe["rustc_version"] == build.get("rustc") and recipe["cargo_version"] == build.get("cargo")
+                and recipe["cargo_lock_digest"] == "sha256:" + lock[0]["sha256"], "workflow recipe differs")
+        other = {key: value for key, value in recipe.items() if key != "compiler_ref"}
+        require(common is None or common == other, "workflow catalog entries differ")
+        common = other
+
+
 def parse_sums(path, archive_name):
     try:
         lines = path.read_text(encoding="ascii").splitlines()
@@ -134,9 +212,17 @@ def verify(archive_path, sums_path, expected_commit, expected_version, expected_
     archive_hash = sha(archive_data)
     require(archive_hash == expected_sum, "archive SHA-256 mismatch")
     root_name = archive_name[:-len(".tar.gz")]
-    match = re.fullmatch(r"bean-counter-v([0-9]+\.[0-9]+\.[0-9]+)-([a-z0-9_]+-[a-z0-9_-]+)", root_name)
+    match = re.fullmatch(
+        r"bean-counter-v((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+        r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)-(aarch64-apple-darwin|x86_64-unknown-linux-gnu)",
+        root_name,
+    )
     require(match is not None, "archive filename does not identify a supported Bean Counter package")
     filename_version, filename_target = match.groups()
+    if "-" in filename_version:
+        prerelease = filename_version.split("-", 1)[1].split(".")
+        require(all(not (part.isdigit() and len(part) > 1 and part.startswith("0"))
+                    for part in prerelease), "noncanonical prerelease version")
     require(filename_target in ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"), "unsupported package target")
     require(filename_version == expected_version, f"unexpected package version: {filename_version}")
     if expected_target:
@@ -175,6 +261,7 @@ def verify(archive_path, sums_path, expected_commit, expected_version, expected_
     require(set(manifest_files) == set(payload_files), "manifest file set differs from archive file set")
     require(all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) for value in manifest_files.values()), "manifest contains an invalid SHA-256")
     require(manifest_files == {name: sha(data) for name, data in payload_files.items()}, "packaged file hashes differ from manifest")
+    verify_catalog_evidence(files, build, identity)
     require(sbom.get("spdxVersion") == "SPDX-2.3" and isinstance(sbom.get("packages"), list), "invalid SPDX SBOM")
     sqlite_items = [item for item in sbom["packages"] if isinstance(item, dict) and item.get("name") == "SQLite"]
     require(len(sqlite_items) == 1, "SBOM must identify exactly one bundled SQLite package")
