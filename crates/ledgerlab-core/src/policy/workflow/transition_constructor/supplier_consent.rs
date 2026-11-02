@@ -1405,19 +1405,6 @@ mod tests {
         let mut s = session(&arena);
         let support =
             SelectedCompilerSupport::local_stage_lifecycle_execution_with_session(&mut s).unwrap();
-        if let Ok(path) = std::env::var("WAVE_STAGE_AUTHORING_OUTPUT") {
-            let raw: Value = serde_json::from_slice(include_bytes!(
-                "../../../../../../examples/workflow-stage/source.json"
-            ))
-            .unwrap();
-            let value = crate::policy::workflow::selected_program::stage_fixture_normalized_source(
-                &raw, &support, &mut s,
-            )
-            .unwrap();
-            std::fs::write(path, CanonicalBytes::from_value(&value).unwrap().into_vec()).unwrap();
-            eprintln!("AUTHORING DATA ONLY: emitted normalized source closure; no semantic vector or execution qualification");
-            return;
-        }
         let p = compile_selected_publication(source(&support), &support, &mut s).unwrap();
         p.require_local_admission_with_session(&mut s).unwrap();
         let mut reload = session(&arena);

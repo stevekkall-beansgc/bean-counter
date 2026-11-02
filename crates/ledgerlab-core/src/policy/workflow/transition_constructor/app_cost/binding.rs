@@ -1123,13 +1123,14 @@ mod platform_funding_tests {
         validation_work::{OriginalAuditSession, ResourceLimits},
     };
 
-    /// Actual producer DATA is emitted only after the host transaction and its
-    /// original account verification have passed complete rollback checks.
+    /// Synthetic retained producer DATA remains an input to the pure consumer;
+    /// this fixture does not establish host authority or runtime qualification.
     #[test]
-    #[ignore = "requires host-produced retained2/root DATA after complete rollback"]
     fn platform_funding_actual_retained_output_reaches_same_binding_consumer() {
-        let path = std::env::var("WAVE_PLATFORM_FUNDING_INPUT").expect("actual host output path");
-        let data: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let data: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../tests/fixtures/platform-funding-input.json"
+        ))
+        .unwrap();
         let ctx = &data["context"];
         let text = |key: &str| ctx[key].as_str().unwrap().to_owned();
         let context = DraftContextData {
