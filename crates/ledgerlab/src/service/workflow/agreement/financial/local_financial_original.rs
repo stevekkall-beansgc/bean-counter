@@ -92,7 +92,7 @@ async fn verify_intent(
             pool.add_value(r, s)?;
         }
     }
-    pool.complete(tx, key, before, s).await?;
+    pool.complete_original(tx, original, s).await?;
     let normalized = request_wrapper::field(evidence, "normalized_request", s)?;
     let payload = request_wrapper::field(normalized, "payload", s)?;
     let normalized = s

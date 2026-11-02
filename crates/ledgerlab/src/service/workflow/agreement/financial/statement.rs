@@ -2,6 +2,7 @@
 //! Rows are DATA. Only the caller that finishes the entire held prefix may use
 //! them to prepare a presentation; no partial collector escapes on failure.
 use super::*;
+mod manual_credit;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     domain::workflow_statement::{self, WorkflowActionData, WorkflowRecordData},
@@ -31,6 +32,7 @@ pub(super) struct Collector<'a> {
     requested: Option<&'a Value>,
     rows: Vec<Row>,
     bytes: usize,
+    manual: Option<manual_credit::Capture<'a>>,
     _controls: ExternalBufferLease,
 }
 fn timestamp(v: &Value, s: &mut OriginalAuditSession) -> Result<i64> {
@@ -95,8 +97,19 @@ impl<'a> Collector<'a> {
             requested,
             rows,
             bytes: 0,
+            manual: None,
             _controls: controls,
         })
+    }
+    pub(super) fn finish(
+        &mut self,
+        inventory: Option<&mut prefix::FoldedInventory>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        if let Some(manual) = &mut self.manual {
+            manual.finish(inventory.ok_or(ServiceError::IntegrityFailure)?, s)?;
+        }
+        Ok(())
     }
     pub(super) fn capture(
         &mut self,
@@ -269,6 +282,9 @@ impl<'a> Collector<'a> {
                 s,
             )
             .map_err(core_error)?;
+            if let Some(manual) = &mut self.manual {
+                manual.capture(line.value(), db.value(), prefix, s)?;
+            }
             let raw = s
                 .canonical_representation(line.value(), RepresentationKind::Record)
                 .map_err(core_error)?;
@@ -307,7 +323,9 @@ impl<'a> Collector<'a> {
                         "quantity.correct",
                         "work.reverse",
                     ] {
-                        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+                        s.semantic_work()
+                            .visit(Visit::Element)
+                            .map_err(core_error)?;
                         adjustment |= acceptance::same_recipe_text(kind, expected, s)?;
                     }
                     adjustment
@@ -533,12 +551,13 @@ impl LocalWorkflowLedger {
             crate::service::billing::require_statement_read(&legacy,&r.payload.customer)?;
             let raw=tx.workflow_presentation_statement(&r.payload.customer,&r.payload.statement_hash).await.map_err(crate::service::store_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
             let v=s.parse_representation(&raw,RepresentationKind::Record).map_err(core_error)?;
-            require(matches!(v.value()["schema"].as_str(),Some("ledger-billing-statement/5"|"ledger-billing-ad-hoc-statement-result/2")),"UNSUPPORTED_SCHEMA_PROFILE")?;
+            require(matches!(v.value()["schema"].as_str(),Some("ledger-billing-statement/5"|"ledger-billing-statement/6"|"ledger-billing-ad-hoc-statement-result/2"|"ledger-billing-ad-hoc-statement-result/3")),"UNSUPPORTED_SCHEMA_PROFILE")?;
             let through=v.value()["workflow_boundary"]["commit_sequence"].as_str().and_then(|v|v.parse::<i64>().ok()).ok_or(ServiceError::IntegrityFailure)?;
             let m5=v.value()["m5_high_water"].as_str().and_then(|v|v.parse::<i64>().ok()).ok_or(ServiceError::IntegrityFailure)?;
             let scope=serde_json::json!({"store":v.value()["workflow_boundary"]["store"],"scope":v.value()["workflow_boundary"]["scope"]});
             let (legacy_lines,_)=tx.m5_workflow_legacy_lines(v.value()).await.map_err(crate::service::store_error)?;
-            let selected=if v.value()["schema"]=="ledger-billing-statement/5" {
+            let is_standard=matches!(v.value()["schema"].as_str(),Some("ledger-billing-statement/5"|"ledger-billing-statement/6"));
+            let selected=if is_standard {
                 let start=timestamp(&v.value()["start_utc"],&mut s)?;
                 let end=timestamp(&v.value()["end_utc"],&mut s)?;
                 crate::billing::workflow_statement::selected_lines(self,&mut tx,&scope,&r.payload.customer,start,end,Some(through),&v.value()["period_id"],&legacy_lines,Some((&r.payload.statement_hash,m5)),&mut s).await?
@@ -546,7 +565,13 @@ impl LocalWorkflowLedger {
                 let id=v.value()["statement_id"].as_str().ok_or(ServiceError::IntegrityFailure)?;
                 crate::billing::workflow_statement::selected_ad_hoc(self,&mut tx,&scope,&r.payload.customer,id,&v.value()["workflow_actions"],&legacy_lines,Some(through),Some((&r.payload.statement_hash,m5)),&mut s).await?
             };
-            require(same(&selected.lines,&v.value()["lines"],&mut s)? && same(selected.totals.value(),&v.value()["totals"],&mut s)?,"INTEGRITY_FAILURE")?;
+            let manual=if matches!(v.value()["schema"].as_str(),Some("ledger-billing-statement/6"|"ledger-billing-ad-hoc-statement-result/3")) {
+                let view=ledgerlab_core::domain::workflow_statement::manual_credit::presentation_view(v.value(),is_standard,&mut s).map_err(core_error)?;
+                let (start,end,requested)=if is_standard{(timestamp(&v.value()["start_utc"],&mut s)?,timestamp(&v.value()["end_utc"],&mut s)?,None)}else{(i64::MIN,i64::MAX,Some(&v.value()["manual_credits"]))};
+                Some(crate::billing::manual_credit::selected(self,&mut tx,&r.payload.customer,&scope,if is_standard{"standard"}else{"ad_hoc"},view.value(),&selected.lines,through,m5,start,end,requested,Some((&r.payload.statement_hash,m5)),&mut s).await?)
+            }else{None};
+            let (lines,totals)=if let Some(manual)=&manual{(manual.lines.value(),manual.totals.value())}else{(&selected.lines,selected.totals.value())};
+            require(same(lines,&v.value()["lines"],&mut s)? && same(totals,&v.value()["totals"],&mut s)?,"INTEGRITY_FAILURE")?;
             snapshot.recheck()?;s.check_cancelled().map_err(core_error)?;
             Ok(serde_json::json!({"schema":"ledger-billing-statement-read/1","statement":v.value(),"canonical_bytes_base64":crate::service::workflow::publication::base64(&raw),"canonical_bytes_sha256":crate::service::workflow::records::raw_hash(&raw),"body_bytes":raw.len().to_string()}))
         }.await;

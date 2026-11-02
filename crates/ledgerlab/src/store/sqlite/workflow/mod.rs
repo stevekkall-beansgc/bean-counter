@@ -167,6 +167,7 @@ impl SqliteTx {
             && version != 18
             && version != 19
         && version != 20
+        && version != 21
         {
             return Err(StoreError::BillingUpgradeRequired);
         }

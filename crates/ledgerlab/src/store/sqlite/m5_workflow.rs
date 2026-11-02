@@ -8,6 +8,10 @@ use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 use std::collections::{BTreeMap, BTreeSet};
 type PresentationRow = (i64, Vec<u8>, Vec<u8>);
+pub(crate) const CLOSE_MANUAL: &str = "ledger-billing-period-close/3";
+pub(crate) const RECORD_MANUAL: &str = "ledger-billing-period-close-record/3";
+pub(crate) const AD_HOC_MANUAL: &str = "ledger-billing-ad-hoc-statement/3";
+pub(crate) const AD_HOC_RECORD_MANUAL: &str = "ledger-billing-ad-hoc-statement-record/3";
 pub(crate) const CLOSE: &str = "ledger-billing-period-close/2";
 pub(crate) const RECORD: &str = "ledger-billing-period-close-record/2";
 pub(crate) const AD_HOC: &str = "ledger-billing-ad-hoc-statement/2";
@@ -44,20 +48,48 @@ pub(crate) fn statement_hash(v: &Value) -> Result<String, StoreError> {
     let mut v = v.clone();
     v.as_object_mut().ok_or_else(bad)?.remove("statement_hash");
     let mut h = Sha256::new();
-    h.update(if standard(&v)? {
-        b"bean-counter/m5/statement/5\0".as_slice()
-    } else {
-        b"bean-counter/m5/ad-hoc-statement/2\0".as_slice()
+    h.update(match (standard(&v)?, manual_profile(&v)) {
+        (true, true) => b"bean-counter/m5/statement/6\0".as_slice(),
+        (false, true) => b"bean-counter/m5/ad-hoc-statement/3\0".as_slice(),
+        (true, false) => b"bean-counter/m5/statement/5\0".as_slice(),
+        (false, false) => b"bean-counter/m5/ad-hoc-statement/2\0".as_slice(),
     });
     h.update(bytes(&v)?);
     Ok(m5::hex(&h.finalize()))
 }
 fn standard(v: &Value) -> Result<bool, StoreError> {
     match txt(&v["schema"])? {
-        "ledger-billing-statement/5" => Ok(true),
-        "ledger-billing-ad-hoc-statement-result/2" => Ok(false),
+        "ledger-billing-statement/5" | "ledger-billing-statement/6" => Ok(true),
+        "ledger-billing-ad-hoc-statement-result/2" | "ledger-billing-ad-hoc-statement-result/3" => {
+            Ok(false)
+        }
         _ => Err(bad()),
     }
+}
+fn manual_profile(v: &Value) -> bool {
+    matches!(
+        v["schema"].as_str(),
+        Some("ledger-billing-statement/6" | "ledger-billing-ad-hoc-statement-result/3")
+    )
+}
+fn manual_line(v: &Value) -> bool {
+    v.get("manual_credit_ref").is_some()
+}
+fn command_family(v: &Value) -> Result<&'static str, StoreError> {
+    Ok(match (standard(v)?, manual_profile(v)) {
+        (true, true) => CLOSE_MANUAL,
+        (false, true) => AD_HOC_MANUAL,
+        (true, false) => CLOSE,
+        (false, false) => AD_HOC,
+    })
+}
+fn record_family(v: &Value) -> Result<&'static str, StoreError> {
+    Ok(match (standard(v)?, manual_profile(v)) {
+        (true, true) => RECORD_MANUAL,
+        (false, true) => AD_HOC_RECORD_MANUAL,
+        (true, false) => RECORD,
+        (false, false) => AD_HOC_RECORD,
+    })
 }
 fn presentation(v: &Value) -> Result<(&str, &str), StoreError> {
     if standard(v)? {
@@ -171,7 +203,7 @@ fn check_line_loaded(
 fn totals(lines: &[Value]) -> Result<Value, StoreError> {
     let mut grouped = BTreeMap::<Vec<u8>, (Value, i128)>::new();
     for line in lines {
-        let workflow = workflow_line(line);
+        let workflow = workflow_line(line) || manual_line(line);
         let (currency, scale, raw) = if workflow {
             (
                 &line["amount"]["currency"],
@@ -241,6 +273,55 @@ fn reference(v: &Value, kind: &str) -> Result<(), StoreError> {
     Ok(())
 }
 fn line_shape(v: &Value) -> Result<(), StoreError> {
+    if manual_line(v) {
+        closed(
+            v,
+            &ledgerlab_core::domain::workflow_statement::manual_credit::LINE_FIELDS,
+        )?;
+        reference(&v["manual_credit_ref"], "billing-manual-credit")?;
+        reference(&v["binding_ref"], "workflow-binding")?;
+        reference(&v["role_ref"], "workflow-roles")?;
+        reference(&v["slot_terms_ref"], "workflow-slot-terms")?;
+        reference(&v["work_ref"], "workflow-work")?;
+        reference(&v["stage_instance_ref"], "workflow-stage-instance")?;
+        closed(&v["amount"], &["atoms", "currency", "scale"])?;
+        let raw = txt(&v["amount"]["atoms"])?;
+        let n = raw.parse::<i128>().map_err(|_| bad())?;
+        if v["book"] != "retail"
+            || v["amount"]["currency"] != "USD"
+            || v["amount"]["scale"] != 18
+            || n >= 0
+            || raw.len() > 31
+            || n.to_string() != raw
+        {
+            return Err(bad());
+        }
+        for k in [
+            "agreement_id",
+            "agreement_version",
+            "funding_leg",
+            "reason",
+            "line_id",
+        ] {
+            if txt(&v[k])?.is_empty() {
+                return Err(bad());
+            }
+        }
+        let refs = v["source_action_refs"].as_array().ok_or_else(bad)?;
+        if refs.is_empty() {
+            return Err(bad());
+        }
+        let mut prior = None;
+        for r in refs {
+            reference(r, "workflow-action")?;
+            let raw = bytes(r)?;
+            if prior.as_ref().is_some_and(|p| p >= &raw) {
+                return Err(bad());
+            }
+            prior = Some(raw);
+        }
+        return Ok(());
+    }
     if !workflow_line(v) {
         closed(
             v,
@@ -394,27 +475,28 @@ async fn check_statement_header(conn: &mut SqliteConnection, v: &Value) -> Resul
         )?;
         closed(&v["period_id"], &["period_index", "term_version"])?;
     } else {
-        closed(
-            v,
-            &[
-                "schema",
-                "status",
-                "customer",
-                "statement_id",
-                "adjustments",
-                "workflow_actions",
-                "lines",
-                "currency",
-                "scale",
-                "totals",
-                "complete",
-                "workflow_boundary",
-                "m3_high_water",
-                "m5_high_water",
-                "snapshot_boundary_id",
-                "statement_hash",
-            ],
-        )?;
+        let mut fields = vec![
+            "schema",
+            "status",
+            "customer",
+            "statement_id",
+            "adjustments",
+            "workflow_actions",
+            "lines",
+            "currency",
+            "scale",
+            "totals",
+            "complete",
+            "workflow_boundary",
+            "m3_high_water",
+            "m5_high_water",
+            "snapshot_boundary_id",
+            "statement_hash",
+        ];
+        if manual_profile(v) {
+            fields.push("manual_credits");
+        }
+        closed(v, &fields)?;
         if v["status"] != "issued" || txt(&v["statement_id"])?.is_empty() {
             return Err(bad());
         }
@@ -438,7 +520,22 @@ async fn check_statement_header(conn: &mut SqliteConnection, v: &Value) -> Resul
             }
             prior = Some(raw);
         }
-        if refs.is_empty() && actions.is_empty() {
+        let manual_count = if manual_profile(v) {
+            let refs = v["manual_credits"].as_array().ok_or_else(bad)?;
+            let mut prior = None;
+            for r in refs {
+                reference(r, "billing-manual-credit")?;
+                let raw = bytes(r)?;
+                if prior.as_ref().is_some_and(|p| p >= &raw) {
+                    return Err(bad());
+                }
+                prior = Some(raw);
+            }
+            refs.len()
+        } else {
+            0
+        };
+        if refs.is_empty() && actions.is_empty() && manual_count == 0 {
             return Err(bad());
         }
     }
@@ -521,6 +618,9 @@ async fn check_statement_header(conn: &mut SqliteConnection, v: &Value) -> Resul
     let mut previous = None;
     for line in lines {
         line_shape(line)?;
+        if manual_line(line) && !manual_profile(v) {
+            return Err(bad());
+        }
         let id = txt(&line["line_id"])?;
         if previous.is_some_and(|p| p >= id) {
             return Err(bad());
@@ -529,6 +629,23 @@ async fn check_statement_header(conn: &mut SqliteConnection, v: &Value) -> Resul
         if line.get("source_record_ref").is_some()
             && !seen.insert(bytes(&line["source_record_ref"])?)
         {
+            return Err(bad());
+        }
+    }
+    let mut manual_seen = BTreeSet::new();
+    for line in lines {
+        if manual_line(line) && !manual_seen.insert(bytes(&line["manual_credit_ref"])?) {
+            return Err(bad());
+        }
+    }
+    if manual_profile(v) && !is_standard {
+        let expected = v["manual_credits"]
+            .as_array()
+            .ok_or_else(bad)?
+            .iter()
+            .map(bytes)
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if expected != manual_seen {
             return Err(bad());
         }
     }
@@ -552,7 +669,7 @@ async fn check_statement(conn: &mut SqliteConnection, v: &Value) -> Result<(), S
         .as_array()
         .ok_or_else(bad)?
         .iter()
-        .filter(|l| !workflow_line(l))
+        .filter(|l| l.get("source_records").is_some())
         .cloned()
         .collect::<Vec<_>>();
     if legacy != json!(actual) {
@@ -576,13 +693,13 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     if version < 20 {
         return Ok(());
     }
-    let (all,recognized):(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM billing_m5_period_closes),(SELECT count(*) FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence WHERE r.family IN ('ledger-billing-period-close-record/1','ledger-billing-period-close-record/2'))").fetch_one(&mut *conn).await?;
+    let (all,recognized):(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM billing_m5_period_closes),(SELECT count(*) FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence WHERE r.family IN ('ledger-billing-period-close-record/1','ledger-billing-period-close-record/2','ledger-billing-period-close-record/3'))").fetch_one(&mut *conn).await?;
     if all != recognized {
         return Err(bad());
     }
-    let rows:Vec<PresentationRow>=sqlx::query_as("SELECT r.command_sequence,r.payload_bytes,c.response_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE (r.family='ledger-billing-period-close-record/2' AND c.family='ledger-billing-period-close/2') OR (r.family='ledger-billing-ad-hoc-statement-record/2' AND c.family='ledger-billing-ad-hoc-statement/2') ORDER BY r.sequence").fetch_all(&mut *conn).await?;
-    let actual:i64=sqlx::query_scalar("SELECT count(*) FROM billing_m5_records WHERE family IN ('ledger-billing-period-close-record/2','ledger-billing-ad-hoc-statement-record/2')").fetch_one(&mut *conn).await?;
-    let commands:i64=sqlx::query_scalar("SELECT count(*) FROM billing_m5_commands WHERE family IN ('ledger-billing-period-close/2','ledger-billing-ad-hoc-statement/2')").fetch_one(&mut *conn).await?;
+    let rows:Vec<PresentationRow>=sqlx::query_as("SELECT r.command_sequence,r.payload_bytes,c.response_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE (r.family='ledger-billing-period-close-record/2' AND c.family='ledger-billing-period-close/2') OR (r.family='ledger-billing-ad-hoc-statement-record/2' AND c.family='ledger-billing-ad-hoc-statement/2') OR (r.family='ledger-billing-period-close-record/3' AND c.family='ledger-billing-period-close/3') OR (r.family='ledger-billing-ad-hoc-statement-record/3' AND c.family='ledger-billing-ad-hoc-statement/3') ORDER BY r.sequence").fetch_all(&mut *conn).await?;
+    let actual:i64=sqlx::query_scalar("SELECT count(*) FROM billing_m5_records WHERE family IN ('ledger-billing-period-close-record/2','ledger-billing-ad-hoc-statement-record/2','ledger-billing-period-close-record/3','ledger-billing-ad-hoc-statement-record/3')").fetch_one(&mut *conn).await?;
+    let commands:i64=sqlx::query_scalar("SELECT count(*) FROM billing_m5_commands WHERE family IN ('ledger-billing-period-close/2','ledger-billing-ad-hoc-statement/2','ledger-billing-period-close/3','ledger-billing-ad-hoc-statement/3')").fetch_one(&mut *conn).await?;
     if actual != rows.len() as i64 || commands != actual {
         return Err(bad());
     }
@@ -596,7 +713,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         let record = parse(&raw)?;
         let is_standard = standard(&v)?;
         check_statement(conn, &v).await?;
-        let record_fields = if is_standard {
+        let mut record_fields = if is_standard {
             vec![
                 "boundary_resolution_id",
                 "customer",
@@ -632,13 +749,16 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
                 "m5_high_water",
             ]
         };
+        if manual_profile(&v) {
+            record_fields.push("manual_credits");
+        }
         closed(&record, &record_fields)?;
         record_envelope(&record["record"])?;
         let command:Option<(Vec<u8>,Vec<u8>,i64,bool)>=sqlx::query_as("SELECT request_bytes,identity_key,accepted_at_us,identity_domain='customer-admin' AND customer=? AND source IS NULL FROM billing_m5_commands WHERE command_sequence=? AND family=? AND length(request_bytes) BETWEEN 1 AND 262144 AND length(identity_key) BETWEEN 1 AND 4096")
-            .bind(txt(&v["customer"])?).bind(seq).bind(if is_standard {CLOSE}else{AD_HOC}).fetch_optional(&mut *conn).await?;
+            .bind(txt(&v["customer"])?).bind(seq).bind(command_family(&v)?).fetch_optional(&mut *conn).await?;
         let (request, identity, accepted, domain) = command.ok_or_else(bad)?;
         let request = canonical::parse_bounded(&request, 262144).map_err(|_| bad())?;
-        let fields = if is_standard {
+        let mut fields = if is_standard {
             vec!["schema", "customer", "period_id", "workflow_scope"]
         } else {
             vec![
@@ -650,15 +770,18 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
                 "workflow_actions",
             ]
         };
+        if manual_profile(&v) && !is_standard {
+            fields.push("manual_credits");
+        }
         closed(&request, &fields)?;
         let scope = json!({"store":v["workflow_boundary"]["store"],"scope":v["workflow_boundary"]["scope"]});
         let identity_expected = json!({"schema":"ledger-billing-m5-command-identity/1","domain":"customer-admin","family":if is_standard {"ledger-billing-period-close/1"}else{"ledger-billing-ad-hoc-statement/1"},"customer":v["customer"],"key_kind":if is_standard {"logical_period_id"}else{"command_id"},"key":if is_standard {format!("{}:{}",txt(&v["period_id"]["term_version"])?,txt(&v["period_id"]["period_index"])?) }else{txt(&v["statement_id"])?.to_owned()}});
         if !domain
-            || request["schema"] != if is_standard { CLOSE } else { AD_HOC }
+            || request["schema"] != command_family(&v)?
             || request["customer"] != v["customer"]
             || request["workflow_scope"] != scope
             || parse(&identity)? != identity_expected
-            || record["schema"] != if is_standard { RECORD } else { AD_HOC_RECORD }
+            || record["schema"] != record_family(&v)?
             || number(&record["record"]["command_sequence"])? != seq
             || ledgerlab_core::domain::Timestamp::parse(txt(&record["record"]["accepted_at"])?)
                 .map_err(|_| bad())?
@@ -695,6 +818,32 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             || record["workflow_actions"] != v["workflow_actions"]
         {
             return Err(bad());
+        }
+        if manual_profile(&v) {
+            let from_lines = v["lines"]
+                .as_array()
+                .ok_or_else(bad)?
+                .iter()
+                .filter_map(|l| l.get("manual_credit_ref"))
+                .map(bytes)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            let recorded = record["manual_credits"]
+                .as_array()
+                .ok_or_else(bad)?
+                .iter()
+                .map(bytes)
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            if from_lines != recorded
+                || recorded.len() != record["manual_credits"].as_array().ok_or_else(bad)?.len()
+            {
+                return Err(bad());
+            }
+            if !is_standard
+                && (request["manual_credits"] != v["manual_credits"]
+                    || record["manual_credits"] != v["manual_credits"])
+            {
+                return Err(bad());
+            }
         }
         for k in [
             "customer",
@@ -793,7 +942,28 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
                 .bind(seq)
                 .fetch_one(&mut *conn)
                 .await?;
-        if children != 1 + actual.len() as i64 + legacy.len() as i64 {
+        let manual_rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT payload_bytes FROM billing_m5_records WHERE command_sequence=? AND family='ledger-billing-manual-credit-presentation-claim/1'").bind(seq).fetch_all(&mut *conn).await?;
+        let mut manual_claims = BTreeSet::new();
+        for raw in &manual_rows {
+            let c = parse(raw)?;
+            if !manual_profile(&v)
+                || c["statement_hash"] != v["statement_hash"]
+                || !manual_claims.insert(bytes(&c["manual_credit_ref"])?)
+            {
+                return Err(bad());
+            }
+        }
+        let manual_lines = v["lines"]
+            .as_array()
+            .ok_or_else(bad)?
+            .iter()
+            .filter_map(|l| l.get("manual_credit_ref"))
+            .map(bytes)
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if manual_claims != manual_lines {
+            return Err(bad());
+        }
+        if children != 1 + actual.len() as i64 + legacy.len() as i64 + manual_claims.len() as i64 {
             return Err(bad());
         }
     }
@@ -884,4 +1054,14 @@ fn check_workflow_claim_key(key: &Value, c: &Value) -> Result<(), StoreError> {
         return Err(bad());
     }
     Ok(())
+}
+
+impl SqliteTx {
+    pub(crate) async fn legacy_manual_profile_check(
+        &mut self,
+        customer: &str,
+    ) -> Result<(), StoreError> {
+        m5::require_no_manual_credits(self.conn(), Some(customer), i64::MIN, i64::MAX, i64::MAX)
+            .await
+    }
 }

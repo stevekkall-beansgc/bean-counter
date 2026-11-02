@@ -239,6 +239,10 @@ pub(crate) struct AppActivationAppend<'a> {
     pub binding: &'a ExactRef,
     pub intent: &'a ExactRef,
     pub effective_at_us: i64,
+    /// Exact held predecessor and target; schedule/custody checks belong to the caller.
+    pub prior_head: Option<&'a ExactRef>,
+    pub target: Option<&'a ExactRef>,
+    pub action: &'a str,
 }
 impl SqliteTx {
     pub(crate) async fn workflow_app_activation_append(
@@ -278,11 +282,18 @@ impl SqliteTx {
         p: &AppActivationAppend<'_>,
         s: &mut OriginalAuditSession,
     ) -> Result<(), FinancialReadError> {
-        // This producer is the exact initial activation recipe. Replacement/revocation
-        // retain their separate target/schedule validation; no empty target is forged.
-        if !same(p.journal.kind, "agreement.activate", s)?
-            || p.expected_revision != 0
-            || p.revision != 1
+        // The caller completes the exact owning chronological schedule before
+        // append. This writer separately fences the held prior full Ref.
+        let action_ok = match p.action {
+            "activate" => p.target.is_none() && same(p.journal.kind, "agreement.activate", s)?,
+            "replace" => p.target.is_some() && same(p.journal.kind, "agreement.activate", s)?,
+            "revoke" => p.target.is_some() && same(p.journal.kind, "agreement.revoke", s)?,
+            _ => false,
+        };
+        if !action_ok || p.expected_revision < 0
+            || p.expected_revision.checked_add(1) != Some(p.revision)
+            || (p.expected_revision == 0) != p.prior_head.is_none()
+            || (p.expected_revision == 0 && p.action != "activate")
         {
             return Err(StoreError::ExpectedCurrent.into());
         }
@@ -335,6 +346,16 @@ impl SqliteTx {
                 return Err(invalid());
             }
         }
+        if let Some(target) = p.target {
+            if !same(&target.kind, "workflow-activation", s)? { return Err(invalid()); }
+            let args = [p.journal.identity, target.kind.as_bytes(), target.id.as_bytes(), target.digest.as_bytes()];
+            let payload = io::binding_payload(&args, &[], 0, 0, s)?;
+            self.financial_reserve_io(s, payload)?;
+            let present: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest WHERE m.identity_key=? AND d.kind=? AND d.id=? AND d.digest=? AND d.schema_name='ledger-workflow-activation-transition/1')")
+                .bind(p.journal.identity).bind(&target.kind).bind(&target.id).bind(&target.digest).fetch_one(self.conn()).await?;
+            self.financial_finish_io(s).await?;
+            if !present { return Err(invalid()); }
+        }
         let fields = [
             p.logical_store_id.as_bytes(),
             p.scope[0].as_bytes(),
@@ -358,9 +379,19 @@ impl SqliteTx {
             fields[3],
             p.head.id.as_bytes(),
         ];
-        let payload = io::binding_payload(&head_fields, &[], 2, 0, s)?;
-        self.financial_reserve_io(s, payload)?;
-        sqlx::query("INSERT INTO workflow_agreement_heads(logical_store_id,tenant,environment,agreement_id,customer,head_kind,revision,transition_id) VALUES(?,?,?,?,?,'agreement_activation',1,?)").bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(&p.head.id).execute(self.conn()).await?;
+        if let Some(prior) = p.prior_head {
+            if !same(&prior.kind, "workflow-head-transition", s)? { return Err(invalid()); }
+            let fields = [p.head.id.as_bytes(), fields[0], fields[1], fields[2], fields[4], fields[3], prior.id.as_bytes(), prior.kind.as_bytes(), prior.digest.as_bytes()];
+            let payload = io::binding_payload(&fields, &[], 2, 0, s)?;
+            self.financial_reserve_io(s, payload)?;
+            let changed = sqlx::query("UPDATE workflow_agreement_heads SET revision=?,transition_id=? WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND customer=? AND head_kind='agreement_activation' AND revision=? AND transition_id=? AND EXISTS(SELECT 1 FROM workflow_documents d WHERE d.kind=? AND d.id=workflow_agreement_heads.transition_id AND d.digest=?)")
+                .bind(p.revision).bind(&p.head.id).bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(p.expected_revision).bind(&prior.id).bind(&prior.kind).bind(&prior.digest).execute(self.conn()).await?;
+            if changed.rows_affected() != 1 { return Err(StoreError::ExpectedCurrent.into()); }
+        } else {
+            let payload = io::binding_payload(&head_fields, &[], 2, 0, s)?;
+            self.financial_reserve_io(s, payload)?;
+            sqlx::query("INSERT INTO workflow_agreement_heads(logical_store_id,tenant,environment,agreement_id,customer,head_kind,revision,transition_id) VALUES(?,?,?,?,?,'agreement_activation',1,?)").bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(&p.head.id).execute(self.conn()).await?;
+        }
         self.financial_finish_io(s).await?;
         let row = [
             fields[0],
@@ -372,10 +403,12 @@ impl SqliteTx {
             p.activation.id.as_bytes(),
             p.binding.id.as_bytes(),
             p.intent.id.as_bytes(),
+            p.action.as_bytes(),
+            p.target.map_or(&[][..], |r| r.id.as_bytes()),
         ];
         let payload = io::binding_payload(&row, &[], 6, 0, s)?;
         self.financial_reserve_io(s, payload)?;
-        sqlx::query("INSERT INTO workflow_agreement_activations(logical_store_id,tenant,environment,agreement_id,customer,revision,transition_id,activation_id,binding_id,intent_id,action,effective_at_us,accepted_at_us,commit_sequence,target_id) VALUES(?,?,?,?,?,1,?,?,?,?,'activate',?,?,?,NULL)").bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(&p.head.id).bind(&p.activation.id).bind(&p.binding.id).bind(&p.intent.id).bind(p.effective_at_us).bind(p.journal.accepted_at_us).bind(p.journal.sequence).execute(self.conn()).await?;
+        sqlx::query("INSERT INTO workflow_agreement_activations(logical_store_id,tenant,environment,agreement_id,customer,revision,transition_id,activation_id,binding_id,intent_id,action,effective_at_us,accepted_at_us,commit_sequence,target_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(p.logical_store_id).bind(&p.scope[0]).bind(&p.scope[1]).bind(p.agreement).bind(p.customer).bind(p.revision).bind(&p.head.id).bind(&p.activation.id).bind(&p.binding.id).bind(&p.intent.id).bind(p.action).bind(p.effective_at_us).bind(p.journal.accepted_at_us).bind(p.journal.sequence).bind(p.target.map(|r| &r.id)).execute(self.conn()).await?;
         self.financial_finish_io(s).await?;
         self.finish_journal_rows(&p.journal, delta, s).await
     }

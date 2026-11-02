@@ -544,6 +544,40 @@ pub(in crate::policy::workflow::transition_constructor) fn supplier_current(
         digest: paid_copy(m, &head.reference.digest)?,
     })
 }
+fn customer_only_stage(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    binding: &Value,
+) -> Result<bool> {
+    if !program.no_share_stage_with_work(m)? {
+        return Ok(false);
+    }
+    let legs = shape::array(m, binding, "funding_legs")?;
+    if w::compare(m, legs.len(), 1usize)?.is_lt()
+        || w::compare(m, legs.len(), 16usize)?.is_gt()
+    {
+        return Err(shape::fail("customer-only Stage funding leg count"));
+    }
+    // Preserve the existing platform-funded route even for a no-share Stage.
+    for leg in legs {
+        m.visit("Stage.customer_only_funding_mode")?;
+        let mode = shape::text(m, leg, "mode")?;
+        if !shape::same_text(m, mode, "customer_local")? {
+            return Ok(false);
+        }
+    }
+    let customer = shape::text(m, binding, "customer")?;
+    for leg in legs {
+        m.visit("Stage.customer_only_funding_owner")?;
+        for field in ["payer", "resource_owner"] {
+            let actual = shape::text(m, leg, field)?;
+            if !shape::same_text(m, actual, customer)? {
+                return Err(shape::fail("customer-only Stage funding owner"));
+            }
+        }
+    }
+    Ok(true)
+}
 pub(in crate::policy::workflow::transition_constructor) fn original(
     program: &SelectedProgram,
     m: &mut CoreMeter,
@@ -561,9 +595,12 @@ pub(in crate::policy::workflow::transition_constructor) fn original(
     let owner = InvocationToken::new();
     let assents = shape::array(m, b, "assent_refs")?;
     let component = program.uses_component_lifecycle_recipe();
-    let minimum = if component { 1usize } else { 2usize };
+    let stage_customer_only = !component && customer_only_stage(program, m, b)?;
+    let customer_only = component || stage_customer_only;
+    let minimum = if customer_only { 1usize } else { 2usize };
     if w::compare(m, assents.len(), minimum)?.is_lt()
         || w::compare(m, assents.len(), 16usize)?.is_gt()
+        || stage_customer_only && !w::compare(m, assents.len(), 1usize)?.is_eq()
     {
         return Err(shape::fail(
             "app requires customer and platform fullterms assent",
@@ -650,7 +687,7 @@ pub(in crate::policy::workflow::transition_constructor) fn original(
         }
     }
     if !w::compare(m, customer_count, 1usize)?.is_eq()
-        || !w::compare(m, platform_count, if component { 0usize } else { 1usize })?.is_eq()
+        || !w::compare(m, platform_count, if customer_only { 0usize } else { 1usize })?.is_eq()
     {
         return Err(shape::fail(
             "first app capability requires exact customer/platform assent",
@@ -872,6 +909,98 @@ mod management_tests {
             assert!(check(case).is_err(), "case{case}");
         }
         assert!(check(7).is_ok());
+    }
+    #[test]
+    fn no_share_stage_original_requires_exact_customer_consent_and_funding() {
+        use crate::policy::workflow::selected_program::{
+            compile_selected_publication, stage_fixture_normalized_source,
+            SelectedCompilerSupport, SelectedSourceInput,
+        };
+        use crate::{canonical::CanonicalBytes, validation_work::ResourceLimits};
+        let (_legacy, c, _, inputs) = super::super::super::first_work_tests::test_inputs();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut author = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support = SelectedCompilerSupport::local_stage_lifecycle_v2_execution_with_session(
+            &mut author,
+        ).unwrap();
+        let make = |no_share: bool| {
+            let mut source: Value = serde_json::from_slice(include_bytes!(
+                "../../../../../../../examples/workflow-stage/source.json"
+            )).unwrap();
+            if no_share {
+                for doc in source["documents"].as_array_mut().unwrap() {
+                    if doc["schema"] == "ledger-workflow-slot-template/1" {
+                        doc["components"].as_array_mut().unwrap().retain(|row| row["book"] == "retail");
+                    }
+                    if doc["schema"] == "ledger-workflow-policy/4" {
+                        doc["binding_slots"].as_array_mut().unwrap().retain(|row| row["book"] == "retail");
+                        doc["rules"].as_array_mut().unwrap().retain(|row| row["formula"]["kind"] != "closure_share");
+                    }
+                }
+                let docs = source["documents"].as_array_mut().unwrap();
+                let template = docs.iter().find(|doc| doc["schema"] == "ledger-workflow-slot-template/1").unwrap();
+                let digest = crate::policy::workflow::document_digest(
+                    "ledger-workflow-slot-template/1", template,
+                ).unwrap();
+                let reference = json!({"kind":"workflow-slot-template","id":format!("wdoc_{}", &digest[7..]),"digest":digest});
+                let policy = docs.iter_mut().find(|doc| doc["schema"] == "ledger-workflow-policy/4").unwrap();
+                policy["slot_template_ref"] = reference;
+            }
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let source = stage_fixture_normalized_source(&source, &support, &mut s).unwrap();
+            let input = SelectedSourceInput {
+                documents: source["documents"].as_array().unwrap().iter()
+                    .map(|v| CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .chain(std::iter::once(support.canonical_bytes().to_vec())).collect(),
+                root_policy_ref: serde_json::from_value(source["root_policy_ref"].clone()).unwrap(),
+            };
+            compile_selected_publication(input, &support, &mut s).unwrap()
+        };
+        let no_share = make(true);
+        let supplier = make(false);
+        assert!(no_share.no_share_stage_with_work(author.semantic_work()).unwrap());
+        assert!(!supplier.no_share_stage_with_work(author.semantic_work()).unwrap());
+        let find = |schema: &str| -> Value {
+            inputs.iter().filter_map(|row| serde_json::from_slice::<Value>(&row.canonical_body).ok())
+                .find(|body| body["schema"] == schema && body["customer"] == "customer-A").unwrap()
+        };
+        let binding = find("ledger-workflow-binding/1");
+        let accepted = find("ledger-workflow-accepted-agreement/1");
+        let registered = find("ledger-workflow-customer-registration/1");
+        let assent = find("ledger-workflow-assent/1");
+        let terms_ref: ExactRef = serde_json::from_value(accepted["terms_ref"].clone()).unwrap();
+        let check = |program: &SelectedProgram, binding: &Value, missing: Option<&Value>| {
+            let views: Vec<_> = inputs.iter().filter(|row| {
+                missing.is_none_or(|reference| serde_json::to_value(&row.reference).unwrap() != *reference)
+            }).map(|row| EconomicRecordView { reference: &row.reference, canonical_body: &row.canonical_body }).collect();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut child = session.meter_mut().local_economic_meter().unwrap();
+            let mut records = Records::borrowed_app(&mut child, &arena, &c.key, &views, &[]).unwrap();
+            original(program, &mut child, &mut records, &c, binding, &accepted, (&terms_ref, &registered))
+        };
+        check(&no_share, &binding, None).unwrap();
+        assert!(check(&supplier, &binding, None).is_err());
+        for field in ["payer", "resource_owner"] {
+            let mut bad = binding.clone();
+            bad["funding_legs"][0][field] = json!("other-customer");
+            assert!(check(&no_share, &bad, None).is_err(), "{field}");
+        }
+        for mode in ["platform", "supplier", "unknown"] {
+            let mut bad = binding.clone();
+            bad["funding_legs"][0]["mode"] = json!(mode);
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(!customer_only_stage(&no_share, s.meter_mut(), &bad).unwrap());
+            assert!(check(&no_share, &bad, None).is_err(), "{mode}");
+        }
+        let mut bad = binding.clone();
+        bad["assent_refs"] = json!([]);
+        assert!(check(&no_share, &bad, None).is_err());
+        let extra = binding["assent_refs"][0].clone();
+        bad["assent_refs"] = json!([extra.clone(), extra]);
+        assert!(check(&no_share, &bad, None).is_err());
+        for field in ["evidence_ref", "operator_attestation_ref"] {
+            assert!(check(&no_share, &binding, Some(&assent[field])).is_err(), "{field}");
+        }
     }
     #[test]
     fn component_original_checks_genuine_customer_assent_without_platform() {

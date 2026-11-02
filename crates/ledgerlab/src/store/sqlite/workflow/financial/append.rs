@@ -129,6 +129,7 @@ fn journal_framing(
         "invocation.close",
         "cost.finalize",
         "cost.correct",
+        "agreement.revoke",
     ] {
         if same_text(o.kind, allowed, session)? {
             kind = true;
@@ -293,6 +294,7 @@ impl SqliteTx {
             && !resource_compare(session, version, 18)?.is_eq()
             && !resource_compare(session, version, 19)?.is_eq()
             && !resource_compare(session, version, 20)?.is_eq()
+            && !resource_compare(session, version, 21)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -703,5 +705,52 @@ impl SqliteTx {
         // any mismatch before this append may clear its poison bit.
         self.accounted_capacity_check(0, 0, session).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ledgerlab_core::canonical::audit_arena::AuditArena;
+
+    #[test]
+    fn activation_revoke_journal_framing_retains_closed_kind_and_shape_guards() {
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let reference = |kind: &str| ExactRef {
+            kind: kind.into(),
+            id: "synthetic-framing-ref".into(),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        };
+        let operation = reference("workflow-operation");
+        let manifest = reference("workflow-manifest");
+        let receipt = reference("workflow-receipt");
+        // This is the mechanical framing boundary, not a semantic append or
+        // authority fixture. The dedicated activation writer still owns those.
+        let mut journal = FinancialJournal {
+            identity: b"synthetic-key",
+            kind: "agreement.revoke",
+            operation_ref: &operation,
+            operation_bytes: b"{}",
+            request_hash: "synthetic-request-hash",
+            manifest_ref: &manifest,
+            manifest_bytes: b"{}",
+            receipt_ref: &receipt,
+            receipt_bytes: b"{}",
+            members: &[],
+            sequence: 1,
+            accepted_at_us: 1,
+        };
+        assert!(journal_framing(&[], &journal, &mut session).unwrap());
+        journal.kind = "agreement.revoke.future";
+        assert!(!journal_framing(&[], &journal, &mut session).unwrap());
+        journal.kind = "agreement.revoke";
+        journal.operation_bytes = b"";
+        assert!(!journal_framing(&[], &journal, &mut session).unwrap());
+        journal.operation_bytes = b"{}";
+        journal.manifest_ref = &receipt;
+        assert!(!journal_framing(&[], &journal, &mut session).unwrap());
+        journal.manifest_ref = &manifest;
+        assert!(journal_framing(&[], &journal, &mut session).unwrap());
     }
 }

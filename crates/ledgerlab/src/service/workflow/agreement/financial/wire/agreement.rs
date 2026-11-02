@@ -127,7 +127,7 @@ pub(in super::super) fn frame_activation(
     members: ResolvedMembers,
     s: &mut OriginalAuditSession,
 ) -> Result<AgreementJournalData> {
-    super::super::request_wrapper::same_text(incoming.kind(), "agreement.activate", s)
+    require(matches!(incoming.kind(), "agreement.activate" | "agreement.revoke"), "INTEGRITY_FAILURE")
         .inspect_err(|_| s.invalidate())?;
     frame_agreement(
         incoming,
@@ -182,7 +182,9 @@ fn frame_agreement(
         )?;
         check::same_text(recipe.operation, "ledger-workflow-operation-record/1", s)?;
         check::same_text(recipe.manifest, "ledger-workflow-agreement-manifest/1", s)?;
-        let authority_schema = if super::super::acceptance::same_recipe_text(
+        let authority_schema = if incoming.kind() == "agreement.revoke" {
+            "ledger-workflow-agreement-authority/2"
+        } else if super::super::acceptance::same_recipe_text(
             check::text(resolution, "registry_digest", s)?,
             wrappers::STAGE_LIFECYCLE_REGISTRY,
             s,

@@ -471,8 +471,7 @@ async fn observe_all_at(
         .map_err(|_| ServiceError::Unavailable)?;
     let inputs = assents::Inputs::load(tx, incoming.key(), incoming, input, before, s).await?;
     let customer = inputs.select(input, None, s)?;
-    if publication.program().uses_component_lifecycle_recipe() {
-        require_component_customer_legs(input, binding, s)?;
+    if customer_only_legs(input, binding, s)? {
         let storage = s
             .reserve_external_payload(std::mem::size_of::<ObservedCustomerConsent>())
             .map_err(core_error)?;
@@ -1058,13 +1057,7 @@ impl Coverage {
                     .map_err(core_error)?;
                 observations.push(observed);
             }
-            let minimum =
-                if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)? {
-                    require_component_customer_legs(input, binding, s)?;
-                    0
-                } else {
-                    1
-                };
+            let minimum = if customer_only_legs(input, binding, s)? { 0 } else { 1 };
             size(observations.len(), minimum, 16, s)?;
             let mut result = CurrentPlatformConsents {
                 observations,
@@ -1107,6 +1100,46 @@ fn require_component_customer_legs(
         }
     }
     Ok(())
+}
+
+/// Only the exact completed no-share Stage program may use the existing
+/// customer-consent owner without a platform observation. Actual customer
+/// funding is checked independently; platform paths retain their old checks.
+fn customer_only_legs(
+    input: &AppAcceptanceInput,
+    binding: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)? {
+        require_component_customer_legs(input, binding, s)?;
+        return Ok(true);
+    }
+    if !input.no_share_stage {
+        return Ok(false);
+    }
+    let legs = request_wrapper::field(binding, "funding_legs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    size(legs.len(), 1, 16, s)?;
+    for leg in legs {
+        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        if !same_recipe_text(request_wrapper::text(leg, "mode", s)?, "customer_local", s)? {
+            return Ok(false);
+        }
+    }
+    let customer = request_wrapper::text(input.terms.canonical_value(), "customer", s)?;
+    for leg in legs {
+        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        for field in ["payer", "resource_owner"] {
+            s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+            request_wrapper::same_text(request_wrapper::text(leg, field, s)?, customer, s)?;
+        }
+    }
+    // No supplier verifier consumes an additional provider assent on this
+    // closed path. Keep exactly the genuine customer fullterms assent.
+    let assents = input.assent_refs().as_array().ok_or(ServiceError::IntegrityFailure)?;
+    size(assents.len(), 1, 1, s)?;
+    Ok(true)
 }
 
 #[derive(Clone, Copy)]
@@ -1208,13 +1241,7 @@ pub(super) async fn observe_local_platforms(
         }
         observations.push(observed);
     }
-    let minimum = if same_recipe_text(input.registry(), wrappers::COMPONENT_LIFECYCLE_REGISTRY, s)?
-    {
-        require_component_customer_legs(input, binding, s)?;
-        0
-    } else {
-        1
-    };
+    let minimum = if customer_only_legs(input, binding, s)? { 0 } else { 1 };
     size(observations.len(), minimum, 16, s)?;
     Ok(CurrentPlatformConsents {
         observations,

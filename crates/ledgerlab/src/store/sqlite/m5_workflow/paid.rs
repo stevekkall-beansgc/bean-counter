@@ -293,13 +293,13 @@ impl SqliteTx {
    let is_standard=standard(statement)?;let (presentation_kind,presentation_id)=presentation(statement)?;
    let legacy_expected=prepared.legacy_claims(self.workflow_proof_failure_handle().identity())?;
    let request=s.parse_representation(command.request,RepresentationKind::Record)?;let request=request.value();
-   let request_fields:&[&str]=if is_standard{&["schema","customer","period_id","workflow_scope"]}else{&["schema","customer","command_id","workflow_scope","adjustments","workflow_actions"]};
+   let request_fields:&[&str]=if is_standard{&["schema","customer","period_id","workflow_scope"]}else if manual_profile(statement){&["schema","customer","command_id","workflow_scope","adjustments","workflow_actions","manual_credits"]}else{&["schema","customer","command_id","workflow_scope","adjustments","workflow_actions"]};
    closed(request,request_fields)?;
-   if command.family!=if is_standard{CLOSE}else{AD_HOC}||command.domain!="customer-admin"||command.customer!=Some(txt(&statement["customer"])? )||command.source.is_some()
+   if command.family!=command_family(statement)?||command.domain!="customer-admin"||command.customer!=Some(txt(&statement["customer"])? )||command.source.is_some()
     ||request["schema"]!=command.family||request["customer"]!=statement["customer"]||request["workflow_scope"]["store"]!=statement["workflow_boundary"]["store"]||request["workflow_scope"]["scope"]!=statement["workflow_boundary"]["scope"]{return Err(bad().into())}
    if is_standard {
     if request["period_id"]!=statement["period_id"]||command.accepted_at_us!=ledgerlab_core::domain::Timestamp::parse(txt(&statement["close_acceptance_time"])?).map_err(|_|bad())?.micros(){return Err(bad().into())}
-   }else if request["command_id"]!=statement["statement_id"]||request["adjustments"]!=statement["adjustments"]||request["workflow_actions"]!=statement["workflow_actions"]{return Err(bad().into())}
+   }else if request["command_id"]!=statement["statement_id"]||request["adjustments"]!=statement["adjustments"]||request["workflow_actions"]!=statement["workflow_actions"]||(manual_profile(statement)&&request["manual_credits"]!=statement["manual_credits"]){return Err(bad().into())}
    // Bound the same borrowed payloads before invoking the unchanged M5 writer.
    // Fixed generated IDs/digests are 68/32 bytes. Additional repeated packed
    // copies cover row/index records; this is not a claim to meter all M5 logic.
@@ -330,8 +330,9 @@ impl SqliteTx {
    // its literal bytes. Reuse that same prepared source, rather than rereading
    // and materializing an unbounded post-append result set.
    let count=command.children.len();let source_controls=mul(count,std::mem::size_of::<ledgerlab_core::canonical::audit_arena::AuditedBytes>(),s)?;
-   let _sources=s.reserve_external_payload(source_controls)?;s.semantic_work().write_bytes(source_controls)?;
+   let both_controls=if manual_profile(statement){mul(source_controls,2,s)?}else{source_controls};let _sources=s.reserve_external_payload(both_controls)?;s.semantic_work().write_bytes(both_controls)?;
    let mut sources=Vec::new();sources.try_reserve_exact(count).map_err(|_|bad())?;if sources.capacity()>count{return Err(bad().into())}
+   let mut manual_sources:Vec<ledgerlab_core::canonical::audit_arena::AuditedBytes>=Vec::new();if manual_profile(statement){manual_sources.try_reserve_exact(count).map_err(|_|bad())?;s.semantic_work().arithmetic(Op::Compare,&[&manual_sources.capacity().into(),&count.into()])?;if manual_sources.capacity()>count{return Err(bad().into())}}
    let mut close=None;let mut legacy_count=0usize;
    let legacy_controls=mul(legacy_expected.len(),std::mem::size_of::<u8>(),s)?;
    let _legacy_controls=s.reserve_external_payload(legacy_controls)?;s.semantic_work().write_bytes(legacy_controls)?;
@@ -340,7 +341,7 @@ impl SqliteTx {
     s.semantic_work().visit(Visit::Element)?;
     let owner=value(child.payload,RepresentationKind::Record,s)?;let v=owner.value();
     let record_seq=number(&v["record"]["sequence"])?;
-    if child.family==if is_standard{RECORD}else{AD_HOC_RECORD} {
+    if child.family==record_family(statement)? {
      if close.replace(record_seq).is_some()||v["statement_hash"]!=statement["statement_hash"]||v["workflow_boundary"]!=statement["workflow_boundary"]||v["lines"]!=statement["lines"]||v["totals"]!=statement["totals"] {return Err(bad().into())}
     } else if child.family==CLAIM {
      let r=&v["source_record_ref"];let scope=&v["workflow_scope"];
@@ -363,6 +364,18 @@ impl SqliteTx {
      sqlx::query("INSERT INTO workflow_statement_membership(customer,logical_store_id,tenant,environment,action_kind,action_id,action_digest,claim_sequence,presentation_kind,statement_id,statement_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .bind(customer).bind(store).bind(tenant).bind(environment).bind(kind).bind(id).bind(digest).bind(record_seq).bind(presentation).bind(statement_id).bind(hash).execute(self.conn()).await?;
      self.financial_finish_io(s).await?;
+    } else if child.family=="ledger-billing-manual-credit-presentation-claim/1" {
+     if !manual_profile(statement){return Err(bad().into())}
+     let source=s.canonical_representation(&v["manual_credit_ref"],RepresentationKind::Record)?;
+     for prior in &manual_sources {
+      s.semantic_work().visit(Visit::MemberCompare)?;s.semantic_work().scan_bytes(prior.bytes().len())?;s.semantic_work().scan_bytes(source.bytes().len())?;
+      if prior.bytes()==source.bytes(){return Err(bad().into())}
+     }
+     let expected=ledgerlab_core::domain::workflow_statement::manual_credit::claim_child_key(v,s)?;
+     s.semantic_work().visit(Visit::MemberCompare)?;s.semantic_work().scan_bytes(expected.bytes().len())?;s.semantic_work().scan_bytes(child.child_key.len())?;
+     if expected.bytes()!=child.child_key{return Err(bad().into())}
+     self.manual_credit_claim_append(v,statement,s).await?;
+     manual_sources.push(source);
     } else if child.family==LEGACY_CLAIM {
      check_legacy_claim(v,statement)?;
      let mut matched=None;
@@ -397,6 +410,22 @@ impl SqliteTx {
     }if !found{return Err(bad().into())}
    }
    if sources.len()!=workflow_count{return Err(bad().into())}
+   if manual_profile(statement){
+   let mut manual_count=0usize;
+   for line in lines {
+    s.semantic_work().visit(Visit::Element)?;
+    if !manual_line(line){continue;}manual_count=add(manual_count,1,s)?;
+    let expected=s.canonical_representation(&line["manual_credit_ref"],RepresentationKind::Record)?;
+    let mut found=false;
+    for source in &manual_sources {
+     s.semantic_work().visit(Visit::MemberCompare)?;s.semantic_work().scan_bytes(source.bytes().len())?;s.semantic_work().scan_bytes(expected.bytes().len())?;
+     if source.bytes()==expected.bytes(){found=true;break;}
+    }if !found{return Err(bad().into())}
+   }
+   s.semantic_work().arithmetic(Op::Compare,&[&manual_sources.len().into(),&manual_count.into()])?;
+   if manual_sources.len()!=manual_count{return Err(bad().into())}
+   }
+
    if is_standard {
    let customer=txt(&statement["customer"])?;let boundary=txt(&statement["boundary_resolution_id"])?;let hash=txt(&statement["statement_hash"])?;
    let bound=[customer.as_bytes(),boundary.as_bytes(),hash.as_bytes(),command.response];

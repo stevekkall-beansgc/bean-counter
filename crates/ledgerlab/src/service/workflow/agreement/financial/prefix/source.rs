@@ -713,12 +713,12 @@ async fn registration_inner<'a>(
 /// operands still owning. No retention truth, consent or completed origin is
 /// inferred from the purpose or from the declared bytes.
 pub(in super::super) struct RetainedEvidence<'a> {
-    _input: ledgerlab_core::policy::workflow::OwnedEvidenceInput,
-    management: Management<'a>,
+    pub(in super::super) _input: ledgerlab_core::policy::workflow::OwnedEvidenceInput,
+    pub(in super::super) management: Management<'a>,
     dependencies: [Option<current::source::SourceRecord>; 2],
-    result: wire::SourceRecord,
+    pub(in super::super) result: wire::SourceRecord,
 }
-fn retention_record(
+pub(in super::super) fn retention_record(
     p: &Value,
     actor: &str,
     at: &Timestamp,
@@ -864,16 +864,12 @@ async fn retention_inner<'a>(
         let target_ref = request_wrapper::field(metadata, "target_transition_ref", s)?;
         origin.require_member(binding_ref, s)?;
         origin.require_member(target_ref, s)?;
-        let binding = current::source::retained_record(
-            tx,
-            origin.key(),
-            binding_ref,
-            "workflow-binding",
-            "ledger-workflow-binding/1",
-            origin.wrappers().sequence(),
-            s,
-        )
-        .await?;
+        // The sole caller compares both dependencies against completed earlier
+        // origin inventory before staging this evidence. A stop consumer still
+        // must select the actual accepted Binding and target schedule.
+        let binding = current::source::retained_stop_binding(
+            tx, origin.key(), binding_ref, origin.wrappers().sequence(), s,
+        ).await?;
         let target = current::source::retained_record(
             tx,
             origin.key(),
@@ -1543,10 +1539,10 @@ mod birth_tests {
     }
 }
 
-pub(super) struct Management<'a> {
-    pub(super) root: current::source::SourceRecord,
-    at: Timestamp,
-    pub(super) actor: &'a str,
+pub(in super::super) struct Management<'a> {
+    pub(in super::super) root: current::source::SourceRecord,
+    pub(in super::super) at: Timestamp,
+    pub(in super::super) actor: &'a str,
     own_before: i64,
     _time_storage: ExternalBufferLease,
 }
@@ -2354,6 +2350,7 @@ pub(super) enum FoldedSource {
     InitialSource(
         Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
     ),
+    LocalStopBinding(AuditedBytes, bool),
     Other,
 }
 pub(super) async fn fold(
@@ -2368,6 +2365,12 @@ pub(super) async fn fold(
         "semantic_alias",
         s,
     )? {
+        let literal = request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+        if same(request_wrapper::text(literal, "schema", s)?, "ledger-workflow-evidence-retain/1", s)?
+            && same(request_wrapper::text(literal, "purpose", s)?, "admission_stop", s)? {
+            let binding = fold_stop_alias(tx, origin, inventory, setup, s).await?;
+            return Ok(FoldedSource::LocalStopBinding(binding, true));
+        }
         return Err(ServiceError::Unavailable);
     }
     s.semantic_work()
@@ -2530,6 +2533,12 @@ pub(super) async fn fold(
     } else if same(schema, "ledger-workflow-evidence-retain/1", s)?
         || same(schema, "ledger-workflow-evidence-retain/2", s)? {
         let r = reconstruct_retention(tx, origin, s).await?;
+        let local_binding = if let Some(binding) = &r.dependencies[0] {
+            if same(request_wrapper::text(r._input.canonical_value(), "purpose", s)?, "admission_stop", s)?
+                && same(request_wrapper::text(binding.body(), "schema", s)?, "ledger-workflow-binding/2", s)? {
+                Some(wire::reference(binding.reference(), s)?)
+            } else { None }
+        } else { None };
         custody(r.management.root.body(), setup, s)?;
         for record in r.dependencies.iter().flatten() {
             s.semantic_work()
@@ -2537,11 +2546,64 @@ pub(super) async fn fold(
                 .map_err(core_error)?;
             inventory.compare_record(record.reference(), record.canonical_body(), s)?;
         }
+        if let Some(binding) = local_binding {
+            inventory.introduce(r.management.root.reference(), r.management.root.canonical_body(), origin.wrappers().sequence(), s)?;
+            inventory.introduce(r.result.reference(), r.result.bytes(), origin.wrappers().sequence(), s)?;
+            return Ok(FoldedSource::LocalStopBinding(binding, false));
+        }
         stage(inventory, &r.management.root, &[&r.result], None, origin, s)?;
     } else {
         return Err(ServiceError::Unavailable);
     }
     Ok(FoldedSource::Other)
+}
+
+/// The original's retention was completed earlier in this same inventory.
+/// The semantic index is a locator only; compare its original's full result
+/// with that completed inventory before accepting any alias journal.
+async fn fold_stop_alias(
+    tx: &mut SqliteTx, origin: &LocatedWrappers, inventory: &mut inventory::Inventory,
+    setup: &crate::service::billing::Setup, s: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let saved = ingress::IncomingRequest::parse_original_administration(origin.wrappers().original_request().raw(), s)?;
+    let input = ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(saved.payload(s)?, s).map_err(core_error)?;
+    let binding_ref = request_wrapper::field(request_wrapper::field(input.canonical_value(), "metadata", s)?, "binding_ref", s)?;
+    let binding = current::source::retained_stop_binding(tx, origin.key(), binding_ref, origin.wrappers().sequence(), s).await?;
+    if !same(request_wrapper::text(binding.body(), "schema", s)?, "ledger-workflow-binding/2", s)? { return Err(ServiceError::Unavailable); }
+    let key = request_wrapper::field(saved.value(), "key", s)?;
+    let semantic = super::super::evidence::retained_semantic_identity(key, input.canonical_value(), s)?;
+    let semantic_key = semantic.bytes().get(1..semantic.bytes().len().saturating_sub(1)).ok_or(ServiceError::IntegrityFailure)?;
+    let identity = tx.workflow_evidence_semantic_locator(&origin.key().logical_store_id, &origin.key().scope, semantic_key, s).await.map_err(super::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    let prior = super::target(tx, origin.key(), identity, s).await?.checked_wrappers(tx, s).await?;
+    require(prior.wrappers().sequence() < origin.wrappers().sequence(), "INTEGRITY_FAILURE")?;
+    let retained = reconstruct_retention(tx, &prior, s).await?;
+    same_bytes(input.canonical_bytes(), retained._input.canonical_bytes(), s)?;
+    custody(retained.management.root.body(), setup, s)?;
+    inventory.compare_record(retained.result.reference(), retained.result.bytes(), s)?;
+    for dependency in retained.dependencies.iter().flatten() {
+        inventory.compare_record(dependency.reference(), dependency.canonical_body(), s)?;
+    }
+    let management = management(tx, origin, s).await?;
+    custody(management.root.body(), setup, s)?;
+    inventory.introduce(management.root.reference(), management.root.canonical_body(), origin.wrappers().sequence(), s)?;
+    let root_bytes = s.copy_representation(management.root.canonical_body(), RepresentationKind::Authority).map_err(core_error)?;
+    let root = wire::source_record("workflow-authority", "ledger-workflow-local-authority-snapshot/1", root_bytes, s)?;
+    let mut members = super::ResolvedMembers::new(s)?;
+    members.add_record_ref(management.root.reference(), s)?;
+    for value in request_wrapper::field(prior.wrappers().manifest(), "members", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
+        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        if !prior.wrappers().is_own_operation(value, s)? {
+            let body = inventory.body(value, s)?;
+            let kind = request_wrapper::text(value, "kind", s)?;
+            let (reference, _lease) = current::source::from_value(value, kind, s)?;
+            inventory.compare_record(&reference, body.bytes(), s)?;
+            members.add(value, s)?;
+        }
+    }
+    let evidence = super::super::evidence::original_administration(origin, input.canonical_bytes(), s)?;
+    let authority = super::super::local_activation::stop_retention_authority(setup, &root, &management.at, s)?;
+    wire::frame_administration(&saved, input.canonical_bytes(), authority.bytes(), management.at.as_str(), retained.result.reference(), &evidence, origin.wrappers().sequence(), members, "ledger-workflow-publication-authority/1", true, s)?.compare_original(origin, s)?;
+    wire::reference(binding.reference(), s)
 }
 pub(in super::super) fn custody(
     root: &Value,

@@ -179,7 +179,7 @@ async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow(
 }
 
 #[tokio::test]
-async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema() {
+async fn management_guards_accept_migrated_manual21_and_reject_unknown_schema() {
     use crate::store::sqlite::workflow::financial::FinancialReadError;
     use ledgerlab_core::{
         canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
@@ -200,22 +200,104 @@ async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         assert_eq!(tx.billing_schema_version().await.unwrap(), 18);
         let before = tx.workflow_management_changes(&mut session).await.unwrap();
-        assert_eq!(tx.workflow_management_sequence(&mut session).await.unwrap(), 1);
+        assert_eq!(
+            tx.workflow_management_sequence(&mut session).await.unwrap(),
+            1
+        );
         sqlx::query("CREATE TEMP TABLE stage18_management_probe(value INTEGER)")
-            .execute(tx.conn()).await.unwrap();
+            .execute(tx.conn())
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO stage18_management_probe VALUES(1)")
-            .execute(tx.conn()).await.unwrap();
-        tx.workflow_management_commit_guard(Some(before), &mut session).await.unwrap();
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        tx.workflow_management_commit_guard(Some(before), &mut session)
+            .await
+            .unwrap();
         sqlx::query("DROP TABLE stage18_management_probe")
-            .execute(tx.conn()).await.unwrap();
+            .execute(tx.conn())
+            .await
+            .unwrap();
     }
     tx.workflow_enable_invocation_schema().await.unwrap();
     tx.workflow_enable_statement_schema().await.unwrap();
+    // Preserve the real Statement20 positive management branch before21.
+    {
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(tx.billing_schema_version().await.unwrap(), 20);
+        let before = tx.workflow_management_changes(&mut session).await.unwrap();
+        assert_eq!(
+            tx.workflow_management_sequence(&mut session).await.unwrap(),
+            1
+        );
+        sqlx::query("CREATE TEMP TABLE statement20_management_probe(value INTEGER)")
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO statement20_management_probe VALUES(1)")
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        tx.workflow_management_commit_guard(Some(before), &mut session)
+            .await
+            .unwrap();
+        sqlx::query("DROP TABLE statement20_management_probe")
+            .execute(tx.conn())
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    let old_setup: Vec<u8> = sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup")
+        .fetch_one(&store.inner.writer)
+        .await
+        .unwrap();
+    // Adoption is transactional: an aborted issue cannot retain new tables,
+    // migration metadata, or a new writer version.
+    let mut tx = store.begin(deadline()).await.unwrap();
+    tx.workflow_enable_manual_credit_schema().await.unwrap();
+    assert_eq!(tx.billing_schema_version().await.unwrap(), 21);
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("PRAGMA user_version")
+            .fetch_one(&store.inner.writer)
+            .await
+            .unwrap(),
+        20
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM sqlite_schema WHERE substr(name,1,15)='billing_manual_'"
+        )
+        .fetch_one(&store.inner.writer)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM _sqlx_migrations WHERE version=21")
+            .fetch_one(&store.inner.writer)
+            .await
+            .unwrap(),
+        0
+    );
+    let mut tx = store.begin(deadline()).await.unwrap();
+    tx.workflow_enable_manual_credit_schema().await.unwrap();
+    tx.workflow_enable_manual_credit_schema().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Vec<u8>>("SELECT canonical_bytes FROM billing_setup")
+            .fetch_one(tx.conn())
+            .await
+            .unwrap(),
+        old_setup
+    );
     // Both released billing readers remain valid after the additive migration.
     crate::service::billing::validate_snapshot(&tx.billing_snapshot().await.unwrap()).unwrap();
-    crate::service::billing::validate_snapshot(&tx.billing_snapshot_for_upgrade().await.unwrap()).unwrap();
+    crate::service::billing::validate_snapshot(&tx.billing_snapshot_for_upgrade().await.unwrap())
+        .unwrap();
     // Enabling an already retained earlier profile must neither downgrade nor
-    // rebuild any tables after schema20 has been adopted.
+    // rebuild any tables after schema21 has been adopted.
     tx.workflow_enable_profile_b().await.unwrap();
     tx.workflow_enable_financial_schema().await.unwrap();
     tx.workflow_enable_supplier_schema().await.unwrap();
@@ -226,24 +308,24 @@ async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema
     tx.workflow_enable_invocation_schema().await.unwrap();
     tx.workflow_enable_statement_schema().await.unwrap();
     tx.commit().await.unwrap();
-    for (version, sequence) in [(20i64, true), (21, true), (21, false)] {
+    for (version, sequence) in [(21i64, true), (22, true), (22, false)] {
         let arena = AuditArena::new().unwrap();
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let mut tx = store
             .begin_with_resource_session(deadline(), &mut session)
             .await
             .unwrap();
-        assert_eq!(tx.billing_schema_version().await.unwrap(), 20);
+        assert_eq!(tx.billing_schema_version().await.unwrap(), 21);
         let before = tx.workflow_management_changes(&mut session).await.unwrap();
-        if version == 21 {
-            sqlx::query("PRAGMA user_version=21")
+        if version == 22 {
+            sqlx::query("PRAGMA user_version=22")
                 .execute(tx.conn())
                 .await
                 .unwrap();
         }
         if sequence {
             let result = tx.workflow_management_sequence(&mut session).await;
-            if version == 20 {
+            if version == 21 {
                 assert_eq!(result.unwrap(), 1);
             } else {
                 assert!(matches!(
@@ -254,7 +336,7 @@ async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema
                 ));
             }
         }
-        if version == 20 || !sequence {
+        if version == 21 || !sequence {
             // Connection-local temporary data changes total_changes(), exercising
             // the real post-mutation capacity/version branch without appending
             // an economic or administrative operation to the migrated store.
@@ -269,7 +351,7 @@ async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema
             let result = tx
                 .workflow_management_commit_guard(Some(before), &mut session)
                 .await;
-            if version == 20 {
+            if version == 21 {
                 result.unwrap();
             } else {
                 assert!(matches!(
@@ -287,7 +369,7 @@ async fn management_guards_accept_migrated_statement20_and_reject_unknown_schema
             .fetch_one(&store.inner.writer)
             .await
             .unwrap(),
-        20
+        21
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM workflow_operations")

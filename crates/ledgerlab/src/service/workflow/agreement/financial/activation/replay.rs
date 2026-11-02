@@ -10,8 +10,9 @@ pub(in super::super) struct ReplayedInitialActivation {
     root: wire::SourceRecord,
     authority: wire::SourceRecord,
     records: ActivationRecords,
+    later: bool,
     _sources: Vec<current::source::ObservedSource>,
-    _parties: acceptance::CurrentPlatformConsents,
+    _parties: Option<acceptance::CurrentPlatformConsents>,
     _source_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
     _state_storage: ExternalBufferLease,
@@ -24,14 +25,11 @@ impl ReplayedInitialActivation {
         binding: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        prefix.fold_initial_activation(
-            origin,
-            binding,
-            &self.root,
-            &self.authority,
-            &self.records,
-            s,
-        )
+        if self.later {
+            prefix.fold_later_activation(origin, binding, &self.root, &self.authority, &self.records, s)
+        } else {
+            prefix.fold_initial_activation(origin, binding, &self.root, &self.authority, &self.records, s)
+        }
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -44,15 +42,28 @@ pub(in super::super) async fn reconstruct_initial(
     setup: &crate::service::billing::Setup,
     s: &mut OriginalAuditSession,
 ) -> Result<ReplayedInitialActivation> {
+    reconstruct_selected(tx, origin, original, publication, prefix, setup, false, s).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in super::super) async fn reconstruct_later(
+    tx: &mut SqliteTx, origin: &prefix::LocatedWrappers, original: &acceptance::ReplayedAcceptance,
+    publication: &prefix::RecompiledPublication, prefix: &mut prefix::FoldedInventory,
+    setup: &crate::service::billing::Setup, s: &mut OriginalAuditSession,
+) -> Result<ReplayedInitialActivation> {
+    reconstruct_selected(tx, origin, original, publication, prefix, setup, true, s).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn reconstruct_selected(
+    tx: &mut SqliteTx, origin: &prefix::LocatedWrappers, original: &acceptance::ReplayedAcceptance,
+    publication: &prefix::RecompiledPublication, prefix: &mut prefix::FoldedInventory,
+    setup: &crate::service::billing::Setup, later: bool, s: &mut OriginalAuditSession,
+) -> Result<ReplayedInitialActivation> {
     let result = async {
         let state_storage = s
             .reserve_external_payload(std::mem::size_of::<ReplayedInitialActivation>())
             .map_err(core_error)?;
-        request_wrapper::same_text(
-            request_wrapper::text(origin.wrappers().operation(), "kind", s)?,
-            "agreement.activate",
-            s,
-        )?;
         request_wrapper::same_text(
             request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,
             "administrative",
@@ -60,6 +71,11 @@ pub(in super::super) async fn reconstruct_initial(
         )?;
         let incoming =
             ingress::IncomingRequest::parse(origin.wrappers().original_request().raw(), s)?;
+        request_wrapper::same_text(
+            request_wrapper::text(origin.wrappers().operation(), "kind", s)?,
+            incoming.kind(),
+            s,
+        )?;
         request_wrapper::key(
             request_wrapper::field(incoming.value(), "key", s)?,
             origin.key(),
@@ -99,30 +115,40 @@ pub(in super::super) async fn reconstruct_initial(
         let parsed = s
             .parse_representation(payload.bytes(), RepresentationKind::SourceDefinition)
             .map_err(core_error)?;
-        // agreement.activate also names replacement payloads. Only the exact
-        // initial recipe can complete here; revision zero and an absent head
-        // alone do not establish a valid replacement target/history.
         let schema = request_wrapper::text(parsed.value(), "schema", s)?;
-        if !acceptance::same_recipe_text(schema, "ledger-workflow-activation/1", s)? {
-            return Err(ServiceError::Unavailable);
-        }
         let shape = activation_verify::shape::select(incoming.kind(), schema, |a, b| {
             acceptance::same_recipe_text(a, b, s)
         })?;
-        request_wrapper::same_text(shape.action, "activate", s)?;
-        // This bounded bridge implements the first schedule entry. It never
-        // fabricates an empty history for an existing head or target.
-        let expected = request_wrapper::text(parsed.value(), "expected_revision", s)?;
-        if !acceptance::same_recipe_text(expected, "0", s)? {
-            return Err(ServiceError::Unavailable);
-        }
-        s.semantic_work()
-            .visit(Visit::Constraint)
-            .map_err(core_error)?;
-        require(
-            prefix.activation_head(binding.value(), s)?.is_none(),
-            "INTEGRITY_FAILURE",
-        )?;
+        let expected_text = request_wrapper::text(parsed.value(), "expected_revision", s)?;
+        let expected = super::acceptance::counter(expected_text, s)?;
+        let (schedule, prior) = if later {
+            require(expected > 0, "INTEGRITY_FAILURE")?;
+            require(matches!(shape.action, "activate" | "replace" | "revoke"), "UNSUPPORTED_SCHEMA_PROFILE")?;
+            // The count is taken from the completed owning head, not trusted
+            // from the request as an allocation or history-completeness claim.
+            let head = prefix.activation_head(binding.value(), s)?.ok_or(ServiceError::IntegrityFailure)?;
+            let head = s.parse_representation(head.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            let actual_revision = super::acceptance::counter(
+                request_wrapper::text(head.value(), "new_revision", s)?, s,
+            )?;
+            s.semantic_work().arithmetic(Op::Compare, &[&expected.into(), &actual_revision.into()]).map_err(core_error)?;
+            require(expected == actual_revision, "INTEGRITY_FAILURE")?;
+            let schedule = prefix.activation_schedule(origin.key(), binding.value(), actual_revision, s)?;
+            let last = schedule.transitions.last().ok_or(ServiceError::IntegrityFailure)?;
+            let kind = wire::string(&last.head.reference.kind, s)?;
+            let id = wire::string(&last.head.reference.id, s)?;
+            let digest = wire::string(&last.head.reference.digest, s)?;
+            let encoded = wire::object(&[("digest",digest.bytes()),("id",id.bytes()),("kind",kind.bytes())], 262144, s)?;
+            let prior = s.parse_representation(encoded.bytes(), RepresentationKind::Record).map_err(core_error)?;
+            (Some(schedule), Some(prior))
+        } else {
+            if !acceptance::same_recipe_text(schema, "ledger-workflow-activation/1", s)?
+                || !acceptance::same_recipe_text(expected_text, "0", s)? { return Err(ServiceError::Unavailable); }
+            request_wrapper::same_text(shape.action, "activate", s)?;
+            s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+            require(prefix.activation_head(binding.value(), s)?.is_none(), "INTEGRITY_FAILURE")?;
+            (None, None)
+        };
         let asserted =
             request_wrapper::field(origin.wrappers().operation(), "authority_snapshot", s)?;
         let actor = request_wrapper::text(asserted, "actor", s)?;
@@ -134,7 +160,7 @@ pub(in super::super) async fn reconstruct_initial(
             s.semantic_work(),
         )
         .map_err(core_error)?;
-        binding_interval(parsed.value(), binding.value(), &at, s)?;
+        if shape.action != "revoke" { binding_interval(parsed.value(), binding.value(), &at, s)?; }
         let root_ref = request_wrapper::field(asserted, "local_admin_ref", s)?;
         origin.require_member(root_ref, s)?;
         s.semantic_work()
@@ -243,33 +269,25 @@ pub(in super::super) async fn reconstruct_initial(
                 .map_err(core_error)?;
             sources.push(observed);
         }
-        let selected = original.current_activation_source(
-            &sources,
-            publication,
-            binding.value(),
-            origin.key(),
-            (actor, &at),
-            s,
-        )?;
+        let selected = if shape.action == "revoke" {
+            acceptance::select_stop(&sources, actor, origin.key(), s)?
+        } else {
+            original.current_activation_source(&sources, publication, binding.value(), origin.key(), (actor, &at), s)?
+        };
         s.semantic_work()
             .visit(Visit::RefLookup)
             .map_err(core_error)?;
         let source = sources
             .get(selected)
             .ok_or(ServiceError::IntegrityFailure)?;
-        let parties = original
-            .reconstruct_activation_platforms(
-                tx,
-                origin.key(),
-                binding.value(),
-                &at,
-                origin.wrappers().sequence(),
-                prefix,
-                s,
-            )
-            .await?;
-        let authority =
-            original.activation_authority(source, &root, origin.key(), actor, &at, s)?;
+        let parties = if shape.action == "revoke" { None } else {
+            Some(original.reconstruct_activation_platforms(tx, origin.key(), binding.value(), &at, origin.wrappers().sequence(), prefix, s).await?)
+        };
+        let authority = if shape.action == "revoke" {
+            prefix.verify_stop_evidence(tx, origin.key(), parsed.value(), binding.value(), actor, origin.wrappers().sequence(), s).await?;
+            schedule.as_ref().ok_or(ServiceError::IntegrityFailure)?.require_stop_target(parsed.value(), original.binding.reference(), s)?;
+            stop_authority(source, &root, original.accepted_reference(), original.binding.reference(), binding.value(), parsed.value(), origin.key(), actor, &at, s)?
+        } else { original.activation_authority(source, &root, origin.key(), actor, &at, s)? };
         let asserted = encode(asserted, s)?;
         same(authority.bytes(), asserted.bytes(), s)?;
         let records = build_records(
@@ -281,9 +299,18 @@ pub(in super::super) async fn reconstruct_initial(
             actor,
             &at,
             origin.wrappers().sequence(),
-            None,
+            prior.as_ref().map(|v| v.value()),
             s,
         )?;
+        if let Some(schedule) = &schedule {
+            let customer = request_wrapper::text(binding.value(), "customer", s)?;
+            let agreement = request_wrapper::text(binding.value(), "agreement_id", s)?;
+            let (head, _head_lease) = prefix::schedule_document(records.head.reference(), records.head.schema(), records.head.bytes(), s)?;
+            let (activation, _activation_lease) = prefix::schedule_document(records.activation.reference(), records.activation.schema(), records.activation.bytes(), s)?;
+            let (original_binding, _binding_lease) = prefix::schedule_document(original.binding.reference(), original.binding.schema(), original.binding.bytes(), s)?;
+            let (transition, _refs) = prefix::paid_transition(origin.key(), customer, agreement, head, activation, original_binding, s)?;
+            activation_verify::schedule::check_next_with_session(&schedule.transitions, &transition, s)?;
+        }
         // N is comparison-only: each actual retained introduced body must
         // equal the same producer's row before the scratch fold can stage it.
         for record in [
@@ -340,7 +367,7 @@ pub(in super::super) async fn reconstruct_initial(
                         .iter()
                         .flat_map(current::source::ObservedSource::record_refs),
                 )
-                .chain(parties.selected_refs());
+                .chain(parties.iter().flat_map(|p| p.selected_refs()));
             let mut members = prefix::ResolvedMembers::local_selected(
                 tx,
                 origin.key(),
@@ -350,10 +377,40 @@ pub(in super::super) async fn reconstruct_initial(
                 s,
             )
             .await?;
+            // These are actual prior producer operands, not caller assertions.
+            // Their introduction is verified in the same scoped history before
+            // adding them to the exact original operation member union.
+            if let Some(prior) = &prior {
+                let (reference, _owner) = current::source::from_value(
+                    prior.value(), "workflow-head-transition", s,
+                )?;
+                prefix::verify_selected_association(
+                    tx, origin.key(), &reference, origin.wrappers().sequence(), s,
+                ).await?;
+                members.add_record_ref(&reference, s)?;
+            }
+            if shape.action == "replace" || shape.action == "revoke" {
+                let target_field = if shape.action == "revoke" { "transition_ref" } else { "replaces_transition_ref" };
+                let target = request_wrapper::field(parsed.value(), target_field, s)?;
+                let (reference, _owner) = current::source::from_value(
+                    target, "workflow-activation", s,
+                )?;
+                prefix::verify_selected_association(
+                    tx, origin.key(), &reference, origin.wrappers().sequence(), s,
+                ).await?;
+                members.add_record_ref(&reference, s)?;
+            }
+            if shape.action == "revoke" {
+                for value in request_wrapper::field(parsed.value(), "evidence_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
+                    let (reference, _owner) = current::source::from_value(value, "workflow-evidence", s)?;
+                    prefix::verify_selected_association(tx, origin.key(), &reference, origin.wrappers().sequence(), s).await?;
+                    members.add_record_ref(&reference, s)?;
+                }
+            }
             let parsed_authority = s
                 .parse_representation(authority.bytes(), RepresentationKind::Authority)
                 .map_err(core_error)?;
-            let fields: &[&str] = if publication.program().uses_stage_lifecycle_recipe() {
+            let fields: &[&str] = if shape.action == "revoke" { &[] } else if publication.program().uses_stage_lifecycle_recipe() {
                 &[
                     "app_consent_verification_refs",
                     "supplier_consent_verification_refs",
@@ -410,6 +467,7 @@ pub(in super::super) async fn reconstruct_initial(
             root,
             authority,
             records,
+            later,
             _sources: sources,
             _parties: parties,
             _source_storage: source_storage,

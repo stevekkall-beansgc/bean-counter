@@ -9,6 +9,7 @@ use crate::{
 };
 mod acceptance;
 mod activation;
+mod agreement_head_read;
 mod current;
 mod evidence;
 mod ingress;
@@ -40,6 +41,8 @@ pub use response::WorkflowReply;
 mod request_wrapper;
 mod wire;
 mod wrappers;
+mod r1_stop;
+pub(super) use r1_stop::dependencies as r1_stop_dependencies;
 use std::sync::atomic::Ordering;
 
 /// Released R1 dependencies may select a root retained by the adopted local
@@ -262,7 +265,7 @@ pub(in crate::service::workflow) async fn read_current(
     )?;
     let kind = request_wrapper::text(parsed.value(), "kind", &mut s)?;
     require(
-        matches!(kind, "work.current" | "outcome.current" | "billing.explain"),
+        matches!(kind, "work.current" | "outcome.current" | "billing.explain" | "agreement.head"),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let _key_owner = s
@@ -285,7 +288,9 @@ pub(in crate::service::workflow) async fn read_current(
     tx.workflow_main_session = true;
     let attempted = proof_session::with_proofs(&mut tx, &key, |tx| {
         Box::pin(async {
-            if kind == "billing.explain" {
+            if kind == "agreement.head" {
+                agreement_head_read::read(ledger, tx, &key, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
+            } else if kind == "billing.explain" {
                 local_reads::explain(ledger, tx, &key, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
             } else {
                 local_reads::current(ledger, tx, &key, kind, request_wrapper::field(parsed.value(), "payload", &mut s)?, &mut s).await
@@ -710,10 +715,22 @@ async fn fresh_reply_in(
         // precedes any call to workflow_app_acceptance_append.
     }
     if req.kind() == "agreement.activate"
-        && request_wrapper::text(req.payload(session)?, "schema", session)?
-            == "ledger-workflow-activation/1"
+        && matches!(request_wrapper::text(req.payload(session)?, "schema", session)?,
+            "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1")
     {
-        let reply = fresh_branch(session, |session| local_activation::prepare_append(ledger, tx, req, &management, session))?.await?;
+        let payload = req.payload(session)?;
+        let revision = acceptance::counter(request_wrapper::text(payload, "expected_revision", session)?, session)?;
+        let reply = if revision == 0 {
+            fresh_branch(session, |session| local_activation::prepare_append(ledger, tx, req, &management, session))?.await?
+        } else {
+            fresh_branch(session, |session| local_activation::prepare_later_append(ledger, tx, req, &management, session))?.await?
+        };
+        return Ok(TransactionResult::Appended(reply));
+    }
+    if req.kind() == "agreement.revoke"
+        && request_wrapper::text(req.payload(session)?, "schema", session)? == "ledger-workflow-agreement-revoke/1"
+    {
+        let reply = fresh_branch(session, |session| local_activation::prepare_later_append(ledger, tx, req, &management, session))?.await?;
         return Ok(TransactionResult::Appended(reply));
     }
     if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {

@@ -175,7 +175,7 @@ impl LocalWorkflowLedger {
         }
         if matches!(
             v["kind"].as_str(),
-            Some("work.current" | "outcome.current" | "billing.explain")
+            Some("work.current" | "outcome.current" | "billing.explain" | "agreement.head")
         ) {
             return agreement::financial::read_current(self, raw).await;
         }
@@ -266,12 +266,12 @@ impl LocalWorkflowLedger {
                     if kind == "evidence.retain" {
                         let candidate = tx.workflow_agreement_lookup(&key.bytes()?).await.map_err(super::super::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
                         if agreement::transport::saved_definition_candidate(&candidate.operation_bytes) {
-                            return agreement::status(tx, &key).await;
+                            return agreement::status_owned(tx, &key, Some(self)).await;
                         }
                     }
                     if let Some(original)=agreement::financial::local_management_status(self,tx,&key,raw_key).await? {
                         Ok(original)
-                    } else { agreement::status(tx,&key).await }
+                    } else { agreement::status_owned(tx,&key,Some(self)).await }
                 },
                 None => Ok(
                     json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),

@@ -26,6 +26,8 @@ pub(crate) enum StoreError {
     BillingUpgradeRequired,
     /// Schema-10 installations are read-only until the explicit M5 migration.
     BillingM5SchemaRequired,
+    /// A live old aggregate profile cannot omit retained manual credits.
+    ManualCreditProfileRequired,
     Deadline,
     InvalidStore(&'static str),
     Integrity(&'static str),

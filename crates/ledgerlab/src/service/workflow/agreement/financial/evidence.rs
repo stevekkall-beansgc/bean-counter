@@ -13,8 +13,29 @@ const SHARED_NAMESPACE_REGISTRY: &str =
     "sha256:486006021470309c58c9fc18638fab8a21c6e52431dc6aaf4dcb051eadc62996";
 const SOURCE_PARTICIPANT_REGISTRY: &str =
     "sha256:3413b928959d6f114b22ec7390172b7d48058050df3489e3d7a08680b78fe28d";
-const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
+pub(super) const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
 pub(super) const PLATFORM_FUNDING_REGISTRY: &str = "sha256:2fa74f5678d0d6422073a1aa00d8edcbfaaab9df22f248acdce188474a3866b1";
+
+/// The existing evidence semantic identity, encoded with the owning session.
+/// The returned canonical JSON string contains the index key between its quotes.
+pub(super) fn retained_semantic_identity(
+    key: &Value,
+    input: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let mut values = Vec::new();
+    let _lease = s.reserve_external_payload(7 * std::mem::size_of::<AuditedBytes>()).map_err(core_error)?;
+    s.semantic_work().write_bytes(7 * std::mem::size_of::<AuditedBytes>()).map_err(core_error)?;
+    values.try_reserve_exact(7).map_err(|_| ServiceError::Unavailable)?;
+    for (object, name) in [(key, "logical_store_id"), (key, "scope"), (input, "purpose"), (input, "subject"), (input, "media_type"), (input, "content_sha256"), (input, "metadata")] {
+        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        let value = request_wrapper::field(object, name, s)?;
+        values.push(s.canonical_representation(value, Kind::SourceDefinition).map_err(core_error)?);
+    }
+    wire::domain_digest(b"bean-counter/workflow-evidence-input/1\0", &[
+        b"[", values[0].bytes(), b",", values[1].bytes(), b",", values[2].bytes(), b",", values[3].bytes(), b",", values[4].bytes(), b",", values[5].bytes(), b",", values[6].bytes(), b"]",
+    ], s)
+}
 pub(super) struct RequestEvidence {
     parsed: AuditedValue,
     bytes: AuditedBytes,
@@ -971,7 +992,7 @@ pub(super) fn activation_material(
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
     let result = (|| {
-        request_wrapper::same_text(req.kind(), "agreement.activate", s)?;
+        require(matches!(req.kind(), "agreement.activate" | "agreement.revoke"), "INTEGRITY_FAILURE")?;
         let parsed = s
             .parse_representation(normalized_payload, Kind::Record)
             .map_err(core_error)?;
@@ -989,8 +1010,8 @@ pub(super) fn activation_material(
             descriptors.bytes(),
             s,
         )?;
-        if let Some(target) =
-            request_wrapper::optional_field(payload, "replaces_transition_ref", s)?
+        let target_field = if req.kind() == "agreement.revoke" { "transition_ref" } else { "replaces_transition_ref" };
+        if let Some(target) = request_wrapper::optional_field(payload, target_field, s)?
         {
             anchors.add(
                 "activation_target",
@@ -1038,6 +1059,16 @@ pub(super) fn activation_material(
 #[cfg(test)]
 mod commitment_tests {
     use super::*;
+    #[test]
+    fn retained_semantic_identity_matches_existing_evidence_domain() {
+        let key = serde_json::json!({"logical_store_id":"store","scope":["tenant","env"]});
+        let input = serde_json::json!({"purpose":"admission_stop","subject":{"customer":"A"},"media_type":"text/plain","content_sha256":"sha256:abc","metadata":{"reason":"revoked"}});
+        let expected = super::super::super::super::records::hash("workflow-evidence-input", 1, &serde_json::json!([key["logical_store_id"],key["scope"],input["purpose"],input["subject"],input["media_type"],input["content_sha256"],input["metadata"]])).unwrap();
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let actual = retained_semantic_identity(&key, &input, &mut s).unwrap();
+        assert_eq!(actual.bytes(), serde_json::to_vec(&expected).unwrap());
+    }
     #[cfg(test)]
     const COMMITMENT_REGISTRY: &str =
         "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276";

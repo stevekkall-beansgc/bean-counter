@@ -1,0 +1,970 @@
+{
+  "accepted_at": "2026-11-01T00:00:00.000000Z",
+  "boundary": {
+    "commit_sequence": "28",
+    "scope": [
+      "example-company",
+      "local"
+    ],
+    "store": "workflow-example-cf10ced7a71ea276"
+  },
+  "expected_atoms": "-3000000000000000000",
+  "expected_line": {
+    "agreement_id": "stage-quantity-support",
+    "agreement_version": "1",
+    "amount": {
+      "atoms": "-3000000000000000000",
+      "currency": "USD",
+      "scale": 18
+    },
+    "binding_ref": {
+      "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "kind": "workflow-binding"
+    },
+    "book": "retail",
+    "funding_leg": "support:customer",
+    "line_id": "c31ab43271b897e0bc2e83df4e49569170a477f63feef337af2472df949c3f1a",
+    "manual_credit_ref": {
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "id": "m5r_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "kind": "billing-manual-credit"
+    },
+    "reason": "Explicit operator-approved credit for the retained D Work and Stage closure charges; automatic Stage quantity correction is deferred.",
+    "role_ref": {
+      "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "kind": "workflow-roles"
+    },
+    "slot_terms_ref": {
+      "digest": "sha256:0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+      "id": "wdoc_0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+      "kind": "workflow-slot-terms"
+    },
+    "source_action_refs": [
+      {
+        "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+        "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+        "kind": "workflow-action"
+      },
+      {
+        "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+        "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+        "kind": "workflow-action"
+      }
+    ],
+    "stage_instance_ref": {
+      "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+      "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+      "kind": "workflow-stage-instance"
+    },
+    "work_ref": {
+      "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+      "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+      "kind": "workflow-work"
+    }
+  },
+  "expected_record": {
+    "accepted_at": "2026-11-01T00:00:00.000000Z",
+    "adjustment_id": "manual-credit-d-stage-20261101",
+    "agreement_id": "stage-quantity-support",
+    "agreement_version": "1",
+    "amount": {
+      "atoms": "-3000000000000000000",
+      "currency": "USD",
+      "scale": 18
+    },
+    "binding_ref": {
+      "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "kind": "workflow-binding"
+    },
+    "book": "retail",
+    "customer": "customer-stage",
+    "funding_leg": "support:customer",
+    "host": "platform-P",
+    "operator": "example-operator",
+    "reason": "Explicit operator-approved credit for the retained D Work and Stage closure charges; automatic Stage quantity correction is deferred.",
+    "role_ref": {
+      "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "kind": "workflow-roles"
+    },
+    "schema": "ledger-billing-manual-credit-record/1",
+    "slot_terms_ref": {
+      "digest": "sha256:0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+      "id": "wdoc_0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+      "kind": "workflow-slot-terms"
+    },
+    "source_action_refs": [
+      {
+        "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+        "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+        "kind": "workflow-action"
+      },
+      {
+        "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+        "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+        "kind": "workflow-action"
+      }
+    ],
+    "stage_instance_ref": {
+      "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+      "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+      "kind": "workflow-stage-instance"
+    },
+    "work_ref": {
+      "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+      "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+      "kind": "workflow-work"
+    },
+    "workflow_boundary": {
+      "commit_sequence": "28",
+      "scope": [
+        "example-company",
+        "local"
+      ],
+      "store": "workflow-example-cf10ced7a71ea276"
+    },
+    "workflow_scope": {
+      "scope": [
+        "example-company",
+        "local"
+      ],
+      "store": "workflow-example-cf10ced7a71ea276"
+    }
+  },
+  "host": "platform-P",
+  "line_view": {
+    "command_id": "manual-data-presentation",
+    "customer": "customer-stage"
+  },
+  "operator": "example-operator",
+  "packed": {
+    "binding": {
+      "accepted_at": "2026-10-31T23:54:37.357780Z",
+      "accepted_by": "example-operator",
+      "accepted_context": {
+        "fact_schema_ref": {
+          "digest": "sha256:9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
+          "id": "wdoc_9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
+          "kind": "workflow-fact-schema"
+        },
+        "facts": {}
+      },
+      "agreement_id": "stage-quantity-support",
+      "assent_refs": [
+        {
+          "digest": "sha256:581abe24889113262e8d9371133e879bbf995b1150263a41ff5534417f7892a0",
+          "id": "wdoc_581abe24889113262e8d9371133e879bbf995b1150263a41ff5534417f7892a0",
+          "kind": "workflow-assent"
+        }
+      ],
+      "authority_refs": [
+        {
+          "digest": "sha256:21d1ac8819639ca60022b090348ab5a378321fd354763f5b23df3ac797e3fe9f",
+          "id": "wdoc_21d1ac8819639ca60022b090348ab5a378321fd354763f5b23df3ac797e3fe9f",
+          "kind": "workflow-source-grant"
+        },
+        {
+          "digest": "sha256:4044a62df815bc62d3fd12b8030112d23d3cc1b915755f761cc7667d140f1583",
+          "id": "wdoc_4044a62df815bc62d3fd12b8030112d23d3cc1b915755f761cc7667d140f1583",
+          "kind": "workflow-source-grant"
+        },
+        {
+          "digest": "sha256:631c0648a4770993430dbec0fe241728a6e8efafef4195eb87cf0037dc1fa176",
+          "id": "wdoc_631c0648a4770993430dbec0fe241728a6e8efafef4195eb87cf0037dc1fa176",
+          "kind": "workflow-source-grant"
+        },
+        {
+          "digest": "sha256:c0a8e822b5efaf6d37a3de57f511716b44eb03bbdc739940429f07a4fa31fc6c",
+          "id": "wdoc_c0a8e822b5efaf6d37a3de57f511716b44eb03bbdc739940429f07a4fa31fc6c",
+          "kind": "workflow-source-grant"
+        },
+        {
+          "digest": "sha256:ff301111458f5cb77c37f1560b29c0ee937bd2f39213faedc900356e97543454",
+          "id": "wdoc_ff301111458f5cb77c37f1560b29c0ee937bd2f39213faedc900356e97543454",
+          "kind": "workflow-source-grant"
+        }
+      ],
+      "bindings": [
+        {
+          "binding_ref": {
+            "digest": "sha256:0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "id": "wdoc_0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "kind": "workflow-slot-terms"
+          },
+          "slot": "support:retail"
+        }
+      ],
+      "compiled_plan_ref": {
+        "digest": "sha256:f631ed24e508e56b546d30407b7e8c887cb48c6a8bc2a46f2864945f5e5af6a9",
+        "id": "wplan_f631ed24e508e56b546d30407b7e8c887cb48c6a8bc2a46f2864945f5e5af6a9",
+        "kind": "workflow-compiled-plan"
+      },
+      "customer": "customer-stage",
+      "evaluator": "ledger-workflow-evaluator/1",
+      "exposure_ceilings": [
+        {
+          "binding_slot": "support:retail",
+          "maximum": {
+            "atoms": "4000000000000000000",
+            "currency": "USD",
+            "scale": 18
+          }
+        }
+      ],
+      "fact_schema_refs": [
+        {
+          "digest": "sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+          "id": "wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+          "kind": "workflow-fact-schema"
+        },
+        {
+          "digest": "sha256:e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+          "id": "wdoc_e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+          "kind": "workflow-fact-schema"
+        }
+      ],
+      "funding_legs": [
+        {
+          "evidence_refs": [],
+          "mode": "customer_local",
+          "name": "support:customer",
+          "payer": "customer-stage",
+          "resource_owner": "customer-stage"
+        }
+      ],
+      "policy_ref": {
+        "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+        "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+        "kind": "workflow-policy"
+      },
+      "product_ref": {
+        "digest": "sha256:351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+        "id": "wdoc_351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+        "kind": "workflow-product"
+      },
+      "quantity_ceilings": [
+        {
+          "activity": "support:prepare",
+          "field": "support:quantity",
+          "maximum": "1",
+          "unit": "support:item"
+        }
+      ],
+      "roles_refs": [
+        {
+          "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+          "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+          "kind": "workflow-roles"
+        }
+      ],
+      "schema": "ledger-workflow-binding/2",
+      "slot_catalog_ref": {
+        "digest": "sha256:a60c0dff61a0891f7f08f83e18599b4d23a3fd88ba469080e3a6cef2f83d9af3",
+        "id": "wdoc_a60c0dff61a0891f7f08f83e18599b4d23a3fd88ba469080e3a6cef2f83d9af3",
+        "kind": "workflow-slot-catalog"
+      },
+      "slot_instantiation_ref": {
+        "digest": "sha256:a68ff276007e2bbfeb5fef33456389439786dac9e69f361695d35b8f11178bc0",
+        "id": "wdoc_a68ff276007e2bbfeb5fef33456389439786dac9e69f361695d35b8f11178bc0",
+        "kind": "workflow-slot-instantiation"
+      },
+      "source_namespace": "urn:example:stage-worker",
+      "source_slots": [
+        {
+          "evidence_kinds": [
+            "occurrence",
+            "outcome"
+          ],
+          "name": "support:closer",
+          "sources": [
+            "urn:example:stage-closer"
+          ]
+        },
+        {
+          "evidence_kinds": [],
+          "name": "support:corrector",
+          "sources": [
+            "urn:example:stage-corrector"
+          ]
+        },
+        {
+          "evidence_kinds": [],
+          "name": "support:stage-authorizer",
+          "sources": [
+            "urn:example:stage-admin"
+          ]
+        },
+        {
+          "evidence_kinds": [],
+          "name": "support:supplier-authorizer",
+          "sources": [
+            "urn:example:stage-closer"
+          ]
+        },
+        {
+          "evidence_kinds": [
+            "occurrence"
+          ],
+          "name": "support:worker",
+          "sources": [
+            "urn:example:stage-reporter",
+            "urn:example:stage-worker"
+          ]
+        }
+      ],
+      "starts_at": "2000-01-01T00:00:00.000000Z",
+      "version": "1"
+    },
+    "binding_ref": {
+      "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+      "kind": "workflow-binding"
+    },
+    "roles": {
+      "agreement_id": "stage-quantity-support",
+      "bearer": "customer-stage",
+      "beneficiary": "customer-stage",
+      "cost_originator": "platform-P",
+      "customer": "customer-stage",
+      "payer": "customer-stage",
+      "provider": "platform-P",
+      "recipient": "platform-P",
+      "role_slot": "support:retail-role",
+      "schema": "ledger-workflow-role-assignment/1",
+      "scope": [
+        "example-company",
+        "local"
+      ]
+    },
+    "roles_ref": {
+      "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+      "kind": "workflow-roles"
+    },
+    "sources": [
+      {
+        "decision": {
+          "accepted_at": "2026-10-31T23:54:44.566884Z",
+          "actions_appended": [
+            {
+              "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+              "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+              "kind": "workflow-action"
+            }
+          ],
+          "active_action_refs": [
+            {
+              "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+              "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+              "kind": "workflow-action"
+            }
+          ],
+          "authority_ref": {
+            "digest": "sha256:2f567815449380e8b216881467fdbff4624c32d196edbaea09977eda244d3411",
+            "id": "wdoc_2f567815449380e8b216881467fdbff4624c32d196edbaea09977eda244d3411",
+            "kind": "workflow-economic-authority"
+          },
+          "decision_id": "wdecision_93343386ecbb0a655326c68aa8e322aa1ceed8d2ff69863e109aac33ccea66d4",
+          "dependency_refs": [
+            {
+              "digest": "sha256:38dda65014b35a1fa10159d6d5ec3345e7c521010a648aa97e5748e967826690",
+              "id": "wdep_f1f0f90887895d8e1ba588397291c4c7e1f5ad48b0232f0423c8b0aaffa3d361",
+              "kind": "workflow-dependency"
+            },
+            {
+              "digest": "sha256:78a36726d892abcd6166ab62368866a8bc671c9eb69d99bdaf2a095316ab107d",
+              "id": "wdep_5281894e860bc236a51e706bda55988293a6d82e88218d2f25939c05e6c9b09f",
+              "kind": "workflow-dependency"
+            }
+          ],
+          "evaluation_ref": {
+            "digest": "sha256:270e55553befef75b5bb6421d6357dded2985080ea51d4f015f7234f7dcebc3b",
+            "id": "wdoc_270e55553befef75b5bb6421d6357dded2985080ea51d4f015f7234f7dcebc3b",
+            "kind": "workflow-evaluation"
+          },
+          "kind": "outcome",
+          "operation_key": {
+            "logical_store_id": "workflow-example-cf10ced7a71ea276",
+            "operation_id": "finite-quantity-close-complete",
+            "scope": [
+              "example-company",
+              "local"
+            ],
+            "source": "urn:example:stage-closer"
+          },
+          "original_terms_ref": {
+            "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "kind": "workflow-binding"
+          },
+          "revision": "1",
+          "schema": "ledger-workflow-decision-revision/1",
+          "status": "active",
+          "subject_ref": {
+            "digest": "sha256:bf115941cf2bf3140cbe1fcde8f1b13b9ca8bdd2ed87df7d04ac4b1758d2e1da",
+            "id": "wstage_claim_50762e9a61bba0268fa6e4b01a77544a99655d646967320c4dfce0a3e4f2c78c",
+            "kind": "workflow-stage-closure-claim"
+          },
+          "transition": "initial"
+        },
+        "dependencies": [
+          {
+            "body": {
+              "ancestor_decision_id": "wdecision_dd3189545a121c5a80d8768c49814157c753a931063156dc409b750fe18aa0b1",
+              "dependent_decision_id": "wdecision_93343386ecbb0a655326c68aa8e322aa1ceed8d2ff69863e109aac33ccea66d4",
+              "kind": "work_basis",
+              "maximum_actions": "2",
+              "operation_key": {
+                "logical_store_id": "workflow-example-cf10ced7a71ea276",
+                "operation_id": "finite-quantity-b-work",
+                "scope": [
+                  "example-company",
+                  "local"
+                ],
+                "source": "urn:example:stage-worker"
+              },
+              "original_terms_ref": {
+                "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+                "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+                "kind": "workflow-binding"
+              },
+              "schema": "ledger-workflow-dependency/2",
+              "target_ref": {
+                "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+                "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+                "kind": "workflow-stage-instance"
+              }
+            },
+            "reference": {
+              "digest": "sha256:38dda65014b35a1fa10159d6d5ec3345e7c521010a648aa97e5748e967826690",
+              "id": "wdep_f1f0f90887895d8e1ba588397291c4c7e1f5ad48b0232f0423c8b0aaffa3d361",
+              "kind": "workflow-dependency"
+            }
+          },
+          {
+            "body": {
+              "ancestor_decision_id": "wdecision_af98aaea3e9cb7a64950586cfef99faf8fdea56cbd5612c6539ea3054f6ff1ca",
+              "dependent_decision_id": "wdecision_93343386ecbb0a655326c68aa8e322aa1ceed8d2ff69863e109aac33ccea66d4",
+              "kind": "work_basis",
+              "maximum_actions": "2",
+              "operation_key": {
+                "logical_store_id": "workflow-example-cf10ced7a71ea276",
+                "operation_id": "finite-quantity-d-work",
+                "scope": [
+                  "example-company",
+                  "local"
+                ],
+                "source": "urn:example:stage-reporter"
+              },
+              "original_terms_ref": {
+                "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+                "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+                "kind": "workflow-binding"
+              },
+              "schema": "ledger-workflow-dependency/2",
+              "target_ref": {
+                "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+                "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+                "kind": "workflow-stage-instance"
+              }
+            },
+            "reference": {
+              "digest": "sha256:78a36726d892abcd6166ab62368866a8bc671c9eb69d99bdaf2a095316ab107d",
+              "id": "wdep_5281894e860bc236a51e706bda55988293a6d82e88218d2f25939c05e6c9b09f",
+              "kind": "workflow-dependency"
+            }
+          }
+        ],
+        "projected": {
+          "agreement_id": "stage-quantity-support",
+          "agreement_version": "1",
+          "amount": {
+            "atoms": "2000000000000000000",
+            "currency": "USD",
+            "scale": 18
+          },
+          "binding_ref": {
+            "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "kind": "workflow-binding"
+          },
+          "book": "retail",
+          "funding_leg": "support:customer",
+          "posting_role": "original",
+          "role_ref": {
+            "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+            "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+            "kind": "workflow-roles"
+          },
+          "slot_terms_ref": {
+            "digest": "sha256:0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "id": "wdoc_0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "kind": "workflow-slot-terms"
+          },
+          "source_record_ref": {
+            "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+            "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+            "kind": "workflow-action"
+          }
+        },
+        "subject_body": {
+          "accepted_at": "2026-10-31T23:54:44.566884Z",
+          "anchor_link_refs": [
+            {
+              "digest": "sha256:d0ed5846e27b09433ecb64fc29b8c877cb15b73815582fa3ae863f1177ad4c71",
+              "id": "wlink_017bfd15eaab77e7758fc77a385f49d770f355c1086ea92cb6f8025c38082da2",
+              "kind": "workflow-link"
+            }
+          ],
+          "anchor_work_ref": {
+            "digest": "sha256:9e56291c5dd8116a4a4eed7038d39f718edbae8414878396fca4a17bc0bc69ec",
+            "id": "wevent_4f880c6f7f8616f6aabf669f6dd130ab4455cbfadcf701cf6a9c6b38bafa5327",
+            "kind": "workflow-work"
+          },
+          "authority_ref": {
+            "digest": "sha256:2f567815449380e8b216881467fdbff4624c32d196edbaea09977eda244d3411",
+            "id": "wdoc_2f567815449380e8b216881467fdbff4624c32d196edbaea09977eda244d3411",
+            "kind": "workflow-economic-authority"
+          },
+          "first_work_ref": {
+            "digest": "sha256:9e56291c5dd8116a4a4eed7038d39f718edbae8414878396fca4a17bc0bc69ec",
+            "id": "wevent_4f880c6f7f8616f6aabf669f6dd130ab4455cbfadcf701cf6a9c6b38bafa5327",
+            "kind": "workflow-work"
+          },
+          "operation_key": {
+            "logical_store_id": "workflow-example-cf10ced7a71ea276",
+            "operation_id": "finite-quantity-close-complete",
+            "scope": [
+              "example-company",
+              "local"
+            ],
+            "source": "urn:example:stage-closer"
+          },
+          "original_payload": {
+            "activity": "support:close",
+            "binding_ref": {
+              "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+              "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+              "kind": "workflow-binding"
+            },
+            "business_operation_id": "quantity-close-business",
+            "chain": "stage-quantity-chain",
+            "customer": "customer-stage",
+            "evidence_refs": [],
+            "external_event_id": "close-complete",
+            "fact_proofs": [
+              {
+                "attestation_ref": {
+                  "digest": "sha256:2700268a53125465b2dd672303475328c35a15ad9016fb90393f73aead069d5e",
+                  "id": "wdoc_2700268a53125465b2dd672303475328c35a15ad9016fb90393f73aead069d5e",
+                  "kind": "workflow-fact-attestation"
+                },
+                "field": "support:occurred"
+              },
+              {
+                "attestation_ref": {
+                  "digest": "sha256:c9c16ac389628439d2f9e01a0d92f055dd43507c8596622b5cb173223cd54cd9",
+                  "id": "wdoc_c9c16ac389628439d2f9e01a0d92f055dd43507c8596622b5cb173223cd54cd9",
+                  "kind": "workflow-fact-attestation"
+                },
+                "field": "support:success"
+              }
+            ],
+            "fact_schema_ref": {
+              "digest": "sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+              "id": "wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+              "kind": "workflow-fact-schema"
+            },
+            "facts": {
+              "support:occurred": "2026-10-31T23:54:42.580533Z",
+              "support:success": true
+            },
+            "links": [
+              {
+                "predecessor": {
+                  "digest": "sha256:9e56291c5dd8116a4a4eed7038d39f718edbae8414878396fca4a17bc0bc69ec",
+                  "id": "wevent_4f880c6f7f8616f6aabf669f6dd130ab4455cbfadcf701cf6a9c6b38bafa5327",
+                  "kind": "workflow-work"
+                },
+                "slot": "support:closes"
+              }
+            ],
+            "occurred_at": "2026-10-31T23:54:42.580533Z",
+            "policy_ref": {
+              "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+              "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+              "kind": "workflow-policy"
+            },
+            "product_ref": {
+              "digest": "sha256:351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+              "id": "wdoc_351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+              "kind": "workflow-product"
+            },
+            "schema": "ledger-workflow-stage-close/1",
+            "stage": "support:stage",
+            "stage_instance_ref": {
+              "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+              "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+              "kind": "workflow-stage-instance"
+            }
+          },
+          "schema": "ledger-workflow-stage-closure-claim/1",
+          "stage_instance_ref": {
+            "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+            "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+            "kind": "workflow-stage-instance"
+          },
+          "window": {
+            "accepted_by": "2026-11-01T00:56:39.284438Z",
+            "activation_deadline": "2026-11-01T00:54:40.183006Z",
+            "anchor_ref": {
+              "digest": "sha256:9e56291c5dd8116a4a4eed7038d39f718edbae8414878396fca4a17bc0bc69ec",
+              "id": "wevent_4f880c6f7f8616f6aabf669f6dd130ab4455cbfadcf701cf6a9c6b38bafa5327",
+              "kind": "workflow-work"
+            },
+            "anchor_time": "2026-10-31T23:54:39.284438Z",
+            "correction_until": "2026-11-02T00:56:39.284438Z",
+            "occurs_before": "2026-11-01T00:54:39.284438Z",
+            "received_by": "2026-11-01T00:55:39.284438Z",
+            "starts_at": "2026-10-31T23:54:39.284438Z"
+          }
+        },
+        "subject_ref": {
+          "digest": "sha256:bf115941cf2bf3140cbe1fcde8f1b13b9ca8bdd2ed87df7d04ac4b1758d2e1da",
+          "id": "wstage_claim_50762e9a61bba0268fa6e4b01a77544a99655d646967320c4dfce0a3e4f2c78c",
+          "kind": "workflow-stage-closure-claim"
+        }
+      },
+      {
+        "decision": {
+          "accepted_at": "2026-10-31T23:54:41.768312Z",
+          "actions_appended": [
+            {
+              "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+              "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+              "kind": "workflow-action"
+            }
+          ],
+          "active_action_refs": [
+            {
+              "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+              "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+              "kind": "workflow-action"
+            }
+          ],
+          "authority_ref": {
+            "digest": "sha256:24d06083c6921d7b7973dac584477c17a63e4617ad83db604768e9d1a1f100f6",
+            "id": "wdoc_24d06083c6921d7b7973dac584477c17a63e4617ad83db604768e9d1a1f100f6",
+            "kind": "workflow-economic-authority"
+          },
+          "decision_id": "wdecision_af98aaea3e9cb7a64950586cfef99faf8fdea56cbd5612c6539ea3054f6ff1ca",
+          "dependency_refs": [],
+          "evaluation_ref": {
+            "digest": "sha256:a8b75b08cf137a91d9875a131375fbac5c99e27936a36fc947c345fa24fb0149",
+            "id": "wdoc_a8b75b08cf137a91d9875a131375fbac5c99e27936a36fc947c345fa24fb0149",
+            "kind": "workflow-evaluation"
+          },
+          "kind": "work",
+          "operation_key": {
+            "logical_store_id": "workflow-example-cf10ced7a71ea276",
+            "operation_id": "finite-quantity-d-work",
+            "scope": [
+              "example-company",
+              "local"
+            ],
+            "source": "urn:example:stage-reporter"
+          },
+          "original_terms_ref": {
+            "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "kind": "workflow-binding"
+          },
+          "revision": "1",
+          "schema": "ledger-workflow-decision-revision/1",
+          "status": "active",
+          "subject_ref": {
+            "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+            "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+            "kind": "workflow-work"
+          },
+          "transition": "initial"
+        },
+        "dependencies": [],
+        "projected": {
+          "agreement_id": "stage-quantity-support",
+          "agreement_version": "1",
+          "amount": {
+            "atoms": "1000000000000000000",
+            "currency": "USD",
+            "scale": 18
+          },
+          "binding_ref": {
+            "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+            "kind": "workflow-binding"
+          },
+          "book": "retail",
+          "funding_leg": "support:customer",
+          "posting_role": "original",
+          "role_ref": {
+            "digest": "sha256:9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+            "id": "wdoc_9e2038ea95b346a81a8e57b39ef6bd9f9035903838c4db957c29670c1755a087",
+            "kind": "workflow-roles"
+          },
+          "slot_terms_ref": {
+            "digest": "sha256:0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "id": "wdoc_0802b030316a367ee559a75277fe2155433270df6a9b48a373eca415e51854c8",
+            "kind": "workflow-slot-terms"
+          },
+          "source_record_ref": {
+            "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+            "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+            "kind": "workflow-action"
+          }
+        },
+        "subject_body": {
+          "accepted_at": "2026-10-31T23:54:41.768312Z",
+          "claim_id": "wclaim_64714f4279591046a4bf5fbdc6b374d3e6adb3ad67a3f55440ef6a2f0e29bbfc",
+          "key": {
+            "logical_store_id": "workflow-example-cf10ced7a71ea276",
+            "operation_id": "finite-quantity-d-work",
+            "scope": [
+              "example-company",
+              "local"
+            ],
+            "source": "urn:example:stage-reporter"
+          },
+          "payload": {
+            "activity": "support:prepare",
+            "binding_ref": {
+              "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+              "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+              "kind": "workflow-binding"
+            },
+            "business_operation_id": "quantity-member-d",
+            "chain": "stage-quantity-chain",
+            "customer": "customer-stage",
+            "evidence_refs": [],
+            "external_event_id": "d-work",
+            "fact_proofs": [
+              {
+                "attestation_ref": {
+                  "digest": "sha256:570ea35395012dbcfd91f247d3e043b95735f5087b125ba15f78a3eeeec3e4ef",
+                  "id": "wdoc_570ea35395012dbcfd91f247d3e043b95735f5087b125ba15f78a3eeeec3e4ef",
+                  "kind": "workflow-fact-attestation"
+                },
+                "field": "support:occurred"
+              }
+            ],
+            "fact_schema_ref": {
+              "digest": "sha256:e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+              "id": "wdoc_e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+              "kind": "workflow-fact-schema"
+            },
+            "facts": {
+              "support:occurred": "2026-10-31T23:54:40.890688Z",
+              "support:quantity": "1"
+            },
+            "invocation_refs": [],
+            "links": [],
+            "occurred_at": "2026-10-31T23:54:40.890688Z",
+            "policy_ref": {
+              "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+              "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+              "kind": "workflow-policy"
+            },
+            "product_ref": {
+              "digest": "sha256:351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+              "id": "wdoc_351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+              "kind": "workflow-product"
+            },
+            "schema": "ledger-workflow-work/1",
+            "stage_instance_ref": {
+              "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+              "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+              "kind": "workflow-stage-instance"
+            },
+            "status": "succeeded"
+          },
+          "received_at": "2026-10-31T23:54:41.767907Z",
+          "schema": "ledger-workflow-work-record/1",
+          "source_namespace": "urn:example:stage-worker"
+        },
+        "subject_ref": {
+          "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+          "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+          "kind": "workflow-work"
+        }
+      }
+    ],
+    "stage": {
+      "agreement_id": "stage-quantity-support",
+      "authority_refs": [
+        {
+          "digest": "sha256:ff301111458f5cb77c37f1560b29c0ee937bd2f39213faedc900356e97543454",
+          "id": "wdoc_ff301111458f5cb77c37f1560b29c0ee937bd2f39213faedc900356e97543454",
+          "kind": "workflow-source-grant"
+        }
+      ],
+      "binding_ref": {
+        "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+        "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+        "kind": "workflow-binding"
+      },
+      "chain": "stage-quantity-chain",
+      "customer": "customer-stage",
+      "declared_at": "2026-10-31T23:54:38.845061Z",
+      "expected": [
+        {
+          "activity": "support:prepare",
+          "business_operation_id": "quantity-member-b",
+          "component_slots": [
+            "support:prior"
+          ],
+          "source": "urn:example:stage-worker",
+          "template_input_key": "support:member-b"
+        },
+        {
+          "activity": "support:prepare",
+          "business_operation_id": "quantity-member-d",
+          "component_slots": [
+            "support:prior"
+          ],
+          "source": "urn:example:stage-reporter",
+          "template_input_key": "support:member-d"
+        }
+      ],
+      "instance_id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+      "schema": "ledger-workflow-stage-instance/1",
+      "stage_name": "support:stage"
+    },
+    "stage_ref": {
+      "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+      "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+      "kind": "workflow-stage-instance"
+    },
+    "work": {
+      "accepted_at": "2026-10-31T23:54:41.768312Z",
+      "claim_id": "wclaim_64714f4279591046a4bf5fbdc6b374d3e6adb3ad67a3f55440ef6a2f0e29bbfc",
+      "key": {
+        "logical_store_id": "workflow-example-cf10ced7a71ea276",
+        "operation_id": "finite-quantity-d-work",
+        "scope": [
+          "example-company",
+          "local"
+        ],
+        "source": "urn:example:stage-reporter"
+      },
+      "payload": {
+        "activity": "support:prepare",
+        "binding_ref": {
+          "digest": "sha256:c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+          "id": "wdoc_c31db0ed28acd9f7423971f48839b53668d1d18f481e8b36fa0e6cb627fd21de",
+          "kind": "workflow-binding"
+        },
+        "business_operation_id": "quantity-member-d",
+        "chain": "stage-quantity-chain",
+        "customer": "customer-stage",
+        "evidence_refs": [],
+        "external_event_id": "d-work",
+        "fact_proofs": [
+          {
+            "attestation_ref": {
+              "digest": "sha256:570ea35395012dbcfd91f247d3e043b95735f5087b125ba15f78a3eeeec3e4ef",
+              "id": "wdoc_570ea35395012dbcfd91f247d3e043b95735f5087b125ba15f78a3eeeec3e4ef",
+              "kind": "workflow-fact-attestation"
+            },
+            "field": "support:occurred"
+          }
+        ],
+        "fact_schema_ref": {
+          "digest": "sha256:e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+          "id": "wdoc_e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+          "kind": "workflow-fact-schema"
+        },
+        "facts": {
+          "support:occurred": "2026-10-31T23:54:40.890688Z",
+          "support:quantity": "1"
+        },
+        "invocation_refs": [],
+        "links": [],
+        "occurred_at": "2026-10-31T23:54:40.890688Z",
+        "policy_ref": {
+          "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+          "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+          "kind": "workflow-policy"
+        },
+        "product_ref": {
+          "digest": "sha256:351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+          "id": "wdoc_351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+          "kind": "workflow-product"
+        },
+        "schema": "ledger-workflow-work/1",
+        "stage_instance_ref": {
+          "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+          "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+          "kind": "workflow-stage-instance"
+        },
+        "status": "succeeded"
+      },
+      "received_at": "2026-10-31T23:54:41.767907Z",
+      "schema": "ledger-workflow-work-record/1",
+      "source_namespace": "urn:example:stage-worker"
+    },
+    "work_ref": {
+      "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+      "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+      "kind": "workflow-work"
+    }
+  },
+  "request": {
+    "adjustment_id": "manual-credit-d-stage-20261101",
+    "amount": {
+      "atoms": "-3000000000000000000",
+      "currency": "USD",
+      "scale": 18
+    },
+    "customer": "customer-stage",
+    "reason": "Explicit operator-approved credit for the retained D Work and Stage closure charges; automatic Stage quantity correction is deferred.",
+    "schema": "ledger-billing-manual-credit/1",
+    "source_action_refs": [
+      {
+        "digest": "sha256:6ad5d974971b1573a76f66a8eb219f923e7fb11d71fbf50036af7a5e45596666",
+        "id": "waction_f3ae79c48bee48c1bff1201743a2d50ab1d60c27c2bd0f1f7b19904fc4d8562e",
+        "kind": "workflow-action"
+      },
+      {
+        "digest": "sha256:f5e2867c15782dc0b19387132d27aa750cdf516c7b776ac4b404c6d6750a025c",
+        "id": "waction_83ffbdf119ac6a8a2deced0967e5491189e7a656c64380fa8d9c2e0b5ba421b3",
+        "kind": "workflow-action"
+      }
+    ],
+    "stage_instance_ref": {
+      "digest": "sha256:206992f8592a726deb5046ddd63995e2f7d94c1fbf5ac67fdee410680c8d3ff5",
+      "id": "wstage_640524454655f8889d560b9d0d244558757d2fc7862c45a3e80a778ef9043ada",
+      "kind": "workflow-stage-instance"
+    },
+    "work_ref": {
+      "digest": "sha256:3f9405234d3e1e8d1aa8ca6825c91744eb25af56f4ecf41854dec3980c8f1baf",
+      "id": "wevent_0c7e9c85f4cd80e61fc6359a5c830083f2ad2aec2be5889f8f95dc10cf65fbaa",
+      "kind": "workflow-work"
+    },
+    "workflow_scope": {
+      "scope": [
+        "example-company",
+        "local"
+      ],
+      "store": "workflow-example-cf10ced7a71ea276"
+    }
+  },
+  "schema": "manual-credit-data-test/1",
+  "scope": "Exact saved synthetic source DATA association only; not a producer/authority certificate.",
+  "test_credit_ref": {
+    "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": "m5r_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "kind": "billing-manual-credit"
+  }
+}

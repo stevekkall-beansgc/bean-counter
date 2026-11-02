@@ -274,3 +274,52 @@ fn complete_sealed_binding_uses_scoped_head_and_rejects_coherent_foreign_scope_o
         .is_err());
     }
 }
+
+
+#[test]
+fn paid_target_index_matches_existing_ordered_set() {
+    use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::{OriginalAuditSession, ResourceLimits}};
+    let v1 = make(0, 0, 0, 1, None, None, None);
+    let v2 = make(1, 5, 10, 2, Some(20), Some(v1.head.reference.clone()), None);
+    let replacement = make(2, 6, 15, 3, Some(20), Some(v2.head.reference.clone()), Some(v2.activation.reference.clone()));
+    let history = vec![v1, v2, replacement];
+    for cutoff in [None, Some(at(5).micros()), Some(at(7).micros())] {
+        let expected: BTreeSet<_> = history.iter().filter(|t| cutoff.is_none_or(|x| t.at.micros() <= x)).filter_map(|t| t.target.as_ref().map(|r| r.id.as_str())).collect();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let index = PaidTargetIndex::build(&history, cutoff, &mut session).unwrap();
+        for t in &history {
+            assert_eq!(index.contains(&t.activation.reference.id, &mut session).unwrap(), expected.contains(t.activation.reference.id.as_str()));
+        }
+        assert!(!index.contains("missing", &mut session).unwrap());
+        assert!(session.usage().semantic_work > 0);
+    }
+}
+
+#[test]
+fn paid_schedule_matches_existing_pending_replacement_and_stop_decisions() {
+    use ledgerlab_core::{canonical::audit_arena::AuditArena, validation_work::{OriginalAuditSession, ResourceLimits}};
+    let v1 = make(0, 0, 0, 1, None, None, None);
+    let initial_arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+    let mut initial_session = OriginalAuditSession::for_resource_profile_v2(&initial_arena).unwrap();
+    assert!(check_next_with_session(&[], &v1, &mut initial_session).is_ok());
+    let v2 = make(1, 5, 10, 2, Some(20), Some(v1.head.reference.clone()), None);
+    let history = vec![v1, v2];
+    let replacement = make(2, 6, 15, 3, Some(20), Some(history[1].head.reference.clone()), Some(history[1].activation.reference.clone()));
+    let conflict = make(2, 6, 15, 3, Some(20), Some(history[1].head.reference.clone()), None);
+    let stopped = stop(&history, 6, &history[1].activation.reference);
+    let wrong = stop(&history, 6, &history[0].activation.reference);
+    for when in [at(4), at(6), at(10), at(20)] {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let legacy = boundary_at(&history, &when).unwrap().map(|t| &t.activation.reference);
+        let paid = paid_boundary_at(&history, &when, &mut session).unwrap().map(|t| &t.activation.reference);
+        assert_eq!(legacy, paid);
+    }
+    for next in [&replacement, &conflict, &stopped, &wrong] {
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(check_next(&history, next).is_ok(), check_next_with_session(&history, next, &mut session).is_ok());
+        assert!(session.usage().semantic_work > 0);
+    }
+}

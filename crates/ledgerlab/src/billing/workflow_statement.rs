@@ -1,7 +1,7 @@
 //! Additive workflow statement close through the existing M5 customer owner.
 use super::*;
-use crate::LocalWorkflowLedger;
 use crate::store::sqlite::m5;
+use crate::LocalWorkflowLedger;
 use ledgerlab_core::{
     canonical::CanonicalBytes, domain::workflow_statement, validation_work::OriginalAuditSession,
 };
@@ -38,7 +38,7 @@ fn parse(
     let r: Request =
         serde_json::from_value(value).map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
     service::require(
-        r.schema == CLOSE
+        matches!(r.schema.as_str(), CLOSE | "ledger-billing-period-close/3")
             && r.workflow_scope.as_object().is_some_and(|o| {
                 o.len() == 2 && o.contains_key("store") && o.contains_key("scope")
             }),
@@ -143,7 +143,10 @@ pub(crate) async fn selected_lines(
             {
                 s.check_cancelled().map_err(core)?;
                 service::require(
-                    closed.value()["schema"] == "ledger-billing-statement/5",
+                    matches!(
+                        closed.value()["schema"].as_str(),
+                        Some("ledger-billing-statement/5" | "ledger-billing-statement/6")
+                    ),
                     "BILLING_M5_PERIOD",
                 )?;
                 let old = closed.value()["workflow_boundary"]["commit_sequence"]
@@ -286,9 +289,15 @@ impl BillingLedger {
                     .map(CloseResult::Original)
                     .map_err(core);
             }
-            tx.workflow_enable_statement_schema()
-                .await
-                .map_err(store_error)?;
+            if r.schema == "ledger-billing-period-close/3" {
+                tx.workflow_enable_manual_credit_schema()
+                    .await
+                    .map_err(store_error)?;
+            } else {
+                tx.workflow_enable_statement_schema()
+                    .await
+                    .map_err(store_error)?;
+            }
             let legacy = tx.billing_snapshot().await.map_err(store_error)?;
             service::validate_snapshot(&legacy)?;
             let state = tx
@@ -342,6 +351,35 @@ impl BillingLedger {
                 &mut s,
             )
             .await?;
+            let manual = if r.schema == "ledger-billing-period-close/3" {
+                let view = ledger.statement_view_identity(&r.customer, &r.period_id, &mut s)?;
+                Some(
+                    super::manual_credit::selected(
+                        &ledger,
+                        &mut tx,
+                        &r.customer,
+                        &r.workflow_scope,
+                        "standard",
+                        view.value(),
+                        &selected.lines,
+                        selected.through,
+                        state.m5_high_water,
+                        start,
+                        end,
+                        None,
+                        None,
+                        &mut s,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            let (lines, totals) = if let Some(manual) = &manual {
+                (manual.lines.value(), manual.totals.value())
+            } else {
+                (&selected.lines, selected.totals.value())
+            };
             let artifacts = super::workflow_statement_frame::prepare(
                 &identity,
                 &r.customer,
@@ -352,10 +390,11 @@ impl BillingLedger {
                 start,
                 end,
                 &accepted,
-                &selected.lines,
-                selected.totals.value(),
+                lines,
+                totals,
                 selected.through,
                 &included_records,
+                manual.as_ref().map(|m| m.references.value()),
                 &mut s,
             )?;
             let view_count = artifacts.children.len();
@@ -384,7 +423,7 @@ impl BillingLedger {
                 });
             }
             let command = m5::Command {
-                family: CLOSE,
+                family: &r.schema,
                 domain: "customer-admin",
                 customer: Some(&r.customer),
                 source: None,

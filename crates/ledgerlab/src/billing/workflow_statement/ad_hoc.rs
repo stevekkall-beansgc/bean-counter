@@ -14,6 +14,8 @@ struct Request {
     workflow_scope: Value,
     adjustments: Value,
     workflow_actions: Value,
+    #[serde(default)]
+    manual_credits: Option<Value>,
 }
 fn id(v: &str, max: usize) -> bool {
     !v.is_empty() && v.len() <= max && !v.chars().any(char::is_control)
@@ -21,10 +23,26 @@ fn id(v: &str, max: usize) -> bool {
 fn parse(raw: &[u8]) -> Result<Request, ServiceError> {
     let v = ledgerlab_core::canonical::parse_bounded(raw, 262144)
         .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
+    service::require(
+        v.as_object().is_some_and(|o| {
+            o.len()
+                == if v["schema"] == "ledger-billing-ad-hoc-statement/3" {
+                    7
+                } else {
+                    6
+                }
+        }),
+        "BILLING_M5_REQUEST",
+    )?;
     let r: Request =
         serde_json::from_value(v).map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
     service::require(
-        r.schema == AD_HOC && id(&r.customer, 128) && id(&r.command_id, 128),
+        matches!(
+            r.schema.as_str(),
+            AD_HOC | "ledger-billing-ad-hoc-statement/3"
+        ) && (r.manual_credits.is_some() == (r.schema == "ledger-billing-ad-hoc-statement/3"))
+            && id(&r.customer, 128)
+            && id(&r.command_id, 128),
         "BILLING_M5_REQUEST",
     )?;
     let adjustments = r
@@ -36,9 +54,17 @@ fn parse(raw: &[u8]) -> Result<Request, ServiceError> {
         .as_array()
         .ok_or_else(|| service::reject("BILLING_M5_REQUEST"))?;
     service::require(
-        !adjustments.is_empty() || !actions.is_empty(),
+        !adjustments.is_empty()
+            || !actions.is_empty()
+            || r.manual_credits
+                .as_ref()
+                .and_then(Value::as_array)
+                .is_some_and(|v| !v.is_empty()),
         "BILLING_M5_REQUEST",
     )?;
+    if let Some(manual) = &r.manual_credits {
+        service::require(manual.is_array(), "BILLING_M5_REQUEST")?;
+    }
     let mut previous = None;
     for a in adjustments {
         service::require(
@@ -170,7 +196,10 @@ pub(crate) async fn selected_ad_hoc(
             .map_err(crate::service::workflow::statement_read_error)?
             .ok_or_else(|| service::reject("BILLING_M5_SCOPE"))?;
         service::require(
-            close.value()["schema"] == "ledger-billing-statement/5",
+            matches!(
+                close.value()["schema"].as_str(),
+                Some("ledger-billing-statement/5" | "ledger-billing-statement/6")
+            ),
             "BILLING_M5_PERIOD",
         )?;
         let through = close.value()["workflow_boundary"]["commit_sequence"]
@@ -283,9 +312,15 @@ impl BillingLedger {
                     .map(CloseResult::Original)
                     .map_err(core);
             }
-            tx.workflow_enable_statement_schema()
-                .await
-                .map_err(store_error)?;
+            if r.manual_credits.is_some() {
+                tx.workflow_enable_manual_credit_schema()
+                    .await
+                    .map_err(store_error)?;
+            } else {
+                tx.workflow_enable_statement_schema()
+                    .await
+                    .map_err(store_error)?;
+            }
             let legacy = tx.billing_snapshot().await.map_err(store_error)?;
             service::validate_snapshot(&legacy)?;
             let accepted = local::now().map_err(|_| ServiceError::Unavailable)?;
@@ -352,6 +387,36 @@ impl BillingLedger {
                 &mut s,
             )
             .await?;
+            let manual = if let Some(requested) = &r.manual_credits {
+                let view =
+                    ledger.statement_ad_hoc_view_identity(&r.customer, &r.command_id, &mut s)?;
+                Some(
+                    crate::billing::manual_credit::selected(
+                        &ledger,
+                        &mut tx,
+                        &r.customer,
+                        &r.workflow_scope,
+                        "ad_hoc",
+                        view.value(),
+                        &selected.lines,
+                        selected.through,
+                        position.3,
+                        i64::MIN,
+                        i64::MAX,
+                        Some(requested),
+                        None,
+                        &mut s,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            let (lines, totals) = if let Some(manual) = &manual {
+                (manual.lines.value(), manual.totals.value())
+            } else {
+                (&selected.lines, selected.totals.value())
+            };
             let artifacts = crate::billing::workflow_statement_frame::prepare_ad_hoc(
                 &identity,
                 &r.customer,
@@ -362,9 +427,10 @@ impl BillingLedger {
                 &r.workflow_actions,
                 position,
                 &accepted,
-                &selected.lines,
-                selected.totals.value(),
+                lines,
+                totals,
                 selected.through,
+                manual.as_ref().map(|m| m.references.value()),
                 &mut s,
             )?;
             let count = artifacts.children.len();
@@ -410,7 +476,7 @@ impl BillingLedger {
                 });
             }
             let command = m5::Command {
-                family: AD_HOC,
+                family: &r.schema,
                 domain: "customer-admin",
                 customer: Some(&r.customer),
                 source: None,

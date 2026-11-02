@@ -522,6 +522,32 @@ pub(in super::super) async fn retained_record(
     load(tx, key, r, l, schema, before, s).await
 }
 
+/// Load a stop-evidence Binding through its actual stored schema. Both
+/// accepted Binding versions retain their own canonical hash and scope checks;
+/// chronological acceptance ownership remains the caller's obligation.
+pub(in super::super) async fn retained_stop_binding(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let (reference, lease) = from_value(value, "workflow-binding", s)?;
+    let stored = tx.workflow_financial_document(
+        &reference, &key.logical_store_id, &key.scope, before, s,
+    ).await.map_err(prefix::read_error)?.ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    s.semantic_work().scan_bytes(stored.schema.bytes().len()).map_err(core_error)?;
+    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare).map_err(core_error)?;
+    let schema = if stored.schema.bytes() == b"ledger-workflow-binding/1" {
+        "ledger-workflow-binding/1"
+    } else if stored.schema.bytes() == b"ledger-workflow-binding/2" {
+        "ledger-workflow-binding/2"
+    } else {
+        return Err(ServiceError::IntegrityFailure);
+    };
+    load_stored(key, stored, reference, lease, schema, s)
+}
+
 /// Economic retained DATA uses the existing local record kernel, whose digest
 /// domain is scoped workflow-record for semantic IDs. Management document
 /// decoding above deliberately remains restricted to its own families.

@@ -625,6 +625,17 @@ impl ReplayedAcceptance {
 }
 
 impl ReplayedAcceptance {
+    pub(in super::super) fn original_key(&self) -> &OperationKey {
+        self._incoming.key()
+    }
+
+    pub(in super::super) fn original_publication_ref<'a>(
+        &'a self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&'a Value> {
+        request_wrapper::field(self.original.input.terms.canonical_value(), "publication_ref", s)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in super::super) async fn reconstruct_activation_platforms(
         &self,

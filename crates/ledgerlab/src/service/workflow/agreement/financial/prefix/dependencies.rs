@@ -4,6 +4,193 @@
 //! authority. It always runs on the responsible origin's semantic work.
 use super::*;
 type Emit<'a> = dyn FnMut(&Value, &mut OriginalAuditSession) -> Result<()> + 'a;
+
+/// Edges of the existing activation predecessor walk. Bodies have already
+/// been authenticated by the enclosing completed inventory.
+pub(super) fn predecessor(kind: &str, v: &Value, emit: &mut Emit<'_>, s: &mut OriginalAuditSession) -> Result<()> {
+    s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+    s.semantic_work().scan_bytes(kind.len()).map_err(core_error)?;
+    match kind {
+        "workflow-head-transition" => {
+            emit(request_wrapper::field(v, "accepted_binding_ref", s)?, s)?;
+            if let Some(prior) = v.get("prior_head_ref") { emit(prior, s)?; }
+        }
+        "workflow-binding" => {
+            for field in ["slot_catalog_ref", "slot_instantiation_ref", "policy_ref", "product_ref", "compiled_plan_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; }
+            for field in ["roles_refs", "assent_refs", "authority_refs", "fact_schema_refs"] {
+                for r in request_wrapper::field(v, field, s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; }
+            }
+            emit(request_wrapper::field(request_wrapper::field(v, "accepted_context", s)?, "fact_schema_ref", s)?, s)?;
+            for item in request_wrapper::field(v, "bindings", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(request_wrapper::field(item, "binding_ref", s)?, s)?; }
+            for leg in request_wrapper::field(v, "funding_legs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
+                for r in request_wrapper::field(leg, "evidence_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; }
+            }
+        }
+        "workflow-slot-instantiation" => { for field in ["template_ref", "catalog_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; } }
+        "workflow-slot-terms" => {
+            emit(request_wrapper::field(v, "role_ref", s)?, s)?;
+            for r in request_wrapper::field(v, "source_grant_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; }
+        }
+        "workflow-assent" => {
+            let schema = request_wrapper::text(v, "schema", s)?;
+            if equal(schema, "ledger-workflow-assent/1", s)? { for field in ["evidence_ref", "operator_attestation_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; } }
+            else if equal(schema, "ledger-workflow-party-assent/2", s)? || equal(schema, "ledger-workflow-party-assent/3", s)? { body(v, emit, s)?; }
+            else { return Err(ServiceError::IntegrityFailure); }
+        }
+        "workflow-roles" | "workflow-slot-catalog" => {}
+        "workflow-compiled-plan" => {
+            emit(request_wrapper::field(v, "compiler_ref", s)?, s)?;
+            for r in request_wrapper::field(v, "source_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; }
+        }
+        "workflow-acceptance-terms" => body(v, emit, s)?,
+        "workflow-publication" => {
+            request_wrapper::same_text(request_wrapper::text(v, "schema", s)?, "ledger-workflow-publication/1", s)?;
+            body(v, emit, s)?;
+        }
+        "workflow-policy" => { for field in ["product_ref", "context_schema_ref", "slot_template_ref", "compiler_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; } }
+        "workflow-product" => { for r in request_wrapper::field(v, "fact_schemas", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; } }
+        "workflow-slot-template" | "workflow-fact-schema" | "workflow-compiler-descriptor" => {}
+        "workflow-authority" => {
+            let schema = request_wrapper::text(v, "schema", s)?;
+            if equal(schema, "ledger-workflow-party-authorization/1", s)? || equal(schema, "ledger-workflow-party-management-authority/1", s)? { body(v, emit, s)?; }
+            else { request_wrapper::same_text(schema, "ledger-workflow-local-authority-snapshot/1", s)?; }
+        }
+        "workflow-evidence" => {
+            let schema = request_wrapper::text(v, "schema", s)?;
+            if equal(schema, "ledger-workflow-party-evidence/1", s)? || equal(schema, "ledger-workflow-party-evidence/2", s)? || equal(schema, "ledger-workflow-party-evidence/3", s)? { body(v, emit, s)?; }
+            else {
+                request_wrapper::same_text(schema, "ledger-workflow-retained-evidence/1", s)?;
+                emit(request_wrapper::field(v, "authority_ref", s)?, s)?;
+                let purpose = request_wrapper::text(v, "purpose", s)?;
+                if equal(purpose, "operator_attestation", s)? { emit(request_wrapper::field(request_wrapper::field(v, "metadata", s)?, "assent_evidence_ref", s)?, s)?; }
+                else { require(!equal(purpose, "admission_stop", s)?, "INTEGRITY_FAILURE")?; }
+            }
+        }
+        "workflow-customer" => { for field in ["evidence_ref", "authority_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; } }
+        "workflow-source-enrollment" => {
+            for r in request_wrapper::field(v, "customer_refs", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? { s.semantic_work().visit(Visit::Element).map_err(core_error)?; emit(r, s)?; }
+            for field in ["evidence_ref", "authority_ref"] { emit(request_wrapper::field(v, field, s)?, s)?; }
+        }
+        "workflow-source-grant" => emit(request_wrapper::field(v, "original_ceiling_ref", s)?, s)?,
+        "workflow-source-state" => {
+            emit(request_wrapper::field(v, "enrollment_ref", s)?, s)?;
+            for field in ["current_grant_ref", "prior_state_ref"] { if let Some(r) = v.get(field) { emit(r, s)?; } }
+        }
+        _ => return Err(ServiceError::IntegrityFailure),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod predecessor_tests {
+    use super::*;
+    #[test]
+    fn stop_predecessor_keeps_closed_management_and_publication_edges() {
+        let reference =
+            |kind: &str, name: &str| serde_json::json!({"kind":kind,"id":name,"digest":name});
+        let evidence = reference("workflow-evidence", "evidence");
+        let admin = reference("workflow-authority", "admin");
+        let compiler = reference("workflow-compiler-descriptor", "compiler");
+        let plan = reference("workflow-compiled-plan", "plan");
+        let policy = reference("workflow-policy", "policy");
+        let management = serde_json::json!({"schema":"ledger-workflow-party-management-authority/1","evidence_refs":[evidence],"local_admin_ref":admin});
+        let publication = serde_json::json!({"schema":"ledger-workflow-publication/1","compiled_plan_ref":plan,"compiler_ref":compiler,"root_policy_ref":policy,"source_refs":[compiler,policy],"provenance":{"binary_sha256":"digest","build_manifest_digest":"digest","source_sha":"source"}});
+        for (kind, value, expected) in [
+            (
+                "workflow-authority",
+                management.clone(),
+                vec![evidence, admin],
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                vec![plan, compiler.clone(), policy.clone(), compiler, policy],
+            ),
+            (
+                "workflow-authority",
+                serde_json::json!({"schema":"ledger-workflow-local-authority-snapshot/1"}),
+                vec![],
+            ),
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut actual = Vec::new();
+            predecessor(
+                kind,
+                &value,
+                &mut |v, _| {
+                    actual.push(v.clone());
+                    Ok(())
+                },
+                &mut session,
+            )
+            .unwrap();
+            assert_eq!(actual, expected);
+        }
+        for (kind, mut value, schema) in [
+            (
+                "workflow-authority",
+                management,
+                "ledger-workflow-party-management-authority/2",
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                "ledger-workflow-publication/2",
+            ),
+            (
+                "workflow-publication",
+                publication.clone(),
+                "ledger-workflow-party-management-authority/1",
+            ),
+            ("unknown-kind", publication, "ledger-workflow-publication/1"),
+        ] {
+            value["schema"] = serde_json::json!(schema);
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut actual = Vec::new();
+            assert!(
+                predecessor(
+                    kind,
+                    &value,
+                    &mut |v, _| {
+                        actual.push(v.clone());
+                        Ok(())
+                    },
+                    &mut session
+                )
+                .is_err()
+            );
+            assert!(actual.is_empty());
+        }
+    }
+    #[test]
+    fn head_walk_uses_only_binding_and_prior_head() {
+        let binding = serde_json::json!({"kind":"workflow-binding","id":"binding","digest":"digest"});
+        let prior = serde_json::json!({"kind":"workflow-head-transition","id":"prior","digest":"digest"});
+        let ignored = serde_json::json!({"kind":"workflow-evidence","id":"ignored","digest":"digest"});
+        let body = serde_json::json!({"accepted_binding_ref":binding,"prior_head_ref":prior,"other":ignored});
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut actual = Vec::new();
+        predecessor("workflow-head-transition", &body, &mut |v, _| { actual.push(v.clone()); Ok(()) }, &mut session).unwrap();
+        assert_eq!(actual, vec![body["accepted_binding_ref"].clone(), body["prior_head_ref"].clone()]);
+    }
+    #[test]
+    fn selected_policy_predecessor_uses_four_definition_refs() {
+        let fixture: Value = serde_json::from_slice(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/candidates/full-suite-v1/core/party-commitment-first-01/fixture-input.json"))).unwrap();
+        fn find_policy(v: &Value) -> Option<&Value> {
+            if v.get("schema").and_then(Value::as_str) == Some("ledger-workflow-policy/4") { return Some(v); }
+            match v { Value::Array(a) => a.iter().find_map(find_policy), Value::Object(o) => o.values().find_map(find_policy), _ => None }
+        }
+        let policy = find_policy(&fixture).unwrap();
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut actual = Vec::new();
+        predecessor("workflow-policy", policy, &mut |v, _| { actual.push(v.clone()); Ok(()) }, &mut session).unwrap();
+        assert_eq!(actual, ["product_ref", "context_schema_ref", "slot_template_ref", "compiler_ref"].map(|name| policy[name].clone()));
+    }
+}
 fn equal(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     s.semantic_work()
         .visit(Visit::MemberCompare)

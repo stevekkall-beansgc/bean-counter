@@ -637,6 +637,18 @@ async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
     let ceiling = json!({"principal_id":"example-operator","source":"urn:example:work","canonical_economic_namespace":"urn:example:work","customer_scope":["fold-customer"],"operations":["work.accept","quantity.correct"],"product_selectors":[{"names":["fold:product"]}],"activity_selectors":[{"names":["fold:work"]}],"link_selectors":[],"source_slots":["fold:worker"],"permissions":["read","submit","correct"],"starts_at":"2026-01-01T00:00:00Z","ends_at":"2030-01-01T00:00:00Z"});
     let enrolled=ledger.prerequisite(&records::bytes(&envelope("enroll","authority.change",json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"fold-source","customer_refs":[registered["receipt"]["result_refs"][0]],"ceiling":ceiling,"evidence_ref":source_proof["receipt"]["result_refs"][0]}))).unwrap()).await.unwrap();
     assert_eq!(enrolled["receipt"]["commit_sequence"], "4");
+    let other_proof = ledger
+        .prerequisite(
+            &records::bytes(&retain(
+                "other-source-proof",
+                "source_enrollment",
+                json!({"source":"urn:example:other","principal_id":"example-operator"}),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(other_proof["receipt"]["commit_sequence"], "5");
     let selected = key("selected-inputs-source", "read-inputs");
     let references: Vec<ledgerlab_core::policy::workflow::transition_constructor::ExactRef> =
         serde_json::from_value(enrolled["receipt"]["result_refs"].clone()).unwrap();
@@ -649,44 +661,84 @@ async fn selected_inputs_reuse_preserves_member_digest_and_cutoff_checks() {
     let enrollment = select("workflow-source-enrollment");
     let state = select("workflow-source-state");
     assert!(state.id.starts_with("wsource_"));
-    let mut altered = vec![enrollment.clone(), state];
+    let mut altered = vec![enrollment.clone(), state.clone()];
     altered[1].digest = format!("sha256:{}", "0".repeat(64));
-    let earlier = serde_json::from_value(source_proof["receipt"]["result_refs"][0].clone()).unwrap();
+    let earlier: ledgerlab_core::policy::workflow::transition_constructor::ExactRef =
+        serde_json::from_value(source_proof["receipt"]["result_refs"][0].clone()).unwrap();
+    let customer = serde_json::from_value(customer_proof["receipt"]["result_refs"][0].clone()).unwrap();
+    // The held original is now sequence 5, not a requested producer. These
+    // actual seeds alternate producers 4,3,4,1,4, so a last-wrapper slot or a
+    // current-original borrow alone cannot serve the nonadjacent repetitions.
+    let interleaved = vec![
+        enrollment.clone(),
+        earlier.clone(),
+        select("workflow-source-grant"),
+        customer,
+        state,
+    ];
     for (inputs, before, succeeds) in [
         (references.clone(), 5, true),
+        (interleaved, 6, true),
         (altered, 5, false),
         (vec![earlier, enrollment], 4, false),
     ] {
-        let mut tx = ledger.store.begin(deadline()).await.unwrap();
-        let result = proof_session::with_proofs(&mut tx, &selected, |tx| {
-            Box::pin(async {
-                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new()
-                    .map_err(core_error)?;
-                let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
-                    .map_err(core_error)?;
-                let mut pool = local_inputs::LocalInputs::new(&mut session)?;
-                for reference in &inputs {
-                    pool.add(reference, &mut session)
-                        .expect("fixture locator syntax must succeed before acquisition");
-                }
-                pool.complete(tx, &selected, before, &mut session).await?;
+        let mut ordinary = None;
+        for borrow_original in [false, true] {
+            let mut tx = ledger.store.begin(deadline()).await.unwrap();
+            let result = proof_session::with_proofs(&mut tx, &selected, |tx| {
+                Box::pin(async {
+                    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new()
+                        .map_err(core_error)?;
+                    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                        .map_err(core_error)?;
+                    // Both paths begin with the same real checked wrapper and
+                    // must reproduce all bodies and dependency refs. Reuse may
+                    // cover its own members or nonadjacent prior producers.
+                    let original = prefix::next(tx, &selected, before - 2, before - 1, &mut session)
+                        .await?
+                        .ok_or(ServiceError::IntegrityFailure)?
+                        .checked_wrappers(tx, &mut session)
+                        .await?;
+                    let mut pool = local_inputs::LocalInputs::new(&mut session)?;
+                    for reference in &inputs {
+                        pool.add(reference, &mut session)
+                            .expect("fixture locator syntax must succeed before acquisition");
+                      }
+                if borrow_original {
+                    pool.complete_original(tx, &original, &mut session).await?;
+                } else {
+                    pool.complete(tx, original.key(), before, &mut session).await?;
+                  }
                 let views = pool.views();
                 for reference in &inputs {
                     assert!(views.iter().any(|row| row.reference == reference && !row.canonical_body.is_empty()));
-                }
-                Ok(())
+                  }
+                let bodies: Vec<_> = views.iter().map(|row|
+                    (row.reference.clone(), row.canonical_body.to_vec())).collect();
+                Ok((bodies, session.usage().framing_scanned_bytes, arena.usage().map_err(core_error)?.live_bytes))
             })
         }).await;
-        if succeeds {
-            result.unwrap();
-        } else {
-            match result.unwrap_err() {
-                ServiceError::IntegrityFailure => {},
-                ServiceError::Rejection(code) => assert_eq!(code, "INTEGRITY_FAILURE"),
-                other => panic!("unexpected selected-input failure: {other:?}"),
+            if succeeds {
+                let actual = result.unwrap();
+                if let Some((expected_bodies, ordinary_scans, ordinary_live)) = ordinary.as_ref() {
+                    assert_eq!(&actual.0, expected_bodies);
+                    assert!(
+                        actual.1 < *ordinary_scans,
+                        "borrowing must avoid redundant wrapper validation"
+                    );
+                    assert_eq!(actual.2, *ordinary_live, "call-local wrapper storage must be released");
+                } else {
+                    ordinary = Some(actual);
+                }
+            } else {
+                match result.unwrap_err() {
+                    ServiceError::IntegrityFailure => {}
+                    ServiceError::Rejection(code) => assert_eq!(code, "INTEGRITY_FAILURE"),
+                    other => panic!("unexpected selected-input failure: {other:?}"),
+                }
             }
+            tx.rollback().await.unwrap();
         }
-        tx.rollback().await.unwrap();
     }
     ledger.close().await;
 }

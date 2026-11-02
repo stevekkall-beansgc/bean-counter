@@ -310,6 +310,7 @@ pub(crate) async fn recurrence_state(
         && schema != 18
         && schema != 19
         && schema != 20
+        && schema != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -464,6 +465,7 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -530,6 +532,10 @@ pub(crate) async fn fiscal_report_state(
     };
     let (snapshot_boundary_id, m3_high_water, m5_high_water) =
         boundary.ok_or(StoreError::BillingPeriod)?;
+    // This historical report profile has no manual-credit line variant. A
+    // retained earlier snapshot remains readable; a new complete report must
+    // not omit credit economics inside its actual selected boundary.
+    require_no_manual_credits(conn, None, start_at_us, end_at_us, m5_high_water).await?;
     type FiscalSourceRow = (
         i64,
         String,
@@ -1213,6 +1219,7 @@ pub(crate) async fn ad_hoc_state(
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1343,6 +1350,7 @@ pub(crate) async fn term_state(
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1402,6 +1410,7 @@ pub(crate) async fn term_transition_state(
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1493,6 +1502,7 @@ pub(crate) async fn period_resolve_state(
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -1551,6 +1561,7 @@ pub(crate) async fn period_close_state(
         && version != 18
         && version != 19
         && version != 20
+        && version != 21
     {
         return Err(StoreError::BillingUpgradeRequired);
     }
@@ -2008,8 +2019,13 @@ pub(crate) async fn period_close_statement(
     customer: &str,
     statement_hash: &str,
 ) -> Result<Option<Vec<u8>>, StoreError> {
-    selected_period_close_statement(conn, customer, statement_hash, "ledger-billing-statement/4")
-        .await
+    selected_period_close_statement(
+        conn,
+        customer,
+        statement_hash,
+        &["ledger-billing-statement/4"],
+    )
+    .await
 }
 
 /// The workflow read uses its own exact profile. Legacy finance export continues
@@ -2023,11 +2039,11 @@ pub(crate) async fn workflow_period_close_statement(
         conn,
         customer,
         statement_hash,
-        "ledger-billing-statement/5",
+        &["ledger-billing-statement/5", "ledger-billing-statement/6"],
     )
     .await?;
     if retained.is_some() {
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE p.customer=? AND p.statement_hash=? AND r.family='ledger-billing-period-close-record/2' AND c.family='ledger-billing-period-close/2'")
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE p.customer=? AND p.statement_hash=? AND ((r.family='ledger-billing-period-close-record/2' AND c.family='ledger-billing-period-close/2') OR (r.family='ledger-billing-period-close-record/3' AND c.family='ledger-billing-period-close/3'))")
             .bind(customer).bind(statement_hash).fetch_one(&mut *conn).await?;
         if count != 1 {
             return Err(StoreError::Integrity("workflow period close selection"));
@@ -2045,8 +2061,19 @@ pub(crate) async fn workflow_legacy_components(
     let customer = statement["customer"]
         .as_str()
         .ok_or(StoreError::Integrity("workflow customer"))?;
-    let standard = statement["schema"] == "ledger-billing-statement/5";
-    if !standard && statement["schema"] != "ledger-billing-ad-hoc-statement-result/2" {
+    let standard = matches!(
+        statement["schema"].as_str(),
+        Some("ledger-billing-statement/5" | "ledger-billing-statement/6")
+    );
+    if !standard
+        && !matches!(
+            statement["schema"].as_str(),
+            Some(
+                "ledger-billing-ad-hoc-statement-result/2"
+                    | "ledger-billing-ad-hoc-statement-result/3"
+            )
+        )
+    {
         return Err(StoreError::Integrity("workflow presentation schema"));
     }
     let period = if standard {
@@ -2154,15 +2181,20 @@ pub(crate) async fn workflow_presentation_statement(
     statement_hash: &str,
 ) -> Result<Option<Vec<u8>>, StoreError> {
     let standard = workflow_period_close_statement(conn, customer, statement_hash).await?;
-    let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT c.response_bytes FROM billing_m5_commands c JOIN billing_m5_records r ON r.command_sequence=c.command_sequence WHERE c.family='ledger-billing-ad-hoc-statement/2' AND r.family='ledger-billing-ad-hoc-statement-record/2' AND c.customer=? AND json_extract(CAST(r.payload_bytes AS TEXT),'$.statement_hash')=? LIMIT 2")
+    let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT c.response_bytes FROM billing_m5_commands c JOIN billing_m5_records r ON r.command_sequence=c.command_sequence WHERE ((c.family='ledger-billing-ad-hoc-statement/2' AND r.family='ledger-billing-ad-hoc-statement-record/2') OR (c.family='ledger-billing-ad-hoc-statement/3' AND r.family='ledger-billing-ad-hoc-statement-record/3')) AND c.customer=? AND json_extract(CAST(r.payload_bytes AS TEXT),'$.statement_hash')=? LIMIT 2")
         .bind(customer).bind(statement_hash).fetch_all(&mut *conn).await?;
     match (standard, rows.as_slice()) {
         (None, []) => Ok(None),
         (Some(v), []) => Ok(Some(v)),
         (None, [raw]) => {
             let v = canonical(raw, 262144)?;
-            if v["schema"] != "ledger-billing-ad-hoc-statement-result/2"
-                || v["customer"] != customer
+            if !matches!(
+                v["schema"].as_str(),
+                Some(
+                    "ledger-billing-ad-hoc-statement-result/2"
+                        | "ledger-billing-ad-hoc-statement-result/3"
+                )
+            ) || v["customer"] != customer
                 || v["statement_hash"] != statement_hash
             {
                 return Err(StoreError::Integrity("workflow presentation selection"));
@@ -2179,7 +2211,7 @@ async fn selected_period_close_statement(
     conn: &mut SqliteConnection,
     customer: &str,
     statement_hash: &str,
-    schema: &str,
+    schemas: &[&str],
 ) -> Result<Option<Vec<u8>>, StoreError> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT statement_bytes FROM billing_m5_period_closes WHERE customer=? AND statement_hash=? ORDER BY term_version,period_index",
@@ -2192,7 +2224,7 @@ async fn selected_period_close_statement(
         [] => Ok(None),
         [bytes] => {
             let statement = canonical(bytes, 262_144)?;
-            if statement["schema"] != schema
+            if !schemas.iter().any(|schema| statement["schema"] == *schema)
                 || statement["customer"] != customer
                 || statement["statement_hash"] != statement_hash
             {
@@ -2800,6 +2832,36 @@ pub(crate) async fn append(
     {
         return Err(StoreError::BillingHistoryLimit);
     }
+    if matches!(
+        command.family,
+        "ledger-billing-period-close/1" | "ledger-billing-period-close/2"
+    ) {
+        let has_manual:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='billing_manual_credits')").fetch_one(&mut *conn).await?;
+        if has_manual {
+            let statement = canonical(command.response, 262144)?;
+            let customer = statement["customer"]
+                .as_str()
+                .ok_or(StoreError::Integrity("manual credit close customer"))?;
+            let start = ledgerlab_core::domain::Timestamp::parse(
+                statement["start_utc"]
+                    .as_str()
+                    .ok_or(StoreError::Integrity("manual credit close start"))?,
+            )
+            .map_err(|_| StoreError::Integrity("manual credit close start"))?
+            .micros();
+            let end = ledgerlab_core::domain::Timestamp::parse(
+                statement["end_utc"]
+                    .as_str()
+                    .ok_or(StoreError::Integrity("manual credit close end"))?,
+            )
+            .map_err(|_| StoreError::Integrity("manual credit close end"))?
+            .micros();
+            let omitted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_manual_credits c WHERE c.customer=? AND c.accepted_at_us>=? AND c.accepted_at_us<? AND NOT EXISTS(SELECT 1 FROM billing_manual_credit_membership m WHERE m.customer=c.customer AND m.logical_store_id=c.logical_store_id AND m.tenant=c.tenant AND m.environment=c.environment AND m.credit_kind=c.credit_kind AND m.credit_id=c.credit_id AND m.credit_digest=c.credit_digest))").bind(customer).bind(start).bind(end).fetch_one(&mut *conn).await?;
+            if omitted {
+                return Err(StoreError::ManualCreditProfileRequired);
+            }
+        }
+    }
     let maximum_m5: Option<i64> =
         sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m5_commands")
             .fetch_one(&mut *conn)
@@ -2836,9 +2898,15 @@ pub(crate) async fn append(
     canonical(command.response, 262_144)?;
     if identity["schema"] != "ledger-billing-m5-command-identity/1"
         || identity["family"]
-            != if command.family == "ledger-billing-period-close/2" {
+            != if matches!(
+                command.family,
+                "ledger-billing-period-close/2" | "ledger-billing-period-close/3"
+            ) {
                 "ledger-billing-period-close/1"
-            } else if command.family == "ledger-billing-ad-hoc-statement/2" {
+            } else if matches!(
+                command.family,
+                "ledger-billing-ad-hoc-statement/2" | "ledger-billing-ad-hoc-statement/3"
+            ) {
                 "ledger-billing-ad-hoc-statement/1"
             } else {
                 command.family
@@ -2868,7 +2936,22 @@ pub(crate) async fn append(
         let expected_id = record_id(command.identity_key, child.child_key);
         let record = &payload["record"];
         let record_sequence = first_record + i as i64;
-        if key["kind"] != child.family
+        let key_kind_matches = match child.family {
+            "ledger-billing-manual-credit-record/1" => {
+                key.as_object().is_some_and(|k| k.len() == 4)
+                    && key["role"] == "manual-credit"
+                    && key.get("workflow_scope").is_some()
+                    && key.get("adjustment_id").is_some()
+            }
+            "ledger-billing-manual-credit-presentation-claim/1" => {
+                key.as_object().is_some_and(|k| k.len() == 4)
+                    && key["role"] == "manual-credit-membership"
+                    && key.get("workflow_scope").is_some()
+                    && key.get("manual_credit_ref").is_some()
+            }
+            _ => key["kind"] == child.family,
+        };
+        if !key_kind_matches
             || payload["schema"] != child.family
             || key.get("customer").and_then(Value::as_str) != child.customer
             || key.get("source").and_then(Value::as_str) != child.source
@@ -3136,6 +3219,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     }
     verify_period_closes(conn).await?;
     super::m5_workflow::verify(conn).await?;
+    super::m5_manual::verify(conn).await?;
     verify_presentation_claims(conn).await?;
     verify_ad_hoc_statements(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
@@ -5019,4 +5103,25 @@ mod tests {
         let store = SqliteStore::open(dir.path()).await.unwrap();
         store.close().await;
     }
+}
+
+/// Fail closed only for legacy complete projections that cannot encode the new
+/// economic source. Exact immutable presentation reads do not use this gate.
+pub(crate) async fn require_no_manual_credits(
+    conn: &mut SqliteConnection,
+    customer: Option<&str>,
+    start: i64,
+    end: i64,
+    cutoff: i64,
+) -> Result<(), StoreError> {
+    let exists:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='billing_manual_credits')").fetch_one(&mut *conn).await?;
+    if exists == 0 {
+        return Ok(());
+    }
+    let present:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_manual_credits WHERE (? IS NULL OR customer=?) AND accepted_at_us>=? AND accepted_at_us<? AND record_sequence<=?)")
+        .bind(customer).bind(customer).bind(start).bind(end).bind(cutoff).fetch_one(&mut *conn).await?;
+    if present != 0 {
+        return Err(StoreError::ManualCreditProfileRequired);
+    }
+    Ok(())
 }

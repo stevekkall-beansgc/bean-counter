@@ -40,6 +40,28 @@ pub(super) fn select(
     selected.ok_or_else(|| reject("AUTHORITY_REQUIRED"))
 }
 
+/// Select the caller's own originally nominated source for a stop. A stop
+/// remains available after a current grant expires or is revoked; identity
+/// comes from the original grant, while the observed state is still retained.
+pub(in super::super) fn select_stop(
+    sources: &[current::source::ObservedSource],
+    actor: &str,
+    key: &OperationKey,
+    s: &mut OriginalAuditSession,
+) -> Result<usize> {
+    let mut selected = None;
+    for (index, source) in sources.iter().enumerate() {
+        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+        let original = source.original_grant_body();
+        if same_recipe_text(request_wrapper::text(original, "principal_id", s)?, actor, s)?
+            && same_recipe_text(request_wrapper::text(original, "source", s)?, &key.source, s)?
+        {
+            require(selected.replace(index).is_none(), "UNSUPPORTED_COMPOSITION")?;
+        }
+    }
+    selected.ok_or_else(|| reject("AUTHORITY_REQUIRED"))
+}
+
 /// Mechanical Authority5 body from actual observed operands. This owning
 /// document remains DATA until all admission/nomination/chronological checks
 /// complete; it is never a permission bit or a private prepared commit.

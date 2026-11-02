@@ -19,6 +19,112 @@ struct Row {
     lifecycle_processed: bool,
     _reference: ExternalBufferLease,
 }
+/// Actual checked wrapper DATA retained only during one original completion.
+/// The caller still selects each Ref's association under the same writer and
+/// cutoff and checks its exact membership, body, schema and edges. This table
+/// neither completes an economic producer nor survives a completion/epoch.
+struct OriginalAssociations {
+    frames: Vec<prefix::LocatedWrappers>,
+    _storage: Option<ExternalBufferLease>,
+    _control: ExternalBufferLease,
+}
+impl OriginalAssociations {
+    fn new(s: &mut OriginalAuditSession) -> Result<Self> {
+        let control = s
+            .reserve_external_payload(std::mem::size_of::<Option<Self>>())
+            .map_err(core_error)?;
+        Ok(Self {
+            frames: Vec::new(),
+            _storage: None,
+            _control: control,
+        })
+    }
+    fn position(&self, sequence: i64, s: &mut OriginalAuditSession) -> Result<Option<usize>> {
+        use ledgerlab_core::validation_work::{ArithmeticOperation, ValidationVisit};
+        for (index, frame) in self.frames.iter().enumerate() {
+            s.semantic_work()
+                .visit(ValidationVisit::Element)
+                .map_err(core_error)?;
+            let held = frame.wrappers().sequence();
+            s.semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Compare,
+                    &[&held.into(), &sequence.into()],
+                )
+                .map_err(core_error)?;
+            if held == sequence {
+                return Ok(Some(index));
+            }
+        }
+        Ok(None)
+    }
+    fn insert(
+        &mut self,
+        frame: prefix::LocatedWrappers,
+        row_count: usize,
+        s: &mut OriginalAuditSession,
+    ) -> Result<usize> {
+        use ledgerlab_core::validation_work::ArithmeticOperation;
+        let count = self.frames.len();
+        let capacity = self.frames.capacity();
+        let width = std::mem::size_of::<prefix::LocatedWrappers>();
+        s.semantic_work()
+            .arithmetic(
+                ArithmeticOperation::Compare,
+                &[&count.into(), &capacity.into()],
+            )
+            .map_err(core_error)?;
+        if count == capacity {
+            // At most one prior producer per acquired row. Growth follows the
+            // actual bounded input pool, never a historical sequence number.
+            s.semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Compare,
+                    &[&count.into(), &row_count.into()],
+                )
+                .map_err(core_error)?;
+            require(count < row_count, "INTEGRITY_FAILURE")?;
+            s.semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Multiply,
+                    &[&row_count.into(), &width.into()],
+                )
+                .map_err(core_error)?;
+            let bytes = row_count
+                .checked_mul(width)
+                .ok_or(ServiceError::Unavailable)?;
+            let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            let mut frames = Vec::new();
+            frames
+                .try_reserve_exact(row_count)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let allocated = frames.capacity();
+            s.semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Compare,
+                    &[&allocated.into(), &row_count.into()],
+                )
+                .map_err(core_error)?;
+            require(allocated <= row_count, "INTEGRITY_FAILURE")?;
+            s.semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Multiply,
+                    &[&count.into(), &width.into()],
+                )
+                .map_err(core_error)?;
+            let moved = count.checked_mul(width).ok_or(ServiceError::Unavailable)?;
+            s.semantic_work().write_bytes(moved).map_err(core_error)?;
+            frames.append(&mut self.frames);
+            // Both allocations remain paid until the old empty allocation is
+            // dropped. Field order also drops retained DATA before its leases.
+            self.frames = frames;
+            self._storage = Some(storage);
+        }
+        s.semantic_work().write_bytes(width).map_err(core_error)?;
+        self.frames.push(frame);
+        Ok(count)
+    }
+}
 pub(super) struct LocalInputs {
     rows: Vec<Row>,
     _control: ExternalBufferLease,
@@ -274,13 +380,49 @@ impl LocalInputs {
         before: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        // One completed wrapper, scoped to this exact held transaction/key/
-        // cutoff/session call. It proves association only, never semantics.
-        // Body/fullRef/schema/edge validation still runs for every input.
+        self.complete_in(tx, key, before, None, s).await
+    }
+    /// The caller already owns this original's checked wrapper under the held
+    /// transaction. Reuse only its mechanical membership proof; the original's
+    /// economic reconstruction must still complete after these DATA inputs.
+    pub(super) async fn complete_original(
+        &mut self,
+        tx: &mut SqliteTx,
+        original: &prefix::LocatedWrappers,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let sequence = original.wrappers().sequence();
+        s.semantic_work()
+            .arithmetic(
+                ledgerlab_core::validation_work::ArithmeticOperation::Add,
+                &[&sequence.into(), &1i64.into()],
+            )
+            .map_err(core_error)?;
+        let before = sequence
+            .checked_add(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        self.complete_in(tx, original.key(), before, Some(original), s)
+            .await
+    }
+    async fn complete_in(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        before: i64,
+        original: Option<&prefix::LocatedWrappers>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        // Fresh inputs retain their existing one-wrapper path. Original replay
+        // can retain checked prior wrappers during this exact call only.
         let _association_control = s
             .reserve_external_payload(std::mem::size_of::<Option<prefix::LocatedWrappers>>())
             .map_err(core_error)?;
         let mut last_association: Option<prefix::LocatedWrappers> = None;
+        let mut original_associations = if original.is_some() {
+            Some(OriginalAssociations::new(s)?)
+        } else {
+            None
+        };
         let ck = CoreKey {
             logical_store_id: key.logical_store_id.clone(),
             scope: key.scope.clone(),
@@ -372,32 +514,58 @@ impl LocalInputs {
                 continue;
             }
             let sequence = prefix::selected_association_sequence(tx, key, r, before, s).await?;
-            let same_origin = if let Some(previous) = last_association.as_ref() {
-                let prior_sequence = previous.wrappers().sequence();
+            let held_original = if let Some(held) = original {
+                let held_sequence = held.wrappers().sequence();
                 s.semantic_work()
                     .arithmetic(
                         ledgerlab_core::validation_work::ArithmeticOperation::Compare,
-                        &[&prior_sequence.into(), &sequence.into()],
+                        &[&held_sequence.into(), &sequence.into()],
                     )
                     .map_err(core_error)?;
-                prior_sequence == sequence
+                (held_sequence == sequence).then_some(held)
             } else {
-                false
+                None
             };
-            if !same_origin {
-                // Drop the old owner before acquisition; failed acquisition
-                // cannot leave an earlier or partial frame available for reuse.
-                drop(last_association.take());
-                let checked = prefix::selected_association_frame(tx, key, sequence, s).await?;
-                s.semantic_work()
-                    .write_bytes(std::mem::size_of::<prefix::LocatedWrappers>())
-                    .map_err(core_error)?;
-                last_association = Some(checked);
+            if let Some(held) = held_original {
+                // The queried earliest association, not mere membership in the
+                // current manifest, selects this exact borrowed producer.
+                held.require_exact_member(r, s)?;
+            } else if let Some(associations) = original_associations.as_mut() {
+                let index = if let Some(index) = associations.position(sequence, s)? {
+                    index
+                } else {
+                    let checked = prefix::selected_association_frame(tx, key, sequence, s).await?;
+                    associations.insert(checked, self.rows.len(), s)?
+                };
+                associations.frames[index].require_exact_member(r, s)?;
+            } else {
+                let same_origin = if let Some(previous) = last_association.as_ref() {
+                    let prior_sequence = previous.wrappers().sequence();
+                    s.semantic_work()
+                        .arithmetic(
+                            ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                            &[&prior_sequence.into(), &sequence.into()],
+                        )
+                        .map_err(core_error)?;
+                    prior_sequence == sequence
+                } else {
+                    false
+                };
+                if !same_origin {
+                    // Drop the old owner before acquisition; failed acquisition
+                    // cannot leave an earlier or partial frame available for reuse.
+                    drop(last_association.take());
+                    let checked = prefix::selected_association_frame(tx, key, sequence, s).await?;
+                    s.semantic_work()
+                        .write_bytes(std::mem::size_of::<prefix::LocatedWrappers>())
+                        .map_err(core_error)?;
+                    last_association = Some(checked);
+                }
+                last_association
+                    .as_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .require_exact_member(r, s)?;
             }
-            last_association
-                .as_ref()
-                .ok_or(ServiceError::IntegrityFailure)?
-                .require_exact_member(r, s)?;
             let stored = tx
                 .workflow_financial_document(r, &key.logical_store_id, &key.scope, before, s)
                 .await

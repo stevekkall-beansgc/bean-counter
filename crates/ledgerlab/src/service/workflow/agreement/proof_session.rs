@@ -20,6 +20,42 @@ struct State {
     active: BTreeSet<Vec<u8>>,
     complete: BTreeMap<Vec<u8>, Complete>,
     local_parent: Option<Vec<u8>>,
+    stop_storage: Option<Box<StopStorage>>,
+}
+struct StopStorage {
+    _payload: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
+    _control: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
+    next: Option<Box<StopStorage>>,
+}
+impl Drop for StopStorage {
+    fn drop(&mut self) {
+        // A long closure must not recursively drop a linked owner stack.
+        let mut next = self.next.take();
+        while let Some(mut item) = next {
+            next = item.next.take();
+        }
+    }
+}
+
+/// R1 retains its ordinary Document values while a selected dependency checker
+/// pays for the copies. Keep those leases through the lexical transaction proof
+/// scope, including post-append verification, without a second resource budget.
+pub(super) fn retain_stop_storage(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    payload: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<()> {
+    let bytes = std::mem::size_of::<StopStorage>();
+    let control = session.reserve_external_payload(bytes).map_err(super::super::core_error)?;
+    session.semantic_work().write_bytes(bytes).map_err(super::super::core_error)?;
+    SESSION.try_with(|state| {
+        let mut state = state.borrow_mut();
+        require(bound(&state, tx, key), "INTEGRITY_FAILURE")?;
+        let next = state.stop_storage.take();
+        state.stop_storage = Some(Box::new(StopStorage { _payload: payload, _control: control, next }));
+        Ok(())
+    }).map_err(|_| ServiceError::IntegrityFailure)?
 }
 impl State {
     fn invalidate(&mut self) {
@@ -85,6 +121,7 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
         active: BTreeSet::new(),
         complete: BTreeMap::new(),
         local_parent: None,
+        stop_storage: None,
     };
     let mut exit = ScopeExit {
         failure,

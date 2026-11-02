@@ -1,6 +1,25 @@
 //! Immutable activation eligibility. Arguments are authenticated observations,
 //! not caller capabilities; current owner/time/head checks remain the host's.
 use super::*;
+#[derive(serde::Deserialize)]
+struct ProducerRoute<'a> {
+    #[serde(borrow)]
+    request_evidence: EvidenceRoute<'a>,
+}
+#[derive(serde::Deserialize)]
+struct EvidenceRoute<'a> {
+    #[serde(borrow)]
+    normalized_request: RequestRoute<'a>,
+}
+#[derive(serde::Deserialize)]
+struct RequestRoute<'a> {
+    #[serde(borrow)]
+    payload: PayloadRoute<'a>,
+}
+#[derive(serde::Deserialize)]
+struct PayloadRoute<'a> {
+    schema: &'a str,
+}
 fn reference(v: &Value) -> Result<RecordRef> {
     serde_json::from_value(v.clone()).map_err(|_| ServiceError::IntegrityFailure)
 }
@@ -225,10 +244,10 @@ pub(in crate::service::workflow::agreement) async fn verify_capture(
 }
 /// Retaining an explicit stop statement authenticates its original binding and
 /// target, but performs no stop/CAS/source-time admission itself.
-pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
+pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies_owned(
+    tx: &mut SqliteTx, key: &OperationKey,
     input: &ledgerlab_core::policy::workflow::EvidenceInput,
+    ledger: Option<&crate::service::workflow::local::LocalWorkflowLedger>,
 ) -> Result<Vec<Document>> {
     require(input.purpose() == "admission_stop", "INVALID_SHAPE")?;
     let binding_ref = reference(&input.metadata()["binding_ref"])?;
@@ -241,7 +260,17 @@ pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies(
         target_ref.kind == "workflow-activation" && body["binding_ref"] == json!(binding_ref),
         "INVALID_REFERENCE",
     )?;
-    let accepted = context::observe_accepted_binding(tx, key, &binding_ref, i64::MAX).await?;
+    let origin = context::accepted_binding_origin(tx, key, &binding_ref, i64::MAX).await?;
+    // The actual saved producer is only a routing hint. The selected branch
+    // completes its original acceptance and exact target before returning DATA.
+    let producer: ProducerRoute<'_> = serde_json::from_slice(&origin.1.operation_bytes)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    if producer.request_evidence.normalized_request.payload.schema == "ledger-workflow-agreement-accept/9"
+    {
+        let ledger = ledger.ok_or(ServiceError::IntegrityFailure)?;
+        return financial::r1_stop_dependencies(ledger, tx, key, input, &target, (&origin.0, origin.1.sequence)).await;
+    }
+    let accepted = context::complete_accepted_binding(tx, key, &binding_ref, origin).await?;
     let b = canonical_body(&accepted.binding)?;
     require(
         input.customer() == text(&b, "customer")?

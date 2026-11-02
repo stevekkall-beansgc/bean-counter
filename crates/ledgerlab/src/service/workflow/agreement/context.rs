@@ -444,12 +444,12 @@ pub(super) struct ObservedAcceptedBinding {
     pub(super) acceptance: replay::AcceptanceData,
     pub(super) documents: Vec<Document>,
 }
-pub(super) async fn observe_accepted_binding(
+pub(super) async fn accepted_binding_origin(
     tx: &mut SqliteTx,
     key: &OperationKey,
     binding_ref: &RecordRef,
     before_sequence: i64,
-) -> Result<ObservedAcceptedBinding> {
+) -> Result<(RecordRef, JournalOperation, OperationKey)> {
     require(binding_ref.kind == "workflow-binding", "INVALID_REFERENCE")?;
     let accepted_ref = tx
         .workflow_agreement_accepted_binding(&key.logical_store_id, &key.scope, binding_ref)
@@ -477,6 +477,21 @@ pub(super) async fn observe_accepted_binding(
     {
         return Err(ServiceError::IntegrityFailure);
     }
+    Ok((accepted_ref, original, original_key))
+}
+
+pub(super) async fn observe_accepted_binding(
+    tx: &mut SqliteTx, key: &OperationKey, binding_ref: &RecordRef, before_sequence: i64,
+) -> Result<ObservedAcceptedBinding> {
+    let origin = accepted_binding_origin(tx, key, binding_ref, before_sequence).await?;
+    complete_accepted_binding(tx, key, binding_ref, origin).await
+}
+
+pub(super) async fn complete_accepted_binding(
+    tx: &mut SqliteTx, key: &OperationKey, binding_ref: &RecordRef,
+    origin: (RecordRef, JournalOperation, OperationKey),
+) -> Result<ObservedAcceptedBinding> {
+    let (accepted_ref, original, original_key) = origin;
     let certificate = Box::pin(verify::retained(tx, &original_key, &original)).await?;
     if certificate["receipt"]["result_kind"] != "administrative" {
         return Err(ServiceError::IntegrityFailure);

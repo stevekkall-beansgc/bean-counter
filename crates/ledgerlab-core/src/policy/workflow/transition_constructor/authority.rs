@@ -13,6 +13,26 @@ use super::{
 use crate::{domain::Timestamp, Result};
 use num_bigint::BigInt;
 use serde_json::{json, Value};
+
+/// The host completes the immutable activation producer and exact schedule.
+/// Both admission-producing variants retain their actual Binding/head joins;
+/// a revoke is never usable as admission authority.
+pub(super) fn admission_activation_shape(m: &mut CoreMeter, v: &Value) -> Result<()> {
+    let action = shape::text(m, v, "action")?;
+    let fields: &[&str] = if shape::same_text(m, action, "activate")? {
+        &["schema", "action", "head_transition_ref", "binding_ref", "effective_at", "commit_sequence", "accepted_at"]
+    } else if shape::same_text(m, action, "replace")? {
+        let target_value = shape::field(m, v, "target_transition_ref")?;
+        let target = shape::reference(m, target_value)?;
+        if !shape::same_text(m, &target.kind, "workflow-activation")? {
+            return Err(shape::fail("replacement activation target kind"));
+        }
+        &["schema", "action", "head_transition_ref", "binding_ref", "effective_at", "commit_sequence", "accepted_at", "target_transition_ref"]
+    } else {
+        return Err(shape::fail("non-admitting activation transition"));
+    };
+    shape::closed(m, v, fields, &[])
+}
 macro_rules! invoke {
     ($f:ident,$m:expr,$v0:expr) => {{
         let (v0,) = ($v0,);
@@ -1049,12 +1069,7 @@ fn resolve_economic_identity(
         invoke!(field, m, &activation, "binding_ref")?,
         &json!(a.binding_ref)
     )?;
-    invoke!(
-        equal,
-        m,
-        invoke!(field, m, &activation, "action")?,
-        &json!("activate")
-    )?;
+    admission_activation_shape(m, &activation)?;
     let effective = invoke!(time, m, &activation, "effective_at")?;
     if meter::cmp(m, &at, &effective)?.is_lt() {
         return Err(fail("activation not effective"));
@@ -1752,4 +1767,28 @@ fn resolve_economic_identity(
         _metadata: None,
         introduced,
     })
+}
+
+#[cfg(test)]
+mod activation_shape_tests {
+    use super::*;
+    #[test]
+    fn admission_transition_union_keeps_replacement_target_and_refuses_stop() {
+        let r = json!({"kind":"workflow-activation","id":format!("wactivation_{}", "a".repeat(64)),"digest":format!("sha256:{}", "b".repeat(64))});
+        let initial = json!({"schema":"ledger-workflow-activation-transition/1","action":"activate","head_transition_ref":r,"binding_ref":r,"effective_at":"2026-10-30T00:00:00.000000Z","commit_sequence":"2","accepted_at":"2026-10-30T00:00:00.000000Z"});
+        let mut replacement = initial.clone();
+        replacement["action"] = json!("replace");
+        replacement["target_transition_ref"] = r.clone();
+        for value in [&initial, &replacement] {
+            assert!(admission_activation_shape(&mut CoreMeter::new(65536).unwrap(), value).is_ok());
+        }
+        let mut stop = replacement.clone(); stop["action"] = json!("revoke");
+        let mut absent = replacement.clone(); absent.as_object_mut().unwrap().remove("target_transition_ref");
+        let mut wrong_kind = replacement.clone(); wrong_kind["target_transition_ref"]["kind"] = json!("workflow-binding");
+        let mut extra = initial.clone(); extra["target_transition_ref"] = r;
+        let mut unknown = replacement; unknown["action"] = json!("unknown");
+        for value in [stop, absent, wrong_kind, extra, unknown] {
+            assert!(admission_activation_shape(&mut CoreMeter::new(65536).unwrap(), &value).is_err());
+        }
+    }
 }

@@ -431,7 +431,7 @@ fn period_resolution_append_bytes(
 impl BillingLedger {
     pub async fn period_close(&self, raw: &[u8]) -> local::Result<Value> {
         let request=ledgerlab_core::canonical::parse_bounded(raw,262144).map_err(|_|service::reject("BILLING_M5_REQUEST"))?;
-        if request["schema"]=="ledger-billing-period-close/2" { return self.workflow_period_close(raw).await; }
+        if matches!(request["schema"].as_str(),Some("ledger-billing-period-close/2"|"ledger-billing-period-close/3")) { return self.workflow_period_close(raw).await; }
         self.period_close_inner(raw, None, false, PRODUCTION_CLOSE_LIMITS)
             .await
     }

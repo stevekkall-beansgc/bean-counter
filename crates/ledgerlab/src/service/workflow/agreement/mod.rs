@@ -182,13 +182,13 @@ fn evidence_identity(
 }
 
 /// Called only after the facade has checked actual current local read access.
-pub(super) async fn status(tx: &mut SqliteTx, key: &super::request::OperationKey) -> Result<Value> {
+pub(super) async fn status_owned(tx: &mut SqliteTx, key: &super::request::OperationKey, ledger: Option<&super::local::LocalWorkflowLedger>) -> Result<Value> {
     let original = tx
         .workflow_agreement_lookup(&key.bytes()?)
         .await
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
-    verify::retained(tx, key, &original).await
+    verify::retained_owned(tx, key, &original, ledger).await
 }
 
 #[cfg(test)]

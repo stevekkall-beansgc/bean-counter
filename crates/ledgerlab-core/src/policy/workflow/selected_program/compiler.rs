@@ -335,6 +335,43 @@ impl SelectedProgram {
             SelectedRecipe::LocalStageLifecycle1 | SelectedRecipe::LocalStageLifecycle2
         )
     }
+    /// DATA classification of the entire original compiled policy, not a
+    /// selected Stage or an authority certificate. Customer-only consent also
+    /// requires the actual accepted funding legs to name that customer.
+    pub fn no_share_stage_with_work(
+        &self,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<bool> {
+        use crate::validation_work::ValidationVisit;
+        work.visit(ValidationVisit::Constraint)?;
+        if !self.uses_stage_lifecycle_recipe() || self.policy.stages.is_empty() {
+            return Ok(false);
+        }
+        for slot in &self.policy.binding_slots {
+            work.visit(ValidationVisit::Element)?;
+            work.visit(ValidationVisit::MemberCompare)?;
+            let bytes = work::usize_add(work, slot.book.len(), "retail".len())?;
+            work.scan_bytes(bytes)?;
+            if slot.book != "retail" {
+                return Ok(false);
+            }
+        }
+        for rule in &self.policy.rules {
+            work.visit(ValidationVisit::Element)?;
+            work.visit(ValidationVisit::Constraint)?;
+            if matches!(
+                rule.formula,
+                Formula::ClosureShare { .. }
+                    | Formula::ObserveCost { .. }
+                    | Formula::FinalCost { .. }
+                    | Formula::SupplierFinalCost { .. }
+                    | Formula::AppFinalCost { .. }
+            ) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
     pub fn uses_shared_namespace_recipe(&self) -> bool {
         matches!(
             self.recipe,

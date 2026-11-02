@@ -117,6 +117,69 @@ pub(super) fn same_ref(
     Ok(true)
 }
 
+// The basic outcome Claim names a Target; its immutable Link names the
+// Target's original Work. These are already completed historical input bodies,
+// not a new authority path or a current-head lookup.
+fn basic_outcome_link_work(
+    link: &Value,
+    claim: &Value,
+    target: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<(core::ExactRef, ledgerlab_core::canonical::audit_arena::ExternalBufferLease)> {
+    for (body, schema) in [
+        (link, "ledger-workflow-link/1"),
+        (claim, "ledger-workflow-outcome-claim/1"),
+        (target, "ledger-workflow-component-target/1"),
+    ] {
+        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+        request_wrapper::same_text(request_wrapper::text(body, "schema", s)?, schema, s)?;
+    }
+    let original = request_wrapper::field(claim, "original_payload", s)?;
+    for (left, left_field, right, right_field) in [
+        (claim, "target_ref", original, "target_ref"),
+        (original, "binding_ref", target, "binding_ref"),
+        (link, "binding_ref", target, "binding_ref"),
+    ] {
+        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+        let (left, _left_owner) = current::source::from_value_local(request_wrapper::field(left, left_field, s)?, s)?;
+        let (right, _right_owner) = current::source::from_value_local(request_wrapper::field(right, right_field, s)?, s)?;
+        require(same_ref(&left, &right, s)?, "INTEGRITY_FAILURE")?;
+    }
+    let predecessor = current::source::from_value_local(request_wrapper::field(link, "predecessor", s)?, s)?;
+    request_wrapper::same_text(&predecessor.0.kind, "workflow-work", s)?;
+    let (work, _work_owner) = current::source::from_value_local(request_wrapper::field(target, "work_ref", s)?, s)?;
+    require(same_ref(&predecessor.0, &work, s)?, "INTEGRITY_FAILURE")?;
+    Ok(predecessor)
+}
+
+// A declaration selects one exact historical verification, while the remaining
+// transitive verification bodies stay authenticated inputs for their own roles.
+fn declared_verification<'a>(
+    selected: &core::ExactRef,
+    inputs: &'a [EconomicRecordView<'_>],
+    s: &mut OriginalAuditSession,
+) -> Result<&'a core::ExactRef> {
+    let mut matched = None;
+    for input in inputs {
+        if same_ref(input.reference, selected, s)? {
+            require(matched.replace(input.reference).is_none(), "INTEGRITY_FAILURE")?;
+        }
+    }
+    matched.ok_or(ServiceError::IntegrityFailure)
+}
+
+fn app_proofs_consumed(
+    schema: &str,
+    cost_head: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    if matches!(schema, "ledger-workflow-quantity-correction/2" | "ledger-workflow-work-reverse/2") {
+        request_wrapper::same_text(request_wrapper::text(cost_head, "schema", s)?, "ledger-workflow-app-cost-revision/1", s)?;
+        return Ok(!acceptance::same_recipe_text(request_wrapper::text(cost_head, "status", s)?, "reversed", s)?);
+    }
+    Ok(true)
+}
+
 pub(super) async fn reconstruct(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -271,6 +334,8 @@ pub(super) async fn reconstruct_selected_capture(
                 | "ledger-workflow-app-cost-attest/1"
                 | "ledger-workflow-cost-finalize/2"
                 | "ledger-workflow-cost-correct/2"
+                | "ledger-workflow-quantity-correction/2"
+                | "ledger-workflow-work-reverse/2"
                 | "ledger-workflow-fact-attest/1"
                 | "ledger-workflow-outcome/1");
     require(
@@ -305,7 +370,20 @@ pub(super) async fn reconstruct_selected_capture(
 
     let at = Timestamp::parse(request_wrapper::text(w.operation(), "accepted_at", s)?)
         .map_err(core_error)?;
-    let activation = prefix.completed_initial_activation(&binding_ref, binding.value(), &at, s)?;
+    let normalized_payload = s
+        .canonical_representation(payload, RepresentationKind::OriginalRequest)
+        .map_err(core_error)?;
+    let activation = if basic_app {
+        let (core_key, _key_owner) = local_inputs::core_key_with_owner(key, s)?;
+        let subject = core::locate_local_subject_binding(&core_key, normalized_payload.bytes(), &inputs, s).map_err(core_error)?;
+        if let Some(work) = subject.original_work_ref() {
+            prefix.completed_work_activation(tx, key, &binding_ref, binding.value(), work, s).await?
+        } else {
+            prefix.completed_fact_activation(key, &binding_ref, binding.value(), &at, s)?
+        }
+    } else {
+        prefix.completed_initial_activation(key, &binding_ref, binding.value(), &at, s)?
+    };
 
     let (mut context, _context_owner) = super::local_original_context::capture_selected(
         w.operation(),
@@ -314,9 +392,6 @@ pub(super) async fn reconstruct_selected_capture(
         s,
     )?;
 
-    let normalized_payload = s
-        .canonical_representation(payload, RepresentationKind::OriginalRequest)
-        .map_err(core_error)?;
     let frame = &context.authorities[0];
     let primary = [core::SourceAuthorityCapture {
         source_slot: &frame.source_slot,
@@ -491,7 +566,7 @@ pub(super) async fn reconstruct_selected_capture(
         require(same_ref(&selected_binding, &binding_ref, s)?, "INTEGRITY_FAILURE")?;
     }
     let declared_proofs = if owner.program().uses_stage_lifecycle_recipe()
-        && request_wrapper::text(payload, "schema", s)? == "ledger-workflow-stage-close/1"
+        && (work || request_wrapper::text(payload, "schema", s)? == "ledger-workflow-stage-close/1")
     {
         Some(
             request_wrapper::field(payload, "fact_proofs", s)?
@@ -573,6 +648,21 @@ pub(super) async fn reconstruct_selected_capture(
                     let (start_ref, _lease) = current::source::from_value_local(start, s)?;
                     require(same_ref(&predecessor_ref, &start_ref, s)?, "INTEGRITY_FAILURE")?;
                     Some(s.parse_representation(pool.body(&predecessor_ref)?, RepresentationKind::Record).map_err(core_error)?)
+                } else if basic_app
+                    && matches!(schema, "ledger-workflow-quantity-correction/2" | "ledger-workflow-work-reverse/2")
+                    && acceptance::same_recipe_text(request_wrapper::text(body.value(), "schema", s)?, "ledger-workflow-outcome-claim/1", s)?
+                {
+                    let (target_ref, _target_owner) = current::source::from_value_local(
+                        request_wrapper::field(body.value(), "target_ref", s)?, s,
+                    )?;
+                    request_wrapper::same_text(&target_ref.kind, "workflow-target", s)?;
+                    let target_bytes = pool.body(&target_ref)?;
+                    prefix._inventory.compare_record(&target_ref, target_bytes, s)?;
+                    let target = s.parse_representation(target_bytes, RepresentationKind::Record).map_err(core_error)?;
+                    let (predecessor, _predecessor_owner) = basic_outcome_link_work(v, body.value(), target.value(), s)?;
+                    let work_bytes = pool.body(&predecessor)?;
+                    prefix._inventory.compare_record(&predecessor, work_bytes, s)?;
+                    Some(s.parse_representation(work_bytes, RepresentationKind::Record).map_err(core_error)?)
                 } else {
                     None
                 };
@@ -610,7 +700,7 @@ pub(super) async fn reconstruct_selected_capture(
     }
     if let Some(proofs) = declared_proofs {
         // Repeat the forward declaration selector at the original cutoff. All
-        // transitive Work proofs remain I, but are not this closure's proofs.
+        // transitive Work proofs remain I, but are not this operation's proofs.
         financial
             .evidence_verifications
             .try_reserve_exact(inputs.len())
@@ -625,16 +715,10 @@ pub(super) async fn reconstruct_selected_capture(
             )?;
             let (selected, _selected_owner) =
                 current::app::retained_verification(tx, key, sequence, &attestation, s).await?;
-            let mut matched = None;
-            for input in &inputs {
-                if same_ref(input.reference, &selected, s)? {
-                    require(matched.replace(input).is_none(), "INTEGRITY_FAILURE")?;
-                }
-            }
-            let matched = matched.ok_or(ServiceError::IntegrityFailure)?;
+            let matched = declared_verification(&selected, &inputs, s)?;
             let mut duplicate = false;
             for old in &financial.evidence_verifications {
-                if same_ref(old, matched.reference, s)? {
+                if same_ref(old, matched, s)? {
                     duplicate = true;
                     break;
                 }
@@ -642,7 +726,7 @@ pub(super) async fn reconstruct_selected_capture(
             if !duplicate {
                 financial
                     .evidence_verifications
-                    .push(reference(matched.reference, s)?);
+                    .push(reference(matched, s)?);
             }
         }
     }
@@ -1011,7 +1095,11 @@ pub(super) async fn reconstruct_selected_capture(
             }
             let id = string(expected.decision_id(), s)?;
             prefix.original_input("local-original-decision", &[id.value()], &inputs, s)?;
-            prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
+            // Root correction consumes its own Capacity (selected below), not
+            // unused sibling heads prefetched by fresh Stage acquisition.
+            if !matches!(schema, "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2") {
+                prefix.original_input("local-original-capacity", &[id.value()], &inputs, s)?;
+            }
         }
         if let Some(id) = locator.closure_decision_id() {
             let id = string(id, s)?;
@@ -1194,15 +1282,31 @@ pub(super) async fn reconstruct_selected_capture(
             }
         }
     }
-    if basic_app && schema == "ledger-workflow-cost-correct/2" {
+    if basic_app && matches!(schema, "ledger-workflow-cost-correct/2" | "ledger-workflow-quantity-correction/2" | "ledger-workflow-work-reverse/2") {
         // Fresh app correction selects the original observation and current
         // final evidence from these exact claim/head operands. Repeat that
         // selection at this original cutoff; unrelated transitive proofs stay I.
         let app = app_state.as_ref().ok_or(ServiceError::IntegrityFailure)?;
-        for (selected, field) in app.claims.iter().map(|r| (r, "observation_ref"))
-            .chain(app.costs.iter().map(|h| (&h.reference, "current_evidence_ref")))
+        for (selected, field, claim) in app.claims.iter().map(|r| (r, "observation_ref", true))
+            .chain(app.costs.iter().map(|h| (&h.reference, "current_evidence_ref", false)))
         {
             s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+            if matches!(schema, "ledger-workflow-quantity-correction/2" | "ledger-workflow-work-reverse/2") {
+                let mut matched = None;
+                for head in &app.costs {
+                    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::Element).map_err(core_error)?;
+                    let reference = if claim { &head.cost_claim_ref } else { &head.reference };
+                    if same_ref(selected, reference, s)? {
+                        require(matched.replace(head).is_none(), "INTEGRITY_FAILURE")?;
+                    }
+                }
+                let head = matched.ok_or(ServiceError::IntegrityFailure)?;
+                let body = s.parse_representation(pool.body(&head.reference)?, RepresentationKind::Record).map_err(core_error)?;
+                // Causal reconstruction validates an already reversed app's
+                // terminal Decision/dependency, then skips finalized/proof_for.
+                // Keep that claim/head state, but not unused prefetched proofs.
+                if !app_proofs_consumed(schema, body.value(), s)? { continue; }
+            }
             let body = s.parse_representation(pool.body(selected)?, RepresentationKind::Record).map_err(core_error)?;
             let (attestation, _attestation_owner) = current::source::from_value_local(
                 request_wrapper::field(body.value(), field, s)?, s,
@@ -1234,7 +1338,7 @@ pub(super) async fn reconstruct_selected_capture(
             }
         }
     }
-    if owner.program().uses_component_lifecycle_recipe()
+    if (basic_app || owner.program().uses_component_lifecycle_recipe())
         && matches!(
             schema,
             "ledger-workflow-work-reverse/2" | "ledger-workflow-quantity-correction/2"
@@ -1581,4 +1685,90 @@ pub(super) async fn reconstruct_selected_capture(
     journal.compare_original(w, s)?;
 
     Ok((candidate, path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ledgerlab_core::canonical::audit_arena::AuditArena;
+
+    fn r(kind: &str, prefix: &str, digit: char) -> Value {
+        let hash = digit.to_string().repeat(64);
+        serde_json::json!({"kind": kind, "id": format!("{prefix}_{hash}"), "digest": format!("sha256:{hash}")})
+    }
+
+    #[test]
+    fn stage_original_proofs_select_declared_ref_and_keep_input_integrity() {
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let (earlier, _earlier_owner) = current::source::from_value_local(
+            &r("workflow-evidence-verification", "wdoc", '1'), &mut s,
+        ).unwrap();
+        let (declared, _declared_owner) = current::source::from_value_local(
+            &r("workflow-evidence-verification", "wdoc", '2'), &mut s,
+        ).unwrap();
+        // The adapter receives both the earlier member's transitive input and
+        // this Work's declared input. Body/provenance checks remain the caller's
+        // completed-prefix responsibility; this tests exact selection only.
+        let inputs = [
+            EconomicRecordView { reference: &earlier, canonical_body: b"earlier input" },
+            EconomicRecordView { reference: &declared, canonical_body: b"declared input" },
+        ];
+        assert_eq!(declared_verification(&declared, &inputs, &mut s).unwrap(), &declared);
+        assert!(declared_verification(&declared, &inputs[..1], &mut s).is_err());
+        let duplicate = [inputs[1], inputs[1]];
+        assert!(declared_verification(&declared, &duplicate, &mut s).is_err());
+        let mut altered = declared.clone();
+        altered.digest = earlier.digest.clone();
+        assert!(declared_verification(&altered, &inputs, &mut s).is_err());
+        altered = declared.clone();
+        altered.kind = "workflow-verified-fact".to_owned();
+        assert!(declared_verification(&altered, &inputs, &mut s).is_err());
+    }
+
+    #[test]
+    fn basic_causal_original_inputs_keep_exact_link_and_terminal_proof_roles() {
+        let work = r("workflow-work", "wevent", '1');
+        let binding = r("workflow-binding", "wdoc", '2');
+        let target_ref = r("workflow-target", "wtarget", '3');
+        let link = serde_json::json!({"schema":"ledger-workflow-link/1", "predecessor":work, "binding_ref":binding});
+        let claim = serde_json::json!({"schema":"ledger-workflow-outcome-claim/1", "target_ref":target_ref,
+            "original_payload":{"target_ref":target_ref,"binding_ref":binding}});
+        let target = serde_json::json!({"schema":"ledger-workflow-component-target/1", "work_ref":work,"binding_ref":binding});
+        let accepts = |link: &Value, claim: &Value, target: &Value| {
+            let arena = AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            // Pure input joins only; the caller still compares these bodies to
+            // completed I and reconstructs the entire core candidate/journal.
+            basic_outcome_link_work(link, claim, target, &mut session).is_ok()
+        };
+        assert!(accepts(&link, &claim, &target));
+        let mut bad = link.clone();
+        bad["predecessor"] = r("workflow-work", "wevent", '4');
+        assert!(!accepts(&bad, &claim, &target));
+        bad = link.clone();
+        bad["binding_ref"] = r("workflow-binding", "wdoc", '4');
+        assert!(!accepts(&bad, &claim, &target));
+        let mut bad = claim.clone();
+        bad["original_payload"]["target_ref"] = r("workflow-target", "wtarget", '4');
+        assert!(!accepts(&link, &bad, &target));
+        bad = claim.clone();
+        bad["original_payload"]["binding_ref"] = r("workflow-binding", "wdoc", '4');
+        assert!(!accepts(&link, &bad, &target));
+        let mut bad = target.clone();
+        bad["schema"] = serde_json::json!("ledger-workflow-component-target/99");
+        assert!(!accepts(&link, &claim, &bad));
+
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let reversed = serde_json::json!({"schema":"ledger-workflow-app-cost-revision/1","status":"reversed"});
+        let active = serde_json::json!({"schema":"ledger-workflow-app-cost-revision/1","status":"active"});
+        for schema in ["ledger-workflow-quantity-correction/2", "ledger-workflow-work-reverse/2"] {
+            assert!(!app_proofs_consumed(schema, &reversed, &mut session).unwrap());
+            assert!(app_proofs_consumed(schema, &active, &mut session).unwrap());
+        }
+        assert!(app_proofs_consumed("ledger-workflow-cost-correct/2", &reversed, &mut session).unwrap());
+        let unknown = serde_json::json!({"schema":"ledger-workflow-app-cost-revision/1","status":"unknown"});
+        assert!(app_proofs_consumed("ledger-workflow-work-reverse/2", &unknown, &mut session).unwrap());
+    }
 }

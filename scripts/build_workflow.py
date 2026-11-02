@@ -10,6 +10,50 @@ def canonical(value):
         return '['+','.join(map(canonical,value))+']'
     return json.dumps(value,ensure_ascii=False,separators=(',',':'))
 def digest(raw): return hashlib.sha256(raw).hexdigest()
+
+# Exact existing profiles required by the integrated packet. This is build
+# metadata, not runtime compiler admission or an extensible caller catalog.
+CATALOG_SCHEMA = 'ledger-workflow-build-input-catalog/1'
+CATALOG_PROFILES = (
+    ('runtime-support/local-policy-context-compiler8-data.json',
+     'runtime-support/local-policy-context-mode.json',
+     'runtime-support/local-policy-context-contract-profile.json',
+     '1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613'),
+    ('runtime-support/local-stage-lifecycle-v2-compiler8-data.json',
+     'runtime-support/local-stage-lifecycle-v2-mode.json',
+     'runtime-support/local-stage-lifecycle-v2-contract-profile.json',
+     '5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc'),
+    ('component-lifecycle-01/compiler-descriptor.json',
+     'component-lifecycle-01/component-mode.json',
+     'component-lifecycle-01/contract-manifest.json',
+     'f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b'),
+)
+CATALOG_CONTRACTS = (
+    'contracts/candidates/full-suite-v1/core/BUILD-PROVENANCE-CATALOG-01.md',
+    'contracts/candidates/full-suite-v1/core/build-provenance-catalog.schema.json',
+)
+
+def integrated_catalog(files, single_inputs):
+    """Capture complete entries from the immutable selected build inputs only."""
+    prefix = 'contracts/candidates/full-suite-v1/core/'
+    load = lambda path: json.loads(files[prefix + path])
+    limits_digest = 'sha256:' + digest(canonical(load('local-operator-resources-01/limits.json')).encode())
+    entries = []
+    for descriptor_path, mode_path, manifest_path, expected in CATALOG_PROFILES:
+        descriptor = load(descriptor_path)
+        actual = digest(b'bean-counter/workflow-document/1\0' + canonical([descriptor['schema'], descriptor]).encode())
+        if (actual != expected or descriptor['schema'] != 'ledger-workflow-compiler-descriptor/8'
+                or descriptor['limits_digest'] != limits_digest
+                or descriptor['mode_matrix_digest'] != 'sha256:' + digest(canonical(load(mode_path)).encode())
+                or descriptor['contract_manifest_digest'] != 'sha256:' + digest(canonical(load(manifest_path)).encode())):
+            raise ValueError('integrated compiler artifact identity')
+        reference = {'kind': 'workflow-compiler-descriptor', 'id': 'wdoc_' + actual, 'digest': 'sha256:' + actual}
+        entries.append({**single_inputs, 'recipe': {**single_inputs['recipe'], 'compiler_ref': reference}})
+    catalog = {'schema': CATALOG_SCHEMA, 'entries': entries}
+    if len(canonical(catalog).encode()) > 65536:
+        raise ValueError('build inputs bound')
+    return catalog
+
 def inventory(files):
     entries=[{'path':p,'bytes':str(len(b)),'sha256':digest(b)} for p,b in files.items()]
     entries.sort(key=lambda e:e['path'].encode('utf-16-be'))
@@ -23,6 +67,7 @@ def command(args,cwd,env=None): return subprocess.check_output(args,cwd=cwd,env=
 def selected(root):
     paths={p for p in (root/'crates').rglob('*') if p.is_file() and not (len(p.relative_to(root).parts)>2 and p.relative_to(root).parts[2]=='target')}
     paths.update(root/p for p in ['Cargo.toml','Cargo.lock','scripts/build_workflow.py'])
+    paths.update(root/p for p in CATALOG_CONTRACTS)
     paths.update(root/p for p in ['rust-toolchain.toml','rust-toolchain','.cargo/config.toml','.cargo/config'] if (root/p).exists())
     # Literal include inputs are part of this capture, including embedded test
     # inputs. Generated OUT_DIR metadata is intentionally excluded from itself.
@@ -69,6 +114,7 @@ def main():
     parser.add_argument('--work-lifecycle',action='store_true',help='bind exact original Work status and typed Reference Compiler8 support')
     parser.add_argument('--stage-lifecycle',action='store_true',help='bind exact Stage lifecycle v2/platform-funding evidence Compiler8 support')
     parser.add_argument('--component-lifecycle',action='store_true',help='bind exact additive component/family lifecycle Compiler8 support')
+    parser.add_argument('--integrated-local-profiles',action='store_true',help='capture the fixed policy-context, Stage v2 and Component v1 build-input catalog')
     args=parser.parse_args()
     if args.operator_resources and not args.local_execution: raise ValueError('--operator-resources requires --local-execution')
     if args.conditional_work and not (args.local_execution and args.operator_resources): raise ValueError('--conditional-work requires --local-execution and --operator-resources')
@@ -77,6 +123,8 @@ def main():
     if args.stage_lifecycle and not (args.local_execution and args.operator_resources): raise ValueError('--stage-lifecycle requires --local-execution and --operator-resources')
     if args.work_lifecycle and not (args.local_execution and args.operator_resources): raise ValueError('--work-lifecycle requires --local-execution and --operator-resources')
     if args.component_lifecycle and not (args.local_execution and args.operator_resources): raise ValueError('--component-lifecycle requires --local-execution and --operator-resources')
+    if args.integrated_local_profiles and not (args.local_execution and args.operator_resources): raise ValueError('--integrated-local-profiles requires --local-execution and --operator-resources')
+    if args.integrated_local_profiles and any([args.component_lifecycle,args.stage_lifecycle,args.work_lifecycle,args.policy_semantics,args.declared_work_links,args.conditional_work]): raise ValueError('catalog and single-profile capture selections are exclusive')
     if sum([args.component_lifecycle,args.stage_lifecycle,args.work_lifecycle,args.policy_semantics,args.declared_work_links,args.conditional_work])>1: raise ValueError('choose one exact additive capture recipe')
     root=Path(__file__).resolve().parents[1]
     # A declared minimal environment is used for both observed tool versions
@@ -127,6 +175,8 @@ def main():
     version=next(p['version'] for p in packages if p['name']==package)
     recipe={'package_name':package,'package_version':version,'build_profile':'test' if args.test else 'release','target':target,'features':[],'rustc_version':rustc,'cargo_version':cargo,'rustflags':[],'cargo_lock_digest':'sha256:'+digest(files['Cargo.lock']),'compiler_ref':support}
     inputs={'schema':'ledger-workflow-build-inputs/1','source':{'base_commit':base,'state':'clean_commit' if clean else 'worktree_snapshot','inventory_digest':inv_digest,'file_count':len(files),'total_bytes':str(sum(map(len,files.values())))},'recipe':recipe}
+    if args.integrated_local_profiles:
+        inputs = integrated_catalog(files, inputs)
     encoded=canonical(inputs).encode()
     if len(encoded)>65536: raise ValueError('build inputs bound')
     output=args.output.resolve()

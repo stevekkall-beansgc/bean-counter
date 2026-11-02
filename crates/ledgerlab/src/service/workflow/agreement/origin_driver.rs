@@ -132,6 +132,7 @@ pub(super) async fn prepare(
     key: &OperationKey,
     o: &JournalOperation,
     continuation: LocalContinuation,
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<LocalStep> {
     if continuation.identity != o.identity
         || continuation.binding != proof_session::journal_binding(o)?
@@ -241,7 +242,7 @@ pub(super) async fn prepare(
         }
         Stage::Semantics => {
             let local = proof_session::begin_local(tx, key, &o.identity)?;
-            let certificate = verify::validate_local(tx, key, o).await?;
+            let certificate = verify::validate_local(tx, key, o, ledger).await?;
             local.finish()?;
             return Ok(LocalStep::Complete(certificate));
         }

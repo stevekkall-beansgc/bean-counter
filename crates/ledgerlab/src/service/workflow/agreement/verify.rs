@@ -248,12 +248,20 @@ pub(super) async fn closure(
     key: &OperationKey,
     seeds: &[RecordRef],
 ) -> Result<Vec<Document>> {
+    closure_owned(tx, key, seeds, None).await
+}
+pub(super) async fn closure_owned(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    seeds: &[RecordRef],
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
+) -> Result<Vec<Document>> {
     for seed in seeds.iter().filter(|r| r.kind == "workflow-evidence") {
         let evidence = super::loaded(tx, key, seed).await?;
         let body = canonical_body(&evidence)?;
         let input = evidence_input(&body)?;
         if input.purpose() == "admission_stop" {
-            let mut docs = activation_verify::stop_evidence_dependencies(tx, key, &input).await?;
+            let mut docs = activation_verify::stop_evidence_dependencies_owned(tx, key, &input, ledger).await?;
             let root = parse_ref(&body["authority_ref"])?;
             let root_doc = super::loaded(tx, key, &root).await?;
             let root_body = canonical_body(&root_doc)?;
@@ -379,17 +387,15 @@ pub(super) async fn closure(
     source::verify_closure(tx, key, &loaded).await?;
     Ok(loaded.into_values().collect())
 }
-pub(super) async fn locator_dependencies(
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-    req: &request::Request,
-    payload: &Value,
+pub(super) async fn locator_dependencies_owned(
+    tx: &mut SqliteTx, key: &OperationKey, req: &request::Request, payload: &Value,
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<Vec<Document>> {
     if req.kind() == "evidence.retain" && payload["purpose"] == "admission_stop" {
         let input =
             ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(payload)?)
                 .map_err(typed_error)?;
-        return activation_verify::stop_evidence_dependencies(tx, key, &input).await;
+        return activation_verify::stop_evidence_dependencies_owned(tx, key, &input, ledger).await;
     }
     let mut refs = vec![];
     for l in journal::locators(req, payload)? {
@@ -419,6 +425,7 @@ async fn retained_local(
     tx: &mut SqliteTx,
     key: &OperationKey,
     o: &JournalOperation,
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<LocalCertificate> {
     let op = checked(&o.operation_bytes, 8 * 1024 * 1024)?;
     let manifest = checked(&o.manifest_bytes, 4 * 1024 * 1024)?;
@@ -544,7 +551,7 @@ async fn retained_local(
     if source::shared_namespace_schema(&payload) && payload["action"] != "source.enroll" {
         seeds.push(source::namespace_owner_locator(tx, key, &parse_ref(&payload["enrollment_ref"])?).await?);
     }
-    let docs = closure(tx, key, &seeds).await?;
+    let docs = closure_owned(tx, key, &seeds, ledger).await?;
     let root_doc = docs
         .iter()
         .find(|d| d.reference == roots[0])
@@ -674,6 +681,14 @@ pub(super) fn retained<'a>(
     key: &'a OperationKey,
     o: &'a JournalOperation,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
+    retained_owned(tx, key, o, None)
+}
+pub(super) fn retained_owned<'a>(
+    tx: &'a mut SqliteTx,
+    key: &'a OperationKey,
+    o: &'a JournalOperation,
+    ledger: Option<&'a super::super::local::LocalWorkflowLedger>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
     Box::pin(async move {
         if proof_session::local_phase(tx, key)? {
             let _view = proof_session::completed(
@@ -687,11 +702,11 @@ pub(super) fn retained<'a>(
         }
         if !proof_session::present(tx, key)? {
             return proof_session::with_proofs(tx, key, |tx| {
-                Box::pin(retained_in_scope(tx, key, o))
+                Box::pin(retained_in_scope(tx, key, o, ledger))
             })
             .await;
         }
-        retained_in_scope(tx, key, o).await
+        retained_in_scope(tx, key, o, ledger).await
     })
 }
 
@@ -699,6 +714,7 @@ async fn retained_in_scope(
     tx: &mut SqliteTx,
     key: &OperationKey,
     o: &JournalOperation,
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<Value> {
     use origin_driver::{LocalContinuation, LocalStep, OriginDemand, Stage};
     // Preparation is untrusted. Only this one driver schedules origins; local
@@ -818,7 +834,7 @@ async fn retained_in_scope(
             }
         };
         let certificate =
-            match origin_driver::prepare(tx, &saved_key, &operation, continuation).await? {
+            match origin_driver::prepare(tx, &saved_key, &operation, continuation, ledger).await? {
                 LocalStep::NeedOrigins { demands, resume } => {
                     frames.push(Frame::Resume {
                         continuation: resume,
@@ -948,6 +964,7 @@ pub(super) async fn validate_local(
     tx: &mut SqliteTx,
     saved_key: &OperationKey,
     operation: &JournalOperation,
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
 ) -> Result<LocalCertificate> {
     if !proof_session::local_phase(tx, saved_key)? {
         return Err(ServiceError::IntegrityFailure);
@@ -965,7 +982,7 @@ pub(super) async fn validate_local(
     } else if operation.kind == "agreement.accept" {
         Box::pin(accepted_verify::retained_local(tx, saved_key, operation)).await?
     } else {
-        retained_local(tx, saved_key, operation).await?
+        retained_local(tx, saved_key, operation, ledger).await?
     };
     Ok(certificate)
 }
@@ -1098,11 +1115,17 @@ pub(super) async fn authenticated_closure(
     key: &OperationKey,
     seeds: &[RecordRef],
 ) -> Result<Vec<Document>> {
+    authenticated_closure_owned(tx, key, seeds, None).await
+}
+pub(super) async fn authenticated_closure_owned(
+    tx: &mut SqliteTx, key: &OperationKey, seeds: &[RecordRef],
+    ledger: Option<&super::super::local::LocalWorkflowLedger>,
+) -> Result<Vec<Document>> {
     if seeds.len() == 1 && seeds[0].kind == "workflow-head-transition" {
         document_origin(tx, key, &seeds[0]).await?;
         return Box::pin(replay::predecessor_closure(tx, key, &seeds[0])).await;
     }
-    let documents = closure(tx, key, seeds).await?;
+    let documents = closure_owned(tx, key, seeds, ledger).await?;
     for document in &documents {
         document_origin(tx, key, &document.reference).await?;
     }

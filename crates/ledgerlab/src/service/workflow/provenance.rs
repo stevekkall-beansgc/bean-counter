@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Source {
     base_commit: String,
@@ -38,6 +38,20 @@ struct Inputs {
     schema: String,
     source: Source,
     recipe: Recipe,
+}
+// Build-owned metadata only. These are the three existing exact profiles in
+// the integrated Stage/Component/A-B packet, not a new compiler capability.
+const CATALOG_SCHEMA: &str = "ledger-workflow-build-input-catalog/1";
+const CATALOG_COMPILERS: [&str; 3] = [
+    "1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
+    "5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc",
+    "f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b",
+];
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog {
+    schema: String,
+    entries: Vec<Value>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -111,6 +125,78 @@ fn validate_inputs(v: Value) -> Result<Inputs> {
     require(features == r.features, "BUILD_IDENTITY_REQUIRED")?;
     Ok(inputs)
 }
+fn same_build(a: &Inputs, b: &Inputs) -> bool {
+    let (a_recipe, b_recipe) = (&a.recipe, &b.recipe);
+    a.source == b.source
+        && a_recipe.package_name == b_recipe.package_name
+        && a_recipe.package_version == b_recipe.package_version
+        && a_recipe.build_profile == b_recipe.build_profile
+        && a_recipe.target == b_recipe.target
+        && a_recipe.features == b_recipe.features
+        && a_recipe.rustc_version == b_recipe.rustc_version
+        && a_recipe.cargo_version == b_recipe.cargo_version
+        && a_recipe.rustflags == b_recipe.rustflags
+        && a_recipe.cargo_lock_digest == b_recipe.cargo_lock_digest
+}
+fn matches_compiler(
+    inputs: &Inputs,
+    compiler_ref: &ledgerlab_core::policy::workflow::DefinitionRef,
+) -> bool {
+    let reference = &inputs.recipe.compiler_ref;
+    reference.kind == compiler_ref.kind()
+        && reference.id == compiler_ref.id()
+        && reference.digest == compiler_ref.digest()
+}
+/// Select only from complete compile-embedded entries. The caller's reference
+/// comes from the already authenticated builtin compiler, not request metadata.
+fn select_inputs(
+    embedded: Value,
+    compiler_ref: &ledgerlab_core::policy::workflow::DefinitionRef,
+) -> Result<Inputs> {
+    if embedded.get("schema").and_then(Value::as_str) != Some(CATALOG_SCHEMA) {
+        let inputs = validate_inputs(embedded)?;
+        require(
+            matches_compiler(&inputs, compiler_ref),
+            "BUILD_IDENTITY_REQUIRED",
+        )?;
+        return Ok(inputs);
+    }
+    require(
+        records::bytes(&embedded)?.len() <= 65536,
+        "BUILD_IDENTITY_REQUIRED",
+    )?;
+    let catalog: Catalog =
+        serde_json::from_value(embedded).map_err(|_| reject("BUILD_IDENTITY_REQUIRED"))?;
+    require(
+        catalog.schema == CATALOG_SCHEMA && catalog.entries.len() == CATALOG_COMPILERS.len(),
+        "BUILD_IDENTITY_REQUIRED",
+    )?;
+    let mut common = None;
+    let mut selected = None;
+    // Fixed fullRef order rejects duplicates, unknown profiles, omissions and
+    // reordering. Validate every entry, including entries not selected here.
+    for (value, digest) in catalog.entries.into_iter().zip(CATALOG_COMPILERS) {
+        let inputs = validate_inputs(value)?;
+        require(
+            inputs.recipe.compiler_ref.id == format!("wdoc_{digest}")
+                && inputs.recipe.compiler_ref.digest == format!("sha256:{digest}"),
+            "BUILD_IDENTITY_REQUIRED",
+        )?;
+        if let Some(first) = &common {
+            require(same_build(first, &inputs), "BUILD_IDENTITY_REQUIRED")?;
+        }
+        if matches_compiler(&inputs, compiler_ref) {
+            selected = Some(inputs);
+        } else if common.is_none() {
+            common = Some(inputs);
+        }
+    }
+    // If the first entry was selected it still must agree with the others.
+    if let (Some(first), Some(chosen)) = (&common, &selected) {
+        require(same_build(first, chosen), "BUILD_IDENTITY_REQUIRED")?;
+    }
+    selected.ok_or_else(|| reject("BUILD_IDENTITY_REQUIRED"))
+}
 pub(super) struct VerifiedBuildProvenance {
     pub(super) projection: Value,
     pub(super) manifest: Document,
@@ -121,14 +207,7 @@ impl VerifiedBuildProvenance {
         embedded: Value,
         compiler_ref: &ledgerlab_core::policy::workflow::DefinitionRef,
     ) -> Result<Self> {
-        let inputs = validate_inputs(embedded)?;
-        require(
-            serde_json::to_value(&inputs.recipe.compiler_ref)
-                .map_err(|_| ServiceError::IntegrityFailure)?
-                == serde_json::to_value(compiler_ref)
-                    .map_err(|_| ServiceError::IntegrityFailure)?,
-            "BUILD_IDENTITY_REQUIRED",
-        )?;
+        let inputs = select_inputs(embedded, compiler_ref)?;
         let path = std::env::current_exe().map_err(|_| ServiceError::Unavailable)?;
         let (sha256, len) = observe_file(&path)?;
         let manifest = Manifest {
@@ -257,6 +336,139 @@ fn observe_file_checked(
     Ok((ledgerlab_core::canonical::hex(&hash.finalize()), count))
 }
 
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    use ledgerlab_core::policy::workflow::DefinitionRef;
+    use serde_json::json;
+
+    fn expected() -> Value {
+        ledgerlab_core::canonical::parse(include_bytes!(
+            "../../../../../contracts/candidates/full-suite-v1/core/build-provenance-expected.json"
+        ))
+        .unwrap()
+    }
+    // These tests exercise metadata selection, not executable authorization.
+    // Production supplies only the already authenticated builtin's reference.
+    fn reference(value: &Value) -> DefinitionRef {
+        DefinitionRef::new(
+            value["kind"].as_str().unwrap(),
+            value["id"].as_str().unwrap(),
+            value["digest"].as_str().unwrap(),
+        )
+        .unwrap()
+    }
+    fn catalog() -> Value {
+        let original = expected()["build_inputs"]["body"].clone();
+        let entries: Vec<_> = CATALOG_COMPILERS
+            .into_iter()
+            .map(|digest| {
+                let mut entry = original.clone();
+                entry["recipe"]["compiler_ref"] = json!({
+                    "kind": "workflow-compiler-descriptor",
+                    "id": format!("wdoc_{digest}"),
+                    "digest": format!("sha256:{digest}"),
+                });
+                entry
+            })
+            .collect();
+        json!({"schema": CATALOG_SCHEMA, "entries": entries})
+    }
+    #[test]
+    fn workflow_build_catalog_preserves_single_profile_and_closed_selection() {
+        let expected = expected();
+        let original = &expected["build_inputs"]["body"];
+        let old_ref = reference(&original["recipe"]["compiler_ref"]);
+        let selected = select_inputs(original.clone(), &old_ref).unwrap();
+        assert_eq!(serde_json::to_value(selected).unwrap(), *original);
+        let saved = expected["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|record| record["name"] == "build-manifest")
+            .unwrap();
+        let retained: Manifest = serde_json::from_value(saved["body"].clone()).unwrap();
+        let retained = serde_json::to_value(retained).unwrap();
+        assert_eq!(
+            records::bytes(&retained).unwrap(),
+            saved["canonical_utf8"].as_str().unwrap().as_bytes()
+        );
+        assert_eq!(projection(&retained).unwrap(), expected["projection"]);
+        let document = records::source_document("workflow-build-manifest", retained).unwrap();
+        assert_eq!(
+            serde_json::to_value(document.reference).unwrap(),
+            saved["ref"]
+        );
+
+        let catalog = catalog();
+        for entry in catalog["entries"].as_array().unwrap() {
+            let selected = select_inputs(
+                catalog.clone(),
+                &reference(&entry["recipe"]["compiler_ref"]),
+            )
+            .unwrap();
+            assert_eq!(serde_json::to_value(selected).unwrap(), *entry);
+        }
+        assert!(select_inputs(catalog.clone(), &old_ref).is_err());
+        assert!(
+            select_inputs(
+                original.clone(),
+                &reference(&catalog["entries"][0]["recipe"]["compiler_ref"])
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn workflow_build_catalog_rejects_mixed_unknown_and_malformed_entries() {
+        let good = catalog();
+        let selected = reference(&good["entries"][0]["recipe"]["compiler_ref"]);
+        let mut bad = Vec::new();
+        let mut value = good.clone();
+        value["entries"].as_array_mut().unwrap().pop();
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][2] = value["entries"][1].clone();
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"].as_array_mut().unwrap().swap(0, 1);
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][2]["recipe"]["compiler_ref"] =
+            expected()["build_inputs"]["body"]["recipe"]["compiler_ref"].clone();
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][2]["source"]["base_commit"] = json!("a".repeat(40));
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][0]["recipe"]["target"] = json!("different-target");
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][1]["recipe"]["features"] = json!(["different-feature"]);
+        bad.push(value);
+        let mut value = good.clone();
+        value["entries"][2]["unexpected"] = json!(true);
+        bad.push(value);
+        let mut value = good.clone();
+        value["unexpected"] = json!(true);
+        bad.push(value);
+        let mut value = good.clone();
+        value["schema"] = json!("ledger-workflow-build-input-catalog/2");
+        bad.push(value);
+        let mut value = good;
+        // Each entry remains within its individual bound; the whole catalog
+        // still must obey the unchanged 64 KiB embedded-metadata bound.
+        for entry in value["entries"].as_array_mut().unwrap() {
+            entry["recipe"]["rustflags"] = json!(vec!["x".repeat(4000); 6]);
+        }
+        bad.push(value);
+        for value in bad {
+            assert!(
+                matches!(select_inputs(value, &selected), Err(ServiceError::Rejection(code)) if code == "BUILD_IDENTITY_REQUIRED")
+            );
+        }
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -269,33 +481,39 @@ mod tests {
         std::fs::write(&path, body).unwrap();
         let got = observe_file_checked(&path, |_| Ok(()), || {}).unwrap();
         assert_eq!(got, (records::raw_hash(body), body.len() as u64));
-        assert!(observe_file_checked(
-            &path,
-            |_| Ok(()),
-            || std::fs::write(&path, b"changed").unwrap()
-        )
-        .is_err());
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || std::fs::write(&path, b"changed").unwrap()
+            )
+            .is_err()
+        );
         std::fs::write(&path, body).unwrap();
         let replacement = dir.path().join("replacement");
         std::fs::write(&replacement, body).unwrap();
-        assert!(observe_file_checked(
-            &path,
-            |_| Ok(()),
-            || std::fs::rename(&replacement, &path).unwrap()
-        )
-        .is_err());
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || std::fs::rename(&replacement, &path).unwrap()
+            )
+            .is_err()
+        );
         std::fs::write(&path, body).unwrap();
         let target = dir.path().join("target");
         std::fs::write(&target, body).unwrap();
-        assert!(observe_file_checked(
-            &path,
-            |_| Ok(()),
-            || {
-                std::fs::remove_file(&path).unwrap();
-                symlink(&target, &path).unwrap();
-            }
-        )
-        .is_err());
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || {
+                    std::fs::remove_file(&path).unwrap();
+                    symlink(&target, &path).unwrap();
+                }
+            )
+            .is_err()
+        );
         assert!(observe_file_checked(&path, |_| Ok(()), || {}).is_err());
         // The actual entry uses current_exe plus the hardcoded platform identity
         // check; this temporary-file seam claims no executable qualification.

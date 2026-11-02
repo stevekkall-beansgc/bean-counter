@@ -10,7 +10,7 @@ pub(super) mod shape;
 use crate::store::sqlite::workflow::agreement::acceptance::{
     ActivationAction, ActivationProjection, AgreementHead,
 };
-pub(super) use authority::{source_observation, stop_evidence_dependencies, verify_capture};
+pub(super) use authority::{source_observation, stop_evidence_dependencies_owned, verify_capture};
 pub(super) use certificate::retained_local;
 use ledgerlab_core::policy::workflow::AgreementRef;
 

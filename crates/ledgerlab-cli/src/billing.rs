@@ -1,7 +1,7 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
 use std::io::{self, IsTerminal, Write};
-pub const HELP: &str = "Bean Counter local SQLite billing\n\nUsage: ledger billing [--directory DIR] COMMAND\n\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis\n  billing [--directory DIR] activity FILE|-   Submit cumulative activity\n  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction\n  billing [--directory DIR] close FILE|-      Close one logical billing period\n  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement\n  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule\n  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule\n  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences\n  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork and outcome writes require an explicit customer and source; cumulative requests name them in JSON.\nBilling output is JSON; no payment or tax invoice. Use COMMAND --help for usage.\n--directory DIR may appear anywhere after billing; default: .\nGlobal --format text|json, --json, --no-color and --help/-h may appear before or after commands.\nHelp is plain text and never opens or creates an installation. Unknown command/subcommand paths\nreturn USAGE, exit 2 (JSON when requested); required command arguments may be omitted for help.\nSee docs/billing-quickstart.md and docs/billing-recovery.md.\n";
+pub const HELP: &str = "Bean Counter local SQLite billing\n\nUsage: ledger billing [--directory DIR] COMMAND\n\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis\n  billing [--directory DIR] activity FILE|-   Submit cumulative activity\n  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction\n  billing [--directory DIR] close FILE|-      Close one logical billing period\n  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement\n  billing [--directory DIR] adjustment credit FILE|- Issue an explicit local-owner manual credit\n  billing [--directory DIR] adjustment status FILE|- Reconcile a manual credit identity\n  billing [--directory DIR] adjustment read FILE|- Read a retained manual credit\n  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule\n  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule\n  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences\n  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork and outcome writes require an explicit customer and source; cumulative requests name them in JSON.\nBilling output is JSON; no payment or tax invoice. Use COMMAND --help for usage.\n--directory DIR may appear anywhere after billing; default: .\nGlobal --format text|json, --json, --no-color and --help/-h may appear before or after commands.\nHelp is plain text and never opens or creates an installation. Unknown command/subcommand paths\nreturn USAGE, exit 2 (JSON when requested); required command arguments may be omitted for help.\nSee docs/billing-quickstart.md and docs/billing-recovery.md.\n";
 // Resolve only the command path. Help deliberately does not read input files,
 // inspect an installation, or require complete operation arguments.
 pub fn help(raw: &[String]) -> Result<String, &'static str> {
@@ -106,6 +106,15 @@ pub fn help(raw: &[String]) -> Result<String, &'static str> {
         ("cumulative", None | Some("setup")) => (
             "cumulative setup FILE|-",
             "Set a cumulative billing basis from explicit customer terms and authority evidence.",
+        ),
+        ("adjustment", Some("credit")) => (
+            "adjustment credit FILE|-", "Issue an explicit fixed negative USD credit with retained original references; original Work and Stage remain unchanged.",
+        ),
+        ("adjustment", Some("status")) => (
+            "adjustment status FILE|-", "Reconcile the exact customer/scope/manual adjustment identity without creating money.",
+        ),
+        ("adjustment", Some("read")) => (
+            "adjustment read FILE|-", "Read a manual credit and recertify its retained original references.",
         ),
         ("adjustment", None | Some("statement")) => (
             "adjustment statement FILE|-",
@@ -288,7 +297,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         | ["fiscal", "set" | "report", file]
         | ["cumulative", "setup", file]
         | ["activity" | "correct" | "close" | "occurrences", file]
-        | ["adjustment", "statement", file]
+        | ["adjustment", "statement" | "credit" | "status" | "read", file]
         | ["recurrence", "set" | "cancel", file]
         | ["occurrence", "accept", file] => Some(*file),
         ["accept" | "outcome" | "correct", "--customer", _, "--source", _, file]
@@ -312,7 +321,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             | ["fiscal", "set" | "report", _]
             | ["cumulative", "setup", _]
             | ["activity" | "correct" | "close" | "occurrences", _]
-            | ["adjustment", "statement", _]
+            | ["adjustment", "statement" | "credit" | "status" | "read", _]
             | ["recurrence", "set" | "cancel", _]
             | ["occurrence", "accept", _]
             | [
@@ -380,6 +389,9 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         ["adjustment", "statement", _] => {
             ledger.adjustment_statement(input.as_ref().unwrap()).await
         }
+        ["adjustment", "credit", _] => ledger.manual_credit(input.as_ref().unwrap()).await,
+        ["adjustment", "status", _] => ledger.manual_credit_status(input.as_ref().unwrap()).await,
+        ["adjustment", "read", _] => ledger.manual_credit_read(input.as_ref().unwrap()).await,
         ["recurrence", "set", _] => ledger.recurrence_set(input.as_ref().unwrap()).await,
         ["recurrence", "cancel", _] => ledger.recurrence_cancel(input.as_ref().unwrap()).await,
         ["occurrences", _] => ledger.occurrences(input.as_ref().unwrap()).await,

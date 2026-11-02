@@ -114,7 +114,27 @@ fn frame_inner(
     pending: &PendingPartyOperation,
     evidence: &RequestEvidence,
     sequence: i64,
+    members: super::super::prefix::ResolvedMembers,
+    session: &mut OriginalAuditSession,
+) -> Result<PartyJournalData> {
+    frame_administration(incoming, pending.normalized_payload(), pending.authority.bytes(),
+        pending.at.as_str(), pending.result.reference(), evidence, sequence, members,
+        "ledger-workflow-party-management-authority/1", false, session)
+}
+
+/// Same immutable administrative journal framing with actual producer DATA.
+#[allow(clippy::too_many_arguments)]
+pub(in super::super) fn frame_administration(
+    incoming: &IncomingRequest,
+    payload_bytes: &[u8],
+    authority_bytes: &[u8],
+    accepted_at: &str,
+    result_ref: &ExactRef,
+    evidence: &RequestEvidence,
+    sequence: i64,
     mut members: super::super::prefix::ResolvedMembers,
+    authority_schema: &str,
+    semantic_alias: bool,
     session: &mut OriginalAuditSession,
 ) -> Result<PartyJournalData> {
     use super::super::request_wrapper as request;
@@ -143,35 +163,43 @@ fn frame_inner(
         .map_err(core_error)?;
     session
         .semantic_work()
-        .scan_bytes(pending.normalized_payload().len())
+        .scan_bytes(payload_bytes.len())
         .map_err(core_error)?;
     require(
-        normalized_payload.bytes() == pending.normalized_payload(),
+        normalized_payload.bytes() == payload_bytes,
         "INTEGRITY_FAILURE",
     )?;
     let resolution = request::field(evidence.value(), "descriptor_resolution", session)?;
-    let recipe = wrappers::recipe(
-        incoming.kind(),
-        request::text(payload, "schema", session)?,
-        request::text(resolution, "registry_digest", session)?,
-        session,
-    )?;
-    request::same_text(
-        recipe.operation,
-        "ledger-workflow-operation-record/1",
-        session,
-    )?;
-    request::same_text(
-        recipe.manifest,
-        "ledger-workflow-agreement-manifest/1",
-        session,
-    )?;
-    request::same_text(
-        recipe.authority,
-        "ledger-workflow-party-management-authority/1",
-        session,
-    )?;
-    request::same_text(recipe.closure, "absent", session)?;
+    let registry = request::text(resolution, "registry_digest", session)?;
+    if super::super::acceptance::same_recipe_text(authority_schema, "ledger-workflow-publication-authority/1", session)? {
+        request::same_text(incoming.kind(), "evidence.retain", session)?;
+        request::same_text(request::text(payload,"schema",session)?, "ledger-workflow-evidence-retain/1", session)?;
+        request::same_text(request::text(payload,"purpose",session)?, "admission_stop", session)?;
+        request::same_text(registry, super::super::evidence::R1_REGISTRY, session)?;
+    } else {
+        let recipe = wrappers::recipe(
+            incoming.kind(),
+            request::text(payload, "schema", session)?,
+            request::text(resolution, "registry_digest", session)?,
+            session,
+        )?;
+        request::same_text(
+            recipe.operation,
+            "ledger-workflow-operation-record/1",
+            session,
+        )?;
+        request::same_text(
+            recipe.manifest,
+            "ledger-workflow-agreement-manifest/1",
+            session,
+        )?;
+        request::same_text(
+            recipe.authority,
+            authority_schema,
+            session,
+        )?;
+        request::same_text(recipe.closure, "absent", session)?;
+    }
     let key = request::field(normalized, "key", session)?;
     let key_bytes = session
         .canonical_representation(key, RepresentationKind::SourceDefinition)
@@ -181,10 +209,10 @@ fn frame_inner(
         .canonical_representation(scope_value, RepresentationKind::SourceDefinition)
         .map_err(core_error)?;
     let sequence_bytes = sequence_string(sequence, session)?;
-    let at = literal(pending.at.as_str(), session)?;
+    let at = literal(accepted_at, session)?;
     let kind = literal(incoming.kind(), session)?;
     let results = RefSet::new(
-        std::iter::once(pending.result.reference()),
+        std::iter::once(result_ref),
         1,
         true,
         session,
@@ -193,7 +221,7 @@ fn frame_inner(
     let operation = object(
         &[
             ("accepted_at", at.bytes()),
-            ("authority_snapshot", pending.authority.bytes()),
+            ("authority_snapshot", authority_bytes),
             ("commit_sequence", sequence_bytes.bytes()),
             ("contract", b"\"workflow/1\""),
             ("key", key_bytes.bytes()),
@@ -250,7 +278,7 @@ fn frame_inner(
         at.bytes(),
         sequence_bytes.bytes(),
         &manifest_ref,
-        b"\"administrative\"",
+        if semantic_alias { b"\"semantic_alias\"" } else { b"\"administrative\"" },
         (results.bytes(), evidence.value()),
         session,
     )?;

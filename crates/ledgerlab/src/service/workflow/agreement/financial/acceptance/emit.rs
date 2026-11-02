@@ -45,21 +45,88 @@ impl AcceptanceHeadRecords {
         match (&self.prior, current) {
             (None, None) => Ok(()),
             (Some(prior), Some(current)) => {
-                let revision = wire::counter_string(expected, s)?;
-                for (actual, wanted) in [
-                    (current.revision.bytes(), revision.bytes()),
-                    (current.kind.bytes(), prior.reference().kind.as_bytes()),
-                    (current.id.bytes(), prior.reference().id.as_bytes()),
-                    (current.digest.bytes(), prior.reference().digest.as_bytes()),
-                ] {
-                    same_bytes(actual, wanted, s)?;
-                }
-                Ok(())
+                match_locked_head(prior.reference(), &current, expected, s)
             }
             _ => Err(reject("STALE_REVISION")),
         }
     }
 }
+fn match_locked_head(
+    prior: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    current: &crate::store::sqlite::workflow::financial::HeadLocator,
+    expected: u64,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    // The paid SQL locator casts its checked INTEGER revision to raw decimal
+    // text. Compare its counter value, not raw text to a quoted JSON string.
+    s.semantic_work()
+        .scan_bytes(current.revision.bytes().len())
+        .map_err(core_error)?;
+    let raw = std::str::from_utf8(current.revision.bytes())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let revision = counter(raw, s)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&revision.into(), &expected.into()])
+        .map_err(core_error)?;
+    require(revision == expected, "ORIGINAL_TERMS_MISMATCH")?;
+    for (actual, wanted) in [
+        (current.kind.bytes(), prior.kind.as_bytes()),
+        (current.id.bytes(), prior.id.as_bytes()),
+        (current.digest.bytes(), prior.digest.as_bytes()),
+    ] {
+        same_bytes(actual, wanted, s)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod locked_head_tests {
+    use super::*;
+
+    #[test]
+    fn raw_sql_revision_matches_only_expected_counter_and_complete_prior_ref() {
+        use crate::store::sqlite::workflow::financial::HeadLocator;
+        use ledgerlab_core::{
+            canonical::audit_arena::AuditArena,
+            policy::workflow::transition_constructor::ExactRef,
+        };
+
+        let prior = ExactRef {
+            kind: "workflow-head-transition".into(),
+            id: "whead_original".into(),
+            digest: "sha256:original".into(),
+        };
+        let check = |revision: &[u8], kind: &[u8], id: &[u8], digest: &[u8], expected| {
+            let arena = AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let current = HeadLocator {
+                revision: s.copy_representation(revision, Kind::Record).unwrap(),
+                kind: s.copy_representation(kind, Kind::Record).unwrap(),
+                id: s.copy_representation(id, Kind::Record).unwrap(),
+                digest: s.copy_representation(digest, Kind::Record).unwrap(),
+            };
+            match_locked_head(&prior, &current, expected, &mut s)
+        };
+        let k = prior.kind.as_bytes();
+        let i = prior.id.as_bytes();
+        let d = prior.digest.as_bytes();
+        // SQL CAST(INTEGER AS TEXT) returns b"1", not JSON's b"\"1\"".
+        assert_eq!(check(b"1", k, i, d, 1), Ok(()));
+        assert_eq!(check(b"10", k, i, d, 10), Ok(()));
+        for result in [
+            check(b"2", k, i, d, 1),
+            check(b"1", k, i, d, 2),
+            check(b"1", b"workflow-other", i, d, 1),
+            check(b"1", k, b"whead_other", d, 1),
+            check(b"1", k, i, b"sha256:other", 1),
+        ] {
+            assert_eq!(result, Err(reject("ORIGINAL_TERMS_MISMATCH")));
+        }
+        assert_eq!(check(b"\"1\"", k, i, d, 1), Err(reject("INVALID_SCALAR")));
+        assert_eq!(check(&[0xff], k, i, d, 1), Err(ServiceError::IntegrityFailure));
+    }
+}
+
 fn agreement_ref(r: &AgreementRef, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     let digest = wire::string(r.digest(), s)?;
     let id = wire::string(r.id(), s)?;

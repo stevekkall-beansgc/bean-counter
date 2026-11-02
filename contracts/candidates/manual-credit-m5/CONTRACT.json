@@ -1,0 +1,235 @@
+{
+  "schema": "wave2b-manual-credit-contract/1",
+  "status": "IMPLEMENTED_DRAFT_PENDING_FOCUSED_AND_APPLICATION_QUALIFICATION",
+  "authorization": "Latest explicit user approval: manual post-hoc -3 USD credit, reason and original Work/Stage reference; automatic Stage quantity correction deferred.",
+  "source": "/private/tmp/bean-counter-wave2b-members-read-capture-20261031",
+  "scope": [
+    "Local filesystem-authenticated operator credit of its own customer retail receivable",
+    "Explicit negative USD scale18 amount; no formula, cap, original-head change or causal recalculation",
+    "Exact original Work/Stage/Action associations; one common original obligation",
+    "Distinct adjustment IDs may reference the same originals; no per-original ceiling",
+    "No supplier, positive debit, fixed-failure policy, automatic fee, sweep, hosted identity or publication"
+  ],
+  "request": {
+    "schema": "ledger-billing-manual-credit/1",
+    "customer": "customer-stage",
+    "adjustment_id": "manual-credit-d-stage-20261101",
+    "workflow_scope": "exact {store,scope} saved input",
+    "amount": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "-3000000000000000000"
+    },
+    "reason": "Operator-authorized post-hoc credit for the referenced D Work and closed Stage; original charges remain unchanged.",
+    "work_ref": "exact saved D Work fullRef",
+    "stage_instance_ref": "exact saved Stage instance fullRef",
+    "source_action_refs": "sorted unique exact original D +1 and Stage +2 Action fullRefs"
+  },
+  "request_validation": {
+    "closed_fields": true,
+    "amount": "canonical negative signed decimal, 1..30 magnitude digits, no leading zero or negative zero, USD scale18; matches existing signed30 Action monetary language",
+    "reason": "nonempty string bounded by existing request-byte cap",
+    "references": "closed exact fullRefs, source_action_refs nonempty/sorted/unique",
+    "caller_obligation_fields": "not accepted"
+  },
+  "identity": {
+    "domain": "customer-admin",
+    "family": "ledger-billing-manual-credit/1",
+    "key": [
+      "customer",
+      "workflow_scope",
+      "adjustment_id"
+    ],
+    "exact_retry": "same raw request bytes returns the original saved response, acceptance time and record; no new money",
+    "conflict": "same business identity with different raw request bytes refuses IDENTITY_CONFLICT",
+    "different_id": "distinct explicit credit, even when original references overlap"
+  },
+  "authority": {
+    "fresh": "same held writer; actual private directory/db/setup operator identity plus participant-owner admission open, dispatch held and disabled",
+    "economic": "exact completed role payer equals customer and recipient equals immutable setup.host; common retail role/slot-terms/funding/Binding derived from originals",
+    "read_status_retry": "actual current local owner before identity/existence; no source-grant fallback",
+    "time": "New actual ledger acceptance time, at least each selected completed original Decision acceptance. Original windows remain history only, not manual-credit eligibility."
+  },
+  "original_proof": [
+    "Complete exact workflow prefix under same writer and unchanged resource session, pin cutoff",
+    "Exact current store/scope/customer and full body/hash/producer membership",
+    "Named Work belongs to named Stage and original Binding; Stage closure proof actually contains named Work",
+    "Each named original positive retail Action has complete original Decision/Evaluation/receipt/Binding proof and is associated to named Work or Stage",
+    "All source Actions agree on original Binding, role, slot terms and funding leg; actual role body proves customer payer and local host recipient",
+    "No latest-head substitution, no missing-I forgiveness, no reinterpretation as work.reverse/quantity.correct"
+  ],
+  "storage": {
+    "version": "21 explicit additive adoption with schema20 predecessor, old-writer refusal and retained-row fingerprint preservation",
+    "record_family": "ledger-billing-manual-credit-record/1",
+    "record_fields": [
+      "existing M5 record envelope",
+      "customer",
+      "adjustment_id",
+      "workflow_scope",
+      "amount",
+      "reason",
+      "work_ref",
+      "stage_instance_ref",
+      "source_action_refs",
+      "binding_ref",
+      "agreement_id",
+      "agreement_version",
+      "book",
+      "role_ref",
+      "slot_terms_ref",
+      "funding_leg",
+      "accepted_at",
+      "operator",
+      "workflow_boundary",
+      "host"
+    ],
+    "credit_ref": {
+      "kind": "billing-manual-credit",
+      "id": "retained m5r_ record ID",
+      "digest": "sha256: full canonical retained record bytes"
+    },
+    "projection": "new closed manual-credit projection; existing billing_m5_adjustments and workflow financial heads unchanged",
+    "claim": "separate manual-credit membership keyed by full immutable credit identity; not an original Action claim",
+    "identity_frame": {
+      "schema": "ledger-billing-m5-command-identity/1",
+      "domain": "customer-admin",
+      "family": "ledger-billing-manual-credit/1",
+      "customer": "request.customer",
+      "key_kind": "manual_credit",
+      "key": {
+        "workflow_scope": "request.workflow_scope",
+        "adjustment_id": "request.adjustment_id"
+      }
+    },
+    "child_key": {
+      "role": "manual-credit",
+      "customer": "request.customer",
+      "workflow_scope": "request.workflow_scope",
+      "adjustment_id": "request.adjustment_id"
+    },
+    "hash_framing": {
+      "record_id": "existing m5r_ SHA256(bean-counter/m5/record-id/1\\0 || JCS(identity) || \\0 || JCS(child_key))",
+      "payload_hash": "existing SHA256(bean-counter/m5/record/1\\0 || family || \\0 || JCS(record without envelope.payload_hash))",
+      "credit_ref_digest": "sha256: SHA256(full JCS retained record including envelope)",
+      "manual_line_id": "hex SHA256(bean-counter/m5/manual-credit-line/1\\0 || JCS({view_kind,view_identity,workflow_scope,line})); literal key line holds the line DATA without line_id",
+      "standard_hash": "hex SHA256(bean-counter/m5/statement/6\\0 || JCS(statement without statement_hash))",
+      "ad_hoc_hash": "hex SHA256(bean-counter/m5/ad-hoc-statement/3\\0 || JCS(statement without statement_hash))"
+    }
+  },
+  "public_api": {
+    "issue": "ledger billing --directory DIR adjustment credit REQUEST",
+    "status": "ledger billing --directory DIR adjustment status SELECTOR",
+    "read": "ledger billing --directory DIR adjustment read SELECTOR",
+    "status_selector": {
+      "schema": "ledger-billing-manual-credit-status/1",
+      "customer": "customer-stage",
+      "workflow_scope": "same scope",
+      "adjustment_id": "same ID"
+    },
+    "status_result": {
+      "not_observed": {
+        "schema": "ledger-billing-manual-credit-status-result/1",
+        "status": "not_observed",
+        "customer": "selected customer",
+        "workflow_scope": "selected scope",
+        "adjustment_id": "selected id"
+      },
+      "committed": {
+        "schema": "ledger-billing-manual-credit-status-result/1",
+        "status": "committed",
+        "customer": "selected customer",
+        "workflow_scope": "selected scope",
+        "adjustment_id": "selected id",
+        "request_bytes_sha256": "lowercase SHA256 hex of exact original raw request bytes",
+        "result": "exact original issue_result JSON"
+      }
+    },
+    "read_selector": {
+      "schema": "ledger-billing-manual-credit-read/1",
+      "customer": "customer-stage",
+      "workflow_scope": "same scope",
+      "credit_ref": "exact full credit Ref"
+    },
+    "issue_result": {
+      "schema": "ledger-billing-manual-credit-result/1",
+      "status": "committed",
+      "credit_ref": "exact Ref",
+      "record": "exact canonical retained record"
+    },
+    "recovery": "Manual read and new statement reconstruction complete original semantic sources at the immutable saved credit workflow cutoff and compare exact derived record/line fields. Status verifies identity/request/response/record custody, not current repricing.",
+    "read_result": {
+      "schema": "ledger-billing-manual-credit-read-result/1",
+      "credit_ref": "exact selected fullRef",
+      "record": "exact retained record",
+      "canonical_bytes_base64": "base64 of exact retained record bytes",
+      "canonical_bytes_sha256": "lowercase SHA256 hex of exact retained record bytes",
+      "body_bytes": "canonical decimal string"
+    },
+    "new_errors": [
+      "MANUAL_CREDIT_NOT_FOUND",
+      "MANUAL_CREDIT_PROFILE_REQUIRED"
+    ]
+  },
+  "presentation": {
+    "new_standard": "ledger-billing-period-close/3 -> ledger-billing-statement/6",
+    "new_ad_hoc": "ledger-billing-ad-hoc-statement/3 -> ledger-billing-ad-hoc-statement-result/3",
+    "old_versions": "unchanged legacy /4, workflow /5, ad_hoc /1 and /2 request/result/line bytes and identity families",
+    "new_request_field": "manual_credits: exact sorted full credit refs in ad_hoc/3; standard/3 selects all unclaimed credits by actual acceptance in pinned period",
+    "new_manual_line_fields": [
+      "manual_credit_ref",
+      "binding_ref",
+      "agreement_id",
+      "agreement_version",
+      "book",
+      "role_ref",
+      "slot_terms_ref",
+      "funding_leg",
+      "amount",
+      "reason",
+      "work_ref",
+      "stage_instance_ref",
+      "source_action_refs",
+      "line_id"
+    ],
+    "line_authority": "manual record only; never fabricate Action, Decision, Evaluation or inverse_of",
+    "totals": "manual line joins the same original book/role/slot-terms/funding partition; legacy payer/recipient partition remains separate",
+    "membership": "new credit own identity once globally across standard/ad-hoc, atomically with presentation; original charge membership unaffected",
+    "temporal": "ad-hoc manual credit does not require a prior close; standard allocates credit by own trusted acceptance, not original lineage; actual calendar needed only for standard",
+    "saved28": "Baseline has no calendar/close. Approved proof accepts a legitimate initial UTC calendar at actual current time and closes original +3 before issuing credit; post-close is claimed only if that close succeeds.",
+    "old_live_close": "After schema21, fresh old standard close /1 or /2 refuses MANUAL_CREDIT_PROFILE_REQUIRED if an unclaimed manual credit belongs to its pinned period; saved exact retry is selected first and old saved reads remain unchanged.",
+    "new_standard_request_fields": [
+      "schema",
+      "customer",
+      "period_id",
+      "workflow_scope"
+    ],
+    "new_ad_hoc_request_fields": [
+      "schema",
+      "customer",
+      "command_id",
+      "workflow_scope",
+      "adjustments",
+      "workflow_actions",
+      "manual_credits"
+    ],
+    "read_route": "existing ledger-read/1 kind billing.statement with customer and statement_hash, result ledger-billing-statement-read/1 unchanged wrapper",
+    "completeness_boundary": "Old aggregate standard/export paths must refuse if they would omit relevant manual-credit economics; original financial explain remains a view of original workflow charges, never advertised as credited aggregate. New fiscal/CSV capability is out of scope."
+  },
+  "qualification": {
+    "preserve": [
+      "all original28 raw receipts,109 documents,7 heads",
+      "failed automatic correction exact key remains not_observed",
+      "exact resource config semantic null,60000ms,seven other finite values",
+      "source original installation untouched; copied installation only"
+    ],
+    "focused": [
+      "closed amount/role/reference joins and tamper refusals",
+      "identity/status/migration/custody and presentation competition",
+      "same final binary exact original and new read/status after reopen/whole-copy"
+    ],
+    "money": "Original retained +1,+2; one new manual -3; same obligation aggregate 0; no replacement/inverse financial Action."
+  },
+  "open_implementation_details": [
+    "Full combined source review and focused validation remain pending; no application qualification yet."
+  ]
+}

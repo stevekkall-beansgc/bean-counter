@@ -2,18 +2,19 @@
 //! The host must finish original semantic/journal verification and the complete
 //! held cutoff before using these rows in an atomic presentation and claim set.
 use crate::{
-    Error, Result,
     canonical::audit_arena::{AuditedBytes, AuditedValue},
     validation_work::{
         self as work, ArithmeticOperation as Op, OriginalAuditSession, RepresentationKind,
         ValidationVisit as Visit,
     },
+    Error, Result,
 };
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+pub mod manual_credit;
 
 pub struct WorkflowRecordData<'a> {
     pub reference: &'a Value,
@@ -36,7 +37,11 @@ fn failure() -> Error {
 }
 fn require(ok: bool, s: &mut OriginalAuditSession) -> Result<()> {
     s.work().visit(Visit::Constraint)?;
-    if ok { Ok(()) } else { Err(failure()) }
+    if ok {
+        Ok(())
+    } else {
+        Err(failure())
+    }
 }
 fn same_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     s.work().visit(Visit::MemberCompare)?;
@@ -413,6 +418,18 @@ struct Group {
 /// payer/recipient obligations remain disjoint closed variants. This helper
 /// never certifies a legacy calculation or an original financial producer.
 pub fn totals(lines: &[Value], s: &mut OriginalAuditSession) -> Result<AuditedValue> {
+    totals_impl(lines, false, s)
+}
+/// Additive statement/6 totals. Only this closed profile admits manual credits;
+/// old statement/5 callers retain their original accepted language.
+pub fn totals_with_manual(lines: &[Value], s: &mut OriginalAuditSession) -> Result<AuditedValue> {
+    totals_impl(lines, true, s)
+}
+fn totals_impl(
+    lines: &[Value],
+    allow_manual: bool,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedValue> {
     let arena = s.arena().shared_handle();
     // 64 decimal input bytes plus usize::BITS is a conservative decimal sum
     // bound for any addressable slice. Cover group integers and parse/add/render
@@ -436,13 +453,33 @@ pub fn totals(lines: &[Value], s: &mut OriginalAuditSession) -> Result<AuditedVa
         s.work().visit(Visit::Element)?;
         let workflow_source = optional_field(line, "source_record_ref", s)?;
         let legacy_sources = optional_field(line, "source_records", s)?;
-        require(workflow_source.is_some() != legacy_sources.is_some(), s)?;
+        let manual_source = if allow_manual {
+            optional_field(line, "manual_credit_ref", s)?
+        } else {
+            None
+        };
+        require(
+            (workflow_source.is_some() != legacy_sources.is_some()) != manual_source.is_some()
+                && !(workflow_source.is_some()
+                    && legacy_sources.is_some()
+                    && manual_source.is_some()),
+            s,
+        )?;
         let legacy = legacy_sources.is_some();
-        let (key, n) = if let Some(source) = workflow_source {
-            reference(source, "workflow-action", s)?;
+        let (key, n) = if let Some(source) = workflow_source.or(manual_source) {
+            if manual_source.is_some() {
+                manual_credit::validate_line(line, s)?;
+            } else {
+                reference(source, "workflow-action", s)?;
+            }
             for prior in &lines[..i] {
                 s.work().visit(Visit::Element)?;
-                if let Some(prior) = optional_field(prior, "source_record_ref", s)? {
+                let name = if manual_source.is_some() {
+                    "manual_credit_ref"
+                } else {
+                    "source_record_ref"
+                };
+                if let Some(prior) = optional_field(prior, name, s)? {
                     require(!same(source, prior, s)?, s)?;
                 }
             }
@@ -826,26 +863,22 @@ mod tests {
             line1.value()["source_record_ref"],
             data.value()["source_record_ref"]
         );
-        assert!(
-            line(
-                "ad_hoc",
-                &json!({"customer":"customer","statement_id":"old-field"}),
-                &scope,
-                data.value(),
-                &mut session
-            )
-            .is_err()
-        );
-        assert!(
-            line(
-                "ad_hoc",
-                &json!({"customer":"customer","command_id":"command"}),
-                &scope,
-                data.value(),
-                &mut session
-            )
-            .is_ok()
-        );
+        assert!(line(
+            "ad_hoc",
+            &json!({"customer":"customer","statement_id":"old-field"}),
+            &scope,
+            data.value(),
+            &mut session
+        )
+        .is_err());
+        assert!(line(
+            "ad_hoc",
+            &json!({"customer":"customer","command_id":"command"}),
+            &scope,
+            data.value(),
+            &mut session
+        )
+        .is_ok());
     }
 
     #[test]

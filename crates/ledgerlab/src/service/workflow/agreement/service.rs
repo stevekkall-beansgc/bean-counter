@@ -78,7 +78,7 @@ impl LocalWorkflowLedger {
             if let Some(kind)=tx.workflow_operation_kind(&key.bytes()?).await.map_err(crate::service::store_error)? {
                 require(kind==req.kind(),"IDENTITY_CONFLICT")?;
                 let old=tx.workflow_agreement_lookup(&key.bytes()?).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
-                return Ok((retry(tx,&req,&old).await?,false));
+                return Ok((retry(self,tx,&req,&old).await?,false));
             }
             let payload=normalized(&req)?;
             let setup=self.admin.fresh(&self.store,tx,key).await?;
@@ -105,13 +105,13 @@ impl LocalWorkflowLedger {
                 let original=tx.workflow_agreement_lookup(identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
                 let original_key=super::super::request::OperationKey::parse(&original.identity)?;
                 require(original_key.logical_store_id==key.logical_store_id && original_key.scope==key.scope,"AUTHORITY_REQUIRED")?;
-                let original_result=verify::retained(tx,&original_key,&original).await?;
+                let original_result=verify::retained_owned(tx,&original_key,&original,Some(self)).await?;
                 require(original_result["request_evidence"]["normalized_request"]["payload"]==payload,"SEMANTIC_CONFLICT")?;
                 let results:Vec<RecordRef>=serde_json::from_value(original_result["receipt"]["result_refs"].clone()).map_err(|_|ServiceError::IntegrityFailure)?;
-                let documents=verify::authenticated_closure(tx,key,&results).await?;
+                let documents=verify::authenticated_closure_owned(tx,key,&results,Some(self)).await?;
                 (documents,results,Projection::None)
             }else if req.kind()=="evidence.retain" {
-                let prepared=prepare_evidence(tx,&req,&payload,(&setup.operator,&at,mode,&root.reference)).await?;
+                let prepared=prepare_evidence_owned(tx,&req,&payload,(&setup.operator,&at,mode,&root.reference),Some(self)).await?;
                 (prepared.documents,prepared.results,Projection::None)
             }else if payload["action"]=="customer.register" {
                 let registration:Registration=serde_json::from_value(payload.clone()).map_err(|_|ServiceError::IntegrityFailure)?;
@@ -125,7 +125,7 @@ impl LocalWorkflowLedger {
             let append=journal::assemble(&req,evidence,&setup,&at,sequence,root,documents,results,semantic_key,alias,projection)?;
             tx.workflow_agreement_append(&append).await.map_err(|e|if matches!(e,crate::store::errors::StoreError::DeliveryConflict){reject("SEMANTIC_CONFLICT")}else{crate::service::store_error(e)})?;
             proof_session::after_append(tx, key)?;
-            Ok((verify::retained(tx,key,&append.operation).await?,true))
+            Ok((verify::retained_owned(tx,key,&append.operation,Some(self)).await?,true))
         })).await;
         match written {
             Err(e) => {
@@ -173,8 +173,8 @@ fn result_envelope(mut v: Value, duplicate: Option<&str>) -> Value {
     }
     v
 }
-async fn retry(tx: &mut SqliteTx, req: &request::Request, old: &JournalOperation) -> Result<Value> {
-    let result = verify::retained(tx, req.key(), old).await?;
+async fn retry(ledger: &LocalWorkflowLedger, tx: &mut SqliteTx, req: &request::Request, old: &JournalOperation) -> Result<Value> {
+    let result = verify::retained_owned(tx, req.key(), old, Some(ledger)).await?;
     let saved = &result["request_evidence"];
     if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
         let attempted = journal::evidence(req, &normalized(req)?)?;
@@ -192,20 +192,33 @@ pub(super) struct PreparedEvidence {
 }
 /// The actual prerequisite producer; administration/root custody remains the
 /// held coordinator's obligation, with the same exact literal input grammar.
+#[cfg(test)]
 pub(super) async fn prepare_evidence(
     tx: &mut SqliteTx,
     req: &request::Request,
     payload: &Value,
     owner: (&str, &Timestamp, &str, &RecordRef),
 ) -> Result<PreparedEvidence> {
+    prepare_evidence_owned(tx, req, payload, owner, None).await
+}
+async fn prepare_evidence_owned(
+    tx: &mut SqliteTx, req: &request::Request, payload: &Value,
+    owner: (&str, &Timestamp, &str, &RecordRef), ledger: Option<&LocalWorkflowLedger>,
+) -> Result<PreparedEvidence> {
     let (actor, at, mode, root) = owner;
     require(proof_session::present(tx, req.key())?, "INTEGRITY_FAILURE")?;
     let input = parse_evidence_payload(payload)?;
-    validate_evidence_dependencies(tx, req.key(), &input, actor, mode).await?;
+    let checked_dependencies = validate_evidence_dependencies(tx, req.key(), &input, actor, mode, ledger).await?;
     let result = evidence_record(&input, actor, at, mode, root)?;
     let results = vec![result.reference.clone()];
     let mut documents = vec![result];
-    documents.extend(verify::locator_dependencies(tx, req.key(), req, payload).await?);
+    // The stop checker has already produced this exact dependency union under
+    // the same writer. Move its owned DATA rather than repeat that full proof.
+    // Post-append verification still starts its ordinary new proof epoch.
+    documents.extend(match checked_dependencies {
+        Some(dependencies) => dependencies,
+        None => verify::locator_dependencies_owned(tx, req.key(), req, payload, ledger).await?,
+    });
     Ok(PreparedEvidence { documents, results })
 }
 
@@ -215,7 +228,8 @@ async fn validate_evidence_dependencies(
     input: &ledgerlab_core::policy::workflow::EvidenceInput,
     actor: &str,
     mode: &str,
-) -> Result<()> {
+    ledger: Option<&LocalWorkflowLedger>,
+) -> Result<Option<Vec<Document>>> {
     if input.purpose() == "operator_attestation" {
         let r: RecordRef = serde_json::from_value(input.metadata()["assent_evidence_ref"].clone())
             .map_err(|_| reject("INVALID_REFERENCE"))?;
@@ -237,9 +251,11 @@ async fn validate_evidence_dependencies(
             "INSTALLATION_MODE_MISMATCH",
         )?;
     } else if input.purpose() == "admission_stop" {
-        activation_verify::stop_evidence_dependencies(tx, key, input).await?;
+        return activation_verify::stop_evidence_dependencies_owned(tx, key, input, ledger)
+            .await
+            .map(Some);
     }
-    Ok(())
+    Ok(None)
 }
 pub(super) fn normalize_payload(req: &request::Request) -> Result<Value> {
     normalized(req)

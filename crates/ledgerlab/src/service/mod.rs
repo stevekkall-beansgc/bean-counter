@@ -25,6 +25,8 @@ pub(crate) fn store_error(e: StoreError) -> ServiceError {
         ServiceError::ReadBudgetExhausted
     } else if matches!(e, StoreError::BillingM5SchemaRequired) {
         ServiceError::Rejection("BILLING_M5_SCHEMA_REQUIRED".into())
+    } else if matches!(e, StoreError::ManualCreditProfileRequired) {
+        ServiceError::Rejection("MANUAL_CREDIT_PROFILE_REQUIRED".into())
     } else if matches!(e, StoreError::BillingUpgradeRequired) {
         ServiceError::Rejection("BILLING_UPGRADE_REQUIRED".into())
     } else if matches!(e, StoreError::BillingHistoryLimit) {

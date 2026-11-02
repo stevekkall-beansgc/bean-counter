@@ -155,8 +155,19 @@ pub(in super::super::super) async fn observe(
         .map_err(core_error)?;
     o.activation = Some(if kind == "invocation.authorize" {
         o.original
-            .current_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)
+            .current_activation(ledger, tx, key, original_binding.value(), &o.at, o.before, s)
             .await?
+    } else if !o.original.publication.program().uses_stage_lifecycle_recipe()
+        && !o.original.publication.program().uses_component_lifecycle_recipe()
+        && subject.original_work_ref().is_some()
+    {
+        o.original.original_work_activation(ledger, tx, key, original_binding.value(),
+            subject.original_work_ref().ok_or(ServiceError::IntegrityFailure)?, &o.at, o.before, s).await?
+    } else if schema == "ledger-workflow-fact-attest/1"
+        && !o.original.publication.program().uses_stage_lifecycle_recipe()
+        && !o.original.publication.program().uses_component_lifecycle_recipe()
+    {
+        o.original.original_fact_activation(ledger, tx, key, original_binding.value(), &o.at, o.before, s).await?
     } else {
         o.original
             .original_initial_activation(tx, key, original_binding.value(), &o.at, o.before, s)

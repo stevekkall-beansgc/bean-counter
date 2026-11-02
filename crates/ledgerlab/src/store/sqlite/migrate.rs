@@ -30,6 +30,10 @@ const APP_WORKFLOW: &str = include_str!("workflow/financial/app_schema.sql");
 const ASSERTION_WORKFLOW: &str = include_str!("workflow/financial/assertion_schema.sql");
 const STAGE_WORKFLOW: &str = include_str!("workflow/financial/stage_schema.sql");
 const INVOCATION_WORKFLOW: &str = include_str!("workflow/financial/invocation_schema.sql");
+fn manual_credit_migration() -> Migration {
+    Migration::new(21, "operator manual credit custody".into(), MigrationType::Simple,
+        include_str!("workflow/manual_credit_schema.sql").into_sql_str(), false)
+}
 fn statement_workflow_migration() -> Migration {
     Migration::new(20, "workflow statement membership".into(), MigrationType::Simple,
         include_str!("workflow/statement_schema.sql").into_sql_str(), false)
@@ -226,7 +230,7 @@ pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         .await?;
     // Ordinary open never upgrades. The M5 coordinator owns schema-11 billing
     // writes; the historical schema-10 billing writer still refuses version 11.
-    if !(9..=20).contains(&current) {
+    if !(9..=21).contains(&current) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
@@ -242,7 +246,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=20).contains(&v) {
+    if !(1..=21).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -252,7 +256,9 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
             .await?;
     if rows.len() != v as usize
         || rows.iter().enumerate().any(|(i, row)| {
-            let expected = if i == 19 {
+            let expected = if i == 20 {
+                manual_credit_migration()
+            } else if i == 19 {
                 statement_workflow_migration()
             } else if i == 18 {
                 invocation_workflow_migration()
@@ -1578,7 +1584,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result = tokio::time::timeout_at(self.deadline, async {
             let from = version(self.conn()).await?;
-            if from == 13 || from == 14 || from == 15 || from == 16 || from == 17 || from == 18 || from == 19 || from == 20 {
+            if from == 13 || from == 14 || from == 15 || from == 16 || from == 17 || from == 18 || from == 19 || from == 20 || from == 21 {
                 return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ());
             }
             if from != 12 {
@@ -1628,7 +1634,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result=tokio::time::timeout_at(self.deadline,async {
             let from=version(self.conn()).await?;
-            if from==14 || from==15 || from==16 || from==17 || from==18 || from==19 || from == 20 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
+            if from==14 || from==15 || from==16 || from==17 || from==18 || from==19 || from == 20 || from == 21 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
             if from!=13 {return Err(StoreError::BillingUpgradeRequired);}
             let installation=super::read::installation(self.conn()).await?;
             if installation.mode!="real" || installation.admission!="open" || !installation.dispatch_hold || installation.dispatch_enabled {return Err(StoreError::InvalidStore("supplier upgrade requires held real installation"));}
@@ -1662,7 +1668,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result=tokio::time::timeout_at(self.deadline,async {
             let from=version(self.conn()).await?;
-            if from==15 || from==16 || from==17 || from==18 || from==19 || from == 20 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
+            if from==15 || from==16 || from==17 || from==18 || from==19 || from == 20 || from == 21 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
             if from!=14 {return Err(StoreError::BillingUpgradeRequired);}
             let installation=super::read::installation(self.conn()).await?;
             if installation.mode!="real" || installation.admission!="open" || !installation.dispatch_hold || installation.dispatch_enabled {return Err(StoreError::InvalidStore("app upgrade requires held real installation"));}
@@ -1690,7 +1696,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result=tokio::time::timeout_at(self.deadline,async {
             let from=version(self.conn()).await?;
-            if from==16 || from==17 || from==18 || from==19 || from == 20 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
+            if from==16 || from==17 || from==18 || from==19 || from == 20 || from == 21 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
             if from!=15 {return Err(StoreError::BillingUpgradeRequired);}
             let installation=super::read::installation(self.conn()).await?;
             if installation.mode!="real" || installation.admission!="open" || !installation.dispatch_hold || installation.dispatch_enabled {return Err(StoreError::InvalidStore("assertion upgrade requires held real installation"));}
@@ -1727,7 +1733,7 @@ impl super::SqliteTx {
         let deadline = self.deadline;
         let result = tokio::time::timeout_at(deadline, async {
             let from = version(self.conn()).await?;
-            if from == 12 || from == 13 || from == 14 || from == 15 || from == 16 || from == 17 || from == 18 || from == 19 || from == 20 {
+            if from == 12 || from == 13 || from == 14 || from == 15 || from == 16 || from == 17 || from == 18 || from == 19 || from == 20 || from == 21 {
                 super::m5::verify(self.conn()).await?;
                 super::workflow::capacity::check(self.conn(), 0, 0).await?;
                 return Ok(());
@@ -1775,7 +1781,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result=async{
    let from=version(self.conn()).await?;
-   if from==17 || from==18 || from==19 || from == 20{return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
+   if from==17 || from==18 || from==19 || from == 20 || from == 21{return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
    if from!=16{return Err(StoreError::BillingUpgradeRequired);}
    let state=super::read::installation(self.conn()).await?;
    if state.mode!="real"||state.admission!="open"||!state.dispatch_hold||state.dispatch_enabled{return Err(StoreError::InvalidStore("operator resource upgrade requires local held installation"));}
@@ -1804,7 +1810,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result = super::workflow::until(self.workflow_deadline(), async {
             let from = version(self.conn()).await?;
-            if from == 18 || from == 19 || from == 20 { return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ()); }
+            if from == 18 || from == 19 || from == 20 || from == 21 { return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ()); }
             if from != 17 { return Err(StoreError::BillingUpgradeRequired); }
             let installation = super::read::installation(self.conn()).await?;
             if installation.mode != "real" || installation.admission != "open" || !installation.dispatch_hold || installation.dispatch_enabled {
@@ -1846,7 +1852,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result = super::workflow::until(self.workflow_deadline(), async {
             let from = version(self.conn()).await?;
-            if from == 19 || from == 20 { return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ()); }
+            if from == 19 || from == 20 || from == 21 { return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ()); }
             if from != 18 { return Err(StoreError::BillingUpgradeRequired); }
             let installation = super::read::installation(self.conn()).await?;
             if installation.mode != "real" || installation.admission != "open" || !installation.dispatch_hold || installation.dispatch_enabled {
@@ -1956,7 +1962,7 @@ impl super::SqliteTx {
         self.failed=true;
         let result=async {
             let from=version(self.conn()).await?;
-            if from==20 { return Ok(()); }
+            if from==20 || from==21 { return Ok(()); }
             if from!=19 { return Err(StoreError::BillingUpgradeRequired); }
             let installation=super::read::installation(self.conn()).await?;
             if installation.mode!="real" || installation.admission!="open" || !installation.dispatch_hold || installation.dispatch_enabled {
@@ -1982,6 +1988,49 @@ impl super::SqliteTx {
             Ok(())
         }.await;
         if result.is_ok() { self.failed=false; }
+        result
+    }
+
+    /// Explicit manual-credit adoption inside the same held issue transaction.
+    /// A failed issue rolls back both additive migrations and every new row.
+    pub(crate) async fn workflow_enable_manual_credit_schema(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned manual credit upgrade"));
+        }
+        let from = version(self.conn()).await?;
+        if from == 19 {
+            self.workflow_enable_statement_schema().await?;
+        }
+        self.failed = true;
+        let result = super::workflow::until(self.workflow_deadline(), async {
+            let from = version(self.conn()).await?;
+            if from == 21 { return Ok(()); }
+            if from != 20 { return Err(StoreError::BillingUpgradeRequired); }
+            let installation = super::read::installation(self.conn()).await?;
+            if installation.mode != "real" || installation.admission != "open"
+                || !installation.dispatch_hold || installation.dispatch_enabled {
+                return Err(StoreError::InvalidStore("manual credit upgrade requires held real installation"));
+            }
+            super::workflow::capacity::check(self.conn(), 0, 0).await?;
+            super::connect::integrity(self.conn()).await?;
+            let collision: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE substr(name,1,15)='billing_manual_')")
+                .fetch_one(self.conn()).await?;
+            if collision { return Err(StoreError::InvalidStore("manual credit schema name collision")); }
+            const DOMAIN: &[u8] = b"bean-counter/manual-credit/schema20-source/1\0";
+            let before = retained_source_digest(self.conn(), DOMAIN, "billing_manual_").await?;
+            let migration = manual_credit_migration();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref())).execute(self.conn()).await?;
+            if before != retained_source_digest(self.conn(), DOMAIN, "billing_manual_").await? {
+                return Err(StoreError::Integrity("manual credit migration changed retained history"));
+            }
+            sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)")
+                .bind(migration.version).bind(migration.description.as_ref()).bind(migration.checksum.as_ref()).execute(self.conn()).await?;
+            sqlx::query("PRAGMA user_version=21").execute(self.conn()).await?;
+            version(self.conn()).await?;
+            super::connect::integrity(self.conn()).await?;
+            Ok(())
+        }).await.map_err(|_| self.workflow_timeout_error())?;
+        if result.is_ok() { self.failed = false; }
         result
     }
 }

@@ -5,6 +5,7 @@ use super::*;
 mod write;
 pub(super) use write::AcceptanceWriteData;
 mod admission;
+pub(super) use admission::select_stop;
 mod assents;
 mod binding;
 mod consent;
@@ -45,6 +46,9 @@ pub(super) struct AppAcceptanceInput {
     commitment: bool,
     local: bool,
     selected_registry: &'static str,
+    // DATA classification from the actual completed publication, never a
+    // caller-supplied authority or a substitute for checking actual legs.
+    no_share_stage: bool,
 }
 impl AppAcceptanceInput {
     /// `program` must come from the actual completed original publication. Its
@@ -232,6 +236,9 @@ impl AppAcceptanceInput {
         let authorities = session
             .parse_representation(authorities.bytes(), Kind::SourceDefinition)
             .map_err(core_error)?;
+        let no_share_stage = program
+            .no_share_stage_with_work(session.semantic_work())
+            .map_err(core_error)?;
         Ok(Self {
             terms,
             assents,
@@ -240,6 +247,7 @@ impl AppAcceptanceInput {
             commitment,
             local: wrappers::is_local_registry(registry, session)?,
             selected_registry: registry,
+            no_share_stage,
         })
     }
     fn registry(&self) -> &'static str {

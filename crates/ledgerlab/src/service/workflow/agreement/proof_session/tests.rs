@@ -90,6 +90,7 @@ async fn every_reference_to_a_shared_origin_is_retained_and_wrong_member_index_r
             binding: journal_binding(&child).unwrap(),
             stage: Stage::Members,
         },
+        None,
     )
     .await
     .unwrap();

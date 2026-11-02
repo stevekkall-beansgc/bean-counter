@@ -73,6 +73,7 @@ pub(in super::super) struct ObservedAppActivation {
     pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     pub(in super::super) records: super::super::activation::ActivationRecords,
     _admission_source: Option<usize>,
+    pub(in super::super) stop_records: Option<ActivationAdmissionRecords>,
     pub(in super::super) admission_records: Option<ActivationAdmissionRecords>,
     _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
 }
@@ -185,7 +186,7 @@ pub(in super::super) async fn observe(
         if observed.activation.is_none()
             && !stage::retain_original_work_activation(&mut observed,tx,key,payload,session).await? {
             let binding = session.parse_representation(observed.original.acceptance.binding.bytes(), RepresentationKind::Record).map_err(core_error)?;
-            observed.activation = Some(observed.original.current_initial_activation(tx,key,binding.value(),&observed.at,observed.before,session).await?);
+            observed.activation = Some(observed.original.current_activation(ledger,tx,key,binding.value(),&observed.at,observed.before,session).await?);
         }
         if observed
             .original
@@ -483,6 +484,24 @@ pub(in super::super) async fn observe_activation(
             )
             .map_err(core_error)?;
         let binding = observed._parsed_binding.value();
+        let stop_source = if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
+            Some(super::super::acceptance::select_stop(
+                &observed.sources, &observed.setup.operator, key, session,
+            )?)
+        } else {
+            None
+        };
+        let stop_records = if let Some(index) = stop_source {
+            let source = observed.sources.get(index).ok_or(ServiceError::IntegrityFailure)?;
+            let scope = check::field(check::field(incoming.value(), "key", session)?, "scope", session)?;
+            let root = super::party::produce::root(&observed.setup, scope, &observed.at, session)?;
+            let authority = super::super::activation::stop_authority(
+                source, &root, observed.original.acceptance.accepted_reference(),
+                observed.original.acceptance.binding.reference(), binding, payload.value(), key,
+                &observed.setup.operator, &observed.at, session,
+            )?;
+            Some(ActivationAdmissionRecords { root, authority })
+        } else { None };
         let admission_source =
             if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
                 None
@@ -593,10 +612,10 @@ pub(in super::super) async fn observe_activation(
             prior.as_ref().map(|v| v.value()),
             session,
         )?;
-        Ok((head, records, admission_source, admission_records))
+        Ok((head, records, admission_source, stop_records, admission_records))
     }
     .await;
-    let (head, records, admission_source, admission_records) = built.inspect_err(|_| {
+    let (head, records, admission_source, stop_records, admission_records) = built.inspect_err(|_| {
         session.invalidate();
         tx.workflow_proof_failure_handle()
             .store(true, std::sync::atomic::Ordering::Release);
@@ -606,6 +625,7 @@ pub(in super::super) async fn observe_activation(
         normalized_payload,
         records,
         _admission_source: admission_source,
+        stop_records,
         admission_records,
         _held_head: head,
     })
@@ -809,7 +829,7 @@ async fn observe_binding(
             {
                 Some(
                     original
-                        .current_initial_activation(tx, key, binding.value(), &at, before, session)
+                        .current_activation(ledger, tx, key, binding.value(), &at, before, session)
                         .await?,
                 )
             } else {

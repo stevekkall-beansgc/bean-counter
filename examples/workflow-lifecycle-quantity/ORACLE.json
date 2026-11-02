@@ -1,0 +1,150 @@
+{
+  "baseline_source": "/Users/stephenkall/beans/worktrees/bean-counter-wave2b-members-correction-20261031/examples/workflow-lifecycle-members/source-initial-template.json",
+  "baseline_source_sha256": "3fbf5acc31789c9eb8039cfc6519f42733dd5ec4af57550d79f11f1dce163ba4",
+  "business": "/Users/stephenkall/beans/worktrees/bean-counter-wave2b-members-correction-20261031/examples/workflow-lifecycle-quantity/business.json",
+  "business_sha256": "51a129d65f64608ba61664dda890567792e83a2e0425ff4e4fff25fa8b43ae33",
+  "document_refs": [
+    {
+      "body_sha256": "c66b880182a3d416f05f0c3d6696d6abfeba0530c6675751fe768956f1da0eb2",
+      "ref": {
+        "digest": "sha256:e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+        "id": "wdoc_e8152b4b561c76435b23f417d6625d947c300d136ceb5ad8599942c74ad1e93b",
+        "kind": "workflow-fact-schema"
+      },
+      "schema": "ledger-workflow-fact-schema/1"
+    },
+    {
+      "body_sha256": "6babf88ae3e0f966efb9e76b54fd335b9cb0832b429c8fd53845d3edcce6316c",
+      "ref": {
+        "digest": "sha256:02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+        "id": "wdoc_02ec83b01c78d8e7ae72d7d799c01770e5ba7e7457ca88cc7e05c5163dbaca67",
+        "kind": "workflow-fact-schema"
+      },
+      "schema": "ledger-workflow-fact-schema/1"
+    },
+    {
+      "body_sha256": "7a31fa15c2dd128bd0eb3fdcc78a3751871c2c4f962c28c1852edef9cb1baf3f",
+      "ref": {
+        "digest": "sha256:9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
+        "id": "wdoc_9047f6746f773f4b33a5ad6b04d7f8b9cc820353210a7beae62a3766c7e09369",
+        "kind": "workflow-fact-schema"
+      },
+      "schema": "ledger-workflow-fact-schema/1"
+    },
+    {
+      "body_sha256": "8dab89d9d08b044f3011c022b381e8c814c39a1bee953809a74d2fcb6c7f9dff",
+      "ref": {
+        "digest": "sha256:351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+        "id": "wdoc_351c6cbb86216a5bdb346c7b020f2f846238593a09d992693f4a9ed9b6f42fc5",
+        "kind": "workflow-product"
+      },
+      "schema": "ledger-workflow-product/1"
+    },
+    {
+      "body_sha256": "cf302e0c805a12aecbe82edf5b5a52308ba1aee34c4552dee160edcd77ddae3b",
+      "ref": {
+        "digest": "sha256:136cd383784d61dd342102853428965da09eae114c57d2820cea38601a920f33",
+        "id": "wdoc_136cd383784d61dd342102853428965da09eae114c57d2820cea38601a920f33",
+        "kind": "workflow-slot-template"
+      },
+      "schema": "ledger-workflow-slot-template/1"
+    },
+    {
+      "body_sha256": "42093a72202c48c16c1195b07285ade4008fe50b857a494ac5e8ce101ce48f69",
+      "ref": {
+        "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+        "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+        "kind": "workflow-policy"
+      },
+      "schema": "ledger-workflow-policy/4"
+    }
+  ],
+  "exact_definition_changes": {
+    "formula": {
+      "kind": "unit",
+      "normalize_to": "support:item",
+      "quantity_field": "support:quantity",
+      "rate": "1",
+      "unit": "support:item"
+    },
+    "policy_id": "policy:stage-quantity-original-d",
+    "rule_id": "support:prior",
+    "version": "1",
+    "when": {
+      "field": {
+        "context": "source"
+      },
+      "op": "eq",
+      "value": "urn:example:stage-reporter"
+    }
+  },
+  "expected_money": {
+    "b_failed_root_atoms": "0",
+    "correction_quantity": "0",
+    "currency": "USD",
+    "d_canonical_namespace": "urn:example:stage-worker",
+    "d_original_source": "urn:example:stage-reporter",
+    "d_root_atoms": "1000000000000000000",
+    "d_succeeded_quantity": "1",
+    "post_correction_total_atoms": "0",
+    "pre_correction_total_atoms": "3000000000000000000",
+    "root_inverse_atoms": "-1000000000000000000",
+    "root_replacement_atoms": "0",
+    "scale": 18,
+    "stage_cap_adjustment_atoms": "0",
+    "stage_inverse_atoms": "-2000000000000000000",
+    "stage_premium_atoms": "2000000000000000000",
+    "supplier_atoms": "0",
+    "zero_actions_for_zero_amount": false
+  },
+  "identity": {
+    "agreement": "stage-quantity-support",
+    "b_business_operation_id": "quantity-member-b",
+    "chain": "stage-quantity-chain",
+    "close_business_operation_id": "quantity-close-business",
+    "customer": "customer-stage",
+    "d_business_operation_id": "quantity-member-d",
+    "new_initial_agreement": true,
+    "operation_prefix": "finite-quantity-",
+    "product": "support:product",
+    "template_ref": {
+      "digest": "sha256:136cd383784d61dd342102853428965da09eae114c57d2820cea38601a920f33",
+      "id": "wdoc_136cd383784d61dd342102853428965da09eae114c57d2820cea38601a920f33",
+      "kind": "workflow-slot-template"
+    }
+  },
+  "new_policy_ref": {
+    "digest": "sha256:3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+    "id": "wdoc_3157aafe9bb6c7555e2613567eafcab4d0fd1c90ba3c6b5f899a63a7241711c0",
+    "kind": "workflow-policy"
+  },
+  "original_fixed_only_policy_ref_preserved": {
+    "digest": "sha256:99350adeab37eb3a675de99f1d3f04433be5cd2409e69e1a9b00ac538d946b60",
+    "id": "wdoc_99350adeab37eb3a675de99f1d3f04433be5cd2409e69e1a9b00ac538d946b60",
+    "kind": "workflow-policy"
+  },
+  "required_originals": [
+    "Actual new immutable publication and customer assent/acceptance before first Work",
+    "New agreement/chain/business IDs; no old Work replay or copied financial records",
+    "Original immutable D source, current corrector source and canonical worker namespace remain separate",
+    "Stage fixed expected set and original first Work W/deadline retained",
+    "Original D root Action and Stage Action exact inverses; every Ref/body/producer/authority/term association checked",
+    "Root Decision2 active quantity_correct, closure Decision2 reversed dependent_reverse; original Stage closed claim/state unchanged",
+    "Public original reads/status after reopen and whole-copy restore; full snapshots/config preserved"
+  ],
+  "schema": "wave2b-original-d-quantity-fixture-oracle/1",
+  "scope_limits": [
+    "No standalone Invocation/supplier extension",
+    "No retrospective change to saved fixed-only policy, schema, terms or failed correction identity",
+    "No claim of default20s or finite semantic-work qualification",
+    "No execution until reviewed source/input/runner freeze and saved reversal gate"
+  ],
+  "settings": {
+    "attempt_timeout_ms": 60000,
+    "other_seven_limits": "unchanged defaults",
+    "semantic_work": null
+  },
+  "source": "/Users/stephenkall/beans/worktrees/bean-counter-wave2b-members-correction-20261031/examples/workflow-lifecycle-quantity/source.json",
+  "source_sha256": "41681fcbf4219302423339dc07385c39a85ef1569aff30488de96f5a5604b687",
+  "status": "DRAFT_SOURCE_DATA_ONLY_NOT_EXECUTED"
+}

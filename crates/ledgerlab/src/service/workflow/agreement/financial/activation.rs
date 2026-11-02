@@ -8,7 +8,7 @@ use ledgerlab_core::{
     policy::workflow::transition_constructor::ExactRef,
     validation_work::{OriginalAuditSession, RepresentationKind, ValidationVisit as Visit},
 };
-pub(super) use replay::reconstruct_initial;
+pub(super) use replay::{reconstruct_initial, reconstruct_later};
 pub(super) use transition_records::{build_records, ActivationRecords};
 
 fn encode(v: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
@@ -424,4 +424,87 @@ mod tests {
             }
         }
     }
+}
+
+/// Mechanical existing Authority2 stop document from one actual source. The
+/// caller must separately authenticate the completed owner, stop evidence,
+/// selected target and real management root before using this document.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn stop_authority(
+    source: &current::source::ObservedSource,
+    root: &wire::SourceRecord,
+    accepted: &ExactRef,
+    binding_ref: &ExactRef,
+    binding: &Value,
+    payload: &Value,
+    key: &OperationKey,
+    actor: &str,
+    at: &Timestamp,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let original = source.original_grant_body();
+    request_wrapper::same_text(request_wrapper::text(original, "principal_id", s)?, actor, s)?;
+    request_wrapper::same_text(request_wrapper::text(original, "source", s)?, &key.source, s)?;
+    let enrollment = wire::reference(source.enrollment_ref(), s)?;
+    let state_ref = wire::reference(source.state_ref(), s)?;
+    let state = source.state_body();
+    let revision = encode(request_wrapper::field(state, "revision", s)?, s)?;
+    let status = request_wrapper::text(state, "status", s)?;
+    let status_value = wire::string(status, s)?;
+    let grant_ref;
+    let grant_status;
+    let _observation_storage = s.reserve_external_payload(6 * std::mem::size_of::<(&str, &[u8])>()).map_err(core_error)?;
+    s.semantic_work().write_bytes(6 * std::mem::size_of::<(&str, &[u8])>()).map_err(core_error)?;
+    let mut observation = Vec::new();
+    observation.try_reserve_exact(6).map_err(|_| ServiceError::Unavailable)?;
+    observation.push(("enrollment_ref", enrollment.bytes()));
+    if acceptance::same_recipe_text(status, "active", s)? {
+        let grant = source.current_grant_body().ok_or(ServiceError::IntegrityFailure)?;
+        grant_ref = wire::reference(source.current_grant_ref().ok_or(ServiceError::IntegrityFailure)?, s)?;
+        let starts = Timestamp::parse_with_work(request_wrapper::text(grant, "starts_at", s)?, s.semantic_work()).map_err(core_error)?;
+        let ends = Timestamp::parse_with_work(request_wrapper::text(grant, "ends_at", s)?, s.semantic_work()).map_err(core_error)?;
+        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&at.micros().into(), &starts.micros().into()]).map_err(core_error)?;
+        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare, &[&at.micros().into(), &ends.micros().into()]).map_err(core_error)?;
+        grant_status = wire::string(if at.micros() < starts.micros() { "not_started" } else if at.micros() < ends.micros() { "valid" } else { "expired" }, s)?;
+        observation.push(("grant_ref", grant_ref.bytes()));
+        observation.push(("grant_time_status", grant_status.bytes()));
+    } else {
+        request_wrapper::same_text(status, "revoked", s)?;
+        require(source.current_grant_ref().is_none(), "INTEGRITY_FAILURE")?;
+    }
+    observation.extend([
+        ("revision", revision.bytes()), ("state_ref", state_ref.bytes()),
+        ("status", status_value.bytes()),
+    ]);
+    let observation = wire::object(&observation, 262144, s)?;
+    let actor = wire::string(actor, s)?;
+    let source_name = wire::string(&key.source, s)?;
+    let root_body = s.parse_representation(root.bytes(), RepresentationKind::Authority).map_err(core_error)?;
+    let scope_value = request_wrapper::field(request_wrapper::field(root_body.value(), "basis", s)?, "scope", s)?;
+    let scope = encode(scope_value, s)?;
+    let root = wire::reference(root.reference(), s)?;
+    let accepted = wire::reference(accepted, s)?;
+    let binding_ref = wire::reference(binding_ref, s)?;
+    let customer = encode(request_wrapper::field(binding, "customer", s)?, s)?;
+    let agreement = encode(request_wrapper::field(binding, "agreement_id", s)?, s)?;
+    let target = encode(request_wrapper::field(payload, "transition_ref", s)?, s)?;
+    let expected = encode(request_wrapper::field(payload, "expected_revision", s)?, s)?;
+    let evidence = encode(request_wrapper::field(payload, "evidence_refs", s)?, s)?;
+    let namespace_value = request_wrapper::field(original, "canonical_economic_namespace", s)?;
+    let namespace = encode(namespace_value, s)?;
+    let binding_namespace = encode(request_wrapper::field(binding, "source_namespace", s)?, s)?;
+    same(namespace.bytes(), binding_namespace.bytes(), s)?;
+    let at = wire::string(at.as_str(), s)?;
+    let body = wire::object(&[
+        ("accepted_agreement_ref", accepted.bytes()), ("actor", actor.bytes()),
+        ("agreement_id", agreement.bytes()), ("binding_ref", binding_ref.bytes()),
+        ("binding_source_namespace", namespace.bytes()), ("customer", customer.bytes()),
+        ("evidence_refs", evidence.bytes()), ("expected_activation_revision", expected.bytes()),
+        ("local_admin_ref", root.bytes()), ("observed_at", at.bytes()),
+        ("operation", br#""agreement.revoke""#), ("purpose", br#""stop""#),
+        ("schema", br#""ledger-workflow-agreement-authority/2""#), ("scope", scope.bytes()),
+        ("source", source_name.bytes()), ("source_observation", observation.bytes()),
+        ("target_transition_ref", target.bytes()),
+    ], 262144, s)?;
+    wire::source_record("workflow-authority", "ledger-workflow-agreement-authority/2", body, s)
 }

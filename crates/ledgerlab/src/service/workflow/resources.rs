@@ -219,7 +219,7 @@ impl Snapshot {
                     tx.billing_schema_version()
                         .await
                         .map_err(crate::service::store_error)?,
-                    17..=20
+                    17..=21
                 ),
                 "UNSUPPORTED_SCHEMA_PROFILE",
             )?;

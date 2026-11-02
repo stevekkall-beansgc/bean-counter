@@ -173,7 +173,7 @@ impl ResolvedMembers {
         )?;
         Ok(out)
     }
-    fn new(s: &mut OriginalAuditSession) -> Result<Self> {
+    pub(super) fn new(s: &mut OriginalAuditSession) -> Result<Self> {
         let stride = arithmetic(
             mem::size_of::<OwnedRef>(),
             mem::size_of::<usize>(),
@@ -200,7 +200,7 @@ impl ResolvedMembers {
             _storage: storage,
         })
     }
-    fn add(&mut self, v: &Value, s: &mut OriginalAuditSession) -> Result<usize> {
+    pub(super) fn add(&mut self, v: &Value, s: &mut OriginalAuditSession) -> Result<usize> {
         let p = parts(v, s)?;
         let mut lo = 0usize;
         let mut hi = self.order.len();

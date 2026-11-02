@@ -19,7 +19,7 @@ pub(super) struct Object {
     _controls: ExternalBufferLease,
 }
 impl Object {
-    fn new(template: &[u8], s: &mut OriginalAuditSession) -> Result<Self, ServiceError> {
+    pub(super) fn new(template: &[u8], s: &mut OriginalAuditSession) -> Result<Self, ServiceError> {
         let source = s
             .parse_representation(template, RepresentationKind::Record)
             .map_err(core)?;
@@ -82,7 +82,7 @@ impl Object {
         }
         Err(ServiceError::IntegrityFailure)
     }
-    fn set(
+    pub(super) fn set(
         &mut self,
         name: &str,
         value: &Value,
@@ -95,7 +95,7 @@ impl Object {
         let owner = s.reserve_external_payload(bound).map_err(core)?;
         self.replace(name, value.clone(), owner, s)
     }
-    fn text(
+    pub(super) fn text(
         &mut self,
         name: &str,
         text: &str,
@@ -108,7 +108,7 @@ impl Object {
         s.work().write_bytes(text.len()).map_err(core)?;
         self.replace(name, Value::String(text.to_owned()), owner, s)
     }
-    fn counter(
+    pub(super) fn counter(
         &mut self,
         name: &str,
         n: i64,
@@ -118,7 +118,10 @@ impl Object {
         s.work().write_bytes(20).map_err(core)?;
         self.text(name, &n.to_string(), s)
     }
-    fn encoded(&self, s: &mut OriginalAuditSession) -> Result<AuditedBytes, ServiceError> {
+    pub(super) fn encoded(
+        &self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<AuditedBytes, ServiceError> {
         let b = s
             .canonical_representation(&self.value, RepresentationKind::Record)
             .map_err(core)?;
@@ -130,7 +133,19 @@ pub(super) struct Text {
     pub(super) value: String,
     _owner: ExternalBufferLease,
 }
-fn hash(prefix: &str, parts: &[&[u8]], s: &mut OriginalAuditSession) -> Result<Text, ServiceError> {
+impl Text {
+    pub(super) fn owned(value: String, owner: ExternalBufferLease) -> Self {
+        Self {
+            value,
+            _owner: owner,
+        }
+    }
+}
+pub(super) fn hash(
+    prefix: &str,
+    parts: &[&[u8]],
+    s: &mut OriginalAuditSession,
+) -> Result<Text, ServiceError> {
     let owner = s
         .reserve_external_payload(prefix.len() + 64 + std::mem::size_of::<String>())
         .map_err(core)?;
@@ -197,7 +212,7 @@ fn record(
     Ok(v)
 }
 #[allow(clippy::too_many_arguments)]
-fn seal(
+pub(super) fn seal(
     mut value: Object,
     key: AuditedBytes,
     family: &'static str,
@@ -266,6 +281,7 @@ pub(super) fn prepare(
     totals: &Value,
     through: i64,
     included_records: &Value,
+    manual: Option<&Value>,
     s: &mut OriginalAuditSession,
 ) -> Result<Artifacts, ServiceError> {
     let resolution = state
@@ -277,6 +293,9 @@ pub(super) fn prepare(
     boundary.set("scope", &scope["scope"], s)?;
     boundary.set("store", &scope["store"], s)?;
     let mut statement=Object::new(br#"{"boundary_resolution_id":null,"boundary_rule_version":null,"close_acceptance_time":null,"complete":true,"currency":"USD","customer":null,"end_utc":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"period_id":null,"scale":18,"schema":"ledger-billing-statement/5","snapshot_boundary_id":null,"start_utc":null,"statement_hash":null,"status":"closed","timezone":null,"timezone_rules_version":null,"totals":null,"workflow_boundary":null}"#,s)?;
+    if manual.is_some() {
+        statement.text("schema", "ledger-billing-statement/6", s)?;
+    }
     statement.text("boundary_resolution_id", &resolution.resolution_id, s)?;
     statement.set("boundary_rule_version", &term["boundary_rule_version"], s)?;
     statement.text("close_acceptance_time", accepted.as_str(), s)?;
@@ -319,6 +338,7 @@ pub(super) fn prepare(
         &state.adjustments,
         state.command_sequence,
         state.first_record_sequence,
+        manual,
         s,
     )
 }
@@ -337,13 +357,24 @@ pub(super) fn prepare_ad_hoc(
     lines: &Value,
     totals: &Value,
     through: i64,
+    manual: Option<&Value>,
     s: &mut OriginalAuditSession,
 ) -> Result<Artifacts, ServiceError> {
     let mut boundary = Object::new(br#"{"commit_sequence":null,"scope":null,"store":null}"#, s)?;
     boundary.counter("commit_sequence", through, s)?;
     boundary.set("scope", &scope["scope"], s)?;
     boundary.set("store", &scope["store"], s)?;
-    let mut statement=Object::new(br#"{"adjustments":null,"complete":true,"currency":"USD","customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"scale":18,"schema":"ledger-billing-ad-hoc-statement-result/2","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"status":"issued","totals":null,"workflow_actions":null,"workflow_boundary":null}"#,s)?;
+    let mut statement = Object::new(
+        if manual.is_some() {
+            br#"{"adjustments":null,"complete":true,"currency":"USD","customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"manual_credits":null,"scale":18,"schema":"ledger-billing-ad-hoc-statement-result/3","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"status":"issued","totals":null,"workflow_actions":null,"workflow_boundary":null}"#
+        } else {
+            br#"{"adjustments":null,"complete":true,"currency":"USD","customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"scale":18,"schema":"ledger-billing-ad-hoc-statement-result/2","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"status":"issued","totals":null,"workflow_actions":null,"workflow_boundary":null}"#
+        },
+        s,
+    )?;
+    if let Some(refs) = manual {
+        statement.set("manual_credits", refs, s)?;
+    }
     statement.text("customer", customer, s)?;
     statement.text("statement_id", command_id, s)?;
     statement.set("adjustments", requested_adjustments, s)?;
@@ -367,6 +398,7 @@ pub(super) fn prepare_ad_hoc(
         adjustments,
         position.0,
         position.1,
+        manual,
         s,
     )
 }
@@ -385,6 +417,7 @@ fn finish(
     adjustments: &[m5::PresentableAdjustment],
     command_sequence: i64,
     first_record_sequence: i64,
+    manual: Option<&Value>,
     s: &mut OriginalAuditSession,
 ) -> Result<Artifacts, ServiceError> {
     // Hash the exact unsigned shape with no statement_hash member.
@@ -403,10 +436,11 @@ fn finish(
     let raw = s
         .canonical_representation(&unsigned, RepresentationKind::Record)
         .map_err(core)?;
-    let domain: &[u8] = if command_id.is_some() {
-        b"bean-counter/m5/ad-hoc-statement/2\0"
-    } else {
-        b"bean-counter/m5/statement/5\0"
+    let domain: &[u8] = match (command_id.is_some(), manual.is_some()) {
+        (true, true) => b"bean-counter/m5/ad-hoc-statement/3\0",
+        (false, true) => b"bean-counter/m5/statement/6\0",
+        (true, false) => b"bean-counter/m5/ad-hoc-statement/2\0",
+        (false, false) => b"bean-counter/m5/statement/5\0",
     };
     let digest = hash("", &[domain, raw.bytes()], s)?;
     statement.text("statement_hash", &digest.value, s)?;
@@ -439,7 +473,18 @@ fn finish(
             ],
         )
         .map_err(core)?;
+    let manual_count = manual
+        .map(|v| v.as_array().ok_or(ServiceError::IntegrityFailure))
+        .transpose()?
+        .map_or(0, Vec::len);
+    if manual.is_some() {
+        s.work()
+            .arithmetic(Op::Add, &[&workflow_count.into(), &manual_count.into()])
+            .map_err(core)?;
+    }
     let count = workflow_count
+        .checked_add(manual_count)
+        .ok_or(ServiceError::Unavailable)?
         .checked_add(adjustments.len())
         .and_then(|n| n.checked_add(1))
         .ok_or(ServiceError::Unavailable)?;
@@ -561,23 +606,77 @@ fn finish(
             "ledger-billing-presentation-claim/1",
         ));
     }
+    if let Some(manual) = manual {
+        for reference in manual.as_array().ok_or(ServiceError::IntegrityFailure)? {
+            s.work().visit(Visit::Element).map_err(core)?;
+            let mut key=Object::new(br#"{"customer":null,"manual_credit_ref":null,"role":"manual-credit-membership","workflow_scope":null}"#,s)?;
+            key.text("customer", customer, s)?;
+            key.set("workflow_scope", scope, s)?;
+            key.set("manual_credit_ref", reference, s)?;
+            let mut claim=Object::new(br#"{"customer":null,"manual_credit_ref":null,"presentation_kind":null,"record":null,"schema":"ledger-billing-manual-credit-presentation-claim/1","statement_hash":null,"statement_id":null,"workflow_scope":null}"#,s)?;
+            claim.text("customer", customer, s)?;
+            claim.set("workflow_scope", scope, s)?;
+            claim.set("manual_credit_ref", reference, s)?;
+            claim.text("presentation_kind", presentation, s)?;
+            claim.text("statement_id", statement_id, s)?;
+            claim.text("statement_hash", &digest.value, s)?;
+            pending.push((
+                key.encoded(s)?,
+                claim,
+                crate::store::sqlite::m5_manual::CLAIM,
+            ));
+        }
+    }
     let (key, mut closed, family) = if let Some(command_id) = command_id {
         let mut inner = Object::new(br#"{"statement_id":null}"#, s)?;
         inner.text("statement_id", command_id, s)?;
         let mut key=Object::new(br#"{"customer":null,"key":null,"kind":"ledger-billing-ad-hoc-statement-record/2","role":"ad-hoc-statement"}"#,s)?;
         key.text("customer", customer, s)?;
         key.set("key", &inner.value, s)?;
-        let record=Object::new(br#"{"adjustments":null,"customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"record":null,"schema":"ledger-billing-ad-hoc-statement-record/2","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"totals":null,"workflow_actions":null,"workflow_boundary":null}"#,s)?;
-        (key, record, "ledger-billing-ad-hoc-statement-record/2")
+        let record = Object::new(
+            if manual.is_some() {
+                br#"{"adjustments":null,"customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"manual_credits":null,"record":null,"schema":"ledger-billing-ad-hoc-statement-record/3","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"totals":null,"workflow_actions":null,"workflow_boundary":null}"#
+            } else {
+                br#"{"adjustments":null,"customer":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"record":null,"schema":"ledger-billing-ad-hoc-statement-record/2","snapshot_boundary_id":null,"statement_hash":null,"statement_id":null,"totals":null,"workflow_actions":null,"workflow_boundary":null}"#
+            },
+            s,
+        )?;
+        let family = if manual.is_some() {
+            "ledger-billing-ad-hoc-statement-record/3"
+        } else {
+            "ledger-billing-ad-hoc-statement-record/2"
+        };
+        if manual.is_some() {
+            key.text("kind", family, s)?;
+        }
+        (key, record, family)
     } else {
         let mut inner = Object::new(br#"{"period_id":null}"#, s)?;
         inner.set("period_id", period, s)?;
         let mut key=Object::new(br#"{"customer":null,"key":null,"kind":"ledger-billing-period-close-record/2","role":"period-close"}"#,s)?;
         key.text("customer", customer, s)?;
         key.set("key", &inner.value, s)?;
-        let record=Object::new(br#"{"boundary_resolution_id":null,"customer":null,"end_utc":null,"included_records":null,"included_workflow_actions":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"period_id":null,"record":null,"schema":"ledger-billing-period-close-record/2","snapshot_boundary_id":null,"start_utc":null,"statement_hash":null,"totals":null,"workflow_boundary":null}"#,s)?;
-        (key, record, m5_workflow::RECORD)
+        let record = Object::new(
+            if manual.is_some() {
+                br#"{"boundary_resolution_id":null,"customer":null,"end_utc":null,"included_records":null,"included_workflow_actions":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"manual_credits":null,"period_id":null,"record":null,"schema":"ledger-billing-period-close-record/3","snapshot_boundary_id":null,"start_utc":null,"statement_hash":null,"totals":null,"workflow_boundary":null}"#
+            } else {
+                br#"{"boundary_resolution_id":null,"customer":null,"end_utc":null,"included_records":null,"included_workflow_actions":null,"lines":null,"m3_high_water":null,"m5_high_water":null,"period_id":null,"record":null,"schema":"ledger-billing-period-close-record/2","snapshot_boundary_id":null,"start_utc":null,"statement_hash":null,"totals":null,"workflow_boundary":null}"#
+            },
+            s,
+        )?;
+        let family = if manual.is_some() {
+            "ledger-billing-period-close-record/3"
+        } else {
+            m5_workflow::RECORD
+        };
+        if manual.is_some() {
+            key.text("kind", family, s)?;
+        }
+        (key, record, family)
     };
+    if let Some(manual) = manual {
+        closed.set("manual_credits", manual, s)?;
+    }
     for k in [
         "customer",
         "lines",

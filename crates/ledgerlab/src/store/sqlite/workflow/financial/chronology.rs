@@ -10,6 +10,42 @@ pub(crate) struct OriginalLocator {
 }
 
 impl SqliteTx {
+    /// Untrusted semantic locator only; the caller authenticates its original.
+    pub(crate) async fn workflow_evidence_semantic_locator(
+        &mut self, store: &str, scope: &[String; 2], semantic: &[u8],
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<AuditedBytes>, FinancialReadError> {
+        let prior = self.failed;
+        if prior || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(StoreError::Integrity("poisoned evidence semantic lookup").into());
+        }
+        self.failed = true;
+        self.financial_reserve_io(session, 3 * 262144)?;
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let length: Option<i64> = sqlx::query_scalar("SELECT length(original_identity_key) FROM workflow_agreement_semantics WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_kind='evidence.retain' AND semantic_key=?")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(semantic).fetch_optional(self.conn()).await?;
+            let Some(length) = length else { return Ok(None) };
+            if !resource_compare(session, length, 0)?.is_gt() || resource_compare(session, length, 262144)?.is_gt() { return Err(invalid()); }
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let row = sqlx::query("SELECT original_identity_key FROM workflow_agreement_semantics WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_kind='evidence.retain' AND semantic_key=?")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(semantic).fetch_one(self.conn()).await?;
+            let raw = row.try_get::<&[u8], _>("original_identity_key")?;
+            if !resource_compare(session, raw.len() as i64, length)?.is_eq() { return Err(invalid()); }
+            let (arena, work) = session.parts();
+            Ok(Some(arena.copy_bytes(raw, work)?))
+        }).await.map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        self.financial_finish_io(session).await?;
+        if result.is_ok() {
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            session.check_cancelled()?;
+            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
+                return Err(StoreError::Integrity("unfinished evidence semantic lookup").into());
+            }
+            self.failed = prior;
+        }
+        result
+    }
     /// Global identity existence before any fresh source/program selection.
     /// A scalar probe returns no asserted kind/body and copies only the already
     /// owning exact key through the SAME worker argument/ACK boundary.

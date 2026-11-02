@@ -173,22 +173,8 @@ fn resolve_selected(
         "workflow-activation",
         "ledger-workflow-activation-transition/1",
     )?;
-    shape::closed(
-        m,
-        &activation,
-        &[
-            "schema",
-            "action",
-            "head_transition_ref",
-            "binding_ref",
-            "effective_at",
-            "commit_sequence",
-            "accepted_at",
-        ],
-        &[],
-    )?;
+    authority::admission_activation_shape(m, &activation)?;
     eq(m, &activation["binding_ref"], &payload["binding_ref"])?;
-    literal(m, &activation, "action", "activate")?;
     let (_, head) = load(
         m,
         r,
