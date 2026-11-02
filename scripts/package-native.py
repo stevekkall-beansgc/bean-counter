@@ -183,6 +183,17 @@ def copy_committed_contracts(repo, commit, stage):
         target.write_bytes(subprocess.check_output(["git", "cat-file", "blob", object_id], cwd=repo))
 
 
+def normalize_package_modes(stage, version):
+    executable = {"ledger"}
+    if version == "1.0.0-alpha.1":
+        executable.update({"helpers/prepare_local_publication", "helpers/prepare_local_terms"})
+    for path in stage.rglob("*"):
+        if path.is_dir() or path.relative_to(stage).as_posix() in executable:
+            path.chmod(0o700)
+        else:
+            path.chmod(0o600)
+
+
 def main():
     if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != "--workflow-candidate"):
         raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET [--workflow-candidate]")
@@ -267,7 +278,7 @@ def main():
                 if not source.is_file():
                     raise SystemExit(f"workflow candidate helper not built: {source}")
                 shutil.copyfile(source, helpers / helper)
-                (helpers / helper).chmod(0o600)
+                (helpers / helper).chmod(0o700 if version == "1.0.0-alpha.1" else 0o600)
         copy_committed_contracts(repo, commit, stage)
         if version == "1.0.0-alpha.1":
             for relative in ("contracts/candidates/manual-credit-m5/alpha/README.md",
@@ -357,17 +368,9 @@ def main():
             })
         build_info["toolchain_verbose"] = output("rustc", "--version", "--verbose").replace("\n", "; ")
         (stage / "BUILD-INFO.txt").write_text("".join(f"{key}={value}\n" for key, value in build_info.items()), encoding="utf-8")
-        for path in stage.rglob("*"):
-            if path.is_dir():
-                path.chmod(0o700)
-            elif path.name != "ledger":
-                path.chmod(0o600)
+        normalize_package_modes(stage, version)
         subprocess.run([sys.executable, str(repo / "scripts" / "release-inventory.py"), str(repo), str(stage), target], check=True)
-        for path in stage.rglob("*"):
-            if path.is_dir():
-                path.chmod(0o700)
-            elif path.name != "ledger":
-                path.chmod(0o600)
+        normalize_package_modes(stage, version)
         archive = artifacts / f"{name}.tar.gz"
         with tarfile.open(archive, "w:gz", format=tarfile.PAX_FORMAT) as tar:
             tar.add(stage, arcname=name, recursive=True)

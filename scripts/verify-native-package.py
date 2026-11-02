@@ -66,6 +66,8 @@ def verify_catalog_evidence(files, build, identity):
         return  # Historical single-profile packages retain their existing path.
     require(set(catalog) == {"schema", "entries"}, "invalid workflow catalog fields")
     required = {"WORKFLOW-SOURCE-INVENTORY.json", "WORKFLOW-CAPTURE-QUALIFIED.json"}
+    if identity["version"] == "1.0.0-alpha.1":
+        required.update({"helpers/prepare_local_publication", "helpers/prepare_local_terms"})
     require(required <= files.keys(), "missing workflow catalog evidence")
     inventory_raw = files["WORKFLOW-SOURCE-INVENTORY.json"]
     inventory = parse_json(inventory_raw, "workflow source inventory")
@@ -150,7 +152,7 @@ def canonical_member_name(name, is_dir):
     return candidate
 
 
-def read_members(archive_data, root_name):
+def read_members(archive_data, root_name, expected_version):
     try:
         archive = tarfile.open(fileobj=BytesIO(archive_data), mode="r:gz")
     except (OSError, tarfile.TarError) as error:
@@ -172,6 +174,8 @@ def read_members(archive_data, root_name):
             require(member.mode in (0o600, 0o700), f"file has unsafe or unexpected mode: {name} ({member.mode:o})")
             if name == root_name + "/ledger":
                 require(member.mode == 0o700, "ledger must be executable and private (mode 0700)")
+            elif expected_version == "1.0.0-alpha.1" and name in (root_name + "/helpers/prepare_local_publication", root_name + "/helpers/prepare_local_terms"):
+                require(member.mode == 0o700, f"helper must be executable and private (mode 0700): {name}")
             else:
                 require(member.mode == 0o600, f"non-binary file must have mode 0600: {name}")
             stream = archive.extractfile(member)
@@ -228,7 +232,7 @@ def verify(archive_path, sums_path, expected_commit, expected_version, expected_
     if expected_target:
         require(filename_target == expected_target, f"unexpected package target: {filename_target}")
     require(re.fullmatch(r"[0-9a-f]{40,64}", expected_commit) is not None, "expected commit must be lowercase Git SHA-1 or SHA-256")
-    files = read_members(archive_data, root_name)
+    files = read_members(archive_data, root_name, expected_version)
     required_files = {"MANIFEST.json", "ledger", "SBOM.spdx.json", "PROVENANCE.json", "BUILD-INFO.txt", "BUILD-LINKAGE.txt"}
     require(required_files <= files.keys(), "archive is missing required release metadata or binary files")
     manifest = parse_json(files["MANIFEST.json"], "MANIFEST.json")

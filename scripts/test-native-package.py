@@ -203,13 +203,15 @@ def check_integrated_catalog_identity(directory):
     packaged = {"ledger": binary.read_bytes(), "WORKFLOW-BUILD-INPUTS.json": inputs.read_bytes(),
                 "WORKFLOW-SOURCE-INVENTORY.json": (capture / "inventory.json").read_bytes(),
                 "WORKFLOW-CAPTURE-QUALIFIED.json": qualified.read_bytes()}
+    packaged.update({"helpers/prepare_local_publication": b"synthetic helper", "helpers/prepare_local_terms": b"synthetic helper"})
     build = {"workflow_build_inputs_sha256": digest(packaged["WORKFLOW-BUILD-INPUTS.json"]),
              "workflow_source_inventory_sha256": digest(packaged["WORKFLOW-SOURCE-INVENTORY.json"]),
              "workflow_capture_command": "--integrated-local-profiles", "rustc": base["recipe"]["rustc_version"],
              "cargo": base["recipe"]["cargo_version"]}
     identity = {"source_commit": COMMIT, "version": "1.0.0-alpha.1", "target": "x86_64-unknown-linux-gnu"}
     verifier.verify_catalog_evidence(packaged, build, identity)
-    for label, changed in [("missing qualification", {k: v for k, v in packaged.items() if k != "WORKFLOW-CAPTURE-QUALIFIED.json"}),
+    for label, changed in [("missing helper", {k: v for k, v in packaged.items() if k != "helpers/prepare_local_terms"}),
+                           ("missing qualification", {k: v for k, v in packaged.items() if k != "WORKFLOW-CAPTURE-QUALIFIED.json"}),
                            ("changed binary", {**packaged, "ledger": b"wrong"}),
                            ("changed inventory", {**packaged, "WORKFLOW-SOURCE-INVENTORY.json": b"{}"})]:
         try:
@@ -261,6 +263,52 @@ def check_integrated_catalog_identity(directory):
     qualified.write_bytes(saved)
     (source / "Cargo.lock").write_bytes(b"changed")
     reject("changed captured source")
+
+
+def check_package_helper_normalization(directory):
+    spec = importlib.util.spec_from_file_location("native_packager_modes", VERIFY.with_name("package-native.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stage = directory / "mode-stage"
+    (stage / "helpers").mkdir(parents=True)
+    for name in ("ledger", "helpers/prepare_local_publication", "helpers/prepare_local_terms", "other"):
+        (stage / name).write_bytes(b"x")
+    for version, helper_mode in (("1.0.0-alpha.1", 0o700), ("0.11.0", 0o600)):
+        module.normalize_package_modes(stage, version)
+        for name, expected in (("ledger", 0o700), ("helpers/prepare_local_publication", helper_mode),
+                               ("helpers/prepare_local_terms", helper_mode), ("other", 0o600)):
+            if (stage / name).stat().st_mode & 0o777 != expected:
+                raise RuntimeError(f"incorrect {version} package mode: {name}")
+
+
+def check_helper_modes(directory):
+    spec = importlib.util.spec_from_file_location("native_verifier_modes", VERIFY)
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    root = "synthetic"
+    def archive(helper_mode, other_mode=0o600):
+        data = __import__("io").BytesIO()
+        with tarfile.open(fileobj=data, mode="w:gz") as tar:
+            for name in (root, root + "/helpers"):
+                info = tarfile.TarInfo(name)
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o700
+                tar.addfile(info)
+            for name, mode in (("ledger", 0o700), ("helpers/prepare_local_publication", helper_mode),
+                               ("helpers/prepare_local_terms", helper_mode), ("other", other_mode)):
+                info = tarfile.TarInfo(root + "/" + name)
+                info.mode = mode
+                info.size = 1
+                tar.addfile(info, __import__("io").BytesIO(b"x"))
+        return data.getvalue()
+    verifier.read_members(archive(0o700), root, "1.0.0-alpha.1")
+    verifier.read_members(archive(0o600), root, "0.11.0")
+    for payload in (archive(0o600), archive(0o700, 0o700), archive(0o755)):
+        try:
+            verifier.read_members(payload, root, "1.0.0-alpha.1")
+        except verifier.VerificationError:
+            continue
+        raise RuntimeError("invalid alpha executable mode accepted")
 
 
 def check_committed_alpha_contract_isolation(directory):
@@ -326,6 +374,8 @@ def main():
         check_committed_example_isolation(directory)
         check_workflow_build_identity(directory)
         check_integrated_catalog_identity(directory)
+        check_package_helper_normalization(directory)
+        check_helper_modes(directory)
         check_committed_alpha_contract_isolation(directory)
         check_prerelease_archive(directory)
         good, sums = write_case(directory, ARCHIVE_NAME[:-len(".tar.gz")])
