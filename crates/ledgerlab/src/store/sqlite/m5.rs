@@ -3934,6 +3934,20 @@ async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreEr
     )
     .fetch_all(&mut *conn)
     .await?;
+    // Before schema 20, every period-close projection must name a legacy /1
+    // close record. An inner join alone would silently omit a projection that
+    // points at another record (or at no record in a damaged store).
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version < 20 {
+        let all: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes")
+            .fetch_one(&mut *conn)
+            .await?;
+        if all != rows.len() as i64 {
+            return Err(StoreError::InvalidStore("M5 period close projection count"));
+        }
+    }
     let retained: BTreeSet<i64> = sqlx::query_scalar(
         "SELECT sequence FROM billing_m5_records WHERE family='ledger-billing-period-close-record/1' ORDER BY sequence",
     )
