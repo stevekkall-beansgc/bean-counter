@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PUB-BUILD-CATALOG-02 compile-embedded metadata only; no retained record or support authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "entries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ledger-workflow-build-input-catalog/2"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "build-provenance.schema.json#/$defs/BuildInputs"
+            },
+            {
+              "properties": {
+                "recipe": {
+                  "properties": {
+                    "compiler_ref": {
+                      "const": {
+                        "kind": "workflow-compiler-descriptor",
+                        "id": "wdoc_1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
+                        "digest": "sha256:1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "build-provenance.schema.json#/$defs/BuildInputs"
+            },
+            {
+              "properties": {
+                "recipe": {
+                  "properties": {
+                    "compiler_ref": {
+                      "const": {
+                        "kind": "workflow-compiler-descriptor",
+                        "id": "wdoc_5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc",
+                        "digest": "sha256:5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "build-provenance.schema.json#/$defs/BuildInputs"
+            },
+            {
+              "properties": {
+                "recipe": {
+                  "properties": {
+                    "compiler_ref": {
+                      "const": {
+                        "kind": "workflow-compiler-descriptor",
+                        "id": "wdoc_f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b",
+                        "digest": "sha256:f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "build-provenance.schema.json#/$defs/BuildInputs"
+            },
+            {
+              "properties": {
+                "recipe": {
+                  "properties": {
+                    "compiler_ref": {
+                      "const": {
+                        "kind": "workflow-compiler-descriptor",
+                        "id": "wdoc_f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e",
+                        "digest": "sha256:f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    }
+  },
+  "$comment": "All source objects and all noncompiler recipe fields must agree. Entire embedded canonical catalog <=65536 bytes; unchanged per-entry bounds. These checks are semantic, not asserted by JSON Schema."
+}

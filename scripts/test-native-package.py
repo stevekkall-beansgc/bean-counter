@@ -210,6 +210,26 @@ def check_integrated_catalog_identity(directory):
              "cargo": base["recipe"]["cargo_version"]}
     identity = {"source_commit": COMMIT, "version": "1.0.0-alpha.1", "target": "x86_64-unknown-linux-gnu"}
     verifier.verify_catalog_evidence(packaged, build, identity)
+    def reject_catalog(label, changed_catalog):
+        raw = canonical(changed_catalog).encode()
+        changed = {**packaged, "WORKFLOW-BUILD-INPUTS.json": raw}
+        qualification = json.loads(changed["WORKFLOW-CAPTURE-QUALIFIED.json"])
+        qualification["build_inputs_sha256"] = digest(raw)
+        changed["WORKFLOW-CAPTURE-QUALIFIED.json"] = json.dumps(qualification).encode()
+        try:
+            verifier.verify_catalog_evidence(changed, {**build, "workflow_build_inputs_sha256": digest(raw)}, identity)
+        except verifier.VerificationError:
+            return
+        raise RuntimeError(f"archive verifier accepted {label}")
+    for label in ("missing", "extra", "duplicate", "reordered", "mixed", "nonselected"):
+        bad = copy.deepcopy(catalog)
+        if label == "missing": bad["entries"].pop()
+        elif label == "extra": bad["entries"].append(copy.deepcopy(bad["entries"][-1]))
+        elif label == "duplicate": bad["entries"][2] = copy.deepcopy(bad["entries"][1])
+        elif label == "reordered": bad["entries"][2], bad["entries"][3] = bad["entries"][3], bad["entries"][2]
+        elif label == "mixed": bad["entries"][1]["recipe"]["target"] = "different"
+        else: bad["entries"][1]["unexpected"] = True
+        reject_catalog(label, bad)
     for label, changed in [("missing helper", {k: v for k, v in packaged.items() if k != "helpers/prepare_local_terms"}),
                            ("missing qualification", {k: v for k, v in packaged.items() if k != "WORKFLOW-CAPTURE-QUALIFIED.json"}),
                            ("changed binary", {**packaged, "ledger": b"wrong"}),

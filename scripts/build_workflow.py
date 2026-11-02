@@ -13,7 +13,8 @@ def digest(raw): return hashlib.sha256(raw).hexdigest()
 
 # Exact existing profiles required by the integrated packet. This is build
 # metadata, not runtime compiler admission or an extensible caller catalog.
-CATALOG_SCHEMA = 'ledger-workflow-build-input-catalog/1'
+CATALOG_SCHEMA_V1 = 'ledger-workflow-build-input-catalog/1'
+CATALOG_SCHEMA = 'ledger-workflow-build-input-catalog/2'
 CATALOG_PROFILES = (
     ('runtime-support/local-policy-context-compiler8-data.json',
      'runtime-support/local-policy-context-mode.json',
@@ -28,18 +29,29 @@ CATALOG_PROFILES = (
      'component-lifecycle-01/contract-manifest.json',
      'f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b'),
 )
+CATALOG_PROFILES_V1 = CATALOG_PROFILES
+CATALOG_PROFILES = CATALOG_PROFILES_V1 + (
+    ('runtime-support/local-conditional-compiler8-data.json',
+     'runtime-support/local-conditional-mode.json',
+     'runtime-support/local-conditional-contract-profile.json',
+     'f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e'),
+)
 CATALOG_CONTRACTS = (
     'contracts/candidates/full-suite-v1/core/BUILD-PROVENANCE-CATALOG-01.md',
     'contracts/candidates/full-suite-v1/core/build-provenance-catalog.schema.json',
+    'contracts/candidates/full-suite-v1/core/BUILD-PROVENANCE-CATALOG-02.md',
+    'contracts/candidates/full-suite-v1/core/build-provenance-catalog-v2.schema.json',
 )
 
-def integrated_catalog(files, single_inputs):
+def integrated_catalog(files, single_inputs, schema=CATALOG_SCHEMA):
     """Capture complete entries from the immutable selected build inputs only."""
     prefix = 'contracts/candidates/full-suite-v1/core/'
     load = lambda path: json.loads(files[prefix + path])
     limits_digest = 'sha256:' + digest(canonical(load('local-operator-resources-01/limits.json')).encode())
     entries = []
-    for descriptor_path, mode_path, manifest_path, expected in CATALOG_PROFILES:
+    profiles = {CATALOG_SCHEMA_V1: CATALOG_PROFILES_V1, CATALOG_SCHEMA: CATALOG_PROFILES}.get(schema)
+    if profiles is None: raise ValueError('unsupported catalog schema')
+    for descriptor_path, mode_path, manifest_path, expected in profiles:
         descriptor = load(descriptor_path)
         actual = digest(b'bean-counter/workflow-document/1\0' + canonical([descriptor['schema'], descriptor]).encode())
         if (actual != expected or descriptor['schema'] != 'ledger-workflow-compiler-descriptor/8'
@@ -49,7 +61,7 @@ def integrated_catalog(files, single_inputs):
             raise ValueError('integrated compiler artifact identity')
         reference = {'kind': 'workflow-compiler-descriptor', 'id': 'wdoc_' + actual, 'digest': 'sha256:' + actual}
         entries.append({**single_inputs, 'recipe': {**single_inputs['recipe'], 'compiler_ref': reference}})
-    catalog = {'schema': CATALOG_SCHEMA, 'entries': entries}
+    catalog = {'schema': schema, 'entries': entries}
     if len(canonical(catalog).encode()) > 65536:
         raise ValueError('build inputs bound')
     return catalog
@@ -64,10 +76,10 @@ def inventory(files):
     if len(raw)>1048576: raise ValueError('source inventory byte bound')
     return body,'sha256:'+digest(b'bean-counter/build-source-inventory/1\0'+raw)
 def command(args,cwd,env=None): return subprocess.check_output(args,cwd=cwd,env=env).decode().strip()
-def selected(root, include_test_inputs=False):
+def selected(root, include_test_inputs=False, include_catalog_v2=True):
     paths={p for p in (root/'crates').rglob('*') if p.is_file() and not (len(p.relative_to(root).parts)>2 and p.relative_to(root).parts[2]=='target')}
     paths.update(root/p for p in ['Cargo.toml','Cargo.lock','scripts/build_workflow.py'])
-    paths.update(root/p for p in CATALOG_CONTRACTS)
+    paths.update(root/p for p in (CATALOG_CONTRACTS if include_catalog_v2 else CATALOG_CONTRACTS[:2]))
     paths.update(root/p for p in ['rust-toolchain.toml','rust-toolchain','.cargo/config.toml','.cargo/config'] if (root/p).exists())
     # Follow static include paths recursively, including included Rust files.
     # Generated OUT_DIR identity is produced by the build, not a source input.

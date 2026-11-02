@@ -1,0 +1,16 @@
+{
+  "schema": "bean-counter-contract-freeze/1",
+  "scope": "PUB-BUILD-CATALOG-02 additive candidate",
+  "files": [
+    {
+      "path": "BUILD-PROVENANCE-CATALOG-02.md",
+      "sha256": "e200141c27a4af56aefc17dd76cf8e7e461e55f31511f1303c15b6f12daa791b",
+      "bytes": 900
+    },
+    {
+      "path": "build-provenance-catalog-v2.schema.json",
+      "sha256": "5ba38b8ba93f8c790080feaba1cfc3bd6bb153397b9f1c794cbbd05ca946d471",
+      "bytes": 3613
+    }
+  ]
+}

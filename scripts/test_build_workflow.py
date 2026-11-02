@@ -64,6 +64,25 @@ class CaptureTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'unsupported computed include'):
                     capture.selected(root, True)
 
+    def test_catalog_versions_keep_fixed_profiles_and_detect_tampering(self):
+        import copy
+        root = Path(__file__).resolve().parents[1]
+        files = capture.selected(root)
+        base = {'schema':'ledger-workflow-build-inputs/1', 'source':{}, 'recipe':{}}
+        old_paths = capture.selected(root, include_catalog_v2=False)
+        self.assertNotIn('contracts/candidates/full-suite-v1/core/BUILD-PROVENANCE-CATALOG-02.md', old_paths)
+        self.assertNotIn('contracts/candidates/full-suite-v1/core/build-provenance-catalog-v2.schema.json', old_paths)
+        old = capture.integrated_catalog(old_paths, base, capture.CATALOG_SCHEMA_V1)
+        new = capture.integrated_catalog(files, base, capture.CATALOG_SCHEMA)
+        self.assertEqual(len(old['entries']), 3)
+        self.assertEqual(len(new['entries']), 4)
+        self.assertEqual(old['entries'], new['entries'][:3])
+        self.assertEqual(new['entries'][3]['recipe']['compiler_ref']['id'], 'wdoc_f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e')
+        bad = files.copy()
+        path = 'contracts/candidates/full-suite-v1/core/runtime-support/local-conditional-mode.json'
+        bad[path] = b'{}'
+        with self.assertRaises(ValueError): capture.integrated_catalog(bad, base)
+
     def test_effective_compiler_override_refuses_before_capture(self):
         import sys
         from unittest.mock import patch

@@ -59,7 +59,7 @@ def verify_catalog_evidence(files, build, identity):
                 "missing workflow catalog inputs")
         return
     catalog = parse_json(raw, "workflow build inputs")
-    if catalog.get("schema") != "ledger-workflow-build-input-catalog/1":
+    if catalog.get("schema") not in ("ledger-workflow-build-input-catalog/1", "ledger-workflow-build-input-catalog/2"):
         require("WORKFLOW-CAPTURE-QUALIFIED.json" not in files
                 and "--integrated-local-profiles" not in build.get("workflow_capture_command", ""),
                 "invalid workflow catalog schema")
@@ -84,6 +84,8 @@ def verify_catalog_evidence(files, build, identity):
     expected = ("1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
                 "5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc",
                 "f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b")
+    if catalog["schema"] == "ledger-workflow-build-input-catalog/2":
+        expected += ("f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e",)
     require(isinstance(entries, list) and len(entries) == len(expected), "invalid workflow catalog size")
     rows = inventory.get("entries")
     require(set(inventory) == {"schema", "recipe", "entries"}

@@ -42,11 +42,14 @@ struct Inputs {
 // Build-owned metadata only. These are the three existing exact profiles in
 // the integrated Stage/Component/A-B packet, not a new compiler capability.
 const CATALOG_SCHEMA: &str = "ledger-workflow-build-input-catalog/1";
+const CATALOG_SCHEMA_V2: &str = "ledger-workflow-build-input-catalog/2";
 const CATALOG_COMPILERS: [&str; 3] = [
     "1aa64de36f29072d1b850cfb52d30e94623bf1a66048f096383452d832b47613",
     "5c581b238a4387c7de3afdcbeccc6d7c19c1ec63227a8c58a4dd665dad9558bc",
     "f38dc832f70070165a5bbba7502a9599c00ecc483ddd26b9063b9e045f4e8e6b",
 ];
+const CONDITIONAL_COMPILER: &str =
+    "f7896c1fe7e1ad3c50ecd483286ffe200400f6a2bbd404ecedf33539af12607e";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Catalog {
@@ -153,7 +156,10 @@ fn select_inputs(
     embedded: Value,
     compiler_ref: &ledgerlab_core::policy::workflow::DefinitionRef,
 ) -> Result<Inputs> {
-    if embedded.get("schema").and_then(Value::as_str) != Some(CATALOG_SCHEMA) {
+    if !matches!(
+        embedded.get("schema").and_then(Value::as_str),
+        Some(CATALOG_SCHEMA | CATALOG_SCHEMA_V2)
+    ) {
         let inputs = validate_inputs(embedded)?;
         require(
             matches_compiler(&inputs, compiler_ref),
@@ -167,15 +173,23 @@ fn select_inputs(
     )?;
     let catalog: Catalog =
         serde_json::from_value(embedded).map_err(|_| reject("BUILD_IDENTITY_REQUIRED"))?;
+    let expected: Vec<&str> = match catalog.schema.as_str() {
+        CATALOG_SCHEMA => CATALOG_COMPILERS.to_vec(),
+        CATALOG_SCHEMA_V2 => CATALOG_COMPILERS
+            .into_iter()
+            .chain([CONDITIONAL_COMPILER])
+            .collect(),
+        _ => return Err(reject("BUILD_IDENTITY_REQUIRED")),
+    };
     require(
-        catalog.schema == CATALOG_SCHEMA && catalog.entries.len() == CATALOG_COMPILERS.len(),
+        catalog.entries.len() == expected.len(),
         "BUILD_IDENTITY_REQUIRED",
     )?;
     let mut common = None;
     let mut selected = None;
     // Fixed fullRef order rejects duplicates, unknown profiles, omissions and
     // reordering. Validate every entry, including entries not selected here.
-    for (value, digest) in catalog.entries.into_iter().zip(CATALOG_COMPILERS) {
+    for (value, digest) in catalog.entries.into_iter().zip(expected) {
         let inputs = validate_inputs(value)?;
         require(
             inputs.recipe.compiler_ref.id == format!("wdoc_{digest}")
@@ -373,6 +387,61 @@ mod catalog_tests {
             })
             .collect();
         json!({"schema": CATALOG_SCHEMA, "entries": entries})
+    }
+    #[test]
+    fn catalog_v2_selects_conditional_and_rejects_mixed_versions() {
+        let old = catalog();
+        let mut v2 = old.clone();
+        v2["schema"] = json!(CATALOG_SCHEMA_V2);
+        let mut conditional = v2["entries"][0].clone();
+        conditional["recipe"]["compiler_ref"] = json!({
+            "kind": "workflow-compiler-descriptor",
+            "id": format!("wdoc_{CONDITIONAL_COMPILER}"),
+            "digest": format!("sha256:{CONDITIONAL_COMPILER}"),
+        });
+        v2["entries"]
+            .as_array_mut()
+            .unwrap()
+            .push(conditional.clone());
+        for entry in v2["entries"].as_array().unwrap() {
+            assert_eq!(
+                serde_json::to_value(
+                    select_inputs(v2.clone(), &reference(&entry["recipe"]["compiler_ref"]))
+                        .unwrap()
+                )
+                .unwrap(),
+                *entry
+            );
+        }
+        let conditional_ref = reference(&conditional["recipe"]["compiler_ref"]);
+        assert!(select_inputs(old.clone(), &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["schema"] = json!(CATALOG_SCHEMA);
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"].as_array_mut().unwrap().swap(2, 3);
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"][1]["source"]["base_commit"] = json!("a".repeat(40));
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"].as_array_mut().unwrap().pop();
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"]
+            .as_array_mut()
+            .unwrap()
+            .push(conditional.clone());
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"][2] = bad["entries"][1].clone();
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"][1]["recipe"]["target"] = json!("other-target");
+        assert!(select_inputs(bad, &conditional_ref).is_err());
+        let mut bad = v2.clone();
+        bad["entries"][1]["unexpected"] = json!(true);
+        assert!(select_inputs(bad, &conditional_ref).is_err());
     }
     #[test]
     fn workflow_build_catalog_preserves_single_profile_and_closed_selection() {
