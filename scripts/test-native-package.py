@@ -263,6 +263,32 @@ def check_integrated_catalog_identity(directory):
     reject("changed captured source")
 
 
+def check_committed_alpha_contract_isolation(directory):
+    spec = importlib.util.spec_from_file_location("native_packager_contract", VERIFY.with_name("package-native.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    repo = directory / "contract-source"
+    repo.mkdir()
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=Synthetic Test",
+                        "-c", "user.email=test@example.invalid", *args], check=True, capture_output=True)
+    git("init", "-q")
+    alpha = repo / "contracts/candidates/manual-credit-m5/alpha/requests.schema.json"
+    alpha.parent.mkdir(parents=True)
+    alpha.write_text('{"schema":"committed"}')
+    draft = alpha.parent.parent / "CONTRACT.json"
+    draft.write_text('{"internal":"draft"}')
+    git("add", "contracts")
+    git("commit", "-qm", "synthetic contract")
+    alpha.write_text('{"schema":"uncommitted"}')
+    stage = directory / "contract-stage"
+    stage.mkdir()
+    module.copy_committed_contracts(repo, "HEAD", stage)
+    copied = stage / alpha.relative_to(repo)
+    if copied.read_text() != '{"schema":"committed"}' or (stage / draft.relative_to(repo)).exists():
+        raise RuntimeError("alpha contract packaging did not isolate committed public paths")
+
+
 def check_prerelease_archive(directory):
     global ROOT, ARCHIVE_NAME
     old_root, old_archive = ROOT, ARCHIVE_NAME
@@ -300,6 +326,7 @@ def main():
         check_committed_example_isolation(directory)
         check_workflow_build_identity(directory)
         check_integrated_catalog_identity(directory)
+        check_committed_alpha_contract_isolation(directory)
         check_prerelease_archive(directory)
         good, sums = write_case(directory, ARCHIVE_NAME[:-len(".tar.gz")])
         positive = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(sums), COMMIT, "--version", "0.9.2"],

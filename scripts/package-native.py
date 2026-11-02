@@ -168,6 +168,7 @@ def copy_committed_contracts(repo, commit, stage):
     entries = subprocess.check_output(
         ["git", "ls-tree", "-rz", commit, "--",
          "contracts/candidates/billing-lifecycle-m5/",
+         "contracts/candidates/manual-credit-m5/alpha/",
          "contracts/candidates/v2/schemas/canonical-records.schema.json"], cwd=repo)
     for entry in entries.split(b"\0"):
         if not entry:
@@ -250,6 +251,8 @@ def main():
         if workflow_candidate:
             shutil.copyfile(repo / "docs/local-workflow-supported-recipe.md", docs / "local-workflow-supported-recipe.md")
             shutil.copyfile(repo / "docs/workflow-candidate-testing.md", docs / "workflow-candidate-testing.md")
+            if version == "1.0.0-alpha.1":
+                shutil.copyfile(repo / "docs/manual-credit-alpha.md", docs / "manual-credit-alpha.md")
             (stage / "WORKFLOW-BUILD-INPUTS.json").write_bytes(workflow_inputs)
             (stage / "WORKFLOW-SOURCE-INVENTORY.json").write_bytes(workflow_inventory)
             if strict_json(workflow_inputs).get("schema") == build_workflow.CATALOG_SCHEMA:
@@ -266,6 +269,11 @@ def main():
                 shutil.copyfile(source, helpers / helper)
                 (helpers / helper).chmod(0o600)
         copy_committed_contracts(repo, commit, stage)
+        if version == "1.0.0-alpha.1":
+            for relative in ("contracts/candidates/manual-credit-m5/alpha/README.md",
+                             "contracts/candidates/manual-credit-m5/alpha/requests.schema.json"):
+                if not (stage / relative).is_file():
+                    raise SystemExit(f"missing committed alpha manual-credit contract: {relative}")
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
         if workflow_candidate:
