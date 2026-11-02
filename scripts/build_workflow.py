@@ -64,27 +64,60 @@ def inventory(files):
     if len(raw)>1048576: raise ValueError('source inventory byte bound')
     return body,'sha256:'+digest(b'bean-counter/build-source-inventory/1\0'+raw)
 def command(args,cwd,env=None): return subprocess.check_output(args,cwd=cwd,env=env).decode().strip()
-def selected(root):
+def selected(root, include_test_inputs=False):
     paths={p for p in (root/'crates').rglob('*') if p.is_file() and not (len(p.relative_to(root).parts)>2 and p.relative_to(root).parts[2]=='target')}
     paths.update(root/p for p in ['Cargo.toml','Cargo.lock','scripts/build_workflow.py'])
     paths.update(root/p for p in CATALOG_CONTRACTS)
     paths.update(root/p for p in ['rust-toolchain.toml','rust-toolchain','.cargo/config.toml','.cargo/config'] if (root/p).exists())
-    # Literal include inputs are part of this capture, including embedded test
-    # inputs. Generated OUT_DIR metadata is intentionally excluded from itself.
-    for p in tuple(paths):
-        if p.suffix=='.rs':
-            for spelling in re.findall(r'include(?:_(?:bytes|str))?!\(\s*("(?:[^"\\]|\\.)*")\s*\)',p.read_text()):
-                paths.add(p.parent/json.loads(spelling))
-    files={}
-    for p in paths:
-        resolved=p.resolve(strict=True)
-        rel=resolved.relative_to(root).as_posix()
-        if len(rel)>1024 or any(x in ('','.','..') for x in rel.split('/')): raise ValueError('source path')
-        # Check every path component before reading, not merely the final file.
-        if any(q.is_symlink() for q in [p,*p.parents] if q!=root and q.is_relative_to(root)) or not resolved.is_file():
-            raise ValueError('symlink or nonregular source input')
+    # Follow static include paths recursively, including included Rust files.
+    # Generated OUT_DIR identity is produced by the build, not a source input.
+    pending = list(paths)
+    scanned = set()
+    literal = re.compile(r'include(?:_(?:bytes|str))?!\(\s*("(?:[^"\\]|\\.)*")\s*\)')
+    manifest = re.compile(r'include(?:_(?:bytes|str))?!\(\s*concat!\(\s*env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*("(?:[^"\\]|\\.)*")\s*,?\s*\)\s*\)')
+    generated = re.compile(r'include(?:_(?:bytes|str))?!\(\s*concat!\(\s*env!\(\s*"OUT_DIR"\s*\)\s*,\s*"/workflow-build-inputs.json"\s*,?\s*\)\s*\)')
+    def validate_input(p):
+        relative = p.relative_to(root)
+        cursor = root
+        for part in relative.parts:
+            if part == '..':
+                cursor = cursor.parent
+                if not cursor.is_relative_to(root): raise ValueError('source path outside root')
+            elif part != '.':
+                cursor = cursor / part
+                if cursor.is_symlink(): raise ValueError('symlink source input')
+        resolved = cursor.resolve(strict=True)
+        resolved.relative_to(root)
+        if not resolved.is_file(): raise ValueError('nonregular source input')
         if resolved.suffix.lower() in ('.db','.sqlite','.sqlite3','.pem','.key','.p12') or resolved.name.startswith('.env'):
             raise ValueError('private local artifact in build inputs')
+        return resolved
+    while pending:
+        p = pending.pop()
+        if p in scanned or p.suffix != '.rs': continue
+        safe = validate_input(p)
+        scanned.add(p)
+        source = safe.read_text()
+        for match in literal.finditer(source):
+            child = p.parent / json.loads(match.group(1))
+            if child not in paths: paths.add(child); pending.append(child)
+        if include_test_inputs:
+            matches = list(manifest.finditer(source))
+            crate = next((q for q in p.parents if (q/'Cargo.toml').is_file()), None)
+            if matches and crate is None: raise ValueError('include crate manifest missing')
+            for match in matches:
+                suffix = json.loads(match.group(1))
+                if not suffix.startswith('/'): raise ValueError('manifest include path')
+                child = crate / suffix[1:]
+                if child not in paths: paths.add(child); pending.append(child)
+            covered = {m.start() for regex in (literal, manifest, generated) for m in regex.finditer(source)}
+            if any(m.start() not in covered for m in re.finditer(r'include(?:_(?:bytes|str))?!\s*\(', source)):
+                raise ValueError('unsupported computed include in test source')
+    files={}
+    for p in paths:
+        resolved=validate_input(p)
+        rel=resolved.relative_to(root).as_posix()
+        if len(rel)>1024 or any(x in ('','.','..') for x in rel.split('/')): raise ValueError('source path')
         files[rel]=resolved.read_bytes()
     return files
 
@@ -145,7 +178,7 @@ def main():
     if (root/'.cargo').exists(): raise ValueError('project cargo configuration not yet supported by capture recipe')
     stages=command(['git','ls-files','--stage'],root,env).splitlines()
     if any(line.startswith('160000 ') for line in stages): raise ValueError('submodule build inputs unsupported')
-    files=selected(root); inv, inv_digest=inventory(files)
+    files=selected(root, args.test); inv, inv_digest=inventory(files)
     if any(p.endswith('/build.rs') and p!='crates/ledgerlab/build.rs' for p in files):
         raise ValueError('undeclared build script unsupported')
     base=command(['git','rev-parse','HEAD'],root,env)
@@ -200,7 +233,7 @@ def main():
     build=['cargo','test' if args.test else 'build','--locked','--offline','--package',recipe['package_name'],'--target',target,'--target-dir',str(output/'target')]
     build+=['--no-run'] if args.test else ['--release']
     subprocess.run(build,cwd=capture,env=env,check=True)
-    if selected(capture)!=files: raise ValueError('captured build inputs changed during compilation')
+    if selected(capture, args.test)!=files: raise ValueError('captured build inputs changed during compilation')
     qualification={'source_inventory_digest':inv_digest,'build_inputs_sha256':digest(encoded),'status':'captured inputs unchanged; local build observation only'}
     if args.integrated_local_profiles and not args.test:
         binary=output/'target'/target/'release'/'ledger'

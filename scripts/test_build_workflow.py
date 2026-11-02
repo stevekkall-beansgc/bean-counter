@@ -23,6 +23,47 @@ class CaptureTests(unittest.TestCase):
             for path in ['Cargo.toml','Cargo.lock','scripts/build_workflow.py']:(root/path).write_bytes(b'')
             (root/'crates/example/lib.rs').symlink_to(root/'Cargo.lock')
             with self.assertRaises(ValueError):capture.selected(root)
+    def test_test_capture_follows_static_includes_and_rejects_unknown(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root/'crates/example/src').mkdir(parents=True)
+            (root/'scripts').mkdir()
+            (root/'fixtures').mkdir()
+            for path in ['Cargo.toml', 'Cargo.lock', 'crates/example/Cargo.toml', 'scripts/build_workflow.py']:
+                (root/path).write_bytes(b'')
+            source = root/'crates/example/src/lib.rs'
+            source.write_text('include!("nested.rs");')
+            (source.parent/'nested.rs').write_text('include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/input.json"));')
+            (root/'fixtures/input.json').write_text('{}')
+            with patch.object(capture, 'CATALOG_CONTRACTS', ()):
+                self.assertNotIn('fixtures/input.json', capture.selected(root))
+                self.assertIn('fixtures/input.json', capture.selected(root, True))
+                (source.parent/'nested.rs').write_text('include_bytes!(some_computed_path!());')
+                with self.assertRaisesRegex(ValueError, 'unsupported computed include'):
+                    capture.selected(root, True)
+
+    def test_nested_include_cannot_read_outside_or_traverse_symlink(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory).resolve()
+            root = parent/'root'
+            (root/'crates/example/src').mkdir(parents=True)
+            (root/'scripts').mkdir()
+            for path in ['Cargo.toml', 'Cargo.lock', 'crates/example/Cargo.toml', 'scripts/build_workflow.py']:
+                (root/path).write_bytes(b'')
+            (parent/'outside.rs').write_text('secret synthetic outside')
+            source = root/'crates/example/src/lib.rs'
+            with patch.object(capture, 'CATALOG_CONTRACTS', ()):
+                source.write_text('include!("../../../../outside.rs");')
+                with self.assertRaises(ValueError): capture.selected(root, True)
+                (root/'crates/example/src/link').symlink_to(parent, target_is_directory=True)
+                source.write_text('include!("link/../outside.rs");')
+                with self.assertRaises(ValueError): capture.selected(root, True)
+                source.write_text('include_bytes! (some_computed_path!());')
+                with self.assertRaisesRegex(ValueError, 'unsupported computed include'):
+                    capture.selected(root, True)
+
     def test_effective_compiler_override_refuses_before_capture(self):
         import sys
         from unittest.mock import patch
