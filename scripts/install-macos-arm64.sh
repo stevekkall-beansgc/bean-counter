@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 4 ]; then
-    echo "usage: install-macos-arm64.sh RELEASE_ARCHIVE SHA256SUMS EXPECTED_SOURCE_COMMIT NEW_INSTALL_DIRECTORY" >&2
+if [ "$#" -ne 4 ] && { [ "$#" -ne 6 ] || [ "$5" != "--version" ]; }; then
+    echo "usage: install-macos-arm64.sh RELEASE_ARCHIVE SHA256SUMS EXPECTED_SOURCE_COMMIT NEW_INSTALL_DIRECTORY [--version VERSION]" >&2
     exit 2
 fi
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
@@ -10,4 +10,8 @@ if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
     exit 2
 fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-python3 "$script_dir/install-native-package.py" "$1" "$2" "$3" aarch64-apple-darwin "$4"
+if [ "$#" -eq 6 ]; then
+    python3 "$script_dir/install-native-package.py" "$1" "$2" "$3" aarch64-apple-darwin "$4" --version "$6"
+else
+    python3 "$script_dir/install-native-package.py" "$1" "$2" "$3" aarch64-apple-darwin "$4"
+fi

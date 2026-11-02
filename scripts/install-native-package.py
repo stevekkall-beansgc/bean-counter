@@ -46,14 +46,15 @@ def safe_extract(data, destination, root_name):
 
 
 def main():
-    if len(sys.argv) != 6:
-        raise SystemExit("usage: install-native-package.py ARCHIVE SHA256SUMS EXPECTED_COMMIT TARGET NEW_INSTALL_DIRECTORY")
+    if len(sys.argv) not in (6, 8) or (len(sys.argv) == 8 and sys.argv[6] != "--version"):
+        raise SystemExit("usage: install-native-package.py ARCHIVE SHA256SUMS EXPECTED_COMMIT TARGET NEW_INSTALL_DIRECTORY [--version VERSION]")
     archive_path, sums_path = Path(sys.argv[1]), Path(sys.argv[2])
     commit, target, destination = sys.argv[3], sys.argv[4], Path(sys.argv[5])
     if destination.exists() or destination.is_symlink():
         raise SystemExit(f"refusing existing destination: {destination}")
     # The verifier validates checksum, members, hashes, modes and all release identities first.
-    report = verify(archive_path, sums_path, commit, "0.11.0", target)
+    expected_version = sys.argv[7] if len(sys.argv) == 8 else "1.0.0-alpha.1"
+    report = verify(archive_path, sums_path, commit, expected_version, target)
     data = archive_path.read_bytes()
     if hashlib.sha256(data).hexdigest() != report["archive_sha256"]:
         raise SystemExit("archive changed after verification")

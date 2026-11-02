@@ -269,8 +269,10 @@ def main():
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
         if workflow_candidate:
-            shutil.copyfile(repo / "release/notes-v0.11.0.md", stage / "release/notes-v0.11.0.md")
-        shutil.copyfile(repo / "START-HERE.md", stage / "START-HERE.md")
+            notes = f"notes-v{version}.md"
+            shutil.copyfile(repo / "release" / notes, stage / "release" / notes)
+        start = "release/START-HERE-v1.0.0-alpha.1.md" if version == "1.0.0-alpha.1" else "START-HERE.md"
+        shutil.copyfile(repo / start, stage / "START-HERE.md")
         (stage / "AGENTS.md").write_text(
             "# Integrate the installed local billing CLI\n\n"
             "Start with START-HERE.md, docs/integration-agent-guide.md and "

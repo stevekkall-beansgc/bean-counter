@@ -1,5 +1,7 @@
 # Download Bean Counter and get your first receipt
 
+> **Source candidate:** This checkout is being prepared as the unpublished `1.0.0-alpha.1` testing prerelease. See [candidate testing notes](release/START-HERE-v1.0.0-alpha.1.md). The published v0.11.0 instructions below apply only to that existing release, not to this source candidate.
+
 > Current public default: **[v0.11.0 testing prerelease](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0)**, released from `aba16512fac2f9bf355f09d6634bb3f69c818f13`. Use its matching [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) and [release testing guide](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/RELEASE-TESTING.md). The [workflow handoff](docs/workflow-candidate-testing.md) describes the bounded optional workflow. Start in a fresh private synthetic directory; this is not a production-readiness or existing-installation migration recommendation.
 
 Bean Counter is an Apache-2.0 **local billing engine** for applications that produce completed generated work. Record an agreed fixed fee or quantity-based charge, keep a durable receipt, reconcile retries and make explained corrections. You run it on your computer and manage its storage and backups.

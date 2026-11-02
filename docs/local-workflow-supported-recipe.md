@@ -1,5 +1,7 @@
 # Bounded local workflow checkpoint: supported recipe
 
+> **Version boundary:** The instructions below describe the published v0.11.0 release. In a 1.0.0-alpha.1 candidate package, use the candidate START-HERE page for current identity and qualification status; the bundled synthetic scripts require the alpha executable.
+
 These instructions target v0.11.0. Actual publication and native qualification are established by the matching GitHub Release and QUALIFICATION.json, which bind exact source, target, archive and binary hashes. Earlier source proofs and published archives retain their original identities. Billing contract v0.3 and billing schema 11 are unchanged; optional workflow activation uses schema 17.
 
 The supported composition is one retail binding, one successful Work activity, one Fixed or integer Unit service rule, one independent True app_final_cost rule/declaration, and one Outcome family linked directly to the service component. A Unit quantity can be caller-provenance or genuinely attested through the existing worker/meter_quantity nomination. The additional predicate is exactly one Eq over a required caller-enum field in immutable accepted binding context; generic predicate grammar is not advertised. The app remains independent when the service condition is false. Names, prices, valid quantities/durations and maxima are accepted input data, not demo identifiers.

@@ -1,5 +1,7 @@
 # Integrate an existing Bean Counter CLI
 
+> **Version boundary:** The instructions below describe the published v0.11.0 release. In a 1.0.0-alpha.1 candidate package, use the candidate START-HERE page for current identity and qualification status; the bundled synthetic scripts require the alpha executable.
+
 These instructions target **v0.11.0 — the bounded local workflow checkpoint**, with unchanged billing contract v0.3 and billing schema 11; explicit workflow activation uses schema 17. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) determine whether publication has completed, its exact source and qualified archive identities. A checkout alone does not establish publication or native qualification. Older releases retain their immutable bytes and version-matched instructions.
 
 Historical **[v0.9.6 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6)** was released from `4014764fee92239fb32558e60fb1379a3bd00071`. Its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) remains evidence for those immutable bytes. The v0.9.7 documentation/package changes require their own qualification.

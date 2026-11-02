@@ -1,5 +1,7 @@
 # Completed work, failed attempts and later assessment
 
+> **Version boundary:** The instructions below describe the published v0.11.0 release. In a 1.0.0-alpha.1 candidate package, use the candidate START-HERE page for current identity and qualification status; the bundled synthetic scripts require the alpha executable.
+
 Use the **published v0.11.0 testing prerelease** with its matching executable, helpers and fixtures. Start at [START-HERE](../../../START-HERE.md) and the matching release/qualification record; the optional workflow has a [separate bounded testing handoff](../../../docs/workflow-candidate-testing.md). Older version-tagged instructions and assets remain historical and unchanged. Use fresh private synthetic directories; this is not an existing-installation migration or production-readiness recommendation.
 
 

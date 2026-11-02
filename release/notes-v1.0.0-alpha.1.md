@@ -1,0 +1,7 @@
+# Bean Counter v1.0.0-alpha.1 — testing candidate
+
+This is a prerelease candidate, not a stable 1.0 release or a claim that Wave 2b is complete. Publication, exact-source CI and native installation qualification are pending. Existing v0.11.0 releases and their qualification records remain unchanged.
+
+The candidate contains local workflow and billing changes, including an explicit local-owner manual credit and additive SQLite schema 21. A synthetic local journey has exercised credit creation, presentation and recovery; exact retry, changed-request identity conflict, and competing-presentation refusal are not yet qualified for manual credit. Automatic Stage quantity correction and enrolled-source scoped reads remain deferred. The historical migration journey has been exercised on an earlier candidate; the final versioned candidate still requires exact-source qualification. Older v0.11 software cannot read a schema 21 installation, so preserve a verified quiescent whole-installation backup and do not open an upgraded installation with older software.
+
+This candidate does not execute payments, provide tax or legal invoices, hosted authentication, multi-host guarantees, or resource-completion guarantees. Resource limits and failure handling remain as documented; no default-budget qualification is implied. Native packages are not published by preparing this file and are not signed or notarized.

@@ -286,7 +286,7 @@ def main():
     parser.add_argument("archive")
     parser.add_argument("sha256sums")
     parser.add_argument("expected_commit")
-    parser.add_argument("--version", default="0.11.0")
+    parser.add_argument("--version", default="1.0.0-alpha.1")
     parser.add_argument("--target")
     args = parser.parse_args()
     try:

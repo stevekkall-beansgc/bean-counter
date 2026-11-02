@@ -1,5 +1,7 @@
 # Test the v0.11.0 bounded workflow checkpoint
 
+> **Version boundary:** The instructions below describe the published v0.11.0 release. In a 1.0.0-alpha.1 candidate package, use the candidate START-HERE page for current identity and qualification status; the bundled synthetic scripts require the alpha executable.
+
 Use the matching release assets and QUALIFICATION.json for exact publication/source/target/native results. This handoff is synthetic testing, not a live-business migration recommendation or a full Wave2b claim. Published v0.10.0 and older assets remain immutable and version-matched. The [supported recipe](local-workflow-supported-recipe.md) defines the exact scope.
 
 You need Python 3.11+, compatible native storage/OS, a private physical directory and your own backup process. Packages are unsigned/unnotarized; other hosts, clean-account launch and unfamiliar-human acceptance are not inferred from a source build. Record actual OS/architecture, archive/binary hashes and the version-bound qualification. No resource completion guarantee is claimed.

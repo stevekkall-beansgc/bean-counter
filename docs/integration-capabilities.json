@@ -28,15 +28,15 @@
     ]
   },
   "unreleased_candidate": {
-    "version": "0.11.0",
-    "publication_status": "consult-matching-release-page; field name retained for compatibility",
-    "qualification_status": "exact release source/platform results supplied in matching QUALIFICATION.json",
-    "source_commit_evidence": "matching release notes and native BUILD-INFO/MANIFEST/PROVENANCE/QUALIFICATION establish actual source and publication; older source proofs retain their original identities",
-    "billing_contract": "v0.3 unchanged",
-    "optional_workflow_schema": 17,
-    "workflow_scope": "docs/local-workflow-supported-recipe.md",
-    "tester_handoff": "docs/workflow-candidate-testing.md",
-    "helpers_require_exact_version": "0.11.0"
+    "version": "1.0.0-alpha.1",
+    "publication_status": "not-published",
+    "qualification_status": "pending-exact-source-ci-native-and-reliability-gates",
+    "source_commit_evidence": "local candidate only; no publication or exact release qualification claimed",
+    "billing_contract": "v0.3 baseline with additive candidate changes; exact release qualification pending",
+    "optional_workflow_schema": 21,
+    "workflow_scope": "release/notes-v1.0.0-alpha.1.md",
+    "tester_handoff": "release/START-HERE-v1.0.0-alpha.1.md",
+    "helpers_require_exact_version": "1.0.0-alpha.1"
   },
   "native_baseline": {
     "version": "0.11.0",
