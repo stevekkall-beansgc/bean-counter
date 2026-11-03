@@ -301,6 +301,43 @@ def check_package_helper_normalization(directory):
                 raise RuntimeError(f"incorrect {version} package mode: {name}")
 
 
+def check_alpha_start_here_relocation(directory):
+    spec = importlib.util.spec_from_file_location("native_packager_start", VERIFY.with_name("package-native.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    repo = directory / "start-repo"
+    stage = directory / "start-stage"
+    (repo / "release").mkdir(parents=True)
+    (stage / "release").mkdir(parents=True)
+    (stage / "docs").mkdir()
+    source = repo / "release/START-HERE-v1.0.0-alpha.1.md"
+    original = (b"[notes](notes-v1.0.0-alpha.1.md) "
+                b"[guide](../docs/manual-credit-alpha.md)\n")
+    source.write_bytes(original)
+    (stage / "release/notes-v1.0.0-alpha.1.md").write_text("notes\n")
+    (stage / "docs/manual-credit-alpha.md").write_text("guide\n")
+    module.stage_start_here(repo, stage, "1.0.0-alpha.1")
+    expected = (b"[notes](release/notes-v1.0.0-alpha.1.md) "
+                b"[guide](docs/manual-credit-alpha.md)\n")
+    if source.read_bytes() != original or (stage / "START-HERE.md").read_bytes() != expected:
+        raise RuntimeError("alpha START-HERE relocation changed the wrong bytes")
+    checked = subprocess.run([sys.executable, str(VERIFY.with_name("check-package-docs.py")), str(stage)],
+                             capture_output=True, text=True)
+    if checked.returncode != 0:
+        raise RuntimeError(f"relocated alpha links do not resolve: {checked.stdout}")
+    for malformed in (original.replace(b"](notes-v1.0.0-alpha.1.md)", b"](missing.md)"),
+                      original + b"[duplicate](notes-v1.0.0-alpha.1.md)\n",
+                      original.replace(b"](../docs/manual-credit-alpha.md)", b"](missing.md)"),
+                      original + b"[duplicate](../docs/manual-credit-alpha.md)\n"):
+        source.write_bytes(malformed)
+        try:
+            module.stage_start_here(repo, stage, "1.0.0-alpha.1")
+        except ValueError:
+            pass
+        else:
+            raise RuntimeError("unexpected alpha START-HERE link drift was accepted")
+
+
 def check_helper_modes(directory):
     spec = importlib.util.spec_from_file_location("native_verifier_modes", VERIFY)
     verifier = importlib.util.module_from_spec(spec)
@@ -395,6 +432,7 @@ def main():
         check_workflow_build_identity(directory)
         check_integrated_catalog_identity(directory)
         check_package_helper_normalization(directory)
+        check_alpha_start_here_relocation(directory)
         check_helper_modes(directory)
         check_committed_alpha_contract_isolation(directory)
         check_prerelease_archive(directory)

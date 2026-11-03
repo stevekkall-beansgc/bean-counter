@@ -195,6 +195,21 @@ def normalize_package_modes(stage, version):
             path.chmod(0o600)
 
 
+def stage_start_here(repo, stage, version):
+    """Keep repository links correct when the alpha guide moves to package root."""
+    source = repo / ("release/START-HERE-v1.0.0-alpha.1.md" if version == "1.0.0-alpha.1" else "START-HERE.md")
+    content = source.read_bytes()
+    if version == "1.0.0-alpha.1":
+        for original, relocated in (
+            (b"](notes-v1.0.0-alpha.1.md)", b"](release/notes-v1.0.0-alpha.1.md)"),
+            (b"](../docs/manual-credit-alpha.md)", b"](docs/manual-credit-alpha.md)"),
+        ):
+            if content.count(original) != 1:
+                raise ValueError("alpha START-HERE source links changed; review package relocation")
+            content = content.replace(original, relocated, 1)
+    (stage / "START-HERE.md").write_bytes(content)
+
+
 def main():
     if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != "--workflow-candidate"):
         raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET [--workflow-candidate]")
@@ -291,8 +306,7 @@ def main():
         if workflow_candidate:
             notes = f"notes-v{version}.md"
             shutil.copyfile(repo / "release" / notes, stage / "release" / notes)
-        start = "release/START-HERE-v1.0.0-alpha.1.md" if version == "1.0.0-alpha.1" else "START-HERE.md"
-        shutil.copyfile(repo / start, stage / "START-HERE.md")
+        stage_start_here(repo, stage, version)
         (stage / "AGENTS.md").write_text(
             "# Integrate the installed local billing CLI\n\n"
             "Start with START-HERE.md, docs/integration-agent-guide.md and "
