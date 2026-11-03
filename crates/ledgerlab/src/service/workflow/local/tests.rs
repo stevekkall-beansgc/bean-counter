@@ -31,7 +31,9 @@ async fn trusted_local_entry_explicit_upgrade_reopen_and_wrong_store_read() {
     ledger.enable_profile_b().await.unwrap();
     ledger.enable_profile_b().await.unwrap();
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
-    assert_eq!(tx.billing_schema_version().await.unwrap(), 16);
+    // Trusted enable includes the invocation migration; statement and manual
+    // credit schemas remain separately adopted when those routes need them.
+    assert_eq!(tx.billing_schema_version().await.unwrap(), 19);
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
     let mut session =
@@ -69,6 +71,10 @@ async fn trusted_local_entry_explicit_upgrade_reopen_and_wrong_store_read() {
             .unwrap()["status"],
         "not_observed"
     );
+    let mut tx = reopened.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.billing_schema_version().await.unwrap(), 19);
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
+    tx.rollback().await.unwrap();
     reopened.close().await;
 }
 

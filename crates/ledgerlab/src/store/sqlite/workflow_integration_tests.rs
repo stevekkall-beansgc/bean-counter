@@ -135,7 +135,7 @@ async fn common_commit_hook_rechecks_both_legacy_meters_after_mutation() {
 }
 
 #[tokio::test]
-async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow() {
+async fn profile_b_preserves_legacy_growth_and_blocks_new_workflow_over_capacity() {
     let (_dir, _path, store) = create().await;
     enable(&store).await;
     let mut tx = store.begin(deadline()).await.unwrap();
@@ -151,21 +151,16 @@ async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow(
         .execute(tx.conn()).await.unwrap();
     sqlx::raw_sql("INSERT INTO billing_m3_index SELECT ordinal,customer,source,external_id,semantic_key,external_id,'base',accepted_at_us FROM billing_m3_entries;")
         .execute(tx.conn()).await.unwrap();
-    let commit_result = tx.commit().await;
-    assert!(
-        matches!(
-            commit_result,
-            Err(CommitError::RolledBack(StoreError::BillingHistoryLimit))
-        ),
-        "unexpected post-mutation capacity result: {commit_result:?}"
-    );
+    // Profile B preserves legacy admission even when that leaves no room for
+    // additional workflow operations. Existing workflow data remains readable.
+    tx.commit().await.unwrap();
     let mut tx = store.begin(deadline()).await.unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM billing_m3_entries")
             .fetch_one(tx.conn())
             .await
             .unwrap(),
-        0
+        100000
     );
     assert_eq!(
         workflow::capacity::check(tx.conn(), 0, 0)
@@ -174,6 +169,13 @@ async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow(
             .operations,
         1
     );
+    let mut next = workflow::tests::fixture();
+    next.operation.identity.extend_from_slice(b"-next");
+    next.operation.sequence = 2;
+    assert!(matches!(
+        tx.workflow_append(&next).await,
+        Err(StoreError::BillingHistoryLimit)
+    ));
     tx.rollback().await.unwrap();
     store.close().await;
 }

@@ -1,4 +1,4 @@
-//! Disabled-shell checks. No financial acceptance, fake receipt or raw append.
+//! Financial ingress refusals. No fake receipt or raw append is used.
 use super::*;
 use crate::{billing::BillingLedger, store::errors::CommitError};
 use crate::{service::workflow::local::deadline, store::ports::AcceptanceStore};
@@ -27,8 +27,8 @@ fn key(store: &str, operation: &str) -> OperationKey {
     }
 }
 fn envelope(key: &OperationKey) -> Value {
-    // Deliberately only lexical-envelope data. No complete normalized economic
-    // payload or snapshot is claimed by the disabled host path.
+    // Deliberately only lexical-envelope data: the supported financial route
+    // must reject this incomplete work payload before appending anything.
     json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"work.accept","key":key,"payload":{"schema":"ledger-workflow-work/1"}})
 }
 
@@ -63,7 +63,7 @@ async fn financial_shell_denies_fresh_with_zero_delta_and_reopens_not_observed()
             .financial(&records::bytes(&envelope(&key)).unwrap())
             .await
             .unwrap_err(),
-        ServiceError::Unavailable
+        ServiceError::IntegrityFailure
     );
     assert_eq!(
         ledger.status(&key.bytes().unwrap()).await.unwrap()["status"],
@@ -88,8 +88,15 @@ async fn financial_shell_denies_fresh_with_zero_delta_and_reopens_not_observed()
             .financial(&records::bytes(&envelope(&key)).unwrap())
             .await
             .unwrap_err(),
-        ServiceError::Unavailable
+        ServiceError::IntegrityFailure
     );
+    assert_eq!(
+        reopened.status(&key.bytes().unwrap()).await.unwrap()["status"],
+        "not_observed"
+    );
+    let mut tx = reopened.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    tx.rollback().await.unwrap();
     reopened.close().await;
 }
 

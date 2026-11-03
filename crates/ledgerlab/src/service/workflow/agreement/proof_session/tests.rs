@@ -81,17 +81,24 @@ async fn every_reference_to_a_shared_origin_is_retained_and_wrong_member_index_r
         .await
         .unwrap()
         .unwrap();
-    let step = super::super::origin_driver::prepare(
-        &mut tx,
-        &child_key,
-        &child,
-        LocalContinuation {
-            identity: child.identity.clone(),
-            binding: journal_binding(&child).unwrap(),
-            stage: Stage::Members,
-        },
-        None,
-    )
+    let key_ref = &child_key;
+    let child_ref = &child;
+    let step = with_proofs(&mut tx, &child_key, |tx| {
+        Box::pin(async move {
+            super::super::origin_driver::prepare(
+                tx,
+                key_ref,
+                child_ref,
+                LocalContinuation {
+                    identity: child_ref.identity.clone(),
+                    binding: journal_binding(child_ref)?,
+                    stage: Stage::Members,
+                },
+                None,
+            )
+            .await
+        })
+    })
     .await
     .unwrap();
     let LocalStep::NeedOrigins { demands, .. } = step else {

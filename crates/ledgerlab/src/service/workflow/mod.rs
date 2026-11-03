@@ -14,7 +14,11 @@ pub use local::LocalWorkflowLedger;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn reject(code: &str) -> ServiceError {
-    ServiceError::Rejection(code.into())
+    if code == "INTEGRITY_FAILURE" {
+        ServiceError::IntegrityFailure
+    } else {
+        ServiceError::Rejection(code.into())
+    }
 }
 fn require(ok: bool, code: &str) -> Result<()> {
     if ok {
@@ -103,6 +107,14 @@ mod error_tests {
                 detail: "no public semantic mapping".into()
             }),
             ServiceError::Unavailable
+        );
+        assert_eq!(reject("INTEGRITY_FAILURE"), ServiceError::IntegrityFailure);
+        assert_eq!(
+            core_error(ledgerlab_core::Error {
+                code: "INTEGRITY_FAILURE",
+                detail: "retained data failed verification".into(),
+            }),
+            ServiceError::IntegrityFailure
         );
     }
 }

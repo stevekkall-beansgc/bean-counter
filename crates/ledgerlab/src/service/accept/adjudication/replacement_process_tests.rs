@@ -142,12 +142,17 @@ async fn actual_suspended_old_process_excludes_takeover_and_resumes_after_replac
         .success());
     let until = Instant::now() + Duration::from_secs(10);
     loop {
-        let state = Command::new("ps")
-            .args(["-o", "stat=", "-p", &child.0.id().to_string()])
-            .output()
-            .unwrap();
-        assert!(state.status.success());
-        if String::from_utf8_lossy(&state.stdout).contains('T') {
+        let pid = rustix::process::Pid::from_raw(i32::try_from(child.0.id()).unwrap()).unwrap();
+        if let Some((_, state)) = rustix::process::waitpid(
+            Some(pid),
+            rustix::process::WaitOptions::UNTRACED | rustix::process::WaitOptions::NOHANG,
+        )
+        .unwrap()
+        {
+            assert!(
+                state.stopped(),
+                "child exited instead of stopping: {state:?}"
+            );
             break;
         }
         assert!(Instant::now() < until, "owned child was not suspended");

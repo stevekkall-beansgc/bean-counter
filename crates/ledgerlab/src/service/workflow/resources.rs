@@ -480,7 +480,8 @@ mod tests {
                 .unwrap();
         let mut tx = fresh.begin(&ledger.store, &mut s).await.unwrap();
         assert!(tx.workflow_deadline().is_none());
-        assert_eq!(tx.billing_schema_version().await.unwrap(), 18);
+        // Trusted enable now includes the invocation schema migration.
+        assert_eq!(tx.billing_schema_version().await.unwrap(), 19);
         tx.rollback().await.unwrap();
         let key = request::OperationKey {
             logical_store_id: "operator-settings-test".into(),

@@ -759,9 +759,11 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
         .prerequisite(&records::bytes(&revoke).unwrap())
         .await
         .unwrap();
+    // Keep all historical lookups in one snapshot while allowing the synthetic
+    // debug-build verification chain to finish; production deadlines are unchanged.
     let mut observed_tx = ledger
         .store
-        .begin(crate::service::workflow::local::deadline())
+        .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(60))
         .await
         .unwrap();
     ledger

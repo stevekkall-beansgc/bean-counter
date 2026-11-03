@@ -98,6 +98,9 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
         LocalError::Service(ServiceError::IntegrityFailure) => {
             super::error("INTEGRITY_FAILURE", "retained data failed verification", 9)
         }
+        LocalError::Service(ServiceError::Rejection(code)) if code == "INTEGRITY_FAILURE" => {
+            super::error("INTEGRITY_FAILURE", "retained data failed verification", 9)
+        }
         LocalError::Service(ServiceError::ReadBudgetExhausted) => super::error(
             "READ_BUDGET_EXHAUSTED",
             "the read reached its requested resource budget",
@@ -362,6 +365,16 @@ mod tests {
         ));
         assert_eq!(integrity_exit, 9);
         assert_eq!(integrity["code"], "BILLING_M5_INTEGRITY");
+    }
+
+    #[test]
+    fn both_integrity_error_forms_have_the_same_cli_output() {
+        let direct = local_error(LocalError::Service(ServiceError::IntegrityFailure));
+        let named = local_error(LocalError::Service(ServiceError::Rejection(
+            "INTEGRITY_FAILURE".into(),
+        )));
+        assert_eq!(direct, named);
+        assert_eq!(direct.1, 9);
     }
 
     #[test]
