@@ -132,18 +132,15 @@ impl Path {
         let h = owner(&c);
         let kind = c["kind"].as_str().unwrap().to_owned();
         let id = Id::parse(&h).unwrap();
-        let r = self
-            .f
-            .host
-            .execute(
-                &id,
-                &proposal(&c),
-                context(),
-                Some(&self.f.base),
-                Duration::from_secs(30),
-            )
-            .await
-            .unwrap_or_else(|e| panic!("public {kind} {h} ordinal{}: {e}", self.ordinals[&h]));
+        let r = Box::pin(self.f.host.execute(
+            &id,
+            &proposal(&c),
+            context(),
+            Some(&self.f.base),
+            Duration::from_secs(30),
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("public {kind} {h} ordinal{}: {e}", self.ordinals[&h]));
         assert_eq!(r.status, wire::CommandResultStatus::Committed);
         assert_eq!(r.code, kind);
         assert_ne!(r.root, self.roots[&h]);
@@ -225,7 +222,7 @@ impl Path {
     }
     async fn cmd(&mut self, k: &str, v: Value) -> wire::CommandResult {
         let c = self.command(k, v);
-        self.step(c).await
+        Box::pin(self.step(c)).await
     }
     async fn reopen(&mut self) {
         for e in std::mem::take(&mut self.f.host.entries).into_values() {
@@ -510,24 +507,23 @@ impl Path {
         self.cmd("BEGIN",json!({"round":n.to_string(),"predecessor":(n-1).to_string(),"mode":mode,"families":[self.enrollment["families"][0]["key"]],"gateways":["g1"],"preparations":preparations})).await;
     }
     async fn install(&mut self, n: u128, outcome: &str) {
-        self.cmd("INSTALL",json!({"gateway":"g1","round":n.to_string(),"outcome":outcome,"proof":self.proof("center","TERMINAL",json!(n.to_string())),"begin":self.proof("center","BEGIN",json!(n.to_string()))})).await;
-        self.cmd("ACK_INSTALL",json!({"gateway":"g1","round":n.to_string(),"proof":self.proof("g1","INSTALLATION",json!(n.to_string()))})).await;
+        Box::pin(self.cmd("INSTALL",json!({"gateway":"g1","round":n.to_string(),"outcome":outcome,"proof":self.proof("center","TERMINAL",json!(n.to_string())),"begin":self.proof("center","BEGIN",json!(n.to_string()))}))).await;
+        Box::pin(self.cmd("ACK_INSTALL",json!({"gateway":"g1","round":n.to_string(),"proof":self.proof("g1","INSTALLATION",json!(n.to_string()))}))).await;
     }
     async fn finish(&mut self, n: u128, predecessor: u128) {
-        self.begin(n, "FINISH_ONLY").await;
+        Box::pin(self.begin(n, "FINISH_ONLY")).await;
         let bad = self.command("ABORT", json!({"round":n.to_string()}));
-        self.refuse(bad, "ABORT_REFUSED").await;
-        self.cmd("SEAL_BEGIN",json!({"gateway":"g1","round":n.to_string(),"predecessor":predecessor.to_string(),"proof":self.proof("center","BEGIN",json!(n.to_string()))})).await;
-        self.cmd("SEALED", json!({"gateway":"g1","round":n.to_string()}))
-            .await;
-        self.cmd("DRAIN",json!({"gateway":"g1","round":n.to_string(),"proof":self.proof("g1","SEAL",json!(n.to_string()))})).await;
-        self.cmd("READY", json!({"round":n.to_string()})).await;
-        self.cmd(
+        Box::pin(self.refuse(bad, "ABORT_REFUSED")).await;
+        Box::pin(self.cmd("SEAL_BEGIN",json!({"gateway":"g1","round":n.to_string(),"predecessor":predecessor.to_string(),"proof":self.proof("center","BEGIN",json!(n.to_string()))}))).await;
+        Box::pin(self.cmd("SEALED", json!({"gateway":"g1","round":n.to_string()}))).await;
+        Box::pin(self.cmd("DRAIN",json!({"gateway":"g1","round":n.to_string(),"proof":self.proof("g1","SEAL",json!(n.to_string()))}))).await;
+        Box::pin(self.cmd("READY", json!({"round":n.to_string()}))).await;
+        Box::pin(self.cmd(
             "CLOSE",
             json!({"round":n.to_string(),"closed_at":context().observed_at}),
-        )
+        ))
         .await;
-        self.install(n, "COMMITTED").await;
+        Box::pin(self.install(n, "COMMITTED")).await;
     }
 }
 #[tokio::test]
@@ -579,7 +575,7 @@ async fn public_extension_replacement_supplement_return_and_finish() {
     let bad = p.command("EXTEND_RESOURCES", json!({"host":"g1","resources":delta}));
     p.refuse(bad, "RESOURCE_BACKING").await;
     for i in 5..9 {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
     let fence =
         p.f.host
@@ -614,11 +610,11 @@ async fn public_extension_replacement_supplement_return_and_finish() {
     let bad = p.command("SUPPLEMENT", json!({"case":case,"evidence":evidence}));
     p.refuse(bad, "CASE_FINAL").await;
     for i in 12..16 {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
     p.cmd("RETURN_UNUSED",json!({"gateway":"g3","token":"token2","claim":p.f.v["commands"][14]["payload"]["token"]["claim"],"proof":p.proof("center","CLAIM",json!("token2"))})).await;
     for i in [44, 45] {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
     p.cmd(
         "RECONCILE",
@@ -626,9 +622,9 @@ async fn public_extension_replacement_supplement_return_and_finish() {
     )
     .await;
     for i in [47, 60, 62, 64] {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
-    p.finish(1, 0).await;
+    Box::pin(p.finish(1, 0)).await;
     p.reopen().await;
     for k in [
         "EXTEND_RESOURCES",
@@ -646,7 +642,7 @@ async fn public_host_to_peer_closed_gateway_then_primary_import_and_finish() {
     use crate::gateway::{GatewayConfig, GatewayContext, OfflineGateway};
     let mut p = Path::enrolled(false).await;
     for i in 5..9 {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
     let c = p.f.v["commands"][9].clone();
     let key: wire::Delivery = serde_json::from_value(c["key"].clone()).unwrap();
@@ -760,9 +756,9 @@ async fn public_host_to_peer_closed_gateway_then_primary_import_and_finish() {
     let proof = serde_json::to_value(proof).unwrap();
     p.proofs.insert(pk(&proof), proof);
     for i in [10, 11, 44, 45, 60, 62] {
-        p.step(p.f.v["commands"][i].clone()).await;
+        Box::pin(p.step(p.f.v["commands"][i].clone())).await;
     }
-    p.finish(1, 0).await;
+    Box::pin(p.finish(1, 0)).await;
     p.reopen().await;
     p.f.host.close().await;
     let gateway = OfflineGateway::open(gateway_config).await.unwrap();
