@@ -86,7 +86,7 @@ sh scripts/check-local-billing-e2e.sh
 
 ## Release evidence and history
 
-This checkout targets **v0.11.0**, retaining billing contract v0.3 and adding the bounded metered, attested and conditional workflow recipe. The [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) establish actual publication and exact native artifacts. Historical [v0.10.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.10.0) remains the independently tested fixed-service release; its archives are unchanged.
+This checkout targets **v1.0.0-alpha.1**, a testing prerelease. See the [candidate testing notes](release/START-HERE-v1.0.0-alpha.1.md) and check the [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v1.0.0-alpha.1) for publication and exact native artifacts. The earlier [v0.11.0 release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.11.0) and its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.11.0/QUALIFICATION.json) remain available. Historical [v0.10.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.10.0) remains the independently tested fixed-service release; its archives are unchanged.
 
 [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog. The [current requirements](CURRENT-REQUIREMENTS.md) retain version history; [STATUS.md](STATUS.md) distinguishes current support, historical owner acceptance and the historical independent-review waiver. Source and native publication do not publish Rust crates.
 

@@ -2,7 +2,7 @@ name: m8-native-linux
 
 on:
   push:
-    branches: [main, codex/bean-counter-v0.11.0-release-20261024]
+    branches: [main, codex/bean-counter-v0.11.0-release-20261024, 'release-candidate/**']
   pull_request:
   workflow_dispatch:
 
