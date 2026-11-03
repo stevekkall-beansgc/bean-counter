@@ -11,7 +11,7 @@ import json
 import shutil
 from pathlib import Path
 
-from workflow_supported import Journey, REPO, canonical, now, reference, sha, unique
+from workflow_supported import Journey, REPO, canonical, now, reference, sha, unique, refusal_exit
 
 FIXTURES = REPO / "examples/workflow-component-corrected"
 
@@ -312,7 +312,7 @@ class ComponentJourney(Journey):
             before = self.snapshot()
             self.write(name + ".before.json", before)
             try:
-                response = self.workflow(name, "submit", path, expected=4 if code == "IDENTITY_CONFLICT" else 3)
+                response = self.workflow(name, "submit", path, expected=refusal_exit(code))
                 after = self.snapshot()
                 self.write(name + ".after.json", after)
                 assert response["code"] == code, (name, response, code)

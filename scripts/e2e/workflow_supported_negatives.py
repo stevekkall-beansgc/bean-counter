@@ -6,7 +6,7 @@ Only the copied installation is opened; no SQL writes or accepted terms change.
 """
 import argparse, copy, json, shutil
 from pathlib import Path
-from workflow_supported import Journey, canonical, now, reference, ATOMS
+from workflow_supported import Journey, canonical, now, reference, ATOMS, refusal_exit
 
 
 def main():
@@ -56,9 +56,11 @@ def main():
         if previous and not a.retry_refusals:
             response = json.loads((j.root / previous[-1]['stdout']).read_bytes())
         else:
-            expected = 4 if codes == ['IDENTITY_CONFLICT'] else 3
+            expected = tuple(refusal_exit(code) for code in codes)
             response = j.workflow(name, 'submit', path, expected=expected)
         assert response['code'] in codes, (name, response, codes)
+        actual_exit = previous[-1]['exit'] if previous and not a.retry_refusals else j.meta['commands'][-1]['exit']
+        assert actual_exit == refusal_exit(response['code'])
         assert j.snapshot() == before, name + ': refusal mutated workflow state'
         j.meta['checks'].append({'check': name, 'code': response['code'], 'no_append': True})
         j.save()

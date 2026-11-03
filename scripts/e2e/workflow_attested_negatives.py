@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from workflow_attested import AttestedJourney
-from workflow_supported import canonical, sha, unique
+from workflow_supported import canonical, sha, unique, refusal_exit
 
 
 def private_copy(args, source, name):
@@ -38,7 +38,7 @@ def refuse(journey, name, request, code):
     try:
         try:
             response = journey.workflow(name, "submit", journey.write(name + ".request.json", request),
-                                        expected=4 if code == "IDENTITY_CONFLICT" else 3)
+                                        expected=refusal_exit(code))
         finally:
             after = journey.snapshot()
             (journey.root / (name + ".after.json")).write_bytes(canonical(after))

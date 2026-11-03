@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from workflow_metered import MeteredJourney
-from workflow_supported import canonical, sha, unique
+from workflow_supported import canonical, sha, unique, refusal_exit
 
 
 def main():
@@ -40,8 +40,9 @@ def main():
     def refuse(name, request, codes):
         before = journey.snapshot()
         path = journey.write(name + ".request.json", request)
-        response = journey.workflow(name, "submit", path, expected=4 if codes == ["IDENTITY_CONFLICT"] else 3)
+        response = journey.workflow(name, "submit", path, expected=tuple(refusal_exit(code) for code in codes))
         assert response["code"] in codes, (name, response, codes)
+        assert journey.meta["commands"][-1]["exit"] == refusal_exit(response["code"])
         assert journey.snapshot() == before, name + " changed retained state"
         journey.meta["checks"].append({"check": name, "code": response["code"], "no_append": True})
         journey.save()

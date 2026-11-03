@@ -66,6 +66,17 @@ def material(text):
     return {"media_type": "text/plain;charset=utf-8", "content_base64": base64.b64encode(raw).decode(),
             "content_sha256": sha(raw)}
 
+def refusal_exit(code):
+    """CLI exit class for the negative workflow codes used by these runners."""
+    if code == "INTEGRITY_FAILURE":
+        return 9
+    if code in {"IDENTITY_CONFLICT", "SEMANTIC_CONFLICT"}:
+        return 4
+    if code in {"SOURCE_UNAUTHORIZED", "BILLING_UNAUTHORIZED", "BILLING_NOT_FOUND", "BILLING_SCOPE"}:
+        return 6
+    return 3
+
+
 class Journey:
     fixture_directory = FIXTURES
     quantity = "20"
@@ -151,7 +162,8 @@ class Journey:
         self.meta["commands"].append(entry)
         self.save()
         print(name, result.returncode, flush=True)
-        if result.returncode != expected:
+        expected_exits = expected if isinstance(expected, tuple) else (expected,)
+        if result.returncode not in expected_exits:
             if allow_unavailable and expected == 0 and result.returncode == 7:
                 value = json.loads(result.stdout)
                 if (isinstance(value, dict) and value.get("schema") == "ledger-cli/1"
