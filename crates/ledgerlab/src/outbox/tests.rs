@@ -76,256 +76,285 @@ pub(crate) async fn scenario(ledger: &Ledger, case: usize) {
     let lease = start(ledger, &fake, NOW).await;
     match case {
         0 => {
-            assert_eq!(
-                out.dispatch_one(&lease, NOW, Mode::LoseResponse)
-                    .await
-                    .unwrap(),
-                Some(State::Unknown)
-            );
-            assert_eq!(fake.receipts("store-demo-slice").len(), 1);
-            assert!(out.claim(&lease, NOW + 1).await.unwrap().is_none());
-            out.hold(false, NOW + 1).await.unwrap();
-            let unresolved = out.reconcile(NOW + 1, Mode::UnknownLookup).await.unwrap();
-            assert_eq!(unresolved.unresolved.len(), 1);
-            assert!(out.resume(&unresolved.digest, NOW + 1).await.is_err());
-            let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
-            assert!(report.unresolved.is_empty());
-            let saved = match &ledger.store {
-                Backend::Sqlite(s) => stored_report(s).await,
-                Backend::Postgres(s) => stored_report(s).await,
-            };
-            assert_eq!(saved["observations"][0]["state"], "delivered");
-            assert!(saved["observations"][0]["remote_id"]
-                .as_str()
-                .unwrap()
-                .starts_with("fake:in_"));
-            out.resume(&report.digest, NOW + 1).await.unwrap();
-            let l = out.acquire("replacement", NOW + 1).await.unwrap();
-            assert!(out
-                .dispatch_one(&l, NOW + 1, Mode::Normal)
-                .await
-                .unwrap()
-                .is_none());
-            assert_eq!(out.deliveries().await.unwrap()[0].attempts, 1);
-            let r = &fake.receipts("store-demo-slice")[0];
-            let payload: Value = serde_json::from_slice(&r.request.payload).unwrap();
-            assert_eq!(payload["amount"]["atoms"], "80");
-            assert_eq!(
-                r.request.key,
-                out.deliveries().await.unwrap()[0].intention_id
-            );
-        }
-        1 | 2 => {
-            assert!(matches!(out.acquire("other", NOW).await, Err(Error::Owned)));
-            let a = out.claim(&lease, NOW).await.unwrap().unwrap();
-            let response = if case == 1 {
-                out.send(&a, NOW, Mode::Normal).await.unwrap()
-            } else {
-                Outcome::Unknown
-            };
-            let new = out.acquire("replacement", NOW + 15_000_000).await.unwrap();
-            assert!(new.generation > lease.generation);
-            assert!(matches!(
-                out.send(&a, NOW + 15_000_000, Mode::Normal).await,
-                Err(Error::Fenced)
-            ));
-            assert!(matches!(
-                fake.send(&a, NOW + 15_000_000, Mode::Normal),
-                Outcome::Fenced
-            ));
-            assert_eq!(
-                out.observe(&a, NOW + 15_000_000, response).await,
-                Err(Error::Fenced)
-            );
-            assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
-            assert_eq!(
-                fake.receipts("store-demo-slice").len(),
-                usize::from(case == 1)
-            );
-            out.hold(false, NOW + 15_000_000).await.unwrap();
-            let report = out.reconcile(NOW + 15_000_000, Mode::Normal).await.unwrap();
-            out.resume(&report.digest, NOW + 15_000_000).await.unwrap();
-            assert_eq!(
-                out.deliveries().await.unwrap()[0].state,
-                if case == 1 {
-                    State::Delivered
-                } else {
-                    State::Pending
-                }
-            );
-        }
-        3 => {
-            let mut now = NOW;
-            let mut l = lease;
-            for n in 1..=20 {
-                if n > 1 {
-                    out.hold(false, now).await.unwrap();
-                    l = start(ledger, &fake, now).await;
-                }
-                let state = out
-                    .dispatch_one(&l, now, Mode::FailBeforeReceipt)
+            Box::pin(async {
+                assert_eq!(
+                    out.dispatch_one(&lease, NOW, Mode::LoseResponse)
+                        .await
+                        .unwrap(),
+                    Some(State::Unknown)
+                );
+                assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+                assert!(out.claim(&lease, NOW + 1).await.unwrap().is_none());
+                out.hold(false, NOW + 1).await.unwrap();
+                let unresolved = out.reconcile(NOW + 1, Mode::UnknownLookup).await.unwrap();
+                assert_eq!(unresolved.unresolved.len(), 1);
+                assert!(out.resume(&unresolved.digest, NOW + 1).await.is_err());
+                let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
+                assert!(report.unresolved.is_empty());
+                let saved = match &ledger.store {
+                    Backend::Sqlite(s) => stored_report(s).await,
+                    Backend::Postgres(s) => stored_report(s).await,
+                };
+                assert_eq!(saved["observations"][0]["state"], "delivered");
+                assert!(saved["observations"][0]["remote_id"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("fake:in_"));
+                out.resume(&report.digest, NOW + 1).await.unwrap();
+                let l = out.acquire("replacement", NOW + 1).await.unwrap();
+                assert!(out
+                    .dispatch_one(&l, NOW + 1, Mode::Normal)
                     .await
                     .unwrap()
-                    .unwrap();
-                let d = out.deliveries().await.unwrap().remove(0);
-                assert_eq!(d.attempts, n);
+                    .is_none());
+                assert_eq!(out.deliveries().await.unwrap()[0].attempts, 1);
+                let r = &fake.receipts("store-demo-slice")[0];
+                let payload: Value = serde_json::from_slice(&r.request.payload).unwrap();
+                assert_eq!(payload["amount"]["atoms"], "80");
                 assert_eq!(
-                    state,
-                    if n == 20 {
-                        State::Rejected
+                    r.request.key,
+                    out.deliveries().await.unwrap()[0].intention_id
+                );
+            })
+            .await
+        }
+        1 | 2 => {
+            Box::pin(async {
+                assert!(matches!(out.acquire("other", NOW).await, Err(Error::Owned)));
+                let a = out.claim(&lease, NOW).await.unwrap().unwrap();
+                let response = if case == 1 {
+                    out.send(&a, NOW, Mode::Normal).await.unwrap()
+                } else {
+                    Outcome::Unknown
+                };
+                let new = out.acquire("replacement", NOW + 15_000_000).await.unwrap();
+                assert!(new.generation > lease.generation);
+                assert!(matches!(
+                    out.send(&a, NOW + 15_000_000, Mode::Normal).await,
+                    Err(Error::Fenced)
+                ));
+                assert!(matches!(
+                    fake.send(&a, NOW + 15_000_000, Mode::Normal),
+                    Outcome::Fenced
+                ));
+                assert_eq!(
+                    out.observe(&a, NOW + 15_000_000, response).await,
+                    Err(Error::Fenced)
+                );
+                assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
+                assert_eq!(
+                    fake.receipts("store-demo-slice").len(),
+                    usize::from(case == 1)
+                );
+                out.hold(false, NOW + 15_000_000).await.unwrap();
+                let report = out.reconcile(NOW + 15_000_000, Mode::Normal).await.unwrap();
+                out.resume(&report.digest, NOW + 15_000_000).await.unwrap();
+                assert_eq!(
+                    out.deliveries().await.unwrap()[0].state,
+                    if case == 1 {
+                        State::Delivered
                     } else {
-                        State::Retry
+                        State::Pending
                     }
                 );
-                if n < 20 {
-                    let expected = (1_000_000_i64 * 2_i64.pow((n - 1) as u32)).min(300_000_000);
-                    assert_eq!(d.next_attempt_us, now + expected);
-                    assert!(out.claim(&l, now + 1).await.unwrap().is_none());
-                    now = d.next_attempt_us;
+            })
+            .await
+        }
+        3 => {
+            Box::pin(async {
+                let mut now = NOW;
+                let mut l = lease;
+                for n in 1..=20 {
+                    if n > 1 {
+                        out.hold(false, now).await.unwrap();
+                        l = start(ledger, &fake, now).await;
+                    }
+                    let state = out
+                        .dispatch_one(&l, now, Mode::FailBeforeReceipt)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let d = out.deliveries().await.unwrap().remove(0);
+                    assert_eq!(d.attempts, n);
+                    assert_eq!(
+                        state,
+                        if n == 20 {
+                            State::Rejected
+                        } else {
+                            State::Retry
+                        }
+                    );
+                    if n < 20 {
+                        let expected = (1_000_000_i64 * 2_i64.pow((n - 1) as u32)).min(300_000_000);
+                        assert_eq!(d.next_attempt_us, now + expected);
+                        assert!(out.claim(&l, now + 1).await.unwrap().is_none());
+                        now = d.next_attempt_us;
+                    }
                 }
-            }
-            assert!(fake.receipts("store-demo-slice").is_empty());
-            out.hold(true, now).await.unwrap();
-            let report = out.reconcile(now, Mode::Normal).await.unwrap();
-            assert_eq!(
-                out.resume(&report.digest, now).await,
-                Err(Error::NeedsReview)
-            );
+                assert!(fake.receipts("store-demo-slice").is_empty());
+                out.hold(true, now).await.unwrap();
+                let report = out.reconcile(now, Mode::Normal).await.unwrap();
+                assert_eq!(
+                    out.resume(&report.digest, now).await,
+                    Err(Error::NeedsReview)
+                );
+            })
+            .await
         }
         4 | 5 => {
-            assert_eq!(
-                out.dispatch_one(&lease, NOW, Mode::Normal).await.unwrap(),
-                Some(State::Delivered)
-            );
-            let mut request = fake.receipts("store-demo-slice")[0].request.clone();
-            if case == 4 {
-                request.key = "orphan-after-backup".into();
-            } else {
-                request.payload = b"different".to_vec();
-            }
-            fake.insert_receipt(request);
-            out.hold(true, NOW + 1).await.unwrap();
-            assert!(matches!(
-                out.claim(&lease, NOW + 1).await,
-                Err(Error::Fenced)
-            ));
-            let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
-            assert_eq!(report.orphan_keys.len(), usize::from(case == 4));
-            assert_eq!(report.unresolved.len(), usize::from(case == 5));
-            assert_eq!(
-                out.resume(&report.digest, NOW + 1).await,
-                Err(Error::NeedsReview)
-            );
+            Box::pin(async {
+                assert_eq!(
+                    out.dispatch_one(&lease, NOW, Mode::Normal).await.unwrap(),
+                    Some(State::Delivered)
+                );
+                let mut request = fake.receipts("store-demo-slice")[0].request.clone();
+                if case == 4 {
+                    request.key = "orphan-after-backup".into();
+                } else {
+                    request.payload = b"different".to_vec();
+                }
+                fake.insert_receipt(request);
+                out.hold(true, NOW + 1).await.unwrap();
+                assert!(matches!(
+                    out.claim(&lease, NOW + 1).await,
+                    Err(Error::Fenced)
+                ));
+                let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
+                assert_eq!(report.orphan_keys.len(), usize::from(case == 4));
+                assert_eq!(report.unresolved.len(), usize::from(case == 5));
+                assert_eq!(
+                    out.resume(&report.digest, NOW + 1).await,
+                    Err(Error::NeedsReview)
+                );
+            })
+            .await
         }
         6 => {
-            out.hold(false, NOW).await.unwrap();
-            let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
-            assert!(matches!(
-                ledger
-                    .accept(command(Some("new-after-report")))
-                    .await
-                    .unwrap(),
-                AcceptResult::Accepted { .. }
-            ));
-            assert_eq!(
-                out.resume(&report.digest, NOW).await,
-                Err(Error::StaleReport)
-            );
-            let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
-            out.hold(true, NOW).await.unwrap();
-            assert_eq!(
-                out.resume(&report.digest, NOW).await,
-                Err(Error::StaleReport)
-            );
+            Box::pin(async {
+                out.hold(false, NOW).await.unwrap();
+                let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
+                assert!(matches!(
+                    ledger
+                        .accept(command(Some("new-after-report")))
+                        .await
+                        .unwrap(),
+                    AcceptResult::Accepted { .. }
+                ));
+                assert_eq!(
+                    out.resume(&report.digest, NOW).await,
+                    Err(Error::StaleReport)
+                );
+                let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
+                out.hold(true, NOW).await.unwrap();
+                assert_eq!(
+                    out.resume(&report.digest, NOW).await,
+                    Err(Error::StaleReport)
+                );
+            })
+            .await
         }
         7 => {
-            let a = out.claim(&lease, NOW).await.unwrap().unwrap();
-            let one = out.send(&a, NOW, Mode::Normal).await.unwrap();
-            let two = out.send(&a, NOW, Mode::Normal).await.unwrap();
-            assert!(
-                matches!(
-                    out.send(&a, NOW, Mode::FailBeforeReceipt).await.unwrap(),
-                    Outcome::Delivered(_)
-                ),
-                "retained receipt cannot become authoritative absence"
-            );
-            assert!(
-                matches!(
-                    out.send(&a, NOW, Mode::Reject).await.unwrap(),
-                    Outcome::Delivered(_)
-                ),
-                "identical retry returns retained receipt"
-            );
-            assert!(matches!((&one,&two),(Outcome::Delivered(a),Outcome::Delivered(b)) if a==b));
-            assert_eq!(fake.receipts("store-demo-slice").len(), 1);
-            assert_eq!(out.observe(&a, NOW, one).await.unwrap(), State::Delivered);
-            assert_eq!(out.observe(&a, NOW, two).await, Err(Error::Fenced));
-            out.hold(true, NOW + 1).await.unwrap();
-            assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
-            let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
-            out.resume(&report.digest, NOW + 1).await.unwrap();
-            assert_eq!(out.deliveries().await.unwrap()[0].state, State::Delivered);
+            Box::pin(async {
+                let a = out.claim(&lease, NOW).await.unwrap().unwrap();
+                let one = out.send(&a, NOW, Mode::Normal).await.unwrap();
+                let two = out.send(&a, NOW, Mode::Normal).await.unwrap();
+                assert!(
+                    matches!(
+                        out.send(&a, NOW, Mode::FailBeforeReceipt).await.unwrap(),
+                        Outcome::Delivered(_)
+                    ),
+                    "retained receipt cannot become authoritative absence"
+                );
+                assert!(
+                    matches!(
+                        out.send(&a, NOW, Mode::Reject).await.unwrap(),
+                        Outcome::Delivered(_)
+                    ),
+                    "identical retry returns retained receipt"
+                );
+                assert!(
+                    matches!((&one,&two),(Outcome::Delivered(a),Outcome::Delivered(b)) if a==b)
+                );
+                assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+                assert_eq!(out.observe(&a, NOW, one).await.unwrap(), State::Delivered);
+                assert_eq!(out.observe(&a, NOW, two).await, Err(Error::Fenced));
+                out.hold(true, NOW + 1).await.unwrap();
+                assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
+                let report = out.reconcile(NOW + 1, Mode::Normal).await.unwrap();
+                out.resume(&report.digest, NOW + 1).await.unwrap();
+                assert_eq!(out.deliveries().await.unwrap()[0].state, State::Delivered);
+            })
+            .await
         }
         8 => {
-            out.hold(false, NOW).await.unwrap();
-            let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
-            out.resume(&report.digest, NOW).await.unwrap();
-            let barrier = tokio::sync::Barrier::new(2);
-            let first = async {
-                barrier.wait().await;
-                out.acquire("race-a", NOW).await
-            };
-            let second = async {
-                barrier.wait().await;
-                out.acquire("race-b", NOW).await
-            };
-            let (a, b) = tokio::join!(first, second);
-            let winner = match (a, b) {
-                (Ok(l), Err(Error::Owned | Error::Retryable))
-                | (Err(Error::Owned | Error::Retryable), Ok(l)) => l,
-                other => panic!("one fenced owner: {other:?}"),
-            };
-            assert_eq!(
-                out.dispatch_one(&winner, NOW, Mode::Normal).await.unwrap(),
-                Some(State::Delivered)
-            );
-            assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+            Box::pin(async {
+                out.hold(false, NOW).await.unwrap();
+                let report = out.reconcile(NOW, Mode::Normal).await.unwrap();
+                out.resume(&report.digest, NOW).await.unwrap();
+                let barrier = tokio::sync::Barrier::new(2);
+                let first = async {
+                    barrier.wait().await;
+                    out.acquire("race-a", NOW).await
+                };
+                let second = async {
+                    barrier.wait().await;
+                    out.acquire("race-b", NOW).await
+                };
+                let (a, b) = tokio::join!(first, second);
+                let winner = match (a, b) {
+                    (Ok(l), Err(Error::Owned | Error::Retryable))
+                    | (Err(Error::Owned | Error::Retryable), Ok(l)) => l,
+                    other => panic!("one fenced owner: {other:?}"),
+                };
+                assert_eq!(
+                    out.dispatch_one(&winner, NOW, Mode::Normal).await.unwrap(),
+                    Some(State::Delivered)
+                );
+                assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+            })
+            .await
         }
         9 => {
-            match &ledger.store {
-                Backend::Sqlite(s) => rollback_probe(s).await,
-                Backend::Postgres(s) => rollback_probe(s).await,
-            }
-            assert_eq!(
-                out.dispatch_one(&lease, NOW, Mode::Normal).await.unwrap(),
-                Some(State::Delivered)
-            );
-            assert_eq!(out.deliveries().await.unwrap()[0].attempts, 1);
+            Box::pin(async {
+                match &ledger.store {
+                    Backend::Sqlite(s) => rollback_probe(s).await,
+                    Backend::Postgres(s) => rollback_probe(s).await,
+                }
+                assert_eq!(
+                    out.dispatch_one(&lease, NOW, Mode::Normal).await.unwrap(),
+                    Some(State::Delivered)
+                );
+                assert_eq!(out.deliveries().await.unwrap()[0].attempts, 1);
+            })
+            .await
         }
         10 => {
-            let a = out.claim(&lease, NOW).await.unwrap().unwrap();
-            out.renew(&lease, NOW + 14_000_000).await.unwrap();
-            out.renew(&lease, NOW + 28_000_000).await.unwrap();
-            let receipt = out.send(&a, NOW + 29_000_000, Mode::Normal).await.unwrap();
-            assert!(matches!(
-                out.send(&a, NOW + 30_000_000, Mode::Normal).await,
-                Err(Error::Fenced)
-            ));
-            assert!(matches!(
-                fake.send(&a, NOW + 30_000_000, Mode::Normal),
-                Outcome::Fenced
-            ));
-            assert_eq!(
-                out.observe(&a, NOW + 30_000_000, receipt).await,
-                Err(Error::Fenced)
-            );
-            assert!(out.claim(&lease, NOW + 30_000_000).await.unwrap().is_none());
-            assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
-            out.hold(false, NOW + 30_000_000).await.unwrap();
-            let report = out.reconcile(NOW + 30_000_000, Mode::Normal).await.unwrap();
-            out.resume(&report.digest, NOW + 30_000_000).await.unwrap();
-            assert_eq!(out.deliveries().await.unwrap()[0].state, State::Delivered);
-            assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+            Box::pin(async {
+                let a = out.claim(&lease, NOW).await.unwrap().unwrap();
+                out.renew(&lease, NOW + 14_000_000).await.unwrap();
+                out.renew(&lease, NOW + 28_000_000).await.unwrap();
+                let receipt = out.send(&a, NOW + 29_000_000, Mode::Normal).await.unwrap();
+                assert!(matches!(
+                    out.send(&a, NOW + 30_000_000, Mode::Normal).await,
+                    Err(Error::Fenced)
+                ));
+                assert!(matches!(
+                    fake.send(&a, NOW + 30_000_000, Mode::Normal),
+                    Outcome::Fenced
+                ));
+                assert_eq!(
+                    out.observe(&a, NOW + 30_000_000, receipt).await,
+                    Err(Error::Fenced)
+                );
+                assert!(out.claim(&lease, NOW + 30_000_000).await.unwrap().is_none());
+                assert_eq!(out.deliveries().await.unwrap()[0].state, State::Unknown);
+                out.hold(false, NOW + 30_000_000).await.unwrap();
+                let report = out.reconcile(NOW + 30_000_000, Mode::Normal).await.unwrap();
+                out.resume(&report.digest, NOW + 30_000_000).await.unwrap();
+                assert_eq!(out.deliveries().await.unwrap()[0].state, State::Delivered);
+                assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+            })
+            .await
         }
         _ => panic!("case"),
     }
