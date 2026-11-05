@@ -85,6 +85,14 @@ class CallerOutbox(unittest.TestCase):
                         "  for record in x['entries'][0]['records']:\n"
                         "   if record['kind']=='event': record['body']['data']['operation_id']='wrong-operation'\n"
                         " if mode=='explain-failed': code=3\n"
+                        " if mode=='wrong-customer': x['customer']='other-customer'\n"
+                        " if mode=='wrong-source': x['entries'][0]['source']='urn:other:source'\n"
+                        " if mode=='wrong-quantity':\n"
+                        "  next(r for r in x['entries'][0]['records'] if r['kind']=='event')['body']['data']['quantity']='999999'\n"
+                        " if mode=='wrong-currency': x['currency']='EUR'\n"
+                        " if mode=='wrong-total': x['net_atoms']='999999'\n"
+                        " if mode=='missing-member':\n"
+                        "  x['entries'][0]['records']=[r for r in x['entries'][0]['records'] if r['kind']!='base-posting']\n"
                         " raw=json.dumps(x)\n"
                         "sys.stdout.write(raw)\nsys.stderr.write(p.stderr)\nsys.exit(code)\n")
         path.chmod(0o700)
@@ -133,7 +141,8 @@ class CallerOutbox(unittest.TestCase):
         self.assertFalse((root / "new-caller-outbox/receipt.json").exists())
 
     def explanation_refusal(self, language, profile):
-        for mode in ["unknown-schema", "period-schema", "incomplete", "wrong-receipt", "wrong-operation", "explain-failed"]:
+        for mode in ["unknown-schema", "period-schema", "incomplete", "wrong-receipt", "wrong-operation", "explain-failed",
+                     "wrong-customer", "wrong-source", "wrong-quantity", "wrong-currency", "wrong-total", "missing-member"]:
             with self.subTest(mode=mode):
                 root, setup, _ = self.fixture(profile)
                 result = self.invoke(language, root, setup, binary=self.proxy(root, mode))
@@ -178,6 +187,27 @@ class CallerOutbox(unittest.TestCase):
             cwd=root, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(refused.returncode, 0)
         self.assertNotIn(draft_receipt["id"], refused.stdout)
+
+    def test_original_acceptance_reconciles_after_outcome_and_semantic_alias(self):
+        for language in ("python", "node"):
+            for profile in ("fixed", "usage"):
+                with self.subTest(language=language, profile=profile):
+                    root, setup, event = self.fixture(profile)
+                    receipt = self.acknowledged(language, root, setup)
+                    control = {"schema": "ledger-billing-outcome/2", "customer": setup["customer"],
+                               "source": setup["source"], "id": "later-quality", "target": receipt["body"]["target"],
+                               "family": "quality", "occurred_at": timestamp(dt.datetime.now(dt.timezone.utc)),
+                               "evidence": "SYNTHETIC later quality observation", "code": "rebate"}
+                    (root / "outcome.json").write_text(json.dumps(control))
+                    self.cli(root, "--directory", "store", "outcome", "--customer", setup["customer"],
+                             "--source", setup["source"], "outcome.json")
+                    before = self.statement(root, setup)
+                    self.assertEqual(len(before["entries"]), 2)
+                    self.assertEqual(self.acknowledged(language, root, setup), receipt)
+                    event["id"] += "-semantic-alias"
+                    (root / "event.json").write_text(json.dumps(event))
+                    self.assertEqual(self.acknowledged(language, root, setup, "alias-outbox"), receipt)
+                    self.assertEqual(self.statement(root, setup), before)
 
 
 for language in ["python", "node"]:

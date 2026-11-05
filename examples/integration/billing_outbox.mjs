@@ -97,6 +97,46 @@ const matches = history.entries?.filter(entry => entry.target === target &&
   entry.records?.filter(record => record.kind === 'event' &&
     record.body?.data?.operation_id === event.operation_id).length === 1) ?? [];
 if (matches.length !== 1) fail('receipt does not match the retained original operation');
+// Reconcile returned projections; the pinned local CLI remains trusted. This
+// does not implement canonical hashing, independent pricing, or remote trust.
+const entry = matches[0];
+if (history.customer !== customer || !same(history.scope, receipt.scope) || entry.source !== source)
+  fail('explanation customer/source/scope differs from the pending request');
+const events = entry.records.filter(r => r.kind === 'event');
+if (events.length !== 1) fail('expected one retained base event');
+const wanted = {customer, source, operation_id: event.operation_id, work_type: event.type,
+  occurred_at: event.occurred_at, quantity: event.quantity ?? '1', unit: event.unit ?? 'call',
+  status: event.status ?? 'succeeded'};
+if (Object.entries(wanted).some(([k, v]) => events[0].body.data[k] !== v))
+  fail('retained work facts differ from the pending request');
+if (entry.records.filter(r => same(r, receipt)).length !== 1) fail('expected the original acceptance record once');
+const descriptors = entry.records.filter(r => !same(r, receipt)).map(({kind, id, content_hash}) => ({kind, id, content_hash}));
+const descriptorKey = r => JSON.stringify([r.kind, r.id, r.content_hash]);
+const ordered = values => values.map(descriptorKey).sort();
+if (new Set(descriptors.map(r => JSON.stringify([r.kind, r.id]))).size !== descriptors.length ||
+    !same(ordered(descriptors), ordered(receipt.body.members)) ||
+    entry.records.some(r => !same(r.scope, receipt.scope)) ||
+    !same(entry.postings, entry.records.filter(r => r.kind === 'base-posting')))
+  fail('retained records/postings differ from receipt membership');
+function atoms(value) {
+  if (typeof value !== 'string' || !/^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/.test(value)) fail('noncanonical integer total');
+  return BigInt(value);
+}
+const scale = history.schema === 'ledger-billing-statement/2' ? 2 : 18;
+if (history.scale !== scale || typeof history.currency !== 'string') fail('invalid statement money identity');
+let total = 0n;
+for (const item of history.entries) {
+  let postingTotal = 0n;
+  for (const posting of item.postings) {
+    const amount = posting.body.amount;
+    if (amount.currency !== history.currency || ![2, 18].includes(amount.scale) || amount.scale > scale)
+      fail('posting currency/scale differs from statement');
+    postingTotal += atoms(amount.atoms) * 10n ** BigInt(scale - amount.scale);
+  }
+  if (postingTotal !== atoms(item.net_atoms)) fail('entry total differs from retained postings');
+  total += postingTotal;
+}
+if (total !== atoms(history.net_atoms)) fail('statement total differs from retained entries');
 
 const receiptPath = join(outbox, 'receipt.json');
 if (existsSync(receiptPath)) {
